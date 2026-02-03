@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  gateway:
+    build: .
+    ports:
+      - "8080:8080"  # Main gateway
+      - "8081:8081"  # Admin API
+      - "8082:8082"  # Registry API
+    environment:
+      - JWT_SECRET=your-secret-key-here
+    volumes:
+      - ./configs:/app/configs:ro
+    depends_on:
+      - backend1
+      - backend2
+    networks:
+      - gateway-network
+
+  # Mock backend services for testing
+  backend1:
+    image: nginx:alpine
+    volumes:
+      - ./test/nginx/backend1.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - gateway-network
+
+  backend2:
+    image: nginx:alpine
+    volumes:
+      - ./test/nginx/backend2.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - gateway-network
+
+  # Optional: Consul for service discovery testing
+  consul:
+    image: consul:1.15
+    ports:
+      - "8500:8500"
+    command: agent -dev -client=0.0.0.0
+    networks:
+      - gateway-network
+    profiles:
+      - consul
+
+networks:
+  gateway-network:
+    driver: bridge

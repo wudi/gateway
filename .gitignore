@@ -1,0 +1,31 @@
+# Build artifacts
+/build/
+/dist/
+
+# Test artifacts
+coverage.out
+coverage.html
+*.test
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+/tmp/
+*.tmp
