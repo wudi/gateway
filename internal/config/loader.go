@@ -66,7 +66,7 @@ func (l *Loader) expandEnvVars(input string) string {
 
 // validate checks configuration for errors
 func (l *Loader) validate(cfg *Config) error {
-	// Validate server config
+	// Validate server config (for backward compatibility)
 	if cfg.Server.Port <= 0 || cfg.Server.Port > 65535 {
 		return fmt.Errorf("invalid server port: %d", cfg.Server.Port)
 	}
@@ -80,6 +80,45 @@ func (l *Loader) validate(cfg *Config) error {
 	}
 	if cfg.Registry.Type != "" && !validTypes[cfg.Registry.Type] {
 		return fmt.Errorf("invalid registry type: %s", cfg.Registry.Type)
+	}
+
+	// Validate listeners
+	listenerIDs := make(map[string]bool)
+	for i, listener := range cfg.Listeners {
+		if listener.ID == "" {
+			return fmt.Errorf("listener %d: id is required", i)
+		}
+		if listenerIDs[listener.ID] {
+			return fmt.Errorf("duplicate listener id: %s", listener.ID)
+		}
+		listenerIDs[listener.ID] = true
+
+		if listener.Address == "" {
+			return fmt.Errorf("listener %s: address is required", listener.ID)
+		}
+
+		// Validate protocol
+		validProtocols := map[Protocol]bool{
+			ProtocolHTTP: true,
+			ProtocolTCP:  true,
+			ProtocolUDP:  true,
+		}
+		if listener.Protocol == "" {
+			return fmt.Errorf("listener %s: protocol is required", listener.ID)
+		}
+		if !validProtocols[listener.Protocol] {
+			return fmt.Errorf("listener %s: invalid protocol: %s", listener.ID, listener.Protocol)
+		}
+
+		// Validate TLS config if enabled
+		if listener.TLS.Enabled {
+			if listener.TLS.CertFile == "" {
+				return fmt.Errorf("listener %s: TLS enabled but cert_file not provided", listener.ID)
+			}
+			if listener.TLS.KeyFile == "" {
+				return fmt.Errorf("listener %s: TLS enabled but key_file not provided", listener.ID)
+			}
+		}
 	}
 
 	// Validate routes
@@ -100,6 +139,59 @@ func (l *Loader) validate(cfg *Config) error {
 		// Must have either backends or service discovery
 		if len(route.Backends) == 0 && route.Service.Name == "" {
 			return fmt.Errorf("route %s: must have either backends or service name", route.ID)
+		}
+	}
+
+	// Validate TCP routes
+	tcpRouteIDs := make(map[string]bool)
+	for i, route := range cfg.TCPRoutes {
+		if route.ID == "" {
+			return fmt.Errorf("tcp_route %d: id is required", i)
+		}
+		if tcpRouteIDs[route.ID] {
+			return fmt.Errorf("duplicate tcp_route id: %s", route.ID)
+		}
+		tcpRouteIDs[route.ID] = true
+
+		if route.Listener == "" {
+			return fmt.Errorf("tcp_route %s: listener is required", route.ID)
+		}
+		if !listenerIDs[route.Listener] {
+			return fmt.Errorf("tcp_route %s: references unknown listener: %s", route.ID, route.Listener)
+		}
+
+		if len(route.Backends) == 0 {
+			return fmt.Errorf("tcp_route %s: at least one backend is required", route.ID)
+		}
+
+		// Validate source CIDR format if specified
+		if len(route.Match.SourceCIDR) > 0 {
+			if _, err := route.Match.ParsedSourceCIDRs(); err != nil {
+				return fmt.Errorf("tcp_route %s: invalid source_cidr: %w", route.ID, err)
+			}
+		}
+	}
+
+	// Validate UDP routes
+	udpRouteIDs := make(map[string]bool)
+	for i, route := range cfg.UDPRoutes {
+		if route.ID == "" {
+			return fmt.Errorf("udp_route %d: id is required", i)
+		}
+		if udpRouteIDs[route.ID] {
+			return fmt.Errorf("duplicate udp_route id: %s", route.ID)
+		}
+		udpRouteIDs[route.ID] = true
+
+		if route.Listener == "" {
+			return fmt.Errorf("udp_route %s: listener is required", route.ID)
+		}
+		if !listenerIDs[route.Listener] {
+			return fmt.Errorf("udp_route %s: references unknown listener: %s", route.ID, route.Listener)
+		}
+
+		if len(route.Backends) == 0 {
+			return fmt.Errorf("udp_route %s: at least one backend is required", route.ID)
 		}
 	}
 

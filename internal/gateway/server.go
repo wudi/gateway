@@ -12,12 +12,13 @@ import (
 	"time"
 
 	"github.com/example/gateway/internal/config"
+	"github.com/example/gateway/internal/listener"
 )
 
 // Server wraps the gateway with HTTP server functionality
 type Server struct {
 	gateway     *Gateway
-	mainServer  *http.Server
+	manager     *listener.Manager
 	adminServer *http.Server
 	config      *config.Config
 }
@@ -31,16 +32,13 @@ func NewServer(cfg *config.Config) (*Server, error) {
 
 	s := &Server{
 		gateway: gw,
+		manager: listener.NewManager(),
 		config:  cfg,
 	}
 
-	// Configure main server
-	s.mainServer = &http.Server{
-		Addr:         fmt.Sprintf(":%d", cfg.Server.Port),
-		Handler:      gw.Handler(),
-		ReadTimeout:  cfg.Server.ReadTimeout,
-		WriteTimeout: cfg.Server.WriteTimeout,
-		IdleTimeout:  cfg.Server.IdleTimeout,
+	// Initialize listeners
+	if err := s.initListeners(); err != nil {
+		return nil, fmt.Errorf("failed to initialize listeners: %w", err)
 	}
 
 	// Configure admin server if enabled
@@ -56,15 +54,96 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	return s, nil
 }
 
+// initListeners initializes all listeners from configuration
+func (s *Server) initListeners() error {
+	cfg := s.config
+
+	// Backward compatibility: if no listeners defined, create from server config
+	if len(cfg.Listeners) == 0 {
+		httpListener, err := listener.NewHTTPListener(listener.HTTPListenerConfig{
+			ID:           "default-http",
+			Address:      fmt.Sprintf(":%d", cfg.Server.Port),
+			Handler:      s.gateway.Handler(),
+			ReadTimeout:  cfg.Server.ReadTimeout,
+			WriteTimeout: cfg.Server.WriteTimeout,
+			IdleTimeout:  cfg.Server.IdleTimeout,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create default HTTP listener: %w", err)
+		}
+		return s.manager.Add(httpListener)
+	}
+
+	// Create listeners from config
+	for _, listenerCfg := range cfg.Listeners {
+		var l listener.Listener
+		var err error
+
+		switch listenerCfg.Protocol {
+		case config.ProtocolHTTP:
+			l, err = listener.NewHTTPListener(listener.HTTPListenerConfig{
+				ID:                listenerCfg.ID,
+				Address:           listenerCfg.Address,
+				Handler:           s.gateway.Handler(),
+				TLS:               listenerCfg.TLS,
+				ReadTimeout:       listenerCfg.HTTP.ReadTimeout,
+				WriteTimeout:      listenerCfg.HTTP.WriteTimeout,
+				IdleTimeout:       listenerCfg.HTTP.IdleTimeout,
+				MaxHeaderBytes:    listenerCfg.HTTP.MaxHeaderBytes,
+				ReadHeaderTimeout: listenerCfg.HTTP.ReadHeaderTimeout,
+			})
+
+		case config.ProtocolTCP:
+			tcpProxy := s.gateway.GetTCPProxy()
+			if tcpProxy == nil {
+				return fmt.Errorf("TCP proxy not initialized for listener %s", listenerCfg.ID)
+			}
+			l, err = listener.NewTCPListener(listener.TCPListenerConfig{
+				ID:          listenerCfg.ID,
+				Address:     listenerCfg.Address,
+				Proxy:       tcpProxy,
+				TLS:         listenerCfg.TLS,
+				SNIRouting:  listenerCfg.TCP.SNIRouting,
+				IdleTimeout: listenerCfg.TCP.IdleTimeout,
+			})
+
+		case config.ProtocolUDP:
+			udpProxy := s.gateway.GetUDPProxy()
+			if udpProxy == nil {
+				return fmt.Errorf("UDP proxy not initialized for listener %s", listenerCfg.ID)
+			}
+			l, err = listener.NewUDPListener(listener.UDPListenerConfig{
+				ID:      listenerCfg.ID,
+				Address: listenerCfg.Address,
+				Proxy:   udpProxy,
+				UDP:     listenerCfg.UDP,
+			})
+
+		default:
+			return fmt.Errorf("unknown protocol for listener %s: %s", listenerCfg.ID, listenerCfg.Protocol)
+		}
+
+		if err != nil {
+			return fmt.Errorf("failed to create listener %s: %w", listenerCfg.ID, err)
+		}
+
+		if err := s.manager.Add(l); err != nil {
+			return fmt.Errorf("failed to add listener %s: %w", listenerCfg.ID, err)
+		}
+	}
+
+	return nil
+}
+
 // Start starts the gateway servers
 func (s *Server) Start() error {
+	ctx := context.Background()
 	errCh := make(chan error, 2)
 
-	// Start main server
+	// Start all listeners
 	go func() {
-		log.Printf("Starting gateway on port %d", s.config.Server.Port)
-		if err := s.mainServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errCh <- fmt.Errorf("main server error: %w", err)
+		if err := s.manager.StartAll(ctx); err != nil {
+			errCh <- fmt.Errorf("listener manager error: %w", err)
 		}
 	}()
 
@@ -78,11 +157,12 @@ func (s *Server) Start() error {
 		}()
 	}
 
-	// Wait for error or interrupt
+	// Wait for error or continue
 	select {
 	case err := <-errCh:
 		return err
-	default:
+	case <-time.After(100 * time.Millisecond):
+		// Give servers a moment to start
 	}
 
 	return nil
@@ -118,10 +198,9 @@ func (s *Server) Shutdown(timeout time.Duration) error {
 		}
 	}
 
-	// Shutdown main server
-	if err := s.mainServer.Shutdown(ctx); err != nil {
-		log.Printf("Main server shutdown error: %v", err)
-		return err
+	// Shutdown all listeners
+	if err := s.manager.StopAll(ctx); err != nil {
+		log.Printf("Listener manager shutdown error: %v", err)
 	}
 
 	// Close gateway
@@ -158,6 +237,9 @@ func (s *Server) adminHandler() http.Handler {
 	// Backends health
 	mux.HandleFunc("/backends", s.handleBackends)
 
+	// Listeners endpoint
+	mux.HandleFunc("/listeners", s.handleListeners)
+
 	return mux
 }
 
@@ -184,6 +266,7 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 			"status":         "ready",
 			"routes":         stats.Routes,
 			"healthy_routes": stats.HealthyRoutes,
+			"listeners":      s.manager.Count(),
 		})
 	} else {
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -191,6 +274,7 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 			"status":         "not_ready",
 			"routes":         stats.Routes,
 			"healthy_routes": stats.HealthyRoutes,
+			"listeners":      s.manager.Count(),
 		})
 	}
 }
@@ -198,7 +282,27 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 // handleStats handles stats requests
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetStats())
+
+	stats := s.gateway.GetStats()
+
+	// Add listener count
+	response := map[string]interface{}{
+		"routes":         stats.Routes,
+		"healthy_routes": stats.HealthyRoutes,
+		"backends":       stats.Backends,
+		"listeners":      s.manager.Count(),
+	}
+
+	// Add TCP/UDP stats if available
+	if tcpProxy := s.gateway.GetTCPProxy(); tcpProxy != nil {
+		response["tcp_routes"] = len(s.config.TCPRoutes)
+	}
+	if udpProxy := s.gateway.GetUDPProxy(); udpProxy != nil {
+		response["udp_routes"] = len(s.config.UDPRoutes)
+		response["udp_sessions"] = udpProxy.SessionCount()
+	}
+
+	json.NewEncoder(w).Encode(response)
 }
 
 // handleRoutes handles routes listing
@@ -276,7 +380,38 @@ func (s *Server) handleBackends(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(backends)
 }
 
+// handleListeners handles listeners listing
+func (s *Server) handleListeners(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	listenerIDs := s.manager.List()
+
+	type listenerInfo struct {
+		ID       string `json:"id"`
+		Protocol string `json:"protocol"`
+		Address  string `json:"address"`
+	}
+
+	result := make([]listenerInfo, 0, len(listenerIDs))
+	for _, id := range listenerIDs {
+		if l, ok := s.manager.Get(id); ok {
+			result = append(result, listenerInfo{
+				ID:       l.ID(),
+				Protocol: l.Protocol(),
+				Address:  l.Addr(),
+			})
+		}
+	}
+
+	json.NewEncoder(w).Encode(result)
+}
+
 // Gateway returns the underlying gateway
 func (s *Server) Gateway() *Gateway {
 	return s.gateway
+}
+
+// ListenerManager returns the listener manager
+func (s *Server) ListenerManager() *listener.Manager {
+	return s.manager
 }

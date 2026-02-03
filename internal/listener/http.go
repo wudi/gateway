@@ -1,0 +1,149 @@
+package listener
+
+import (
+	"context"
+	"crypto/tls"
+	"fmt"
+	"net"
+	"net/http"
+	"time"
+
+	"github.com/example/gateway/internal/config"
+)
+
+// HTTPListener wraps an HTTP server as a Listener
+type HTTPListener struct {
+	id       string
+	address  string
+	server   *http.Server
+	handler  http.Handler
+	tlsCfg   *tls.Config
+	listener net.Listener
+}
+
+// HTTPListenerConfig holds configuration for creating an HTTP listener
+type HTTPListenerConfig struct {
+	ID                string
+	Address           string
+	Handler           http.Handler
+	TLS               config.TLSConfig
+	ReadTimeout       time.Duration
+	WriteTimeout      time.Duration
+	IdleTimeout       time.Duration
+	MaxHeaderBytes    int
+	ReadHeaderTimeout time.Duration
+}
+
+// NewHTTPListener creates a new HTTP listener
+func NewHTTPListener(cfg HTTPListenerConfig) (*HTTPListener, error) {
+	h := &HTTPListener{
+		id:      cfg.ID,
+		address: cfg.Address,
+		handler: cfg.Handler,
+	}
+
+	// Set up TLS if enabled
+	if cfg.TLS.Enabled {
+		cert, err := tls.LoadX509KeyPair(cfg.TLS.CertFile, cfg.TLS.KeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load TLS certificates: %w", err)
+		}
+
+		h.tlsCfg = &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		}
+	}
+
+	// Apply defaults
+	readTimeout := cfg.ReadTimeout
+	if readTimeout == 0 {
+		readTimeout = 30 * time.Second
+	}
+
+	writeTimeout := cfg.WriteTimeout
+	if writeTimeout == 0 {
+		writeTimeout = 30 * time.Second
+	}
+
+	idleTimeout := cfg.IdleTimeout
+	if idleTimeout == 0 {
+		idleTimeout = 60 * time.Second
+	}
+
+	maxHeaderBytes := cfg.MaxHeaderBytes
+	if maxHeaderBytes == 0 {
+		maxHeaderBytes = 1 << 20 // 1MB
+	}
+
+	readHeaderTimeout := cfg.ReadHeaderTimeout
+	if readHeaderTimeout == 0 {
+		readHeaderTimeout = 10 * time.Second
+	}
+
+	h.server = &http.Server{
+		Addr:              cfg.Address,
+		Handler:           cfg.Handler,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
+		MaxHeaderBytes:    maxHeaderBytes,
+		ReadHeaderTimeout: readHeaderTimeout,
+		TLSConfig:         h.tlsCfg,
+	}
+
+	return h, nil
+}
+
+// ID returns the listener ID
+func (h *HTTPListener) ID() string {
+	return h.id
+}
+
+// Protocol returns "http"
+func (h *HTTPListener) Protocol() string {
+	return "http"
+}
+
+// Addr returns the address
+func (h *HTTPListener) Addr() string {
+	return h.address
+}
+
+// Start starts the HTTP listener
+func (h *HTTPListener) Start(ctx context.Context) error {
+	ln, err := net.Listen("tcp", h.address)
+	if err != nil {
+		return fmt.Errorf("failed to listen on %s: %w", h.address, err)
+	}
+	h.listener = ln
+
+	if h.tlsCfg != nil {
+		h.listener = tls.NewListener(ln, h.tlsCfg)
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		if err := h.server.Serve(h.listener); err != nil && err != http.ErrServerClosed {
+			errCh <- err
+		}
+	}()
+
+	// Check for immediate startup errors
+	select {
+	case err := <-errCh:
+		return err
+	case <-time.After(100 * time.Millisecond):
+		return nil
+	}
+}
+
+// Stop stops the HTTP listener
+func (h *HTTPListener) Stop(ctx context.Context) error {
+	return h.server.Shutdown(ctx)
+}
+
+// Server returns the underlying HTTP server
+func (h *HTTPListener) Server() *http.Server {
+	return h.server
+}

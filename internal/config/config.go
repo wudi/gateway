@@ -1,15 +1,99 @@
 package config
 
-import "time"
+import (
+	"net"
+	"time"
+)
+
+// Protocol defines the listener protocol type
+type Protocol string
+
+const (
+	ProtocolHTTP Protocol = "http"
+	ProtocolTCP  Protocol = "tcp"
+	ProtocolUDP  Protocol = "udp"
+)
 
 // Config represents the complete gateway configuration
 type Config struct {
-	Server         ServerConfig         `yaml:"server"`
+	Server         ServerConfig         `yaml:"server"`          // Backward compat
+	Listeners      []ListenerConfig     `yaml:"listeners"`       // New multi-listener support
 	Registry       RegistryConfig       `yaml:"registry"`
 	Authentication AuthenticationConfig `yaml:"authentication"`
 	Routes         []RouteConfig        `yaml:"routes"`
+	TCPRoutes      []TCPRouteConfig     `yaml:"tcp_routes"`      // TCP L4 routes
+	UDPRoutes      []UDPRouteConfig     `yaml:"udp_routes"`      // UDP L4 routes
 	Logging        LoggingConfig        `yaml:"logging"`
 	Admin          AdminConfig          `yaml:"admin"`
+}
+
+// ListenerConfig defines a listener configuration
+type ListenerConfig struct {
+	ID       string             `yaml:"id"`
+	Address  string             `yaml:"address"`   // e.g., ":8080"
+	Protocol Protocol           `yaml:"protocol"`
+	TLS      TLSConfig          `yaml:"tls"`
+	HTTP     HTTPListenerConfig `yaml:"http,omitempty"`
+	TCP      TCPListenerConfig  `yaml:"tcp,omitempty"`
+	UDP      UDPListenerConfig  `yaml:"udp,omitempty"`
+}
+
+// HTTPListenerConfig defines HTTP-specific listener settings
+type HTTPListenerConfig struct {
+	ReadTimeout       time.Duration `yaml:"read_timeout"`
+	WriteTimeout      time.Duration `yaml:"write_timeout"`
+	IdleTimeout       time.Duration `yaml:"idle_timeout"`
+	MaxHeaderBytes    int           `yaml:"max_header_bytes"`
+	ReadHeaderTimeout time.Duration `yaml:"read_header_timeout"`
+}
+
+// TCPListenerConfig defines TCP-specific listener settings
+type TCPListenerConfig struct {
+	SNIRouting     bool          `yaml:"sni_routing"`
+	ConnectTimeout time.Duration `yaml:"connect_timeout"`
+	IdleTimeout    time.Duration `yaml:"idle_timeout"`
+	ProxyProtocol  bool          `yaml:"proxy_protocol"`
+}
+
+// UDPListenerConfig defines UDP-specific listener settings
+type UDPListenerConfig struct {
+	SessionTimeout  time.Duration `yaml:"session_timeout"`
+	ReadBufferSize  int           `yaml:"read_buffer_size"`
+	WriteBufferSize int           `yaml:"write_buffer_size"`
+}
+
+// TCPRouteConfig defines a TCP route
+type TCPRouteConfig struct {
+	ID       string          `yaml:"id"`
+	Listener string          `yaml:"listener"`
+	Match    TCPMatchConfig  `yaml:"match"`
+	Backends []BackendConfig `yaml:"backends"`
+}
+
+// TCPMatchConfig defines TCP route matching criteria
+type TCPMatchConfig struct {
+	SNI        []string `yaml:"sni"`
+	SourceCIDR []string `yaml:"source_cidr"`
+}
+
+// UDPRouteConfig defines a UDP route
+type UDPRouteConfig struct {
+	ID       string          `yaml:"id"`
+	Listener string          `yaml:"listener"`
+	Backends []BackendConfig `yaml:"backends"`
+}
+
+// ParsedSourceCIDRs parses the SourceCIDR strings into net.IPNet
+func (m *TCPMatchConfig) ParsedSourceCIDRs() ([]*net.IPNet, error) {
+	var cidrs []*net.IPNet
+	for _, cidr := range m.SourceCIDR {
+		_, ipNet, err := net.ParseCIDR(cidr)
+		if err != nil {
+			return nil, err
+		}
+		cidrs = append(cidrs, ipNet)
+	}
+	return cidrs, nil
 }
 
 // ServerConfig defines HTTP server settings

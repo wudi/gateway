@@ -16,6 +16,8 @@ import (
 	"github.com/example/gateway/internal/middleware/ratelimit"
 	"github.com/example/gateway/internal/middleware/transform"
 	"github.com/example/gateway/internal/proxy"
+	"github.com/example/gateway/internal/proxy/tcp"
+	"github.com/example/gateway/internal/proxy/udp"
 	"github.com/example/gateway/internal/registry"
 	"github.com/example/gateway/internal/registry/consul"
 	"github.com/example/gateway/internal/registry/etcd"
@@ -29,6 +31,8 @@ type Gateway struct {
 	config        *config.Config
 	router        *router.Router
 	proxy         *proxy.Proxy
+	tcpProxy      *tcp.Proxy
+	udpProxy      *udp.Proxy
 	registry      registry.Registry
 	healthChecker *health.Checker
 	apiKeyAuth    *auth.APIKeyAuth
@@ -78,6 +82,11 @@ func New(cfg *config.Config) (*Gateway, error) {
 	// Initialize routes
 	if err := g.initRoutes(); err != nil {
 		return nil, fmt.Errorf("failed to initialize routes: %w", err)
+	}
+
+	// Initialize TCP/UDP proxies if needed
+	if err := g.initL4Proxies(); err != nil {
+		return nil, fmt.Errorf("failed to initialize L4 proxies: %w", err)
 	}
 
 	return g, nil
@@ -131,6 +140,35 @@ func (g *Gateway) initRoutes() error {
 			return fmt.Errorf("failed to add route %s: %w", routeCfg.ID, err)
 		}
 	}
+	return nil
+}
+
+// initL4Proxies initializes TCP and UDP proxies if routes are configured
+func (g *Gateway) initL4Proxies() error {
+	// Initialize TCP proxy if TCP routes are configured
+	if len(g.config.TCPRoutes) > 0 {
+		g.tcpProxy = tcp.NewProxy(tcp.Config{})
+
+		for _, routeCfg := range g.config.TCPRoutes {
+			if err := g.tcpProxy.AddRoute(routeCfg); err != nil {
+				return fmt.Errorf("failed to add TCP route %s: %w", routeCfg.ID, err)
+			}
+		}
+		log.Printf("Initialized TCP proxy with %d routes", len(g.config.TCPRoutes))
+	}
+
+	// Initialize UDP proxy if UDP routes are configured
+	if len(g.config.UDPRoutes) > 0 {
+		g.udpProxy = udp.NewProxy(udp.Config{})
+
+		for _, routeCfg := range g.config.UDPRoutes {
+			if err := g.udpProxy.AddRoute(routeCfg); err != nil {
+				return fmt.Errorf("failed to add UDP route %s: %w", routeCfg.ID, err)
+			}
+		}
+		log.Printf("Initialized UDP proxy with %d routes", len(g.config.UDPRoutes))
+	}
+
 	return nil
 }
 
@@ -419,6 +457,16 @@ func (g *Gateway) Close() error {
 	// Stop health checker
 	g.healthChecker.Stop()
 
+	// Close TCP proxy
+	if g.tcpProxy != nil {
+		g.tcpProxy.Close()
+	}
+
+	// Close UDP proxy
+	if g.udpProxy != nil {
+		g.udpProxy.Close()
+	}
+
 	// Close registry
 	if g.registry != nil {
 		return g.registry.Close()
@@ -440,6 +488,16 @@ func (g *Gateway) GetRegistry() registry.Registry {
 // GetHealthChecker returns the health checker
 func (g *Gateway) GetHealthChecker() *health.Checker {
 	return g.healthChecker
+}
+
+// GetTCPProxy returns the TCP proxy
+func (g *Gateway) GetTCPProxy() *tcp.Proxy {
+	return g.tcpProxy
+}
+
+// GetUDPProxy returns the UDP proxy
+func (g *Gateway) GetUDPProxy() *udp.Proxy {
+	return g.udpProxy
 }
 
 // Stats returns gateway statistics

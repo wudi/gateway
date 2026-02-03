@@ -348,3 +348,351 @@ func TestLoadFromEnv(t *testing.T) {
 		t.Errorf("expected JWT secret 'env-secret', got '%s'", cfg.Authentication.JWT.Secret)
 	}
 }
+
+func TestLoaderValidateListeners(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid listener",
+			yaml: `
+server:
+  port: 8080
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+`,
+			wantErr: false,
+		},
+		{
+			name: "missing listener id",
+			yaml: `
+server:
+  port: 8080
+listeners:
+  - address: ":8080"
+    protocol: "http"
+`,
+			wantErr: true,
+			errMsg:  "listener 0: id is required",
+		},
+		{
+			name: "duplicate listener id",
+			yaml: `
+server:
+  port: 8080
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+  - id: "http-main"
+    address: ":8081"
+    protocol: "http"
+`,
+			wantErr: true,
+			errMsg:  "duplicate listener id",
+		},
+		{
+			name: "missing listener address",
+			yaml: `
+server:
+  port: 8080
+listeners:
+  - id: "http-main"
+    protocol: "http"
+`,
+			wantErr: true,
+			errMsg:  "address is required",
+		},
+		{
+			name: "missing listener protocol",
+			yaml: `
+server:
+  port: 8080
+listeners:
+  - id: "http-main"
+    address: ":8080"
+`,
+			wantErr: true,
+			errMsg:  "protocol is required",
+		},
+		{
+			name: "invalid protocol",
+			yaml: `
+server:
+  port: 8080
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "invalid"
+`,
+			wantErr: true,
+			errMsg:  "invalid protocol",
+		},
+		{
+			name: "TLS enabled without cert",
+			yaml: `
+server:
+  port: 8080
+listeners:
+  - id: "https-main"
+    address: ":8443"
+    protocol: "http"
+    tls:
+      enabled: true
+      key_file: "/path/to/key"
+`,
+			wantErr: true,
+			errMsg:  "cert_file not provided",
+		},
+		{
+			name: "TLS enabled without key",
+			yaml: `
+server:
+  port: 8080
+listeners:
+  - id: "https-main"
+    address: ":8443"
+    protocol: "http"
+    tls:
+      enabled: true
+      cert_file: "/path/to/cert"
+`,
+			wantErr: true,
+			errMsg:  "key_file not provided",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestLoaderValidateTCPRoutes(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+	}{
+		{
+			name: "valid TCP route",
+			yaml: `
+server:
+  port: 8080
+listeners:
+  - id: "tcp-main"
+    address: ":3306"
+    protocol: "tcp"
+tcp_routes:
+  - id: "mysql"
+    listener: "tcp-main"
+    backends:
+      - url: "tcp://mysql:3306"
+`,
+			wantErr: false,
+		},
+		{
+			name: "missing TCP route id",
+			yaml: `
+server:
+  port: 8080
+listeners:
+  - id: "tcp-main"
+    address: ":3306"
+    protocol: "tcp"
+tcp_routes:
+  - listener: "tcp-main"
+    backends:
+      - url: "tcp://mysql:3306"
+`,
+			wantErr: true,
+		},
+		{
+			name: "TCP route references unknown listener",
+			yaml: `
+server:
+  port: 8080
+listeners:
+  - id: "tcp-main"
+    address: ":3306"
+    protocol: "tcp"
+tcp_routes:
+  - id: "mysql"
+    listener: "unknown-listener"
+    backends:
+      - url: "tcp://mysql:3306"
+`,
+			wantErr: true,
+		},
+		{
+			name: "TCP route without backends",
+			yaml: `
+server:
+  port: 8080
+listeners:
+  - id: "tcp-main"
+    address: ":3306"
+    protocol: "tcp"
+tcp_routes:
+  - id: "mysql"
+    listener: "tcp-main"
+`,
+			wantErr: true,
+		},
+		{
+			name: "TCP route with invalid CIDR",
+			yaml: `
+server:
+  port: 8080
+listeners:
+  - id: "tcp-main"
+    address: ":3306"
+    protocol: "tcp"
+tcp_routes:
+  - id: "mysql"
+    listener: "tcp-main"
+    match:
+      source_cidr:
+        - "invalid-cidr"
+    backends:
+      - url: "tcp://mysql:3306"
+`,
+			wantErr: true,
+		},
+		{
+			name: "TCP route with valid CIDR",
+			yaml: `
+server:
+  port: 8080
+listeners:
+  - id: "tcp-main"
+    address: ":3306"
+    protocol: "tcp"
+tcp_routes:
+  - id: "mysql"
+    listener: "tcp-main"
+    match:
+      source_cidr:
+        - "10.0.0.0/8"
+        - "192.168.0.0/16"
+    backends:
+      - url: "tcp://mysql:3306"
+`,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestLoaderValidateUDPRoutes(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+	}{
+		{
+			name: "valid UDP route",
+			yaml: `
+server:
+  port: 8080
+listeners:
+  - id: "udp-dns"
+    address: ":5353"
+    protocol: "udp"
+udp_routes:
+  - id: "dns"
+    listener: "udp-dns"
+    backends:
+      - url: "udp://8.8.8.8:53"
+`,
+			wantErr: false,
+		},
+		{
+			name: "missing UDP route id",
+			yaml: `
+server:
+  port: 8080
+listeners:
+  - id: "udp-dns"
+    address: ":5353"
+    protocol: "udp"
+udp_routes:
+  - listener: "udp-dns"
+    backends:
+      - url: "udp://8.8.8.8:53"
+`,
+			wantErr: true,
+		},
+		{
+			name: "UDP route references unknown listener",
+			yaml: `
+server:
+  port: 8080
+listeners:
+  - id: "udp-dns"
+    address: ":5353"
+    protocol: "udp"
+udp_routes:
+  - id: "dns"
+    listener: "unknown"
+    backends:
+      - url: "udp://8.8.8.8:53"
+`,
+			wantErr: true,
+		},
+		{
+			name: "UDP route without backends",
+			yaml: `
+server:
+  port: 8080
+listeners:
+  - id: "udp-dns"
+    address: ":5353"
+    protocol: "udp"
+udp_routes:
+  - id: "dns"
+    listener: "udp-dns"
+`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
