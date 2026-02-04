@@ -246,9 +246,8 @@ type TimeoutConfig struct {
 type CircuitBreakerConfig struct {
 	Enabled          bool          `yaml:"enabled"`
 	FailureThreshold int           `yaml:"failure_threshold"`
-	SuccessThreshold int           `yaml:"success_threshold"`
+	MaxRequests      int           `yaml:"max_requests"`
 	Timeout          time.Duration `yaml:"timeout"`
-	HalfOpenRequests int           `yaml:"half_open_requests"`
 }
 
 // CacheConfig defines request caching settings

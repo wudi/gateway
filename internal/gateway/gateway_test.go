@@ -379,9 +379,8 @@ func TestGatewayCircuitBreaker(t *testing.T) {
 				CircuitBreaker: config.CircuitBreakerConfig{
 					Enabled:          true,
 					FailureThreshold: 2,
-					SuccessThreshold: 1,
+					MaxRequests:      1,
 					Timeout:          5 * time.Second,
-					HalfOpenRequests: 1,
 				},
 			},
 		},

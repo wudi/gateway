@@ -678,9 +678,11 @@ func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Step 7: Circuit breaker check
 	cb := g.circuitBreakers.GetBreaker(route.ID)
+	var cbDone func(error)
 	if cb != nil {
-		allowed, _ := cb.Allow()
-		if !allowed {
+		var err error
+		cbDone, err = cb.Allow()
+		if err != nil {
 			errors.ErrServiceUnavailable.WithDetails("Circuit breaker is open").WriteJSON(w)
 			g.recordMetrics(route.ID, r.Method, 503, time.Since(requestStart))
 			return
@@ -697,7 +699,7 @@ func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	var responseWriter http.ResponseWriter = w
 
 	// Only wrap when needed
-	if cb != nil {
+	if cbDone != nil {
 		recorder = &statusRecorder{ResponseWriter: w, statusCode: 200}
 		responseWriter = recorder
 	}
@@ -786,7 +788,7 @@ func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		finalStatus = recorder.statusCode
 	}
 
-	if cb != nil && recorder != nil {
+	if cbDone != nil && recorder != nil {
 		cbStatus := recorder.statusCode
 		// For gRPC, check the Grpc-Status header since HTTP 200 may still be a failure
 		if isGRPC && recorder.statusCode == 200 {
@@ -796,9 +798,9 @@ func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if cbStatus >= 500 {
-			cb.RecordFailure()
+			cbDone(fmt.Errorf("server error: %d", cbStatus))
 		} else {
-			cb.RecordSuccess()
+			cbDone(nil)
 		}
 	}
 

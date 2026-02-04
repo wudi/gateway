@@ -16,7 +16,7 @@
 - `internal/proxy/` — HTTP reverse proxy with retry support
 - `internal/gateway/` — main orchestration: serveHTTP flow, middleware chain, admin API
 - `internal/retry/` — retry policy with exponential backoff
-- `internal/circuitbreaker/` — circuit breaker state machine (CLOSED/OPEN/HALF_OPEN)
+- `internal/circuitbreaker/` — circuit breaker via sony/gobreaker v2 TwoStepCircuitBreaker
 - `internal/cache/` — LRU in-memory cache with per-route handlers
 - `internal/websocket/` — WebSocket proxy via HTTP hijack
 - `internal/middleware/` — recovery, request ID, logging, auth, rate limiting
@@ -26,6 +26,10 @@
 - `internal/registry/` — service discovery (consul, etcd, kubernetes, memory)
 
 ## Design Policy
+
+### Prefer open-source libraries
+
+Implement using open-source libraries whenever possible; minimize reinventing the wheel.
 
 ### No backward compatibility shims
 
@@ -49,9 +53,9 @@ Only wrap `http.ResponseWriter` with `statusRecorder` or `CachingResponseWriter`
 
 The health checker probes each backend at its `/health` path. Test backends that use a generic `http.HandlerFunc` handling all paths will see these health check requests. When counting backend calls in tests, either filter by path (`r.URL.Path != "/health"`) or compare relative counts (before/after) rather than absolute counts.
 
-### Circuit breaker half-open must count the transitioning request
+### Circuit breaker uses gobreaker v2
 
-When a circuit breaker transitions from OPEN to HALF_OPEN, the request that triggers the transition counts as the first half-open request. Set `halfOpenCount = 1` during the transition, not `0`. Otherwise one extra request leaks through beyond `halfOpenRequests`.
+The circuit breaker is backed by `sony/gobreaker/v2` `TwoStepCircuitBreaker`. `Allow()` returns `(func(error), error)` — call the callback with `nil` for success or a non-nil error for failure. Half-open request limiting and transition counting are handled by gobreaker internally. The state string for half-open is `"half-open"` (hyphen, from gobreaker), not `"half_open"`.
 
 ### WebSocket/TCP test backends must properly parse HTTP
 

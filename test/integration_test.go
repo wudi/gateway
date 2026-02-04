@@ -433,9 +433,8 @@ func TestCircuitBreakerWithRetry(t *testing.T) {
 			CircuitBreaker: config.CircuitBreakerConfig{
 				Enabled:          true,
 				FailureThreshold: 3,
-				SuccessThreshold: 1,
+				MaxRequests:      1,
 				Timeout:          5 * time.Second,
-				HalfOpenRequests: 1,
 			},
 		},
 	}
@@ -1005,8 +1004,8 @@ func TestMetricsWithCircuitBreaker(t *testing.T) {
 			CircuitBreaker: config.CircuitBreakerConfig{
 				Enabled:          true,
 				FailureThreshold: 2,
+				MaxRequests:      1,
 				Timeout:          10 * time.Second,
-				HalfOpenRequests: 1,
 			},
 		},
 	}

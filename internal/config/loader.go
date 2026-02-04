@@ -226,8 +226,8 @@ func (l *Loader) validate(cfg *Config) error {
 			if route.CircuitBreaker.FailureThreshold != 0 && route.CircuitBreaker.FailureThreshold < 1 {
 				return fmt.Errorf("route %s: circuit_breaker failure_threshold must be > 0", route.ID)
 			}
-			if route.CircuitBreaker.SuccessThreshold != 0 && route.CircuitBreaker.SuccessThreshold < 1 {
-				return fmt.Errorf("route %s: circuit_breaker success_threshold must be > 0", route.ID)
+			if route.CircuitBreaker.MaxRequests != 0 && route.CircuitBreaker.MaxRequests < 1 {
+				return fmt.Errorf("route %s: circuit_breaker max_requests must be > 0", route.ID)
 			}
 			if route.CircuitBreaker.Timeout != 0 && route.CircuitBreaker.Timeout < 0 {
 				return fmt.Errorf("route %s: circuit_breaker timeout must be > 0", route.ID)

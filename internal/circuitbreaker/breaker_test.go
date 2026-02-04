@@ -1,6 +1,7 @@
 package circuitbreaker
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -17,8 +18,8 @@ func TestNewBreakerDefaults(t *testing.T) {
 	if snap.FailureThreshold != 5 {
 		t.Errorf("expected failure threshold 5, got %d", snap.FailureThreshold)
 	}
-	if snap.SuccessThreshold != 2 {
-		t.Errorf("expected success threshold 2, got %d", snap.SuccessThreshold)
+	if snap.MaxRequests != 1 {
+		t.Errorf("expected max requests 1, got %d", snap.MaxRequests)
 	}
 }
 
@@ -30,11 +31,11 @@ func TestBreakerClosedToOpen(t *testing.T) {
 
 	// First 2 failures: still closed
 	for i := 0; i < 2; i++ {
-		allowed, _ := b.Allow()
-		if !allowed {
+		done, err := b.Allow()
+		if err != nil {
 			t.Fatal("expected allowed in closed state")
 		}
-		b.RecordFailure()
+		done(fmt.Errorf("fail"))
 	}
 
 	snap := b.Snapshot()
@@ -43,11 +44,11 @@ func TestBreakerClosedToOpen(t *testing.T) {
 	}
 
 	// 3rd failure: transitions to open
-	allowed, _ := b.Allow()
-	if !allowed {
+	done, err := b.Allow()
+	if err != nil {
 		t.Fatal("expected allowed before recording 3rd failure")
 	}
-	b.RecordFailure()
+	done(fmt.Errorf("fail"))
 
 	snap = b.Snapshot()
 	if snap.State != "open" {
@@ -62,14 +63,11 @@ func TestBreakerOpenRejectsRequests(t *testing.T) {
 	})
 
 	// Trip the breaker
-	b.Allow()
-	b.RecordFailure()
+	done, _ := b.Allow()
+	done(fmt.Errorf("fail"))
 
 	// Should be rejected
-	allowed, err := b.Allow()
-	if allowed {
-		t.Fatal("expected request to be rejected in open state")
-	}
+	_, err := b.Allow()
 	if err == nil {
 		t.Fatal("expected error when rejected")
 	}
@@ -79,25 +77,25 @@ func TestBreakerOpenToHalfOpen(t *testing.T) {
 	b := NewBreaker(config.CircuitBreakerConfig{
 		FailureThreshold: 1,
 		Timeout:          50 * time.Millisecond,
-		HalfOpenRequests: 1,
+		MaxRequests:      1,
 	})
 
 	// Trip the breaker
-	b.Allow()
-	b.RecordFailure()
+	done, _ := b.Allow()
+	done(fmt.Errorf("fail"))
 
 	// Wait for timeout
 	time.Sleep(60 * time.Millisecond)
 
 	// Should transition to half-open
-	allowed, _ := b.Allow()
-	if !allowed {
+	_, err := b.Allow()
+	if err != nil {
 		t.Fatal("expected allowed after timeout (half-open)")
 	}
 
 	snap := b.Snapshot()
-	if snap.State != "half_open" {
-		t.Errorf("expected half_open, got %s", snap.State)
+	if snap.State != "half-open" {
+		t.Errorf("expected half-open, got %s", snap.State)
 	}
 }
 
@@ -105,25 +103,25 @@ func TestBreakerHalfOpenLimitsRequests(t *testing.T) {
 	b := NewBreaker(config.CircuitBreakerConfig{
 		FailureThreshold: 1,
 		Timeout:          50 * time.Millisecond,
-		HalfOpenRequests: 1,
+		MaxRequests:      1,
 	})
 
 	// Trip the breaker
-	b.Allow()
-	b.RecordFailure()
+	done, _ := b.Allow()
+	done(fmt.Errorf("fail"))
 
 	// Wait for timeout
 	time.Sleep(60 * time.Millisecond)
 
 	// First request allowed (transitions to half-open)
-	allowed, _ := b.Allow()
-	if !allowed {
+	_, err := b.Allow()
+	if err != nil {
 		t.Fatal("expected first half-open request allowed")
 	}
 
 	// Second request should be rejected (max half-open reached)
-	allowed, _ = b.Allow()
-	if allowed {
+	_, err = b.Allow()
+	if err == nil {
 		t.Fatal("expected second half-open request rejected")
 	}
 }
@@ -131,23 +129,22 @@ func TestBreakerHalfOpenLimitsRequests(t *testing.T) {
 func TestBreakerHalfOpenToClosed(t *testing.T) {
 	b := NewBreaker(config.CircuitBreakerConfig{
 		FailureThreshold: 1,
-		SuccessThreshold: 2,
+		MaxRequests:      2,
 		Timeout:          50 * time.Millisecond,
-		HalfOpenRequests: 3,
 	})
 
 	// Trip the breaker
-	b.Allow()
-	b.RecordFailure()
+	done, _ := b.Allow()
+	done(fmt.Errorf("fail"))
 
 	// Wait for timeout
 	time.Sleep(60 * time.Millisecond)
 
-	// Allow transitions to half-open
-	b.Allow()
-	b.RecordSuccess()
-	b.Allow()
-	b.RecordSuccess()
+	// Allow transitions to half-open; need 2 consecutive successes (MaxRequests=2)
+	done, _ = b.Allow()
+	done(nil)
+	done2, _ := b.Allow()
+	done2(nil)
 
 	snap := b.Snapshot()
 	if snap.State != "closed" {
@@ -159,19 +156,19 @@ func TestBreakerHalfOpenToOpen(t *testing.T) {
 	b := NewBreaker(config.CircuitBreakerConfig{
 		FailureThreshold: 1,
 		Timeout:          50 * time.Millisecond,
-		HalfOpenRequests: 2,
+		MaxRequests:      2,
 	})
 
 	// Trip the breaker
-	b.Allow()
-	b.RecordFailure()
+	done, _ := b.Allow()
+	done(fmt.Errorf("fail"))
 
 	// Wait for timeout
 	time.Sleep(60 * time.Millisecond)
 
 	// Allow transitions to half-open
-	b.Allow()
-	b.RecordFailure()
+	done, _ = b.Allow()
+	done(fmt.Errorf("fail"))
 
 	snap := b.Snapshot()
 	if snap.State != "open" {
@@ -186,20 +183,20 @@ func TestBreakerSuccessResetsClosed(t *testing.T) {
 	})
 
 	// 2 failures
-	b.Allow()
-	b.RecordFailure()
-	b.Allow()
-	b.RecordFailure()
+	done, _ := b.Allow()
+	done(fmt.Errorf("fail"))
+	done, _ = b.Allow()
+	done(fmt.Errorf("fail"))
 
-	// 1 success should reset failure count
-	b.Allow()
-	b.RecordSuccess()
+	// 1 success should reset consecutive failure count
+	done, _ = b.Allow()
+	done(nil)
 
 	// 2 more failures should not open (reset happened)
-	b.Allow()
-	b.RecordFailure()
-	b.Allow()
-	b.RecordFailure()
+	done, _ = b.Allow()
+	done(fmt.Errorf("fail"))
+	done, _ = b.Allow()
+	done(fmt.Errorf("fail"))
 
 	snap := b.Snapshot()
 	if snap.State != "closed" {
@@ -213,12 +210,12 @@ func TestBreakerMetrics(t *testing.T) {
 		Timeout:          10 * time.Second,
 	})
 
-	b.Allow()
-	b.RecordSuccess()
-	b.Allow()
-	b.RecordFailure()
-	b.Allow()
-	b.RecordFailure()
+	done, _ := b.Allow()
+	done(nil)
+	done, _ = b.Allow()
+	done(fmt.Errorf("fail"))
+	done, _ = b.Allow()
+	done(fmt.Errorf("fail"))
 
 	// Now open, this should be rejected
 	b.Allow()
