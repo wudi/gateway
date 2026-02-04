@@ -240,6 +240,15 @@ func (s *Server) adminHandler() http.Handler {
 	// Listeners endpoint
 	mux.HandleFunc("/listeners", s.handleListeners)
 
+	// Circuit breaker status
+	mux.HandleFunc("/circuit-breakers", s.handleCircuitBreakers)
+
+	// Cache stats
+	mux.HandleFunc("/cache", s.handleCache)
+
+	// Retry metrics
+	mux.HandleFunc("/retries", s.handleRetries)
+
 	return mux
 }
 
@@ -403,6 +412,32 @@ func (s *Server) handleListeners(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	json.NewEncoder(w).Encode(result)
+}
+
+// handleCircuitBreakers handles circuit breaker status requests
+func (s *Server) handleCircuitBreakers(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	snapshots := s.gateway.GetCircuitBreakers().Snapshots()
+	json.NewEncoder(w).Encode(snapshots)
+}
+
+// handleCache handles cache stats requests
+func (s *Server) handleCache(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	stats := s.gateway.GetCaches().Stats()
+	json.NewEncoder(w).Encode(stats)
+}
+
+// handleRetries handles retry metrics requests
+func (s *Server) handleRetries(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	metrics := s.gateway.GetRetryMetrics()
+	result := make(map[string]interface{}, len(metrics))
+	for routeID, m := range metrics {
+		result[routeID] = m.Snapshot()
+	}
 	json.NewEncoder(w).Encode(result)
 }
 

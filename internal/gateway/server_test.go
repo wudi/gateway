@@ -348,3 +348,173 @@ func TestAdminStatsWithL4Proxies(t *testing.T) {
 		t.Error("Expected udp_sessions in stats")
 	}
 }
+
+func TestAdminCircuitBreakersEndpoint(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Port:         8080,
+			ReadTimeout:  30 * time.Second,
+			WriteTimeout: 30 * time.Second,
+		},
+		Registry: config.RegistryConfig{
+			Type: "memory",
+		},
+		Routes: []config.RouteConfig{
+			{
+				ID:       "cb-test",
+				Path:     "/cb-test",
+				Backends: []config.BackendConfig{{URL: backend.URL}},
+				CircuitBreaker: config.CircuitBreakerConfig{
+					Enabled:          true,
+					FailureThreshold: 5,
+					Timeout:          30 * time.Second,
+				},
+			},
+		},
+		Admin: config.AdminConfig{
+			Enabled: true,
+			Port:    8082,
+		},
+	}
+
+	server, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+	defer server.Gateway().Close()
+
+	req := httptest.NewRequest("GET", "/circuit-breakers", nil)
+	w := httptest.NewRecorder()
+	server.adminHandler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected 200, got %d", w.Code)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+
+	if _, ok := result["cb-test"]; !ok {
+		t.Error("Expected circuit breaker info for cb-test route")
+	}
+}
+
+func TestAdminCacheEndpoint(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Port:         8080,
+			ReadTimeout:  30 * time.Second,
+			WriteTimeout: 30 * time.Second,
+		},
+		Registry: config.RegistryConfig{
+			Type: "memory",
+		},
+		Routes: []config.RouteConfig{
+			{
+				ID:       "cache-test",
+				Path:     "/cache-test",
+				Backends: []config.BackendConfig{{URL: backend.URL}},
+				Cache: config.CacheConfig{
+					Enabled: true,
+					TTL:     60 * time.Second,
+					MaxSize: 100,
+				},
+			},
+		},
+		Admin: config.AdminConfig{
+			Enabled: true,
+			Port:    8082,
+		},
+	}
+
+	server, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+	defer server.Gateway().Close()
+
+	req := httptest.NewRequest("GET", "/cache", nil)
+	w := httptest.NewRecorder()
+	server.adminHandler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected 200, got %d", w.Code)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+
+	if _, ok := result["cache-test"]; !ok {
+		t.Error("Expected cache stats for cache-test route")
+	}
+}
+
+func TestAdminRetriesEndpoint(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			Port:         8080,
+			ReadTimeout:  30 * time.Second,
+			WriteTimeout: 30 * time.Second,
+		},
+		Registry: config.RegistryConfig{
+			Type: "memory",
+		},
+		Routes: []config.RouteConfig{
+			{
+				ID:       "retry-test",
+				Path:     "/retry-test",
+				Backends: []config.BackendConfig{{URL: backend.URL}},
+				RetryPolicy: config.RetryConfig{
+					MaxRetries:     3,
+					InitialBackoff: 100 * time.Millisecond,
+				},
+			},
+		},
+		Admin: config.AdminConfig{
+			Enabled: true,
+			Port:    8082,
+		},
+	}
+
+	server, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+	defer server.Gateway().Close()
+
+	req := httptest.NewRequest("GET", "/retries", nil)
+	w := httptest.NewRecorder()
+	server.adminHandler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected 200, got %d", w.Code)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+
+	if _, ok := result["retry-test"]; !ok {
+		t.Error("Expected retry metrics for retry-test route")
+	}
+}

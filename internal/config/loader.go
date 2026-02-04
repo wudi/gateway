@@ -202,6 +202,54 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate new route-level configs
+	for _, route := range cfg.Routes {
+		// Validate retry policy
+		if route.RetryPolicy.MaxRetries > 0 {
+			if route.RetryPolicy.BackoffMultiplier != 0 && route.RetryPolicy.BackoffMultiplier < 1.0 {
+				return fmt.Errorf("route %s: retry_policy backoff_multiplier must be >= 1.0", route.ID)
+			}
+			for _, status := range route.RetryPolicy.RetryableStatuses {
+				if status < 100 || status > 599 {
+					return fmt.Errorf("route %s: retry_policy contains invalid HTTP status code: %d", route.ID, status)
+				}
+			}
+		}
+
+		// Validate circuit breaker
+		if route.CircuitBreaker.Enabled {
+			if route.CircuitBreaker.FailureThreshold != 0 && route.CircuitBreaker.FailureThreshold < 1 {
+				return fmt.Errorf("route %s: circuit_breaker failure_threshold must be > 0", route.ID)
+			}
+			if route.CircuitBreaker.SuccessThreshold != 0 && route.CircuitBreaker.SuccessThreshold < 1 {
+				return fmt.Errorf("route %s: circuit_breaker success_threshold must be > 0", route.ID)
+			}
+			if route.CircuitBreaker.Timeout != 0 && route.CircuitBreaker.Timeout < 0 {
+				return fmt.Errorf("route %s: circuit_breaker timeout must be > 0", route.ID)
+			}
+		}
+
+		// Validate cache
+		if route.Cache.Enabled {
+			if route.Cache.TTL != 0 && route.Cache.TTL < 0 {
+				return fmt.Errorf("route %s: cache ttl must be > 0", route.ID)
+			}
+			if route.Cache.MaxSize != 0 && route.Cache.MaxSize < 1 {
+				return fmt.Errorf("route %s: cache max_size must be > 0", route.ID)
+			}
+		}
+
+		// Validate websocket
+		if route.WebSocket.Enabled {
+			if route.WebSocket.ReadBufferSize != 0 && route.WebSocket.ReadBufferSize < 1 {
+				return fmt.Errorf("route %s: websocket read_buffer_size must be > 0", route.ID)
+			}
+			if route.WebSocket.WriteBufferSize != 0 && route.WebSocket.WriteBufferSize < 1 {
+				return fmt.Errorf("route %s: websocket write_buffer_size must be > 0", route.ID)
+			}
+		}
+	}
+
 	return nil
 }
 

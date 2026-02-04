@@ -185,18 +185,70 @@ type JWTConfig struct {
 
 // RouteConfig defines a single route
 type RouteConfig struct {
-	ID          string           `yaml:"id"`
-	Path        string           `yaml:"path"`
-	PathPrefix  bool             `yaml:"path_prefix"`
-	Methods     []string         `yaml:"methods"`
-	Backends    []BackendConfig  `yaml:"backends"`
-	Service     ServiceConfig    `yaml:"service"`
-	Auth        RouteAuthConfig  `yaml:"auth"`
-	RateLimit   RateLimitConfig  `yaml:"rate_limit"`
-	Transform   TransformConfig  `yaml:"transform"`
-	Timeout     time.Duration    `yaml:"timeout"`
-	Retries     int              `yaml:"retries"`
-	StripPrefix bool             `yaml:"strip_prefix"`
+	ID             string               `yaml:"id"`
+	Path           string               `yaml:"path"`
+	PathPrefix     bool                 `yaml:"path_prefix"`
+	Methods        []string             `yaml:"methods"`
+	Backends       []BackendConfig      `yaml:"backends"`
+	Service        ServiceConfig        `yaml:"service"`
+	Auth           RouteAuthConfig      `yaml:"auth"`
+	RateLimit      RateLimitConfig      `yaml:"rate_limit"`
+	Transform      TransformConfig      `yaml:"transform"`
+	Timeout        time.Duration        `yaml:"timeout"`
+	Retries        int                  `yaml:"retries"`
+	StripPrefix    bool                 `yaml:"strip_prefix"`
+	RetryPolicy    RetryConfig          `yaml:"retry_policy"`
+	TimeoutPolicy  TimeoutConfig        `yaml:"timeout_policy"`
+	CircuitBreaker CircuitBreakerConfig `yaml:"circuit_breaker"`
+	Cache          CacheConfig          `yaml:"cache"`
+	WebSocket      WebSocketConfig      `yaml:"websocket"`
+}
+
+// RetryConfig defines retry policy settings
+type RetryConfig struct {
+	MaxRetries        int           `yaml:"max_retries"`
+	InitialBackoff    time.Duration `yaml:"initial_backoff"`
+	MaxBackoff        time.Duration `yaml:"max_backoff"`
+	BackoffMultiplier float64       `yaml:"backoff_multiplier"`
+	RetryableStatuses []int         `yaml:"retryable_statuses"`
+	RetryableMethods  []string      `yaml:"retryable_methods"`
+	PerTryTimeout     time.Duration `yaml:"per_try_timeout"`
+}
+
+// TimeoutConfig defines timeout policy settings
+type TimeoutConfig struct {
+	Request time.Duration `yaml:"request"`
+	Idle    time.Duration `yaml:"idle"`
+}
+
+// CircuitBreakerConfig defines circuit breaker settings
+type CircuitBreakerConfig struct {
+	Enabled          bool          `yaml:"enabled"`
+	FailureThreshold int           `yaml:"failure_threshold"`
+	SuccessThreshold int           `yaml:"success_threshold"`
+	Timeout          time.Duration `yaml:"timeout"`
+	HalfOpenRequests int           `yaml:"half_open_requests"`
+}
+
+// CacheConfig defines request caching settings
+type CacheConfig struct {
+	Enabled     bool          `yaml:"enabled"`
+	TTL         time.Duration `yaml:"ttl"`
+	MaxSize     int           `yaml:"max_size"`
+	MaxBodySize int64         `yaml:"max_body_size"`
+	KeyHeaders  []string      `yaml:"key_headers"`
+	Methods     []string      `yaml:"methods"`
+}
+
+// WebSocketConfig defines WebSocket proxy settings
+type WebSocketConfig struct {
+	Enabled         bool          `yaml:"enabled"`
+	ReadBufferSize  int           `yaml:"read_buffer_size"`
+	WriteBufferSize int           `yaml:"write_buffer_size"`
+	ReadTimeout     time.Duration `yaml:"read_timeout"`
+	WriteTimeout    time.Duration `yaml:"write_timeout"`
+	PingInterval    time.Duration `yaml:"ping_interval"`
+	PongTimeout     time.Duration `yaml:"pong_timeout"`
 }
 
 // BackendConfig defines a static backend

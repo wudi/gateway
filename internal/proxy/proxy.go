@@ -14,6 +14,7 @@ import (
 	"github.com/example/gateway/internal/health"
 	"github.com/example/gateway/internal/loadbalancer"
 	"github.com/example/gateway/internal/middleware/transform"
+	"github.com/example/gateway/internal/retry"
 	"github.com/example/gateway/internal/router"
 	"github.com/example/gateway/internal/variables"
 )
@@ -63,6 +64,14 @@ func New(cfg Config) *Proxy {
 
 // Handler returns an http.Handler that proxies requests based on the route
 func (p *Proxy) Handler(route *router.Route, balancer loadbalancer.Balancer) http.Handler {
+	// Build retry policy for this route
+	var retryPolicy *retry.Policy
+	if route.RetryPolicy.MaxRetries > 0 {
+		retryPolicy = retry.NewPolicy(route.RetryPolicy)
+	} else if route.Retries > 0 {
+		retryPolicy = retry.NewPolicyFromLegacy(route.Retries, time.Duration(route.Timeout))
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		varCtx := variables.GetFromRequest(r)
 		varCtx.RouteID = route.ID
@@ -92,7 +101,9 @@ func (p *Proxy) Handler(route *router.Route, balancer loadbalancer.Balancer) htt
 
 		// Set timeout
 		timeout := p.defaultTimeout
-		if route.Timeout > 0 {
+		if route.TimeoutPolicy.Request > 0 {
+			timeout = route.TimeoutPolicy.Request
+		} else if route.Timeout > 0 {
 			timeout = time.Duration(route.Timeout)
 		}
 
@@ -100,9 +111,14 @@ func (p *Proxy) Handler(route *router.Route, balancer loadbalancer.Balancer) htt
 		defer cancel()
 		proxyReq = proxyReq.WithContext(ctx)
 
-		// Execute request
+		// Execute request (with or without retry)
 		start := time.Now()
-		resp, err := p.transport.RoundTrip(proxyReq)
+		var resp *http.Response
+		if retryPolicy != nil {
+			resp, err = retryPolicy.Execute(ctx, p.transport, proxyReq)
+		} else {
+			resp, err = p.transport.RoundTrip(proxyReq)
+		}
 		varCtx.UpstreamResponseTime = time.Since(start)
 
 		if err != nil {
@@ -126,6 +142,7 @@ func (p *Proxy) Handler(route *router.Route, balancer loadbalancer.Balancer) htt
 		p.copyBody(w, resp.Body)
 	})
 }
+
 
 // createProxyRequest creates the request to send to the backend
 func (p *Proxy) createProxyRequest(r *http.Request, target *url.URL, route *router.Route, varCtx *variables.Context) *http.Request {
@@ -283,21 +300,35 @@ type RouteProxy struct {
 	balancer    loadbalancer.Balancer
 	route       *router.Route
 	transformer *transform.PrecompiledTransform
+	retryPolicy *retry.Policy
+	handler     http.Handler
 }
 
 // NewRouteProxy creates a proxy handler for a specific route
 func NewRouteProxy(proxy *Proxy, route *router.Route, backends []*loadbalancer.Backend) *RouteProxy {
-	return &RouteProxy{
+	rp := &RouteProxy{
 		proxy:       proxy,
 		balancer:    loadbalancer.NewRoundRobin(backends),
 		route:       route,
 		transformer: transform.NewPrecompiledTransform(route.Transform.Request.Headers),
 	}
+
+	// Create retry policy once per route
+	if route.RetryPolicy.MaxRetries > 0 {
+		rp.retryPolicy = retry.NewPolicy(route.RetryPolicy)
+	} else if route.Retries > 0 {
+		rp.retryPolicy = retry.NewPolicyFromLegacy(route.Retries, time.Duration(route.Timeout))
+	}
+
+	// Cache the handler
+	rp.handler = proxy.Handler(route, rp.balancer)
+
+	return rp
 }
 
 // ServeHTTP handles the request
 func (rp *RouteProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	rp.proxy.Handler(rp.route, rp.balancer).ServeHTTP(w, r)
+	rp.handler.ServeHTTP(w, r)
 }
 
 // UpdateBackends updates the backends for this route
@@ -308,6 +339,14 @@ func (rp *RouteProxy) UpdateBackends(backends []*loadbalancer.Backend) {
 // GetBalancer returns the load balancer
 func (rp *RouteProxy) GetBalancer() loadbalancer.Balancer {
 	return rp.balancer
+}
+
+// GetRetryMetrics returns the retry metrics for this route (may be nil)
+func (rp *RouteProxy) GetRetryMetrics() *retry.RouteRetryMetrics {
+	if rp.retryPolicy != nil {
+		return rp.retryPolicy.Metrics
+	}
+	return nil
 }
 
 // SimpleProxy creates a simple reverse proxy handler

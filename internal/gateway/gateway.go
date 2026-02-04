@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/example/gateway/internal/cache"
+	"github.com/example/gateway/internal/circuitbreaker"
 	"github.com/example/gateway/internal/config"
 	"github.com/example/gateway/internal/errors"
 	"github.com/example/gateway/internal/health"
@@ -22,8 +24,10 @@ import (
 	"github.com/example/gateway/internal/registry/consul"
 	"github.com/example/gateway/internal/registry/etcd"
 	"github.com/example/gateway/internal/registry/memory"
+	"github.com/example/gateway/internal/retry"
 	"github.com/example/gateway/internal/router"
 	"github.com/example/gateway/internal/variables"
+	"github.com/example/gateway/internal/websocket"
 )
 
 // Gateway is the main API gateway
@@ -40,20 +44,39 @@ type Gateway struct {
 	rateLimiters  *ratelimit.RateLimitByRoute
 	resolver      *variables.Resolver
 
+	// New feature managers
+	circuitBreakers *circuitbreaker.BreakerByRoute
+	caches          *cache.CacheByRoute
+	wsProxy         *websocket.Proxy
+
 	routeProxies map[string]*proxy.RouteProxy
 	watchCancels map[string]context.CancelFunc
 	mu           sync.RWMutex
 }
 
+// statusRecorder wraps http.ResponseWriter to capture the status code
+type statusRecorder struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (sr *statusRecorder) WriteHeader(code int) {
+	sr.statusCode = code
+	sr.ResponseWriter.WriteHeader(code)
+}
+
 // New creates a new gateway
 func New(cfg *config.Config) (*Gateway, error) {
 	g := &Gateway{
-		config:        cfg,
-		router:        router.New(),
-		rateLimiters:  ratelimit.NewRateLimitByRoute(),
-		resolver:      variables.NewResolver(),
-		routeProxies:  make(map[string]*proxy.RouteProxy),
-		watchCancels:  make(map[string]context.CancelFunc),
+		config:          cfg,
+		router:          router.New(),
+		rateLimiters:    ratelimit.NewRateLimitByRoute(),
+		resolver:        variables.NewResolver(),
+		circuitBreakers: circuitbreaker.NewBreakerByRoute(),
+		caches:          cache.NewCacheByRoute(),
+		wsProxy:         websocket.NewProxy(config.WebSocketConfig{}),
+		routeProxies:    make(map[string]*proxy.RouteProxy),
+		watchCancels:    make(map[string]context.CancelFunc),
 	}
 
 	// Initialize health checker
@@ -243,6 +266,16 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 		})
 	}
 
+	// Set up circuit breaker
+	if routeCfg.CircuitBreaker.Enabled {
+		g.circuitBreakers.AddRoute(routeCfg.ID, routeCfg.CircuitBreaker)
+	}
+
+	// Set up cache
+	if routeCfg.Cache.Enabled {
+		g.caches.AddRoute(routeCfg.ID, routeCfg.Cache)
+	}
+
 	return nil
 }
 
@@ -390,12 +423,95 @@ func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Apply request transformations
+	// Step 5: WebSocket upgrade — bypass cache/circuit breaker
+	if route.WebSocket.Enabled && websocket.IsUpgradeRequest(r) {
+		backend := rp.GetBalancer().Next()
+		if backend == nil {
+			errors.ErrServiceUnavailable.WithDetails("No healthy backends available").WriteJSON(w)
+			return
+		}
+		g.wsProxy.ServeHTTP(w, r, backend.URL)
+		return
+	}
+
+	// Step 6: Cache HIT — return early
+	if cacheHandler := g.caches.GetHandler(route.ID); cacheHandler != nil {
+		if cacheHandler.ShouldCache(r) {
+			if entry, ok := cacheHandler.Get(r); ok {
+				cache.WriteCachedResponse(w, entry)
+				return
+			}
+		}
+
+		// Invalidate cache on mutating requests
+		if cache.IsMutatingMethod(r.Method) {
+			cacheHandler.InvalidateByPath(r.URL.Path)
+		}
+	}
+
+	// Step 7: Circuit breaker check
+	cb := g.circuitBreakers.GetBreaker(route.ID)
+	if cb != nil {
+		allowed, _ := cb.Allow()
+		if !allowed {
+			errors.ErrServiceUnavailable.WithDetails("Circuit breaker is open").WriteJSON(w)
+			return
+		}
+	}
+
+	// Step 8: Wrap ResponseWriter for status recording and caching
+	cacheHandler := g.caches.GetHandler(route.ID)
+	shouldCache := cacheHandler != nil && cacheHandler.ShouldCache(r)
+
+	var recorder *statusRecorder
+	var cachingWriter *cache.CachingResponseWriter
+	var responseWriter http.ResponseWriter = w
+
+	// Only wrap when needed
+	if cb != nil {
+		recorder = &statusRecorder{ResponseWriter: w, statusCode: 200}
+		responseWriter = recorder
+	}
+
+	if shouldCache {
+		if recorder == nil {
+			recorder = &statusRecorder{ResponseWriter: w, statusCode: 200}
+			responseWriter = recorder
+		}
+		cachingWriter = cache.NewCachingResponseWriter(recorder)
+		responseWriter = cachingWriter
+	}
+
+	// Step 9: Apply request transformations
 	transformer := transform.NewHeaderTransformer()
 	transformer.TransformRequest(r, route.Transform.Request.Headers, varCtx)
 
-	// Proxy the request
-	rp.ServeHTTP(w, r)
+	// Step 10: Proxy the request (retry policy handled inside proxy)
+	if cachingWriter != nil {
+		cachingWriter.Header().Set("X-Cache", "MISS")
+	}
+	rp.ServeHTTP(responseWriter, r)
+
+	// Step 11: Record circuit breaker outcome
+	if cb != nil && recorder != nil {
+		if recorder.statusCode >= 500 {
+			cb.RecordFailure()
+		} else {
+			cb.RecordSuccess()
+		}
+	}
+
+	// Step 12: Store cacheable response
+	if cachingWriter != nil && cacheHandler != nil {
+		if cacheHandler.ShouldStore(cachingWriter.StatusCode, cachingWriter.Header(), int64(cachingWriter.Body.Len())) {
+			entry := &cache.Entry{
+				StatusCode: cachingWriter.StatusCode,
+				Headers:    cachingWriter.Header().Clone(),
+				Body:       cachingWriter.Body.Bytes(),
+			}
+			cacheHandler.Store(r, entry)
+		}
+	}
 }
 
 // authenticate handles authentication for a request
@@ -498,6 +614,30 @@ func (g *Gateway) GetTCPProxy() *tcp.Proxy {
 // GetUDPProxy returns the UDP proxy
 func (g *Gateway) GetUDPProxy() *udp.Proxy {
 	return g.udpProxy
+}
+
+// GetCircuitBreakers returns the circuit breaker manager
+func (g *Gateway) GetCircuitBreakers() *circuitbreaker.BreakerByRoute {
+	return g.circuitBreakers
+}
+
+// GetCaches returns the cache manager
+func (g *Gateway) GetCaches() *cache.CacheByRoute {
+	return g.caches
+}
+
+// GetRetryMetrics returns the retry metrics per route
+func (g *Gateway) GetRetryMetrics() map[string]*retry.RouteRetryMetrics {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	result := make(map[string]*retry.RouteRetryMetrics)
+	for routeID, rp := range g.routeProxies {
+		if m := rp.GetRetryMetrics(); m != nil {
+			result[routeID] = m
+		}
+	}
+	return result
 }
 
 // Stats returns gateway statistics

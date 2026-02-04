@@ -11,20 +11,25 @@ import (
 
 // Route represents a configured route
 type Route struct {
-	ID          string
-	Path        string
-	PathPrefix  bool
-	Methods     map[string]bool
-	Backends    []Backend
-	ServiceName string
-	ServiceTags []string
-	Auth        RouteAuth
-	RateLimit   config.RateLimitConfig
-	Transform   config.TransformConfig
-	Timeout     int64
-	Retries     int
-	StripPrefix bool
-	matcher     *Matcher
+	ID             string
+	Path           string
+	PathPrefix     bool
+	Methods        map[string]bool
+	Backends       []Backend
+	ServiceName    string
+	ServiceTags    []string
+	Auth           RouteAuth
+	RateLimit      config.RateLimitConfig
+	Transform      config.TransformConfig
+	Timeout        int64
+	Retries        int
+	StripPrefix    bool
+	RetryPolicy    config.RetryConfig
+	TimeoutPolicy  config.TimeoutConfig
+	CircuitBreaker config.CircuitBreakerConfig
+	Cache          config.CacheConfig
+	WebSocket      config.WebSocketConfig
+	matcher        *Matcher
 }
 
 // Backend represents a backend server
@@ -75,12 +80,17 @@ func (rt *Router) AddRoute(routeCfg config.RouteConfig) error {
 			Required: routeCfg.Auth.Required,
 			Methods:  routeCfg.Auth.Methods,
 		},
-		RateLimit:   routeCfg.RateLimit,
-		Transform:   routeCfg.Transform,
-		Timeout:     int64(routeCfg.Timeout),
-		Retries:     routeCfg.Retries,
-		StripPrefix: routeCfg.StripPrefix,
-		matcher:     NewMatcher(routeCfg.Path, routeCfg.PathPrefix),
+		RateLimit:      routeCfg.RateLimit,
+		Transform:      routeCfg.Transform,
+		Timeout:        int64(routeCfg.Timeout),
+		Retries:        routeCfg.Retries,
+		StripPrefix:    routeCfg.StripPrefix,
+		RetryPolicy:    routeCfg.RetryPolicy,
+		TimeoutPolicy:  routeCfg.TimeoutPolicy,
+		CircuitBreaker: routeCfg.CircuitBreaker,
+		Cache:          routeCfg.Cache,
+		WebSocket:      routeCfg.WebSocket,
+		matcher:        NewMatcher(routeCfg.Path, routeCfg.PathPrefix),
 	}
 
 	// Convert backends
