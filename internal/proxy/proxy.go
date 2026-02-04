@@ -64,12 +64,22 @@ func New(cfg Config) *Proxy {
 
 // Handler returns an http.Handler that proxies requests based on the route
 func (p *Proxy) Handler(route *router.Route, balancer loadbalancer.Balancer) http.Handler {
-	// Build retry policy for this route
-	var retryPolicy *retry.Policy
-	if route.RetryPolicy.MaxRetries > 0 {
-		retryPolicy = retry.NewPolicy(route.RetryPolicy)
-	} else if route.Retries > 0 {
-		retryPolicy = retry.NewPolicyFromLegacy(route.Retries, time.Duration(route.Timeout))
+	return p.HandlerWithPolicy(route, balancer, nil)
+}
+
+// HandlerWithPolicy returns an http.Handler that proxies requests using an externally
+// provided retry policy. If retryPolicy is nil, a new one is created from route config.
+func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Balancer, retryPolicy *retry.Policy) http.Handler {
+	// Create response header transformer once per handler
+	transformer := transform.NewHeaderTransformer()
+
+	// Build retry policy for this route if not provided externally
+	if retryPolicy == nil {
+		if route.RetryPolicy.MaxRetries > 0 {
+			retryPolicy = retry.NewPolicy(route.RetryPolicy)
+		} else if route.Retries > 0 {
+			retryPolicy = retry.NewPolicyFromLegacy(route.Retries, time.Duration(route.Timeout))
+		}
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -92,9 +102,7 @@ func (p *Proxy) Handler(route *router.Route, balancer loadbalancer.Balancer) htt
 			return
 		}
 
-		// Apply request transformations
-		transformer := transform.NewHeaderTransformer()
-		transformer.TransformRequest(r, route.Transform.Request.Headers, varCtx)
+		// Request transformations are applied by gateway.serveHTTP() — not here.
 
 		// Create the proxy request
 		proxyReq := p.createProxyRequest(r, targetURL, route, varCtx)
@@ -320,8 +328,8 @@ func NewRouteProxy(proxy *Proxy, route *router.Route, backends []*loadbalancer.B
 		rp.retryPolicy = retry.NewPolicyFromLegacy(route.Retries, time.Duration(route.Timeout))
 	}
 
-	// Cache the handler
-	rp.handler = proxy.Handler(route, rp.balancer)
+	// Cache the handler, passing in the same retry policy so metrics are shared
+	rp.handler = proxy.HandlerWithPolicy(route, rp.balancer, rp.retryPolicy)
 
 	return rp
 }
@@ -342,8 +350,8 @@ func NewRouteProxyWithBalancer(proxy *Proxy, route *router.Route, balancer loadb
 		rp.retryPolicy = retry.NewPolicyFromLegacy(route.Retries, time.Duration(route.Timeout))
 	}
 
-	// Cache the handler
-	rp.handler = proxy.Handler(route, rp.balancer)
+	// Cache the handler, passing in the same retry policy so metrics are shared
+	rp.handler = proxy.HandlerWithPolicy(route, rp.balancer, rp.retryPolicy)
 
 	return rp
 }

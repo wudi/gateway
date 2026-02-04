@@ -72,6 +72,8 @@ type Gateway struct {
 	mirrors        *mirror.MirrorByRoute
 	tracer         *tracing.Tracer
 
+	grpcHandlers map[string]*grpcproxy.Handler
+
 	routeProxies map[string]*proxy.RouteProxy
 	watchCancels map[string]context.CancelFunc
 	mu           sync.RWMutex
@@ -86,6 +88,81 @@ type statusRecorder struct {
 func (sr *statusRecorder) WriteHeader(code int) {
 	sr.statusCode = code
 	sr.ResponseWriter.WriteHeader(code)
+}
+
+// bodyBufferResponseWriter captures the response body for transformation before writing
+type bodyBufferResponseWriter struct {
+	http.ResponseWriter
+	statusCode int
+	body       bytes.Buffer
+	header     http.Header
+}
+
+func newBodyBufferResponseWriter(w http.ResponseWriter) *bodyBufferResponseWriter {
+	return &bodyBufferResponseWriter{
+		ResponseWriter: w,
+		statusCode:     200,
+		header:         make(http.Header),
+	}
+}
+
+func (bw *bodyBufferResponseWriter) Header() http.Header {
+	return bw.header
+}
+
+func (bw *bodyBufferResponseWriter) WriteHeader(code int) {
+	bw.statusCode = code
+}
+
+func (bw *bodyBufferResponseWriter) Write(b []byte) (int, error) {
+	return bw.body.Write(b)
+}
+
+// replayTo writes the buffered response (with transformed body) through the real writer chain.
+func (bw *bodyBufferResponseWriter) replayTo(w http.ResponseWriter, body []byte) {
+	// Copy captured headers to real writer
+	for k, vv := range bw.header {
+		for _, v := range vv {
+			w.Header().Add(k, v)
+		}
+	}
+	// Update Content-Length for transformed body
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(body)))
+	w.WriteHeader(bw.statusCode)
+	w.Write(body)
+}
+
+// applyResponseBodyTransform applies response body transformations to JSON bodies
+func applyResponseBodyTransform(body []byte, cfg config.BodyTransformConfig) []byte {
+	// Only transform JSON
+	var data map[string]interface{}
+	if err := json.Unmarshal(body, &data); err != nil {
+		return body
+	}
+
+	// Add fields
+	for key, value := range cfg.AddFields {
+		data[key] = value
+	}
+
+	// Remove fields
+	for _, key := range cfg.RemoveFields {
+		delete(data, key)
+	}
+
+	// Rename fields
+	for oldKey, newKey := range cfg.RenameFields {
+		if val, ok := data[oldKey]; ok {
+			data[newKey] = val
+			delete(data, oldKey)
+		}
+	}
+
+	newBody, err := json.Marshal(data)
+	if err != nil {
+		return body
+	}
+	return newBody
 }
 
 // New creates a new gateway
@@ -104,6 +181,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		metricsCollector: metrics.NewCollector(),
 		validators:       validation.NewValidatorByRoute(),
 		mirrors:          mirror.NewMirrorByRoute(),
+		grpcHandlers:     make(map[string]*grpcproxy.Handler),
 		routeProxies:     make(map[string]*proxy.RouteProxy),
 		watchCancels:     make(map[string]context.CancelFunc),
 	}
@@ -361,6 +439,11 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 	// Feature 10: Set up traffic mirroring
 	if routeCfg.Mirror.Enabled {
 		g.mirrors.AddRoute(routeCfg.ID, routeCfg.Mirror)
+	}
+
+	// Feature 12: Set up gRPC handler once per route
+	if routeCfg.GRPC.Enabled {
+		g.grpcHandlers[routeCfg.ID] = grpcproxy.New(true)
 	}
 
 	return nil
@@ -659,16 +742,33 @@ func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Feature 12: Prepare gRPC request if needed
-	if route.GRPC.Enabled && grpcproxy.IsGRPCRequest(r) {
-		grpcHandler := grpcproxy.New(true)
+	var isGRPC bool
+	if grpcHandler := g.grpcHandlers[route.ID]; grpcHandler != nil && grpcproxy.IsGRPCRequest(r) {
 		grpcHandler.PrepareRequest(r)
+		isGRPC = true
+	}
+
+	// Step 9.5: Check if response body transforms are configured
+	respBodyCfg := route.Transform.Response.Body
+	hasRespBodyTransform := len(respBodyCfg.AddFields) > 0 || len(respBodyCfg.RemoveFields) > 0 || len(respBodyCfg.RenameFields) > 0
+	var bodyBufWriter *bodyBufferResponseWriter
+	proxyTarget := responseWriter
+	if hasRespBodyTransform {
+		bodyBufWriter = newBodyBufferResponseWriter(responseWriter)
+		proxyTarget = bodyBufWriter
 	}
 
 	// Step 10: Proxy the request (retry policy handled inside proxy)
 	if cachingWriter != nil {
 		cachingWriter.Header().Set("X-Cache", "MISS")
 	}
-	rp.ServeHTTP(responseWriter, r)
+	rp.ServeHTTP(proxyTarget, r)
+
+	// Step 10.1: Apply response body transform and replay
+	if bodyBufWriter != nil {
+		transformed := applyResponseBodyTransform(bodyBufWriter.body.Bytes(), respBodyCfg)
+		bodyBufWriter.replayTo(responseWriter, transformed)
+	}
 
 	// Step 10.5: Mirror request async (Feature 10)
 	if mirrorHandler != nil && mirrorBody != nil {
@@ -687,7 +787,15 @@ func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if cb != nil && recorder != nil {
-		if recorder.statusCode >= 500 {
+		cbStatus := recorder.statusCode
+		// For gRPC, check the Grpc-Status header since HTTP 200 may still be a failure
+		if isGRPC && recorder.statusCode == 200 {
+			grpcStatus := responseWriter.Header().Get("Grpc-Status")
+			if grpcStatus != "" && grpcStatus != "0" {
+				cbStatus = 500 // Treat non-OK gRPC status as failure
+			}
+		}
+		if cbStatus >= 500 {
 			cb.RecordFailure()
 		} else {
 			cb.RecordSuccess()
