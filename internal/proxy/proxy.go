@@ -326,6 +326,28 @@ func NewRouteProxy(proxy *Proxy, route *router.Route, backends []*loadbalancer.B
 	return rp
 }
 
+// NewRouteProxyWithBalancer creates a proxy handler with a custom balancer (e.g., weighted)
+func NewRouteProxyWithBalancer(proxy *Proxy, route *router.Route, balancer loadbalancer.Balancer) *RouteProxy {
+	rp := &RouteProxy{
+		proxy:       proxy,
+		balancer:    balancer,
+		route:       route,
+		transformer: transform.NewPrecompiledTransform(route.Transform.Request.Headers),
+	}
+
+	// Create retry policy once per route
+	if route.RetryPolicy.MaxRetries > 0 {
+		rp.retryPolicy = retry.NewPolicy(route.RetryPolicy)
+	} else if route.Retries > 0 {
+		rp.retryPolicy = retry.NewPolicyFromLegacy(route.Retries, time.Duration(route.Timeout))
+	}
+
+	// Cache the handler
+	rp.handler = proxy.Handler(route, rp.balancer)
+
+	return rp
+}
+
 // ServeHTTP handles the request
 func (rp *RouteProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rp.handler.ServeHTTP(w, r)

@@ -29,6 +29,14 @@ type Route struct {
 	CircuitBreaker config.CircuitBreakerConfig
 	Cache          config.CacheConfig
 	WebSocket      config.WebSocketConfig
+	MaxBodySize    int64
+	IPFilter       config.IPFilterConfig
+	CORS           config.CORSConfig
+	Compression    config.CompressionConfig
+	TrafficSplit   []config.TrafficSplitConfig
+	Validation     config.ValidationConfig
+	Mirror         config.MirrorConfig
+	GRPC           config.GRPCConfig
 	matcher        *Matcher
 }
 
@@ -90,6 +98,14 @@ func (rt *Router) AddRoute(routeCfg config.RouteConfig) error {
 		CircuitBreaker: routeCfg.CircuitBreaker,
 		Cache:          routeCfg.Cache,
 		WebSocket:      routeCfg.WebSocket,
+		MaxBodySize:    routeCfg.MaxBodySize,
+		IPFilter:       routeCfg.IPFilter,
+		CORS:           routeCfg.CORS,
+		Compression:    routeCfg.Compression,
+		TrafficSplit:   routeCfg.TrafficSplit,
+		Validation:     routeCfg.Validation,
+		Mirror:         routeCfg.Mirror,
+		GRPC:           routeCfg.GRPC,
 		matcher:        NewMatcher(routeCfg.Path, routeCfg.PathPrefix),
 	}
 

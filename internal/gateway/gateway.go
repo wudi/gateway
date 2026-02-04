@@ -1,11 +1,15 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/example/gateway/internal/cache"
 	"github.com/example/gateway/internal/circuitbreaker"
@@ -13,10 +17,17 @@ import (
 	"github.com/example/gateway/internal/errors"
 	"github.com/example/gateway/internal/health"
 	"github.com/example/gateway/internal/loadbalancer"
+	"github.com/example/gateway/internal/metrics"
 	"github.com/example/gateway/internal/middleware"
 	"github.com/example/gateway/internal/middleware/auth"
+	"github.com/example/gateway/internal/middleware/compression"
+	"github.com/example/gateway/internal/middleware/cors"
+	"github.com/example/gateway/internal/middleware/ipfilter"
 	"github.com/example/gateway/internal/middleware/ratelimit"
 	"github.com/example/gateway/internal/middleware/transform"
+	"github.com/example/gateway/internal/middleware/validation"
+	"github.com/example/gateway/internal/mirror"
+	grpcproxy "github.com/example/gateway/internal/proxy/grpc"
 	"github.com/example/gateway/internal/proxy"
 	"github.com/example/gateway/internal/proxy/tcp"
 	"github.com/example/gateway/internal/proxy/udp"
@@ -26,6 +37,7 @@ import (
 	"github.com/example/gateway/internal/registry/memory"
 	"github.com/example/gateway/internal/retry"
 	"github.com/example/gateway/internal/router"
+	"github.com/example/gateway/internal/tracing"
 	"github.com/example/gateway/internal/variables"
 	"github.com/example/gateway/internal/websocket"
 )
@@ -41,6 +53,7 @@ type Gateway struct {
 	healthChecker *health.Checker
 	apiKeyAuth    *auth.APIKeyAuth
 	jwtAuth       *auth.JWTAuth
+	oauthAuth     *auth.OAuthAuth
 	rateLimiters  *ratelimit.RateLimitByRoute
 	resolver      *variables.Resolver
 
@@ -48,6 +61,16 @@ type Gateway struct {
 	circuitBreakers *circuitbreaker.BreakerByRoute
 	caches          *cache.CacheByRoute
 	wsProxy         *websocket.Proxy
+
+	// Feature managers (Batch 1-3)
+	ipFilters      *ipfilter.IPFilterByRoute
+	globalIPFilter *ipfilter.Filter
+	corsHandlers   *cors.CORSByRoute
+	compressors    *compression.CompressorByRoute
+	metricsCollector *metrics.Collector
+	validators     *validation.ValidatorByRoute
+	mirrors        *mirror.MirrorByRoute
+	tracer         *tracing.Tracer
 
 	routeProxies map[string]*proxy.RouteProxy
 	watchCancels map[string]context.CancelFunc
@@ -68,15 +91,35 @@ func (sr *statusRecorder) WriteHeader(code int) {
 // New creates a new gateway
 func New(cfg *config.Config) (*Gateway, error) {
 	g := &Gateway{
-		config:          cfg,
-		router:          router.New(),
-		rateLimiters:    ratelimit.NewRateLimitByRoute(),
-		resolver:        variables.NewResolver(),
-		circuitBreakers: circuitbreaker.NewBreakerByRoute(),
-		caches:          cache.NewCacheByRoute(),
-		wsProxy:         websocket.NewProxy(config.WebSocketConfig{}),
-		routeProxies:    make(map[string]*proxy.RouteProxy),
-		watchCancels:    make(map[string]context.CancelFunc),
+		config:           cfg,
+		router:           router.New(),
+		rateLimiters:     ratelimit.NewRateLimitByRoute(),
+		resolver:         variables.NewResolver(),
+		circuitBreakers:  circuitbreaker.NewBreakerByRoute(),
+		caches:           cache.NewCacheByRoute(),
+		wsProxy:          websocket.NewProxy(config.WebSocketConfig{}),
+		ipFilters:        ipfilter.NewIPFilterByRoute(),
+		corsHandlers:     cors.NewCORSByRoute(),
+		compressors:      compression.NewCompressorByRoute(),
+		metricsCollector: metrics.NewCollector(),
+		validators:       validation.NewValidatorByRoute(),
+		mirrors:          mirror.NewMirrorByRoute(),
+		routeProxies:     make(map[string]*proxy.RouteProxy),
+		watchCancels:     make(map[string]context.CancelFunc),
+	}
+
+	// Initialize global IP filter
+	if cfg.IPFilter.Enabled {
+		var err error
+		g.globalIPFilter, err = ipfilter.New(cfg.IPFilter)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize global IP filter: %w", err)
+		}
+	}
+
+	// Initialize tracer
+	if cfg.Tracing.Enabled {
+		g.tracer = tracing.New(cfg.Tracing)
 	}
 
 	// Initialize health checker
@@ -148,6 +191,15 @@ func (g *Gateway) initAuth() error {
 	if g.config.Authentication.JWT.Enabled {
 		var err error
 		g.jwtAuth, err = auth.NewJWTAuth(g.config.Authentication.JWT)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Initialize OAuth auth
+	if g.config.Authentication.OAuth.Enabled {
+		var err error
+		g.oauthAuth, err = auth.NewOAuthAuth(g.config.Authentication.OAuth)
 		if err != nil {
 			return err
 		}
@@ -251,9 +303,15 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 		}
 	}
 
-	// Create route proxy
+	// Create route proxy (with weighted balancer if traffic split is configured)
 	g.mu.Lock()
-	g.routeProxies[routeCfg.ID] = proxy.NewRouteProxy(g.proxy, route, backends)
+	if len(routeCfg.TrafficSplit) > 0 {
+		// Feature 6: Use weighted balancer for traffic splitting
+		wb := loadbalancer.NewWeightedBalancer(routeCfg.TrafficSplit)
+		g.routeProxies[routeCfg.ID] = proxy.NewRouteProxyWithBalancer(g.proxy, route, wb)
+	} else {
+		g.routeProxies[routeCfg.ID] = proxy.NewRouteProxy(g.proxy, route, backends)
+	}
 	g.mu.Unlock()
 
 	// Set up rate limiting
@@ -274,6 +332,35 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 	// Set up cache
 	if routeCfg.Cache.Enabled {
 		g.caches.AddRoute(routeCfg.ID, routeCfg.Cache)
+	}
+
+	// Feature 2: Set up per-route IP filter
+	if routeCfg.IPFilter.Enabled {
+		if err := g.ipFilters.AddRoute(routeCfg.ID, routeCfg.IPFilter); err != nil {
+			return fmt.Errorf("failed to add IP filter for route %s: %w", routeCfg.ID, err)
+		}
+	}
+
+	// Feature 3: Set up CORS
+	if routeCfg.CORS.Enabled {
+		g.corsHandlers.AddRoute(routeCfg.ID, routeCfg.CORS)
+	}
+
+	// Feature 4: Set up compression
+	if routeCfg.Compression.Enabled {
+		g.compressors.AddRoute(routeCfg.ID, routeCfg.Compression)
+	}
+
+	// Feature 8: Set up request validation
+	if routeCfg.Validation.Enabled {
+		if err := g.validators.AddRoute(routeCfg.ID, routeCfg.Validation); err != nil {
+			return fmt.Errorf("failed to add validator for route %s: %w", routeCfg.ID, err)
+		}
+	}
+
+	// Feature 10: Set up traffic mirroring
+	if routeCfg.Mirror.Enabled {
+		g.mirrors.AddRoute(routeCfg.ID, routeCfg.Mirror)
 	}
 
 	return nil
@@ -378,7 +465,14 @@ func (g *Gateway) Handler() http.Handler {
 	// Build middleware chain
 	chain := middleware.NewBuilder().
 		Use(middleware.Recovery()).
-		Use(middleware.RequestID()).
+		Use(middleware.RequestID())
+
+	// Feature 9: Add tracing middleware
+	if g.tracer != nil {
+		chain = chain.Use(g.tracer.Middleware())
+	}
+
+	chain = chain.
 		Use(middleware.LoggingWithConfig(middleware.LoggingConfig{
 			Format: g.config.Logging.Format,
 			JSON:   g.config.Logging.Level == "json",
@@ -390,7 +484,9 @@ func (g *Gateway) Handler() http.Handler {
 
 // serveHTTP handles incoming requests
 func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
-	// Match route
+	requestStart := time.Now()
+
+	// Step 1: Match route
 	match := g.router.Match(r)
 	if match == nil {
 		errors.ErrNotFound.WriteJSON(w)
@@ -399,21 +495,43 @@ func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
 
 	route := match.Route
 
-	// Get variable context
+	// Step 1.1: IP filter check (Feature 2)
+	// Check global IP filter first
+	if g.globalIPFilter != nil && !g.globalIPFilter.Check(r) {
+		ipfilter.RejectRequest(w)
+		return
+	}
+	// Check per-route IP filter
+	if !g.ipFilters.CheckRequest(route.ID, r) {
+		ipfilter.RejectRequest(w)
+		return
+	}
+
+	// Step 1.5: CORS preflight check (Feature 3)
+	if corsHandler := g.corsHandlers.GetHandler(route.ID); corsHandler != nil && corsHandler.IsEnabled() {
+		if corsHandler.IsPreflight(r) {
+			corsHandler.HandlePreflight(w, r)
+			return
+		}
+		// Non-preflight: apply response headers
+		corsHandler.ApplyHeaders(w, r)
+	}
+
+	// Step 2: Variable context setup
 	varCtx := variables.GetFromRequest(r)
 	varCtx.RouteID = route.ID
 	varCtx.PathParams = match.PathParams
 	ctx := context.WithValue(r.Context(), variables.RequestContextKey{}, varCtx)
 	r = r.WithContext(ctx)
 
-	// Handle authentication
+	// Step 3: Authentication (+ OAuth Feature 7)
 	if route.Auth.Required {
 		if !g.authenticate(w, r, route.Auth.Methods) {
 			return
 		}
 	}
 
-	// Get route proxy
+	// Step 4: Get route proxy
 	g.mu.RLock()
 	rp, ok := g.routeProxies[route.ID]
 	g.mu.RUnlock()
@@ -421,6 +539,27 @@ func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		errors.ErrInternalServer.WithDetails("Route proxy not found").WriteJSON(w)
 		return
+	}
+
+	// Step 4.5: Body size limit check (Feature 1)
+	if route.MaxBodySize > 0 {
+		// Check Content-Length for early rejection
+		if r.ContentLength > route.MaxBodySize {
+			errors.ErrRequestEntityTooLarge.WithDetails(
+				fmt.Sprintf("Request body exceeds maximum size of %d bytes", route.MaxBodySize),
+			).WriteJSON(w)
+			return
+		}
+		// Wrap body with MaxBytesReader for chunked transfers
+		r.Body = http.MaxBytesReader(w, r.Body, route.MaxBodySize)
+	}
+
+	// Step 4.6: Request validation (Feature 8)
+	if v := g.validators.GetValidator(route.ID); v != nil && v.IsEnabled() {
+		if err := v.Validate(r); err != nil {
+			validation.RejectValidation(w, err)
+			return
+		}
 	}
 
 	// Step 5: WebSocket upgrade — bypass cache/circuit breaker
@@ -438,9 +577,14 @@ func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	if cacheHandler := g.caches.GetHandler(route.ID); cacheHandler != nil {
 		if cacheHandler.ShouldCache(r) {
 			if entry, ok := cacheHandler.Get(r); ok {
+				// Feature 5: Record cache hit metric
+				g.metricsCollector.RecordCacheHit(route.ID)
 				cache.WriteCachedResponse(w, entry)
+				g.recordMetrics(route.ID, r.Method, 200, time.Since(requestStart))
 				return
 			}
+			// Feature 5: Record cache miss
+			g.metricsCollector.RecordCacheMiss(route.ID)
 		}
 
 		// Invalidate cache on mutating requests
@@ -455,16 +599,18 @@ func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		allowed, _ := cb.Allow()
 		if !allowed {
 			errors.ErrServiceUnavailable.WithDetails("Circuit breaker is open").WriteJSON(w)
+			g.recordMetrics(route.ID, r.Method, 503, time.Since(requestStart))
 			return
 		}
 	}
 
-	// Step 8: Wrap ResponseWriter for status recording and caching
+	// Step 8: Conditional ResponseWriter wrapping
 	cacheHandler := g.caches.GetHandler(route.ID)
 	shouldCache := cacheHandler != nil && cacheHandler.ShouldCache(r)
 
 	var recorder *statusRecorder
 	var cachingWriter *cache.CachingResponseWriter
+	var compressingWriter *compression.CompressingResponseWriter
 	var responseWriter http.ResponseWriter = w
 
 	// Only wrap when needed
@@ -482,9 +628,41 @@ func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		responseWriter = cachingWriter
 	}
 
+	// Feature 4: Response compression wrapping (after cache so cached data is uncompressed)
+	compressor := g.compressors.GetCompressor(route.ID)
+	if compressor != nil && compressor.ShouldCompress(r) {
+		compressingWriter = compression.NewCompressingResponseWriter(responseWriter, compressor)
+		responseWriter = compressingWriter
+		// Strip Accept-Encoding from forwarded request so backend returns uncompressed
+		r.Header.Del("Accept-Encoding")
+	}
+
+	// Feature 10: Buffer request body if mirroring is enabled
+	var mirrorBody []byte
+	mirrorHandler := g.mirrors.GetMirror(route.ID)
+	if mirrorHandler != nil && mirrorHandler.IsEnabled() && mirrorHandler.ShouldMirror() {
+		var err error
+		mirrorBody, err = mirror.BufferRequestBody(r)
+		if err != nil {
+			// Body read error, but continue with primary request
+			mirrorBody = nil
+		}
+	}
+
 	// Step 9: Apply request transformations
 	transformer := transform.NewHeaderTransformer()
 	transformer.TransformRequest(r, route.Transform.Request.Headers, varCtx)
+
+	// Feature 13: Apply request body transformations
+	if len(route.Transform.Request.Body.AddFields) > 0 || len(route.Transform.Request.Body.RemoveFields) > 0 || len(route.Transform.Request.Body.RenameFields) > 0 {
+		applyBodyTransform(r, route.Transform.Request.Body)
+	}
+
+	// Feature 12: Prepare gRPC request if needed
+	if route.GRPC.Enabled && grpcproxy.IsGRPCRequest(r) {
+		grpcHandler := grpcproxy.New(true)
+		grpcHandler.PrepareRequest(r)
+	}
 
 	// Step 10: Proxy the request (retry policy handled inside proxy)
 	if cachingWriter != nil {
@@ -492,7 +670,22 @@ func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	rp.ServeHTTP(responseWriter, r)
 
+	// Step 10.5: Mirror request async (Feature 10)
+	if mirrorHandler != nil && mirrorBody != nil {
+		mirrorHandler.SendAsync(r, mirrorBody)
+	}
+
+	// Feature 4: Close compression writer
+	if compressingWriter != nil {
+		compressingWriter.Close()
+	}
+
 	// Step 11: Record circuit breaker outcome
+	finalStatus := 200
+	if recorder != nil {
+		finalStatus = recorder.statusCode
+	}
+
 	if cb != nil && recorder != nil {
 		if recorder.statusCode >= 500 {
 			cb.RecordFailure()
@@ -511,14 +704,75 @@ func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			cacheHandler.Store(r, entry)
 		}
+		finalStatus = cachingWriter.StatusCode
 	}
+
+	// Step 13: Record Prometheus metrics (Feature 5)
+	g.recordMetrics(route.ID, r.Method, finalStatus, time.Since(requestStart))
+}
+
+// recordMetrics records request metrics
+func (g *Gateway) recordMetrics(routeID, method string, status int, duration time.Duration) {
+	g.metricsCollector.RecordRequest(routeID, method, status, duration)
+}
+
+// applyBodyTransform applies body transformations to the request
+func applyBodyTransform(r *http.Request, cfg config.BodyTransformConfig) {
+	if r.Body == nil {
+		return
+	}
+
+	ct := r.Header.Get("Content-Type")
+	if ct != "application/json" && ct != "application/json; charset=utf-8" {
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return
+	}
+	r.Body.Close()
+
+	// Parse JSON
+	var data map[string]interface{}
+	if err := json.Unmarshal(body, &data); err != nil {
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		return
+	}
+
+	// Add fields
+	for key, value := range cfg.AddFields {
+		data[key] = value
+	}
+
+	// Remove fields
+	for _, key := range cfg.RemoveFields {
+		delete(data, key)
+	}
+
+	// Rename fields
+	for oldKey, newKey := range cfg.RenameFields {
+		if val, ok := data[oldKey]; ok {
+			data[newKey] = val
+			delete(data, oldKey)
+		}
+	}
+
+	newBody, err := json.Marshal(data)
+	if err != nil {
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		return
+	}
+
+	r.Body = io.NopCloser(bytes.NewReader(newBody))
+	r.ContentLength = int64(len(newBody))
 }
 
 // authenticate handles authentication for a request
 func (g *Gateway) authenticate(w http.ResponseWriter, r *http.Request, methods []string) bool {
 	// If no specific methods, try all available
 	if len(methods) == 0 {
-		methods = []string{"jwt", "api_key"}
+		methods = []string{"jwt", "api_key", "oauth"}
 	}
 
 	var identity *variables.Identity
@@ -536,6 +790,13 @@ func (g *Gateway) authenticate(w http.ResponseWriter, r *http.Request, methods [
 		case "api_key":
 			if g.apiKeyAuth != nil && g.apiKeyAuth.IsEnabled() {
 				identity, err = g.apiKeyAuth.Authenticate(r)
+				if err == nil {
+					break
+				}
+			}
+		case "oauth":
+			if g.oauthAuth != nil && g.oauthAuth.IsEnabled() {
+				identity, err = g.oauthAuth.Authenticate(r)
 				if err == nil {
 					break
 				}
@@ -581,6 +842,11 @@ func (g *Gateway) Close() error {
 	// Close UDP proxy
 	if g.udpProxy != nil {
 		g.udpProxy.Close()
+	}
+
+	// Close tracer
+	if g.tracer != nil {
+		g.tracer.Close()
 	}
 
 	// Close registry
@@ -638,6 +904,16 @@ func (g *Gateway) GetRetryMetrics() map[string]*retry.RouteRetryMetrics {
 		}
 	}
 	return result
+}
+
+// GetMetricsCollector returns the metrics collector
+func (g *Gateway) GetMetricsCollector() *metrics.Collector {
+	return g.metricsCollector
+}
+
+// GetAPIKeyAuth returns the API key auth for admin API
+func (g *Gateway) GetAPIKeyAuth() *auth.APIKeyAuth {
+	return g.apiKeyAuth
 }
 
 // Stats returns gateway statistics

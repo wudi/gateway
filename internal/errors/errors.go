@@ -84,6 +84,11 @@ var (
 		Code:    http.StatusInternalServerError,
 		Message: "Internal Server Error",
 	}
+
+	ErrRequestEntityTooLarge = &GatewayError{
+		Code:    http.StatusRequestEntityTooLarge,
+		Message: "Request Entity Too Large",
+	}
 )
 
 // New creates a new GatewayError

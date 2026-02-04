@@ -249,6 +249,20 @@ func (s *Server) adminHandler() http.Handler {
 	// Retry metrics
 	mux.HandleFunc("/retries", s.handleRetries)
 
+	// Feature 5: Prometheus metrics endpoint
+	metricsPath := "/metrics"
+	if s.config.Admin.Metrics.Path != "" {
+		metricsPath = s.config.Admin.Metrics.Path
+	}
+	if s.config.Admin.Metrics.Enabled {
+		mux.HandleFunc(metricsPath, s.handleMetrics)
+	}
+
+	// Feature 14: API Key management endpoints
+	if s.gateway.GetAPIKeyAuth() != nil {
+		mux.HandleFunc("/admin/keys", s.handleAdminKeys)
+	}
+
 	return mux
 }
 
@@ -439,6 +453,16 @@ func (s *Server) handleRetries(w http.ResponseWriter, r *http.Request) {
 		result[routeID] = m.Snapshot()
 	}
 	json.NewEncoder(w).Encode(result)
+}
+
+// handleMetrics handles Prometheus metrics requests (Feature 5)
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	s.gateway.GetMetricsCollector().WritePrometheus(w)
+}
+
+// handleAdminKeys handles API key management requests (Feature 14)
+func (s *Server) handleAdminKeys(w http.ResponseWriter, r *http.Request) {
+	s.gateway.GetAPIKeyAuth().HandleAdminKeys(w, r)
 }
 
 // Gateway returns the underlying gateway

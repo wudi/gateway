@@ -3,9 +3,11 @@ package listener
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/example/gateway/internal/config"
@@ -52,6 +54,33 @@ func NewHTTPListener(cfg HTTPListenerConfig) (*HTTPListener, error) {
 		h.tlsCfg = &tls.Config{
 			Certificates: []tls.Certificate{cert},
 			MinVersion:   tls.VersionTLS12,
+		}
+
+		// mTLS: Configure client certificate authentication
+		if cfg.TLS.ClientAuth != "" {
+			switch cfg.TLS.ClientAuth {
+			case "request":
+				h.tlsCfg.ClientAuth = tls.RequestClientCert
+			case "require":
+				h.tlsCfg.ClientAuth = tls.RequireAnyClientCert
+			case "verify":
+				h.tlsCfg.ClientAuth = tls.RequireAndVerifyClientCert
+			default:
+				h.tlsCfg.ClientAuth = tls.NoClientCert
+			}
+
+			// Load client CA if specified
+			if cfg.TLS.ClientCAFile != "" {
+				caCert, err := os.ReadFile(cfg.TLS.ClientCAFile)
+				if err != nil {
+					return nil, fmt.Errorf("failed to read client CA file: %w", err)
+				}
+				caPool := x509.NewCertPool()
+				if !caPool.AppendCertsFromPEM(caCert) {
+					return nil, fmt.Errorf("failed to parse client CA certificate")
+				}
+				h.tlsCfg.ClientCAs = caPool
+			}
 		}
 	}
 
