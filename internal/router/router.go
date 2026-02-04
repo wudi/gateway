@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/example/gateway/internal/config"
+	"github.com/julienschmidt/httprouter"
 )
 
 // Route represents a configured route
@@ -37,7 +38,10 @@ type Route struct {
 	Validation     config.ValidationConfig
 	Mirror         config.MirrorConfig
 	GRPC           config.GRPCConfig
-	matcher        *Matcher
+	MatchCfg       config.MatchConfig
+
+	matcher   *CompiledMatcher
+	configIdx int // insertion order for tie-breaking
 }
 
 // Backend represents a backend server
@@ -58,17 +62,113 @@ type Match struct {
 	PathParams map[string]string
 }
 
-// Router handles path-based routing
-type Router struct {
-	routes   []*Route
-	mu       sync.RWMutex
-	notFound http.Handler
+// RouteGroup holds an ordered slice of candidate routes sharing a path pattern.
+// Routes are sorted by specificity (descending), with config insertion order as tie-breaker.
+type RouteGroup struct {
+	routes []*Route
 }
+
+// ServeHTTP is called by httprouter for a matched path. It type-asserts the writer
+// to *captureWriter, iterates candidates, and stores the first matching route.
+func (rg *RouteGroup) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	cw, ok := w.(*captureWriter)
+	if !ok {
+		return
+	}
+
+	// Extract httprouter params from request context
+	params := httprouter.ParamsFromContext(r.Context())
+	pathParams := make(map[string]string, len(params))
+	for _, p := range params {
+		pathParams[p.Key] = p.Value
+	}
+
+	for _, route := range rg.routes {
+		if route.matcher.Matches(r) {
+			cw.match = &Match{
+				Route:      route,
+				PathParams: pathParams,
+			}
+			return
+		}
+	}
+}
+
+// addRoute adds a route to the group and re-sorts by specificity.
+func (rg *RouteGroup) addRoute(route *Route) {
+	rg.routes = append(rg.routes, route)
+	sort.SliceStable(rg.routes, func(i, j int) bool {
+		si := rg.routes[i].matcher.Specificity()
+		sj := rg.routes[j].matcher.Specificity()
+		if si != sj {
+			return si > sj
+		}
+		return rg.routes[i].configIdx < rg.routes[j].configIdx
+	})
+}
+
+// removeRoute removes a route by ID from the group. Returns true if found.
+func (rg *RouteGroup) removeRoute(id string) bool {
+	for i, route := range rg.routes {
+		if route.ID == id {
+			rg.routes = append(rg.routes[:i], rg.routes[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// captureWriter is a no-op ResponseWriter used to extract the match result
+// from httprouter dispatch without writing any actual HTTP response.
+type captureWriter struct {
+	match  *Match
+	header http.Header
+}
+
+func newCaptureWriter() *captureWriter {
+	return &captureWriter{header: make(http.Header)}
+}
+
+func (cw *captureWriter) Header() http.Header      { return cw.header }
+func (cw *captureWriter) Write([]byte) (int, error) { return 0, nil }
+func (cw *captureWriter) WriteHeader(int)           {}
+
+// prefixRoute holds a prefix route with its compiled segments for matching.
+type prefixRoute struct {
+	route    *Route
+	segments []string // pre-split normalized segments (no params)
+	group    *RouteGroup
+}
+
+// Router handles path-based HTTP routing using httprouter for tier-1 path matching
+// and RouteGroup for tier-2 domain/header/query matching.
+type Router struct {
+	tree          *httprouter.Router
+	groups        map[string]*RouteGroup // normalized path → group (exact routes only)
+	prefixGroups  []*prefixRoute         // prefix routes checked as fallback
+	prefixByPath  map[string]*RouteGroup // normalized prefix path → group
+	allRoutes     []*Route
+	mu            sync.RWMutex
+	notFound      http.Handler
+	nextIdx       int
+	registeredPaths map[string]bool // tracks method+path combos registered with httprouter
+}
+
+// standardMethods lists HTTP methods registered with httprouter for each path.
+var standardMethods = []string{"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
 
 // New creates a new router
 func New() *Router {
+	tree := httprouter.New()
+	tree.HandleMethodNotAllowed = false
+	tree.RedirectTrailingSlash = false
+	tree.RedirectFixedPath = false
+
 	return &Router{
-		routes: make([]*Route, 0),
+		tree:            tree,
+		groups:          make(map[string]*RouteGroup),
+		prefixByPath:    make(map[string]*RouteGroup),
+		registeredPaths: make(map[string]bool),
 		notFound: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Not Found", http.StatusNotFound)
 		}),
@@ -77,6 +177,9 @@ func New() *Router {
 
 // AddRoute adds a route to the router
 func (rt *Router) AddRoute(routeCfg config.RouteConfig) error {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+
 	route := &Route{
 		ID:          routeCfg.ID,
 		Path:        routeCfg.Path,
@@ -106,8 +209,10 @@ func (rt *Router) AddRoute(routeCfg config.RouteConfig) error {
 		Validation:     routeCfg.Validation,
 		Mirror:         routeCfg.Mirror,
 		GRPC:           routeCfg.GRPC,
-		matcher:        NewMatcher(routeCfg.Path, routeCfg.PathPrefix),
+		MatchCfg:       routeCfg.Match,
+		configIdx:      rt.nextIdx,
 	}
+	rt.nextIdx++
 
 	// Convert backends
 	for _, b := range routeCfg.Backends {
@@ -123,31 +228,93 @@ func (rt *Router) AddRoute(routeCfg config.RouteConfig) error {
 
 	// Set allowed methods
 	if len(routeCfg.Methods) == 0 {
-		// Allow all methods if none specified
-		route.Methods = nil
+		route.Methods = nil // nil = all methods
 	} else {
 		for _, m := range routeCfg.Methods {
 			route.Methods[strings.ToUpper(m)] = true
 		}
 	}
 
-	rt.mu.Lock()
-	rt.routes = append(rt.routes, route)
-	// Sort routes by specificity (exact matches first, then by path length)
-	sort.Slice(rt.routes, func(i, j int) bool {
-		// Exact matches before prefix matches
-		if !rt.routes[i].PathPrefix && rt.routes[j].PathPrefix {
-			return true
-		}
-		if rt.routes[i].PathPrefix && !rt.routes[j].PathPrefix {
-			return false
-		}
-		// Longer paths first (more specific)
-		return len(rt.routes[i].Path) > len(rt.routes[j].Path)
-	})
-	rt.mu.Unlock()
+	// Create compiled matcher for domain/header/query/method
+	route.matcher = NewCompiledMatcher(routeCfg.Match, routeCfg.Methods)
 
+	if routeCfg.PathPrefix {
+		rt.addPrefixRoute(route, routeCfg.Path)
+	} else {
+		rt.addExactRoute(route, routeCfg.Path)
+	}
+
+	rt.allRoutes = append(rt.allRoutes, route)
 	return nil
+}
+
+// addExactRoute registers an exact (non-prefix) route with httprouter.
+func (rt *Router) addExactRoute(route *Route, path string) {
+	normalized := replaceParams(path)
+	if !strings.HasPrefix(normalized, "/") {
+		normalized = "/" + normalized
+	}
+
+	group, exists := rt.groups[normalized]
+	if !exists {
+		group = &RouteGroup{}
+		rt.groups[normalized] = group
+
+		for _, method := range standardMethods {
+			key := method + " " + normalized
+			if !rt.registeredPaths[key] {
+				rt.tree.Handler(method, normalized, group)
+				rt.registeredPaths[key] = true
+			}
+		}
+	}
+
+	group.addRoute(route)
+}
+
+// addPrefixRoute registers a prefix route. Prefix routes are matched separately
+// from httprouter's radix tree to avoid catch-all parameter conflicts.
+func (rt *Router) addPrefixRoute(route *Route, path string) {
+	normalized := replaceParams(path)
+	if !strings.HasPrefix(normalized, "/") {
+		normalized = "/" + normalized
+	}
+
+	// Also register the exact path in httprouter so the prefix base itself matches
+	group, exists := rt.groups[normalized]
+	if !exists {
+		group = &RouteGroup{}
+		rt.groups[normalized] = group
+
+		for _, method := range standardMethods {
+			key := method + " " + normalized
+			if !rt.registeredPaths[key] {
+				rt.tree.Handler(method, normalized, group)
+				rt.registeredPaths[key] = true
+			}
+		}
+	}
+	group.addRoute(route)
+
+	// Add to prefix groups for subpath matching
+	prefixGroup, exists := rt.prefixByPath[normalized]
+	if !exists {
+		prefixGroup = &RouteGroup{}
+		rt.prefixByPath[normalized] = prefixGroup
+
+		segments := splitPath(normalized)
+		rt.prefixGroups = append(rt.prefixGroups, &prefixRoute{
+			route:    route,
+			segments: segments,
+			group:    prefixGroup,
+		})
+
+		// Sort prefix routes: longer paths first (more specific)
+		sort.Slice(rt.prefixGroups, func(i, j int) bool {
+			return len(rt.prefixGroups[i].segments) > len(rt.prefixGroups[j].segments)
+		})
+	}
+	prefixGroup.addRoute(route)
 }
 
 // Match finds a route matching the request
@@ -155,24 +322,35 @@ func (rt *Router) Match(r *http.Request) *Match {
 	rt.mu.RLock()
 	defer rt.mu.RUnlock()
 
-	path := r.URL.Path
-	method := r.Method
+	// Tier 1: Try httprouter for exact/param paths
+	cw := newCaptureWriter()
+	rt.tree.ServeHTTP(cw, r)
+	if cw.match != nil {
+		return cw.match
+	}
 
-	for _, route := range rt.routes {
-		// Check if path matches
-		params, ok := route.matcher.Match(path)
-		if !ok {
+	// Tier 2: Try prefix routes for subpaths
+	return rt.matchPrefix(r)
+}
+
+// matchPrefix checks prefix routes against the request path.
+func (rt *Router) matchPrefix(r *http.Request) *Match {
+	reqPath := r.URL.Path
+	reqSegments := splitPath(reqPath)
+
+	for _, pr := range rt.prefixGroups {
+		if !pathHasPrefix(reqSegments, pr.segments) {
 			continue
 		}
 
-		// Check method if specified
-		if route.Methods != nil && !route.Methods[method] {
-			continue
-		}
-
-		return &Match{
-			Route:      route,
-			PathParams: params,
+		// Check each route in the group
+		for _, route := range pr.group.routes {
+			if route.matcher.Matches(r) {
+				return &Match{
+					Route:      route,
+					PathParams: make(map[string]string),
+				}
+			}
 		}
 	}
 
@@ -184,7 +362,7 @@ func (rt *Router) GetRoute(id string) *Route {
 	rt.mu.RLock()
 	defer rt.mu.RUnlock()
 
-	for _, route := range rt.routes {
+	for _, route := range rt.allRoutes {
 		if route.ID == id {
 			return route
 		}
@@ -197,8 +375,8 @@ func (rt *Router) GetRoutes() []*Route {
 	rt.mu.RLock()
 	defer rt.mu.RUnlock()
 
-	result := make([]*Route, len(rt.routes))
-	copy(result, rt.routes)
+	result := make([]*Route, len(rt.allRoutes))
+	copy(result, rt.allRoutes)
 	return result
 }
 
@@ -207,13 +385,31 @@ func (rt *Router) RemoveRoute(id string) bool {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 
-	for i, route := range rt.routes {
+	// Remove from allRoutes
+	found := false
+	for i, route := range rt.allRoutes {
 		if route.ID == id {
-			rt.routes = append(rt.routes[:i], rt.routes[i+1:]...)
-			return true
+			rt.allRoutes = append(rt.allRoutes[:i], rt.allRoutes[i+1:]...)
+			found = true
+			break
 		}
 	}
-	return false
+
+	if !found {
+		return false
+	}
+
+	// Remove from exact groups
+	for _, group := range rt.groups {
+		group.removeRoute(id)
+	}
+
+	// Remove from prefix groups
+	for _, group := range rt.prefixByPath {
+		group.removeRoute(id)
+	}
+
+	return true
 }
 
 // UpdateBackends updates the backends for a route
@@ -221,7 +417,7 @@ func (rt *Router) UpdateBackends(routeID string, backends []Backend) bool {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 
-	for _, route := range rt.routes {
+	for _, route := range rt.allRoutes {
 		if route.ID == routeID {
 			route.Backends = backends
 			return true
@@ -238,4 +434,54 @@ func (rt *Router) SetNotFoundHandler(h http.Handler) {
 // NotFoundHandler returns the not found handler
 func (rt *Router) NotFoundHandler() http.Handler {
 	return rt.notFound
+}
+
+// splitPath splits a URL path into non-empty segments.
+func splitPath(path string) []string {
+	path = strings.Trim(path, "/")
+	if path == "" {
+		return nil
+	}
+	return strings.Split(path, "/")
+}
+
+// pathHasPrefix checks if reqSegments starts with prefixSegments.
+func pathHasPrefix(reqSegments, prefixSegments []string) bool {
+	if len(reqSegments) < len(prefixSegments) {
+		return false
+	}
+	for i, seg := range prefixSegments {
+		// Skip param segments (start with ':')
+		if strings.HasPrefix(seg, ":") {
+			continue
+		}
+		if reqSegments[i] != seg {
+			return false
+		}
+	}
+	return true
+}
+
+// replaceParams converts {name} path parameters to :name httprouter syntax.
+func replaceParams(path string) string {
+	var result strings.Builder
+	i := 0
+	for i < len(path) {
+		if path[i] == '{' {
+			j := strings.IndexByte(path[i:], '}')
+			if j == -1 {
+				result.WriteByte(path[i])
+				i++
+				continue
+			}
+			paramName := path[i+1 : i+j]
+			result.WriteByte(':')
+			result.WriteString(paramName)
+			i += j + 1
+		} else {
+			result.WriteByte(path[i])
+			i++
+		}
+	}
+	return result.String()
 }

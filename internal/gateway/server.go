@@ -324,6 +324,9 @@ func (s *Server) handleRoutes(w http.ResponseWriter, r *http.Request) {
 		PathPrefix bool     `json:"path_prefix"`
 		Backends   int      `json:"backends"`
 		Methods    []string `json:"methods,omitempty"`
+		Domains    []string `json:"domains,omitempty"`
+		Headers    int      `json:"header_matchers,omitempty"`
+		Query      int      `json:"query_matchers,omitempty"`
 	}
 
 	result := make([]routeInfo, 0, len(routes))
@@ -333,6 +336,9 @@ func (s *Server) handleRoutes(w http.ResponseWriter, r *http.Request) {
 			Path:       route.Path,
 			PathPrefix: route.PathPrefix,
 			Backends:   len(route.Backends),
+			Domains:    route.MatchCfg.Domains,
+			Headers:    len(route.MatchCfg.Headers),
+			Query:      len(route.MatchCfg.Query),
 		}
 
 		if route.Methods != nil {

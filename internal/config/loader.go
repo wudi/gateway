@@ -140,6 +140,11 @@ func (l *Loader) validate(cfg *Config) error {
 		if len(route.Backends) == 0 && route.Service.Name == "" {
 			return fmt.Errorf("route %s: must have either backends or service name", route.ID)
 		}
+
+		// Validate match config
+		if err := l.validateMatchConfig(route.ID, route.Match); err != nil {
+			return err
+		}
 	}
 
 	// Validate TCP routes
@@ -246,6 +251,71 @@ func (l *Loader) validate(cfg *Config) error {
 			}
 			if route.WebSocket.WriteBufferSize != 0 && route.WebSocket.WriteBufferSize < 1 {
 				return fmt.Errorf("route %s: websocket write_buffer_size must be > 0", route.ID)
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateMatchConfig validates the match configuration for a route
+func (l *Loader) validateMatchConfig(routeID string, mc MatchConfig) error {
+	// Validate domains
+	for _, domain := range mc.Domains {
+		if domain == "" {
+			return fmt.Errorf("route %s: match domain must not be empty", routeID)
+		}
+		if strings.Contains(domain, "*") && !strings.HasPrefix(domain, "*.") {
+			return fmt.Errorf("route %s: match domain wildcard must be a prefix '*.', got: %s", routeID, domain)
+		}
+	}
+
+	// Validate header matchers
+	for i, h := range mc.Headers {
+		if h.Name == "" {
+			return fmt.Errorf("route %s: match header %d: name is required", routeID, i)
+		}
+		count := 0
+		if h.Value != "" {
+			count++
+		}
+		if h.Present != nil {
+			count++
+		}
+		if h.Regex != "" {
+			count++
+		}
+		if count != 1 {
+			return fmt.Errorf("route %s: match header %q: must set exactly one of value, present, or regex", routeID, h.Name)
+		}
+		if h.Regex != "" {
+			if _, err := regexp.Compile(h.Regex); err != nil {
+				return fmt.Errorf("route %s: match header %q: invalid regex: %w", routeID, h.Name, err)
+			}
+		}
+	}
+
+	// Validate query matchers
+	for i, q := range mc.Query {
+		if q.Name == "" {
+			return fmt.Errorf("route %s: match query %d: name is required", routeID, i)
+		}
+		count := 0
+		if q.Value != "" {
+			count++
+		}
+		if q.Present != nil {
+			count++
+		}
+		if q.Regex != "" {
+			count++
+		}
+		if count != 1 {
+			return fmt.Errorf("route %s: match query %q: must set exactly one of value, present, or regex", routeID, q.Name)
+		}
+		if q.Regex != "" {
+			if _, err := regexp.Compile(q.Regex); err != nil {
+				return fmt.Errorf("route %s: match query %q: invalid regex: %w", routeID, q.Name, err)
 			}
 		}
 	}

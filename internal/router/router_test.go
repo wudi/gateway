@@ -1,6 +1,7 @@
 package router
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -59,10 +60,11 @@ func TestRouterMatch(t *testing.T) {
 			wantRoute: "users",
 		},
 		{
-			name:      "param route match",
-			path:      "/api/v1/users/123",
-			method:    "GET",
-			wantRoute: "user-detail",
+			name:       "param route match",
+			path:       "/api/v1/users/123",
+			method:     "GET",
+			wantRoute:  "user-detail",
+			wantParams: map[string]string{"id": "123"},
 		},
 		{
 			name:      "no match",
@@ -91,6 +93,12 @@ func TestRouterMatch(t *testing.T) {
 
 			if match.Route.ID != tt.wantRoute {
 				t.Errorf("expected route %s, got %s", tt.wantRoute, match.Route.ID)
+			}
+
+			for k, v := range tt.wantParams {
+				if match.PathParams[k] != v {
+					t.Errorf("expected param %s=%s, got %s", k, v, match.PathParams[k])
+				}
 			}
 		})
 	}
@@ -121,25 +129,39 @@ func TestRouterMethodFiltering(t *testing.T) {
 	}
 }
 
-func TestMatcherWithParams(t *testing.T) {
-	m := NewMatcher("/users/{id}/posts/{post_id}", false)
+func TestPathParamNormalization(t *testing.T) {
+	r := New()
 
-	params, ok := m.Match("/users/123/posts/456")
-	if !ok {
-		t.Error("expected match")
+	r.AddRoute(config.RouteConfig{
+		ID:       "param-route",
+		Path:     "/users/{id}/posts/{post_id}",
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	req := httptest.NewRequest("GET", "/users/123/posts/456", nil)
+	match := r.Match(req)
+	if match == nil {
+		t.Fatal("expected match")
 	}
 
-	if params["id"] != "123" {
-		t.Errorf("expected id=123, got %s", params["id"])
+	if match.PathParams["id"] != "123" {
+		t.Errorf("expected id=123, got %s", match.PathParams["id"])
 	}
 
-	if params["post_id"] != "456" {
-		t.Errorf("expected post_id=456, got %s", params["post_id"])
+	if match.PathParams["post_id"] != "456" {
+		t.Errorf("expected post_id=456, got %s", match.PathParams["post_id"])
 	}
 }
 
-func TestMatcherPrefix(t *testing.T) {
-	m := NewMatcher("/api/v1", true)
+func TestPrefixMatch(t *testing.T) {
+	r := New()
+
+	r.AddRoute(config.RouteConfig{
+		ID:         "prefix",
+		Path:       "/api/v1",
+		PathPrefix: true,
+		Backends:   []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
 
 	tests := []struct {
 		path  string
@@ -154,9 +176,11 @@ func TestMatcherPrefix(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
-			_, ok := m.Match(tt.path)
-			if ok != tt.match {
-				t.Errorf("Match(%s) = %v, want %v", tt.path, ok, tt.match)
+			req := httptest.NewRequest("GET", tt.path, nil)
+			m := r.Match(req)
+			got := m != nil
+			if got != tt.match {
+				t.Errorf("Match(%s) = %v, want %v", tt.path, got, tt.match)
 			}
 		})
 	}
@@ -183,20 +207,564 @@ func TestRouteRemove(t *testing.T) {
 	}
 }
 
+func TestDomainMatchExact(t *testing.T) {
+	r := New()
+
+	r.AddRoute(config.RouteConfig{
+		ID:   "api-route",
+		Path: "/data",
+		Match: config.MatchConfig{
+			Domains: []string{"api.example.com"},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	// Matching domain
+	req := httptest.NewRequest("GET", "http://api.example.com/data", nil)
+	match := r.Match(req)
+	if match == nil {
+		t.Error("expected match for exact domain")
+	}
+
+	// Non-matching domain
+	req = httptest.NewRequest("GET", "http://other.example.com/data", nil)
+	match = r.Match(req)
+	if match != nil {
+		t.Error("should not match wrong domain")
+	}
+}
+
+func TestDomainMatchWildcard(t *testing.T) {
+	r := New()
+
+	r.AddRoute(config.RouteConfig{
+		ID:   "wildcard-route",
+		Path: "/data",
+		Match: config.MatchConfig{
+			Domains: []string{"*.example.com"},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	// Matching wildcard
+	req := httptest.NewRequest("GET", "http://api.example.com/data", nil)
+	match := r.Match(req)
+	if match == nil {
+		t.Error("expected match for wildcard domain")
+	}
+
+	req = httptest.NewRequest("GET", "http://web.example.com/data", nil)
+	match = r.Match(req)
+	if match == nil {
+		t.Error("expected match for wildcard domain (web)")
+	}
+
+	// Non-matching
+	req = httptest.NewRequest("GET", "http://api.other.com/data", nil)
+	match = r.Match(req)
+	if match != nil {
+		t.Error("should not match different base domain")
+	}
+}
+
+func TestHeaderMatchExact(t *testing.T) {
+	r := New()
+
+	r.AddRoute(config.RouteConfig{
+		ID:   "v2-route",
+		Path: "/api",
+		Match: config.MatchConfig{
+			Headers: []config.HeaderMatchConfig{
+				{Name: "X-Version", Value: "v2"},
+			},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	// With matching header
+	req := httptest.NewRequest("GET", "/api", nil)
+	req.Header.Set("X-Version", "v2")
+	match := r.Match(req)
+	if match == nil {
+		t.Error("expected match for exact header value")
+	}
+
+	// Without header
+	req = httptest.NewRequest("GET", "/api", nil)
+	match = r.Match(req)
+	if match != nil {
+		t.Error("should not match without header")
+	}
+
+	// Wrong value
+	req = httptest.NewRequest("GET", "/api", nil)
+	req.Header.Set("X-Version", "v1")
+	match = r.Match(req)
+	if match != nil {
+		t.Error("should not match wrong header value")
+	}
+}
+
+func TestHeaderMatchPresent(t *testing.T) {
+	r := New()
+
+	boolTrue := true
+	r.AddRoute(config.RouteConfig{
+		ID:   "debug-route",
+		Path: "/api",
+		Match: config.MatchConfig{
+			Headers: []config.HeaderMatchConfig{
+				{Name: "X-Debug", Present: &boolTrue},
+			},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	// With header present
+	req := httptest.NewRequest("GET", "/api", nil)
+	req.Header.Set("X-Debug", "anything")
+	match := r.Match(req)
+	if match == nil {
+		t.Error("expected match for present header")
+	}
+
+	// Without header
+	req = httptest.NewRequest("GET", "/api", nil)
+	match = r.Match(req)
+	if match != nil {
+		t.Error("should not match without header")
+	}
+}
+
+func TestHeaderMatchRegex(t *testing.T) {
+	r := New()
+
+	r.AddRoute(config.RouteConfig{
+		ID:   "mobile-route",
+		Path: "/api",
+		Match: config.MatchConfig{
+			Headers: []config.HeaderMatchConfig{
+				{Name: "X-Client", Regex: "^mobile-.*"},
+			},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	// Matching regex
+	req := httptest.NewRequest("GET", "/api", nil)
+	req.Header.Set("X-Client", "mobile-ios")
+	match := r.Match(req)
+	if match == nil {
+		t.Error("expected match for regex header")
+	}
+
+	// Non-matching
+	req = httptest.NewRequest("GET", "/api", nil)
+	req.Header.Set("X-Client", "desktop")
+	match = r.Match(req)
+	if match != nil {
+		t.Error("should not match non-matching regex")
+	}
+}
+
+func TestQueryMatchExact(t *testing.T) {
+	r := New()
+
+	r.AddRoute(config.RouteConfig{
+		ID:   "json-route",
+		Path: "/api",
+		Match: config.MatchConfig{
+			Query: []config.QueryMatchConfig{
+				{Name: "format", Value: "json"},
+			},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	// Matching query
+	req := httptest.NewRequest("GET", "/api?format=json", nil)
+	match := r.Match(req)
+	if match == nil {
+		t.Error("expected match for exact query value")
+	}
+
+	// Non-matching
+	req = httptest.NewRequest("GET", "/api?format=xml", nil)
+	match = r.Match(req)
+	if match != nil {
+		t.Error("should not match wrong query value")
+	}
+
+	// Missing query
+	req = httptest.NewRequest("GET", "/api", nil)
+	match = r.Match(req)
+	if match != nil {
+		t.Error("should not match missing query")
+	}
+}
+
+func TestQueryMatchPresent(t *testing.T) {
+	r := New()
+
+	boolTrue := true
+	r.AddRoute(config.RouteConfig{
+		ID:   "verbose-route",
+		Path: "/api",
+		Match: config.MatchConfig{
+			Query: []config.QueryMatchConfig{
+				{Name: "verbose", Present: &boolTrue},
+			},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	// With query param present
+	req := httptest.NewRequest("GET", "/api?verbose=true", nil)
+	match := r.Match(req)
+	if match == nil {
+		t.Error("expected match for present query")
+	}
+
+	// Without query param
+	req = httptest.NewRequest("GET", "/api", nil)
+	match = r.Match(req)
+	if match != nil {
+		t.Error("should not match missing query param")
+	}
+}
+
+func TestQueryMatchRegex(t *testing.T) {
+	r := New()
+
+	r.AddRoute(config.RouteConfig{
+		ID:   "fields-route",
+		Path: "/api",
+		Match: config.MatchConfig{
+			Query: []config.QueryMatchConfig{
+				{Name: "fields", Regex: "^[a-z,]+$"},
+			},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	// Matching regex
+	req := httptest.NewRequest("GET", "/api?fields=name,email", nil)
+	match := r.Match(req)
+	if match == nil {
+		t.Error("expected match for regex query")
+	}
+
+	// Non-matching
+	req = httptest.NewRequest("GET", "/api?fields=Name,123", nil)
+	match = r.Match(req)
+	if match != nil {
+		t.Error("should not match non-matching regex query")
+	}
+}
+
+func TestMultiRouteSpecificity(t *testing.T) {
+	r := New()
+
+	// Less specific: no match criteria
+	r.AddRoute(config.RouteConfig{
+		ID:       "fallback",
+		Path:     "/api",
+		Backends: []config.BackendConfig{{URL: "http://fallback:9001"}},
+	})
+
+	// More specific: exact domain
+	r.AddRoute(config.RouteConfig{
+		ID:   "domain-specific",
+		Path: "/api",
+		Match: config.MatchConfig{
+			Domains: []string{"api.example.com"},
+		},
+		Backends: []config.BackendConfig{{URL: "http://specific:9001"}},
+	})
+
+	// Request with matching domain should hit specific route
+	req := httptest.NewRequest("GET", "http://api.example.com/api", nil)
+	match := r.Match(req)
+	if match == nil {
+		t.Fatal("expected match")
+	}
+	if match.Route.ID != "domain-specific" {
+		t.Errorf("expected domain-specific, got %s", match.Route.ID)
+	}
+
+	// Request without matching domain should hit fallback
+	req = httptest.NewRequest("GET", "http://other.com/api", nil)
+	match = r.Match(req)
+	if match == nil {
+		t.Fatal("expected match")
+	}
+	if match.Route.ID != "fallback" {
+		t.Errorf("expected fallback, got %s", match.Route.ID)
+	}
+}
+
+func TestSpecificityExactDomainBeatsWildcard(t *testing.T) {
+	r := New()
+
+	// Wildcard domain
+	r.AddRoute(config.RouteConfig{
+		ID:   "wildcard",
+		Path: "/api",
+		Match: config.MatchConfig{
+			Domains: []string{"*.example.com"},
+		},
+		Backends: []config.BackendConfig{{URL: "http://wildcard:9001"}},
+	})
+
+	// Exact domain (more specific)
+	r.AddRoute(config.RouteConfig{
+		ID:   "exact",
+		Path: "/api",
+		Match: config.MatchConfig{
+			Domains: []string{"api.example.com"},
+		},
+		Backends: []config.BackendConfig{{URL: "http://exact:9001"}},
+	})
+
+	req := httptest.NewRequest("GET", "http://api.example.com/api", nil)
+	match := r.Match(req)
+	if match == nil {
+		t.Fatal("expected match")
+	}
+	if match.Route.ID != "exact" {
+		t.Errorf("expected exact, got %s", match.Route.ID)
+	}
+
+	// Different subdomain should hit wildcard
+	req = httptest.NewRequest("GET", "http://web.example.com/api", nil)
+	match = r.Match(req)
+	if match == nil {
+		t.Fatal("expected match")
+	}
+	if match.Route.ID != "wildcard" {
+		t.Errorf("expected wildcard, got %s", match.Route.ID)
+	}
+}
+
+func TestSpecificityHeadersAddScore(t *testing.T) {
+	r := New()
+
+	// No match criteria (score 0)
+	r.AddRoute(config.RouteConfig{
+		ID:       "default",
+		Path:     "/api",
+		Backends: []config.BackendConfig{{URL: "http://default:9001"}},
+	})
+
+	// With header matcher (score 10)
+	r.AddRoute(config.RouteConfig{
+		ID:   "versioned",
+		Path: "/api",
+		Match: config.MatchConfig{
+			Headers: []config.HeaderMatchConfig{
+				{Name: "X-Version", Value: "v2"},
+			},
+		},
+		Backends: []config.BackendConfig{{URL: "http://versioned:9001"}},
+	})
+
+	// Request with header should match versioned
+	req := httptest.NewRequest("GET", "/api", nil)
+	req.Header.Set("X-Version", "v2")
+	match := r.Match(req)
+	if match == nil {
+		t.Fatal("expected match")
+	}
+	if match.Route.ID != "versioned" {
+		t.Errorf("expected versioned, got %s", match.Route.ID)
+	}
+
+	// Request without header should match default
+	req = httptest.NewRequest("GET", "/api", nil)
+	match = r.Match(req)
+	if match == nil {
+		t.Fatal("expected match")
+	}
+	if match.Route.ID != "default" {
+		t.Errorf("expected default, got %s", match.Route.ID)
+	}
+}
+
+func TestGetRoutes(t *testing.T) {
+	r := New()
+
+	r.AddRoute(config.RouteConfig{
+		ID:       "a",
+		Path:     "/a",
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+	r.AddRoute(config.RouteConfig{
+		ID:       "b",
+		Path:     "/b",
+		Backends: []config.BackendConfig{{URL: "http://localhost:9002"}},
+	})
+
+	routes := r.GetRoutes()
+	if len(routes) != 2 {
+		t.Errorf("expected 2 routes, got %d", len(routes))
+	}
+}
+
+func TestUpdateBackends(t *testing.T) {
+	r := New()
+
+	r.AddRoute(config.RouteConfig{
+		ID:       "test",
+		Path:     "/test",
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	ok := r.UpdateBackends("test", []Backend{
+		{URL: "http://new:9001", Weight: 1},
+		{URL: "http://new:9002", Weight: 1},
+	})
+	if !ok {
+		t.Error("UpdateBackends should return true")
+	}
+
+	route := r.GetRoute("test")
+	if len(route.Backends) != 2 {
+		t.Errorf("expected 2 backends, got %d", len(route.Backends))
+	}
+}
+
+func TestReplaceParams(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"/users/{id}", "/users/:id"},
+		{"/users/{id}/posts/{post_id}", "/users/:id/posts/:post_id"},
+		{"/static/path", "/static/path"},
+		{"/{a}/{b}/{c}", "/:a/:b/:c"},
+	}
+
+	for _, tt := range tests {
+		got := replaceParams(tt.input)
+		if got != tt.expected {
+			t.Errorf("replaceParams(%q) = %q, want %q", tt.input, got, tt.expected)
+		}
+	}
+}
+
+func TestSplitPath(t *testing.T) {
+	tests := []struct {
+		path     string
+		expected int
+	}{
+		{"/", 0},
+		{"/users", 1},
+		{"/users/123", 2},
+		{"/api/v1/users", 3},
+	}
+
+	for _, tt := range tests {
+		got := splitPath(tt.path)
+		if len(got) != tt.expected {
+			t.Errorf("splitPath(%q) returned %d segments, want %d", tt.path, len(got), tt.expected)
+		}
+	}
+}
+
+func TestMatchConfigDomainWithPort(t *testing.T) {
+	r := New()
+
+	r.AddRoute(config.RouteConfig{
+		ID:   "domain-port",
+		Path: "/api",
+		Match: config.MatchConfig{
+			Domains: []string{"api.example.com"},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	// Host header with port should still match
+	req := httptest.NewRequest("GET", "/api", nil)
+	req.Host = "api.example.com:8080"
+	match := r.Match(req)
+	if match == nil {
+		t.Error("expected match for domain with port")
+	}
+}
+
+func TestRootPath(t *testing.T) {
+	r := New()
+
+	r.AddRoute(config.RouteConfig{
+		ID:       "root",
+		Path:     "/",
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	req := httptest.NewRequest("GET", "/", nil)
+	match := r.Match(req)
+	if match == nil {
+		t.Error("expected match for root path")
+	}
+}
+
+func TestRootPrefixMatchesAll(t *testing.T) {
+	r := New()
+
+	r.AddRoute(config.RouteConfig{
+		ID:         "root-prefix",
+		Path:       "/",
+		PathPrefix: true,
+		Backends:   []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	paths := []string{"/", "/foo", "/foo/bar"}
+	for _, p := range paths {
+		req := httptest.NewRequest("GET", p, nil)
+		match := r.Match(req)
+		if match == nil {
+			t.Errorf("expected match for path %s with root prefix", p)
+		}
+	}
+}
+
 func BenchmarkRouterMatch(b *testing.B) {
 	r := New()
 
 	// Add 100 routes
 	for i := 0; i < 100; i++ {
 		r.AddRoute(config.RouteConfig{
-			ID:         string(rune(i)),
-			Path:       "/api/v1/service" + string(rune(i)),
+			ID:         fmt.Sprintf("route-%d", i),
+			Path:       fmt.Sprintf("/api/v1/service%d", i),
 			PathPrefix: true,
 			Backends:   []config.BackendConfig{{URL: "http://localhost:9001"}},
 		})
 	}
 
 	req, _ := http.NewRequest("GET", "/api/v1/service50/users/123", nil)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		r.Match(req)
+	}
+}
+
+func BenchmarkRouterMatchWithMatchers(b *testing.B) {
+	r := New()
+
+	// Add 100 routes with various matchers
+	for i := 0; i < 100; i++ {
+		r.AddRoute(config.RouteConfig{
+			ID:   fmt.Sprintf("route-%d", i),
+			Path: "/api",
+			Match: config.MatchConfig{
+				Domains: []string{fmt.Sprintf("svc%d.example.com", i)},
+			},
+			Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+		})
+	}
+
+	req, _ := http.NewRequest("GET", "http://svc50.example.com/api", nil)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

@@ -201,6 +201,7 @@ type RouteConfig struct {
 	Path           string               `yaml:"path"`
 	PathPrefix     bool                 `yaml:"path_prefix"`
 	Methods        []string             `yaml:"methods"`
+	Match          MatchConfig          `yaml:"match"`
 	Backends       []BackendConfig      `yaml:"backends"`
 	Service        ServiceConfig        `yaml:"service"`
 	Auth           RouteAuthConfig      `yaml:"auth"`
@@ -345,6 +346,29 @@ type BodyTransformConfig struct {
 	AddFields    map[string]string `yaml:"add_fields"`
 	RemoveFields []string          `yaml:"remove_fields"`
 	RenameFields map[string]string `yaml:"rename_fields"`
+}
+
+// MatchConfig defines route match criteria for domain/header/query matching
+type MatchConfig struct {
+	Domains []string            `yaml:"domains"`
+	Headers []HeaderMatchConfig `yaml:"headers"`
+	Query   []QueryMatchConfig  `yaml:"query"`
+}
+
+// HeaderMatchConfig defines a single header match criterion
+type HeaderMatchConfig struct {
+	Name    string `yaml:"name"`
+	Value   string `yaml:"value"`
+	Present *bool  `yaml:"present"`
+	Regex   string `yaml:"regex"`
+}
+
+// QueryMatchConfig defines a single query parameter match criterion
+type QueryMatchConfig struct {
+	Name    string `yaml:"name"`
+	Value   string `yaml:"value"`
+	Present *bool  `yaml:"present"`
+	Regex   string `yaml:"regex"`
 }
 
 // BackendConfig defines a static backend

@@ -1270,3 +1270,542 @@ func TestAdminAPIRetryMetrics(t *testing.T) {
 		t.Error("Expected non-zero success count")
 	}
 }
+
+// ============================================================
+// Domain / Header / Query Routing Integration Tests
+// ============================================================
+
+// TestDomainRouting tests that requests are routed to different backends based on Host header.
+func TestDomainRouting(t *testing.T) {
+	backendA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(200)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"backend":"A"}`)
+	}))
+	defer backendA.Close()
+
+	backendB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(200)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"backend":"B"}`)
+	}))
+	defer backendB.Close()
+
+	cfg := baseConfig()
+	cfg.Routes = []config.RouteConfig{
+		{
+			ID:   "domain-a",
+			Path: "/api",
+			Match: config.MatchConfig{
+				Domains: []string{"a.example.com"},
+			},
+			PathPrefix: true,
+			Backends:   []config.BackendConfig{{URL: backendA.URL}},
+		},
+		{
+			ID:   "domain-b",
+			Path: "/api",
+			Match: config.MatchConfig{
+				Domains: []string{"b.example.com"},
+			},
+			PathPrefix: true,
+			Backends:   []config.BackendConfig{{URL: backendB.URL}},
+		},
+	}
+
+	_, ts := newTestGateway(t, cfg)
+
+	// Request with Host: a.example.com should hit backend A
+	req, _ := http.NewRequest("GET", ts.URL+"/api/data", nil)
+	req.Host = "a.example.com"
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Request A failed: %v", err)
+	}
+	var bodyA map[string]string
+	json.NewDecoder(resp.Body).Decode(&bodyA)
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Request A: expected 200, got %d", resp.StatusCode)
+	}
+	if bodyA["backend"] != "A" {
+		t.Errorf("Expected backend A, got %v", bodyA["backend"])
+	}
+
+	// Request with Host: b.example.com should hit backend B
+	req2, _ := http.NewRequest("GET", ts.URL+"/api/data", nil)
+	req2.Host = "b.example.com"
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatalf("Request B failed: %v", err)
+	}
+	var bodyB map[string]string
+	json.NewDecoder(resp2.Body).Decode(&bodyB)
+	resp2.Body.Close()
+
+	if resp2.StatusCode != http.StatusOK {
+		t.Errorf("Request B: expected 200, got %d", resp2.StatusCode)
+	}
+	if bodyB["backend"] != "B" {
+		t.Errorf("Expected backend B, got %v", bodyB["backend"])
+	}
+
+	// Request with unknown domain should get 404
+	req3, _ := http.NewRequest("GET", ts.URL+"/api/data", nil)
+	req3.Host = "unknown.example.com"
+	resp3, err := http.DefaultClient.Do(req3)
+	if err != nil {
+		t.Fatalf("Request unknown failed: %v", err)
+	}
+	resp3.Body.Close()
+
+	if resp3.StatusCode != http.StatusNotFound {
+		t.Errorf("Unknown domain: expected 404, got %d", resp3.StatusCode)
+	}
+}
+
+// TestWildcardDomainRouting tests wildcard domain matching (*.example.com).
+func TestWildcardDomainRouting(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(200)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"matched":"wildcard"}`)
+	}))
+	defer backend.Close()
+
+	cfg := baseConfig()
+	cfg.Routes = []config.RouteConfig{
+		{
+			ID:   "wildcard-domain",
+			Path: "/api",
+			Match: config.MatchConfig{
+				Domains: []string{"*.internal.example.com"},
+			},
+			PathPrefix: true,
+			Backends:   []config.BackendConfig{{URL: backend.URL}},
+		},
+	}
+
+	_, ts := newTestGateway(t, cfg)
+
+	// Any subdomain of internal.example.com should match
+	for _, host := range []string{"svc1.internal.example.com", "svc2.internal.example.com"} {
+		req, _ := http.NewRequest("GET", ts.URL+"/api/test", nil)
+		req.Host = host
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("Request for %s failed: %v", host, err)
+		}
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("Host %s: expected 200, got %d", host, resp.StatusCode)
+		}
+	}
+
+	// Non-matching domain should 404
+	req, _ := http.NewRequest("GET", ts.URL+"/api/test", nil)
+	req.Host = "external.other.com"
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("Non-matching domain: expected 404, got %d", resp.StatusCode)
+	}
+}
+
+// TestHeaderBasedRouting tests routing based on request headers.
+func TestHeaderBasedRouting(t *testing.T) {
+	backendV1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(200)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"version":"v1"}`)
+	}))
+	defer backendV1.Close()
+
+	backendV2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(200)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"version":"v2"}`)
+	}))
+	defer backendV2.Close()
+
+	backendDefault := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(200)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"version":"default"}`)
+	}))
+	defer backendDefault.Close()
+
+	cfg := baseConfig()
+	cfg.Routes = []config.RouteConfig{
+		{
+			ID:   "api-v2",
+			Path: "/api",
+			Match: config.MatchConfig{
+				Headers: []config.HeaderMatchConfig{
+					{Name: "X-API-Version", Value: "v2"},
+				},
+			},
+			PathPrefix: true,
+			Backends:   []config.BackendConfig{{URL: backendV2.URL}},
+		},
+		{
+			ID:   "api-v1",
+			Path: "/api",
+			Match: config.MatchConfig{
+				Headers: []config.HeaderMatchConfig{
+					{Name: "X-API-Version", Value: "v1"},
+				},
+			},
+			PathPrefix: true,
+			Backends:   []config.BackendConfig{{URL: backendV1.URL}},
+		},
+		{
+			ID:         "api-default",
+			Path:       "/api",
+			PathPrefix: true,
+			Backends:   []config.BackendConfig{{URL: backendDefault.URL}},
+		},
+	}
+
+	_, ts := newTestGateway(t, cfg)
+
+	// Request with X-API-Version: v2 should hit v2 backend
+	req, _ := http.NewRequest("GET", ts.URL+"/api/data", nil)
+	req.Header.Set("X-API-Version", "v2")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("v2 request failed: %v", err)
+	}
+	var body map[string]string
+	json.NewDecoder(resp.Body).Decode(&body)
+	resp.Body.Close()
+	if body["version"] != "v2" {
+		t.Errorf("Expected version v2, got %v", body["version"])
+	}
+
+	// Request with X-API-Version: v1 should hit v1 backend
+	req2, _ := http.NewRequest("GET", ts.URL+"/api/data", nil)
+	req2.Header.Set("X-API-Version", "v1")
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatalf("v1 request failed: %v", err)
+	}
+	var body2 map[string]string
+	json.NewDecoder(resp2.Body).Decode(&body2)
+	resp2.Body.Close()
+	if body2["version"] != "v1" {
+		t.Errorf("Expected version v1, got %v", body2["version"])
+	}
+
+	// Request without version header should hit default backend
+	req3, _ := http.NewRequest("GET", ts.URL+"/api/data", nil)
+	resp3, err := http.DefaultClient.Do(req3)
+	if err != nil {
+		t.Fatalf("default request failed: %v", err)
+	}
+	var body3 map[string]string
+	json.NewDecoder(resp3.Body).Decode(&body3)
+	resp3.Body.Close()
+	if body3["version"] != "default" {
+		t.Errorf("Expected version default, got %v", body3["version"])
+	}
+}
+
+// TestQueryBasedRouting tests routing based on query parameters.
+func TestQueryBasedRouting(t *testing.T) {
+	backendJSON := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(200)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"format":"json"}`)
+	}))
+	defer backendJSON.Close()
+
+	backendDefault := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(200)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"format":"default"}`)
+	}))
+	defer backendDefault.Close()
+
+	cfg := baseConfig()
+	cfg.Routes = []config.RouteConfig{
+		{
+			ID:   "query-json",
+			Path: "/data",
+			Match: config.MatchConfig{
+				Query: []config.QueryMatchConfig{
+					{Name: "format", Value: "json"},
+				},
+			},
+			PathPrefix: true,
+			Backends:   []config.BackendConfig{{URL: backendJSON.URL}},
+		},
+		{
+			ID:         "query-default",
+			Path:       "/data",
+			PathPrefix: true,
+			Backends:   []config.BackendConfig{{URL: backendDefault.URL}},
+		},
+	}
+
+	_, ts := newTestGateway(t, cfg)
+
+	// Request with ?format=json should hit JSON backend
+	resp, err := http.Get(ts.URL + "/data/items?format=json")
+	if err != nil {
+		t.Fatalf("JSON query request failed: %v", err)
+	}
+	var body map[string]string
+	json.NewDecoder(resp.Body).Decode(&body)
+	resp.Body.Close()
+	if body["format"] != "json" {
+		t.Errorf("Expected format json, got %v", body["format"])
+	}
+
+	// Request without format query should hit default
+	resp2, err := http.Get(ts.URL + "/data/items")
+	if err != nil {
+		t.Fatalf("Default query request failed: %v", err)
+	}
+	var body2 map[string]string
+	json.NewDecoder(resp2.Body).Decode(&body2)
+	resp2.Body.Close()
+	if body2["format"] != "default" {
+		t.Errorf("Expected format default, got %v", body2["format"])
+	}
+}
+
+// TestCombinedDomainHeaderQueryRouting tests routing with multiple match criteria combined.
+func TestCombinedDomainHeaderQueryRouting(t *testing.T) {
+	backendSpecific := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(200)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"route":"specific"}`)
+	}))
+	defer backendSpecific.Close()
+
+	backendFallback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(200)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"route":"fallback"}`)
+	}))
+	defer backendFallback.Close()
+
+	cfg := baseConfig()
+	cfg.Routes = []config.RouteConfig{
+		{
+			ID:   "combined-specific",
+			Path: "/api",
+			Match: config.MatchConfig{
+				Domains: []string{"api.example.com"},
+				Headers: []config.HeaderMatchConfig{
+					{Name: "X-Version", Value: "v2"},
+				},
+				Query: []config.QueryMatchConfig{
+					{Name: "format", Value: "json"},
+				},
+			},
+			PathPrefix: true,
+			Backends:   []config.BackendConfig{{URL: backendSpecific.URL}},
+		},
+		{
+			ID:         "combined-fallback",
+			Path:       "/api",
+			PathPrefix: true,
+			Backends:   []config.BackendConfig{{URL: backendFallback.URL}},
+		},
+	}
+
+	_, ts := newTestGateway(t, cfg)
+
+	// Request matching all criteria should hit specific backend
+	req, _ := http.NewRequest("GET", ts.URL+"/api/test?format=json", nil)
+	req.Host = "api.example.com"
+	req.Header.Set("X-Version", "v2")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Specific request failed: %v", err)
+	}
+	var body map[string]string
+	json.NewDecoder(resp.Body).Decode(&body)
+	resp.Body.Close()
+	if body["route"] != "specific" {
+		t.Errorf("Expected specific route, got %v", body["route"])
+	}
+
+	// Request missing one criterion should fall through to fallback
+	req2, _ := http.NewRequest("GET", ts.URL+"/api/test?format=json", nil)
+	req2.Host = "api.example.com"
+	// Missing X-Version header
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatalf("Fallback request failed: %v", err)
+	}
+	var body2 map[string]string
+	json.NewDecoder(resp2.Body).Decode(&body2)
+	resp2.Body.Close()
+	if body2["route"] != "fallback" {
+		t.Errorf("Expected fallback route, got %v", body2["route"])
+	}
+}
+
+// TestRegexHeaderRouting tests regex-based header matching in routing.
+func TestRegexHeaderRouting(t *testing.T) {
+	backendMobile := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(200)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"client":"mobile"}`)
+	}))
+	defer backendMobile.Close()
+
+	backendDefault := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(200)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"client":"default"}`)
+	}))
+	defer backendDefault.Close()
+
+	cfg := baseConfig()
+	cfg.Routes = []config.RouteConfig{
+		{
+			ID:   "mobile-route",
+			Path: "/api",
+			Match: config.MatchConfig{
+				Headers: []config.HeaderMatchConfig{
+					{Name: "User-Agent", Regex: "^Mobile/.*"},
+				},
+			},
+			PathPrefix: true,
+			Backends:   []config.BackendConfig{{URL: backendMobile.URL}},
+		},
+		{
+			ID:         "default-route",
+			Path:       "/api",
+			PathPrefix: true,
+			Backends:   []config.BackendConfig{{URL: backendDefault.URL}},
+		},
+	}
+
+	_, ts := newTestGateway(t, cfg)
+
+	// Mobile user agent should hit mobile backend
+	req, _ := http.NewRequest("GET", ts.URL+"/api/data", nil)
+	req.Header.Set("User-Agent", "Mobile/1.0 iOS")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Mobile request failed: %v", err)
+	}
+	var body map[string]string
+	json.NewDecoder(resp.Body).Decode(&body)
+	resp.Body.Close()
+	if body["client"] != "mobile" {
+		t.Errorf("Expected mobile client, got %v", body["client"])
+	}
+
+	// Desktop user agent should hit default backend
+	req2, _ := http.NewRequest("GET", ts.URL+"/api/data", nil)
+	req2.Header.Set("User-Agent", "Mozilla/5.0")
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatalf("Desktop request failed: %v", err)
+	}
+	var body2 map[string]string
+	json.NewDecoder(resp2.Body).Decode(&body2)
+	resp2.Body.Close()
+	if body2["client"] != "default" {
+		t.Errorf("Expected default client, got %v", body2["client"])
+	}
+}
+
+// TestAdminAPIRouteMatchInfo tests that the admin /routes endpoint shows match criteria.
+func TestAdminAPIRouteMatchInfo(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer backend.Close()
+
+	cfg := baseConfig()
+	cfg.Routes = []config.RouteConfig{
+		{
+			ID:   "match-info-route",
+			Path: "/api",
+			Match: config.MatchConfig{
+				Domains: []string{"api.example.com", "*.internal.example.com"},
+				Headers: []config.HeaderMatchConfig{
+					{Name: "X-Version", Value: "v2"},
+					{Name: "X-Debug", Regex: "^(true|1)$"},
+				},
+				Query: []config.QueryMatchConfig{
+					{Name: "format", Value: "json"},
+				},
+			},
+			Methods:    []string{"GET", "POST"},
+			PathPrefix: true,
+			Backends:   []config.BackendConfig{{URL: backend.URL}},
+		},
+	}
+
+	gw, _ := newTestGateway(t, cfg)
+
+	// Check route info from the router
+	routes := gw.GetRouter().GetRoutes()
+	if len(routes) != 1 {
+		t.Fatalf("Expected 1 route, got %d", len(routes))
+	}
+
+	route := routes[0]
+	if route.ID != "match-info-route" {
+		t.Errorf("Expected route ID match-info-route, got %s", route.ID)
+	}
+	if len(route.MatchCfg.Domains) != 2 {
+		t.Errorf("Expected 2 domains, got %d", len(route.MatchCfg.Domains))
+	}
+	if len(route.MatchCfg.Headers) != 2 {
+		t.Errorf("Expected 2 header matchers, got %d", len(route.MatchCfg.Headers))
+	}
+	if len(route.MatchCfg.Query) != 1 {
+		t.Errorf("Expected 1 query matcher, got %d", len(route.MatchCfg.Query))
+	}
+}
