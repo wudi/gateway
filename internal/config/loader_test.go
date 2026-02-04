@@ -8,10 +8,13 @@ import (
 
 func TestLoaderParse(t *testing.T) {
 	yaml := `
-server:
-  port: 9090
-  read_timeout: 10s
-  write_timeout: 20s
+listeners:
+  - id: "http-main"
+    address: ":9090"
+    protocol: "http"
+    http:
+      read_timeout: 10s
+      write_timeout: 20s
 
 registry:
   type: consul
@@ -32,16 +35,19 @@ routes:
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	if cfg.Server.Port != 9090 {
-		t.Errorf("expected port 9090, got %d", cfg.Server.Port)
+	if len(cfg.Listeners) == 0 {
+		t.Fatal("expected at least one listener")
+	}
+	if cfg.Listeners[0].Address != ":9090" {
+		t.Errorf("expected address :9090, got %s", cfg.Listeners[0].Address)
 	}
 
-	if cfg.Server.ReadTimeout != 10*time.Second {
-		t.Errorf("expected read_timeout 10s, got %v", cfg.Server.ReadTimeout)
+	if cfg.Listeners[0].HTTP.ReadTimeout != 10*time.Second {
+		t.Errorf("expected read_timeout 10s, got %v", cfg.Listeners[0].HTTP.ReadTimeout)
 	}
 
-	if cfg.Server.WriteTimeout != 20*time.Second {
-		t.Errorf("expected write_timeout 20s, got %v", cfg.Server.WriteTimeout)
+	if cfg.Listeners[0].HTTP.WriteTimeout != 20*time.Second {
+		t.Errorf("expected write_timeout 20s, got %v", cfg.Listeners[0].HTTP.WriteTimeout)
 	}
 
 	if cfg.Registry.Type != "consul" {
@@ -64,8 +70,10 @@ func TestLoaderEnvExpansion(t *testing.T) {
 	defer os.Unsetenv("TEST_SECRET")
 
 	yaml := `
-server:
-  port: ${TEST_PORT}
+listeners:
+  - id: "http-main"
+    address: ":${TEST_PORT}"
+    protocol: "http"
 
 authentication:
   jwt:
@@ -85,9 +93,8 @@ routes:
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	// Note: YAML parsing converts string to int for port
-	if cfg.Server.Port != 7777 {
-		t.Errorf("expected port 7777 from env, got %d", cfg.Server.Port)
+	if cfg.Listeners[0].Address != ":7777" {
+		t.Errorf("expected address :7777 from env, got %s", cfg.Listeners[0].Address)
 	}
 
 	if cfg.Authentication.JWT.Secret != "my-secret" {
@@ -104,8 +111,10 @@ func TestLoaderValidation(t *testing.T) {
 		{
 			name: "valid config",
 			yaml: `
-server:
-  port: 8080
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
 routes:
   - id: test
     path: /test
@@ -115,23 +124,9 @@ routes:
 			wantErr: false,
 		},
 		{
-			name: "invalid port",
+			name: "no listeners",
 			yaml: `
-server:
-  port: -1
-routes:
-  - id: test
-    path: /test
-    backends:
-      - url: http://localhost:9000
-`,
-			wantErr: true,
-		},
-		{
-			name: "port too high",
-			yaml: `
-server:
-  port: 70000
+listeners: []
 routes:
   - id: test
     path: /test
@@ -143,8 +138,10 @@ routes:
 		{
 			name: "missing route id",
 			yaml: `
-server:
-  port: 8080
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
 routes:
   - path: /test
     backends:
@@ -155,8 +152,10 @@ routes:
 		{
 			name: "duplicate route id",
 			yaml: `
-server:
-  port: 8080
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
 routes:
   - id: test
     path: /test
@@ -172,8 +171,10 @@ routes:
 		{
 			name: "missing route path",
 			yaml: `
-server:
-  port: 8080
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
 routes:
   - id: test
     backends:
@@ -184,8 +185,10 @@ routes:
 		{
 			name: "missing backends and service",
 			yaml: `
-server:
-  port: 8080
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
 routes:
   - id: test
     path: /test
@@ -195,8 +198,10 @@ routes:
 		{
 			name: "valid with service instead of backends",
 			yaml: `
-server:
-  port: 8080
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
 routes:
   - id: test
     path: /test
@@ -208,8 +213,10 @@ routes:
 		{
 			name: "invalid registry type",
 			yaml: `
-server:
-  port: 8080
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
 registry:
   type: invalid
 routes:
@@ -223,8 +230,10 @@ routes:
 		{
 			name: "jwt enabled without secret",
 			yaml: `
-server:
-  port: 8080
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
 authentication:
   jwt:
     enabled: true
@@ -255,12 +264,17 @@ routes:
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
-	if cfg.Server.Port != 8080 {
-		t.Errorf("expected default port 8080, got %d", cfg.Server.Port)
+	if len(cfg.Listeners) == 0 {
+		t.Fatal("expected at least one default listener")
 	}
-
-	if cfg.Server.ReadTimeout != 30*time.Second {
-		t.Errorf("expected default read_timeout 30s, got %v", cfg.Server.ReadTimeout)
+	if cfg.Listeners[0].ID != "default-http" {
+		t.Errorf("expected default listener id default-http, got %s", cfg.Listeners[0].ID)
+	}
+	if cfg.Listeners[0].Address != ":8080" {
+		t.Errorf("expected default address :8080, got %s", cfg.Listeners[0].Address)
+	}
+	if cfg.Listeners[0].HTTP.ReadTimeout != 30*time.Second {
+		t.Errorf("expected default read_timeout 30s, got %v", cfg.Listeners[0].HTTP.ReadTimeout)
 	}
 
 	if cfg.Registry.Type != "memory" {
@@ -278,19 +292,18 @@ func TestDefaultConfig(t *testing.T) {
 
 func TestMerge(t *testing.T) {
 	base := &Config{
-		Server: ServerConfig{
-			Port:        8080,
-			ReadTimeout: 30 * time.Second,
-		},
+		Listeners: []ListenerConfig{{
+			ID: "default-http", Address: ":8080", Protocol: ProtocolHTTP,
+		}},
 		Registry: RegistryConfig{
 			Type: "memory",
 		},
 	}
 
 	overlay := &Config{
-		Server: ServerConfig{
-			Port: 9090, // Override
-		},
+		Listeners: []ListenerConfig{{
+			ID: "override-http", Address: ":9090", Protocol: ProtocolHTTP,
+		}},
 		Registry: RegistryConfig{
 			Type: "consul", // Override
 		},
@@ -301,12 +314,8 @@ func TestMerge(t *testing.T) {
 
 	result := Merge(base, overlay)
 
-	if result.Server.Port != 9090 {
-		t.Errorf("expected merged port 9090, got %d", result.Server.Port)
-	}
-
-	if result.Server.ReadTimeout != 30*time.Second {
-		t.Errorf("expected preserved read_timeout, got %v", result.Server.ReadTimeout)
+	if len(result.Listeners) != 1 || result.Listeners[0].Address != ":9090" {
+		t.Errorf("expected merged listener address :9090, got %v", result.Listeners)
 	}
 
 	if result.Registry.Type != "consul" {
@@ -319,10 +328,8 @@ func TestMerge(t *testing.T) {
 }
 
 func TestLoadFromEnv(t *testing.T) {
-	os.Setenv("GATEWAY_PORT", "7070")
 	os.Setenv("REGISTRY_TYPE", "etcd")
 	os.Setenv("JWT_SECRET", "env-secret")
-	defer os.Unsetenv("GATEWAY_PORT")
 	defer os.Unsetenv("REGISTRY_TYPE")
 	defer os.Unsetenv("JWT_SECRET")
 
@@ -330,10 +337,6 @@ func TestLoadFromEnv(t *testing.T) {
 	cfg, err := loader.LoadFromEnv()
 	if err != nil {
 		t.Fatalf("LoadFromEnv failed: %v", err)
-	}
-
-	if cfg.Server.Port != 7070 {
-		t.Errorf("expected port 7070 from env, got %d", cfg.Server.Port)
 	}
 
 	if cfg.Registry.Type != "etcd" {
@@ -359,8 +362,6 @@ func TestLoaderValidateListeners(t *testing.T) {
 		{
 			name: "valid listener",
 			yaml: `
-server:
-  port: 8080
 listeners:
   - id: "http-main"
     address: ":8080"
@@ -371,8 +372,6 @@ listeners:
 		{
 			name: "missing listener id",
 			yaml: `
-server:
-  port: 8080
 listeners:
   - address: ":8080"
     protocol: "http"
@@ -383,8 +382,6 @@ listeners:
 		{
 			name: "duplicate listener id",
 			yaml: `
-server:
-  port: 8080
 listeners:
   - id: "http-main"
     address: ":8080"
@@ -399,8 +396,6 @@ listeners:
 		{
 			name: "missing listener address",
 			yaml: `
-server:
-  port: 8080
 listeners:
   - id: "http-main"
     protocol: "http"
@@ -411,8 +406,6 @@ listeners:
 		{
 			name: "missing listener protocol",
 			yaml: `
-server:
-  port: 8080
 listeners:
   - id: "http-main"
     address: ":8080"
@@ -423,8 +416,6 @@ listeners:
 		{
 			name: "invalid protocol",
 			yaml: `
-server:
-  port: 8080
 listeners:
   - id: "http-main"
     address: ":8080"
@@ -436,8 +427,6 @@ listeners:
 		{
 			name: "TLS enabled without cert",
 			yaml: `
-server:
-  port: 8080
 listeners:
   - id: "https-main"
     address: ":8443"
@@ -452,8 +441,6 @@ listeners:
 		{
 			name: "TLS enabled without key",
 			yaml: `
-server:
-  port: 8080
 listeners:
   - id: "https-main"
     address: ":8443"
@@ -491,8 +478,6 @@ func TestLoaderValidateTCPRoutes(t *testing.T) {
 		{
 			name: "valid TCP route",
 			yaml: `
-server:
-  port: 8080
 listeners:
   - id: "tcp-main"
     address: ":3306"
@@ -508,8 +493,6 @@ tcp_routes:
 		{
 			name: "missing TCP route id",
 			yaml: `
-server:
-  port: 8080
 listeners:
   - id: "tcp-main"
     address: ":3306"
@@ -524,8 +507,6 @@ tcp_routes:
 		{
 			name: "TCP route references unknown listener",
 			yaml: `
-server:
-  port: 8080
 listeners:
   - id: "tcp-main"
     address: ":3306"
@@ -541,8 +522,6 @@ tcp_routes:
 		{
 			name: "TCP route without backends",
 			yaml: `
-server:
-  port: 8080
 listeners:
   - id: "tcp-main"
     address: ":3306"
@@ -556,8 +535,6 @@ tcp_routes:
 		{
 			name: "TCP route with invalid CIDR",
 			yaml: `
-server:
-  port: 8080
 listeners:
   - id: "tcp-main"
     address: ":3306"
@@ -576,8 +553,6 @@ tcp_routes:
 		{
 			name: "TCP route with valid CIDR",
 			yaml: `
-server:
-  port: 8080
 listeners:
   - id: "tcp-main"
     address: ":3306"
@@ -619,8 +594,6 @@ func TestLoaderValidateUDPRoutes(t *testing.T) {
 		{
 			name: "valid UDP route",
 			yaml: `
-server:
-  port: 8080
 listeners:
   - id: "udp-dns"
     address: ":5353"
@@ -636,8 +609,6 @@ udp_routes:
 		{
 			name: "missing UDP route id",
 			yaml: `
-server:
-  port: 8080
 listeners:
   - id: "udp-dns"
     address: ":5353"
@@ -652,8 +623,6 @@ udp_routes:
 		{
 			name: "UDP route references unknown listener",
 			yaml: `
-server:
-  port: 8080
 listeners:
   - id: "udp-dns"
     address: ":5353"
@@ -669,8 +638,6 @@ udp_routes:
 		{
 			name: "UDP route without backends",
 			yaml: `
-server:
-  port: 8080
 listeners:
   - id: "udp-dns"
     address: ":5353"

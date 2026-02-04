@@ -19,11 +19,6 @@ func TestNewServerWithListeners(t *testing.T) {
 	defer backend.Close()
 
 	cfg := &config.Config{
-		Server: config.ServerConfig{
-			Port:         8080,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-		},
 		Listeners: []config.ListenerConfig{
 			{
 				ID:       "http-test",
@@ -62,19 +57,24 @@ func TestNewServerWithListeners(t *testing.T) {
 	}
 }
 
-func TestNewServerBackwardCompatibility(t *testing.T) {
+func TestNewServerWithDefaultListener(t *testing.T) {
 	// Create a backend server
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer backend.Close()
 
-	// Config without listeners (backward compatibility mode)
 	cfg := &config.Config{
-		Server: config.ServerConfig{
-			Port:         8080,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
+		Listeners: []config.ListenerConfig{
+			{
+				ID:       "default-http",
+				Address:  ":0",
+				Protocol: config.ProtocolHTTP,
+				HTTP: config.HTTPListenerConfig{
+					ReadTimeout:  30 * time.Second,
+					WriteTimeout: 30 * time.Second,
+				},
+			},
 		},
 		Registry: config.RegistryConfig{
 			Type: "memory",
@@ -111,11 +111,6 @@ func TestNewServerBackwardCompatibility(t *testing.T) {
 
 func TestServerWithTCPRoutes(t *testing.T) {
 	cfg := &config.Config{
-		Server: config.ServerConfig{
-			Port:         8080,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-		},
 		Listeners: []config.ListenerConfig{
 			{
 				ID:       "tcp-test",
@@ -157,11 +152,6 @@ func TestServerWithTCPRoutes(t *testing.T) {
 
 func TestServerWithUDPRoutes(t *testing.T) {
 	cfg := &config.Config{
-		Server: config.ServerConfig{
-			Port:         8080,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-		},
 		Listeners: []config.ListenerConfig{
 			{
 				ID:       "udp-test",
@@ -208,11 +198,6 @@ func TestAdminListenersEndpoint(t *testing.T) {
 	defer backend.Close()
 
 	cfg := &config.Config{
-		Server: config.ServerConfig{
-			Port:         8080,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-		},
 		Listeners: []config.ListenerConfig{
 			{
 				ID:       "http-1",
@@ -269,11 +254,6 @@ func TestAdminListenersEndpoint(t *testing.T) {
 
 func TestAdminStatsWithL4Proxies(t *testing.T) {
 	cfg := &config.Config{
-		Server: config.ServerConfig{
-			Port:         8080,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-		},
 		Listeners: []config.ListenerConfig{
 			{
 				ID:       "tcp-test",
@@ -356,11 +336,9 @@ func TestAdminCircuitBreakersEndpoint(t *testing.T) {
 	defer backend.Close()
 
 	cfg := &config.Config{
-		Server: config.ServerConfig{
-			Port:         8080,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-		},
+		Listeners: []config.ListenerConfig{{
+			ID: "default-http", Address: ":0", Protocol: config.ProtocolHTTP,
+		}},
 		Registry: config.RegistryConfig{
 			Type: "memory",
 		},
@@ -413,11 +391,9 @@ func TestAdminCacheEndpoint(t *testing.T) {
 	defer backend.Close()
 
 	cfg := &config.Config{
-		Server: config.ServerConfig{
-			Port:         8080,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-		},
+		Listeners: []config.ListenerConfig{{
+			ID: "default-http", Address: ":0", Protocol: config.ProtocolHTTP,
+		}},
 		Registry: config.RegistryConfig{
 			Type: "memory",
 		},
@@ -470,11 +446,9 @@ func TestAdminRetriesEndpoint(t *testing.T) {
 	defer backend.Close()
 
 	cfg := &config.Config{
-		Server: config.ServerConfig{
-			Port:         8080,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-		},
+		Listeners: []config.ListenerConfig{{
+			ID: "default-http", Address: ":0", Protocol: config.ProtocolHTTP,
+		}},
 		Registry: config.RegistryConfig{
 			Type: "memory",
 		},

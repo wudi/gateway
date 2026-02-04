@@ -58,22 +58,6 @@ func NewServer(cfg *config.Config) (*Server, error) {
 func (s *Server) initListeners() error {
 	cfg := s.config
 
-	// Backward compatibility: if no listeners defined, create from server config
-	if len(cfg.Listeners) == 0 {
-		httpListener, err := listener.NewHTTPListener(listener.HTTPListenerConfig{
-			ID:           "default-http",
-			Address:      fmt.Sprintf(":%d", cfg.Server.Port),
-			Handler:      s.gateway.Handler(),
-			ReadTimeout:  cfg.Server.ReadTimeout,
-			WriteTimeout: cfg.Server.WriteTimeout,
-			IdleTimeout:  cfg.Server.IdleTimeout,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to create default HTTP listener: %w", err)
-		}
-		return s.manager.Add(httpListener)
-	}
-
 	// Create listeners from config
 	for _, listenerCfg := range cfg.Listeners {
 		var l listener.Listener

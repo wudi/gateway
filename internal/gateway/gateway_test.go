@@ -20,11 +20,6 @@ func TestGatewayNew(t *testing.T) {
 	defer backend.Close()
 
 	cfg := &config.Config{
-		Server: config.ServerConfig{
-			Port:         8080,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-		},
 		Registry: config.RegistryConfig{
 			Type: "memory",
 		},
@@ -67,11 +62,6 @@ func TestGatewayHandler(t *testing.T) {
 	defer backend.Close()
 
 	cfg := &config.Config{
-		Server: config.ServerConfig{
-			Port:         8080,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-		},
 		Registry: config.RegistryConfig{
 			Type: "memory",
 		},
@@ -124,11 +114,6 @@ func TestGatewayWithAuth(t *testing.T) {
 	defer backend.Close()
 
 	cfg := &config.Config{
-		Server: config.ServerConfig{
-			Port:         8080,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-		},
 		Registry: config.RegistryConfig{
 			Type: "memory",
 		},
@@ -195,11 +180,6 @@ func TestGatewayStats(t *testing.T) {
 	defer backend.Close()
 
 	cfg := &config.Config{
-		Server: config.ServerConfig{
-			Port:         8080,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-		},
 		Registry: config.RegistryConfig{
 			Type: "memory",
 		},
@@ -244,11 +224,6 @@ func TestGatewayTransform(t *testing.T) {
 	defer backend.Close()
 
 	cfg := &config.Config{
-		Server: config.ServerConfig{
-			Port:         8080,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-		},
 		Registry: config.RegistryConfig{
 			Type: "memory",
 		},
@@ -313,11 +288,6 @@ func TestGatewayCacheHitMiss(t *testing.T) {
 	defer backend.Close()
 
 	cfg := &config.Config{
-		Server: config.ServerConfig{
-			Port:         8080,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-		},
 		Registry: config.RegistryConfig{
 			Type: "memory",
 		},
@@ -398,11 +368,6 @@ func TestGatewayCircuitBreaker(t *testing.T) {
 	defer backend.Close()
 
 	cfg := &config.Config{
-		Server: config.ServerConfig{
-			Port:         8080,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-		},
 		Registry: config.RegistryConfig{
 			Type: "memory",
 		},
@@ -473,11 +438,6 @@ func TestGatewayNoCacheOnNonCachedRoute(t *testing.T) {
 	defer backend.Close()
 
 	cfg := &config.Config{
-		Server: config.ServerConfig{
-			Port:         8080,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-		},
 		Registry: config.RegistryConfig{
 			Type: "memory",
 		},
@@ -519,11 +479,6 @@ func TestGatewayNewFeatureGetters(t *testing.T) {
 	defer backend.Close()
 
 	cfg := &config.Config{
-		Server: config.ServerConfig{
-			Port:         8080,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-		},
 		Registry: config.RegistryConfig{
 			Type: "memory",
 		},

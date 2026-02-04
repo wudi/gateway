@@ -25,6 +25,12 @@
 - `internal/listener/` — HTTP/TCP/UDP listener management
 - `internal/registry/` — service discovery (consul, etcd, kubernetes, memory)
 
+## Design Policy
+
+### No backward compatibility shims
+
+This project is pre-release. Do not add backward-compatibility fallbacks, legacy aliases, deprecated fields, or migration code. When a design is superseded, remove the old code entirely. For example, `ServerConfig` was removed in favor of `Listeners` — there is no `Server` field, no "if no listeners, fall back to server config" code path, and no `GATEWAY_PORT` env var. If a config shape changes, update all call sites and tests to use the new shape directly.
+
 ## Architecture Rules
 
 ### Per-route handler objects must be created once, not per-request

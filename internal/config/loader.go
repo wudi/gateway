@@ -66,9 +66,9 @@ func (l *Loader) expandEnvVars(input string) string {
 
 // validate checks configuration for errors
 func (l *Loader) validate(cfg *Config) error {
-	// Validate server config (for backward compatibility)
-	if cfg.Server.Port <= 0 || cfg.Server.Port > 65535 {
-		return fmt.Errorf("invalid server port: %d", cfg.Server.Port)
+	// Validate that at least one listener is configured
+	if len(cfg.Listeners) == 0 {
+		return fmt.Errorf("at least one listener is required")
 	}
 
 	// Validate registry type
@@ -258,13 +258,6 @@ func (l *Loader) LoadFromEnv() (*Config, error) {
 	cfg := DefaultConfig()
 
 	// Override with environment variables
-	if port := os.Getenv("GATEWAY_PORT"); port != "" {
-		var p int
-		if _, err := fmt.Sscanf(port, "%d", &p); err == nil {
-			cfg.Server.Port = p
-		}
-	}
-
 	if registryType := os.Getenv("REGISTRY_TYPE"); registryType != "" {
 		cfg.Registry.Type = registryType
 	}
@@ -285,15 +278,9 @@ func (l *Loader) LoadFromEnv() (*Config, error) {
 func Merge(base, overlay *Config) *Config {
 	result := *base
 
-	// Overlay server settings
-	if overlay.Server.Port != 0 {
-		result.Server.Port = overlay.Server.Port
-	}
-	if overlay.Server.ReadTimeout != 0 {
-		result.Server.ReadTimeout = overlay.Server.ReadTimeout
-	}
-	if overlay.Server.WriteTimeout != 0 {
-		result.Server.WriteTimeout = overlay.Server.WriteTimeout
+	// Overlay listeners
+	if len(overlay.Listeners) > 0 {
+		result.Listeners = overlay.Listeners
 	}
 
 	// Overlay registry settings

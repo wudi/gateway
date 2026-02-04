@@ -40,11 +40,6 @@ func newTestGateway(t *testing.T, cfg *config.Config) (*gateway.Gateway, *httpte
 // baseConfig returns a minimal config with memory registry.
 func baseConfig() *config.Config {
 	return &config.Config{
-		Server: config.ServerConfig{
-			Port:         0,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-		},
 		Registry: config.RegistryConfig{
 			Type: "memory",
 		},
@@ -70,11 +65,6 @@ func TestIntegration(t *testing.T) {
 
 	// Create gateway config
 	cfg := &config.Config{
-		Server: config.ServerConfig{
-			Port:         0, // Random port
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-		},
 		Registry: config.RegistryConfig{
 			Type: "memory",
 		},
@@ -284,11 +274,6 @@ func TestRegistryIntegration(t *testing.T) {
 
 	// Create gateway with memory registry
 	cfg := &config.Config{
-		Server: config.ServerConfig{
-			Port:         0,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-		},
 		Registry: config.RegistryConfig{
 			Type: "memory",
 			Memory: config.MemoryConfig{
@@ -339,11 +324,6 @@ func TestRateLimitIntegration(t *testing.T) {
 	defer backend.Close()
 
 	cfg := &config.Config{
-		Server: config.ServerConfig{
-			Port:         0,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-		},
 		Registry: config.RegistryConfig{
 			Type: "memory",
 		},

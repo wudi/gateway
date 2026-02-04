@@ -16,8 +16,7 @@ const (
 
 // Config represents the complete gateway configuration
 type Config struct {
-	Server         ServerConfig         `yaml:"server"`          // Backward compat
-	Listeners      []ListenerConfig     `yaml:"listeners"`       // New multi-listener support
+	Listeners      []ListenerConfig     `yaml:"listeners"`
 	Registry       RegistryConfig       `yaml:"registry"`
 	Authentication AuthenticationConfig `yaml:"authentication"`
 	Routes         []RouteConfig        `yaml:"routes"`
@@ -96,14 +95,6 @@ func (m *TCPMatchConfig) ParsedSourceCIDRs() ([]*net.IPNet, error) {
 		cidrs = append(cidrs, ipNet)
 	}
 	return cidrs, nil
-}
-
-// ServerConfig defines HTTP server settings
-type ServerConfig struct {
-	Port         int           `yaml:"port"`
-	ReadTimeout  time.Duration `yaml:"read_timeout"`
-	WriteTimeout time.Duration `yaml:"write_timeout"`
-	IdleTimeout  time.Duration `yaml:"idle_timeout"`
 }
 
 // RegistryConfig defines service registry settings
@@ -425,12 +416,16 @@ type AdminConfig struct {
 // DefaultConfig returns a configuration with sensible defaults
 func DefaultConfig() *Config {
 	return &Config{
-		Server: ServerConfig{
-			Port:         8080,
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-			IdleTimeout:  60 * time.Second,
-		},
+		Listeners: []ListenerConfig{{
+			ID:       "default-http",
+			Address:  ":8080",
+			Protocol: ProtocolHTTP,
+			HTTP: HTTPListenerConfig{
+				ReadTimeout:  30 * time.Second,
+				WriteTimeout: 30 * time.Second,
+				IdleTimeout:  60 * time.Second,
+			},
+		}},
 		Registry: RegistryConfig{
 			Type: "memory",
 			Consul: ConsulConfig{
