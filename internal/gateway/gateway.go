@@ -28,6 +28,7 @@ import (
 	"github.com/example/gateway/internal/middleware/validation"
 	"github.com/example/gateway/internal/mirror"
 	grpcproxy "github.com/example/gateway/internal/proxy/grpc"
+	"github.com/example/gateway/internal/rules"
 	"github.com/example/gateway/internal/proxy"
 	"github.com/example/gateway/internal/proxy/tcp"
 	"github.com/example/gateway/internal/proxy/udp"
@@ -73,6 +74,9 @@ type Gateway struct {
 	tracer         *tracing.Tracer
 
 	grpcHandlers map[string]*grpcproxy.Handler
+
+	globalRules *rules.RuleEngine
+	routeRules  *rules.RulesByRoute
 
 	routeProxies map[string]*proxy.RouteProxy
 	watchCancels map[string]context.CancelFunc
@@ -182,6 +186,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		validators:       validation.NewValidatorByRoute(),
 		mirrors:          mirror.NewMirrorByRoute(),
 		grpcHandlers:     make(map[string]*grpcproxy.Handler),
+		routeRules:       rules.NewRulesByRoute(),
 		routeProxies:     make(map[string]*proxy.RouteProxy),
 		watchCancels:     make(map[string]context.CancelFunc),
 	}
@@ -192,6 +197,15 @@ func New(cfg *config.Config) (*Gateway, error) {
 		g.globalIPFilter, err = ipfilter.New(cfg.IPFilter)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize global IP filter: %w", err)
+		}
+	}
+
+	// Initialize global rules engine
+	if len(cfg.Rules.Request) > 0 || len(cfg.Rules.Response) > 0 {
+		var err error
+		g.globalRules, err = rules.NewEngine(cfg.Rules.Request, cfg.Rules.Response)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compile global rules: %w", err)
 		}
 	}
 
@@ -446,6 +460,13 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 		g.grpcHandlers[routeCfg.ID] = grpcproxy.New(true)
 	}
 
+	// Set up per-route rules engine
+	if len(routeCfg.Rules.Request) > 0 || len(routeCfg.Rules.Response) > 0 {
+		if err := g.routeRules.AddRoute(routeCfg.ID, routeCfg.Rules); err != nil {
+			return fmt.Errorf("failed to compile rules for route %s: %w", routeCfg.ID, err)
+		}
+	}
+
 	return nil
 }
 
@@ -614,6 +635,33 @@ func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Step 3.5: Request rules (global, then per-route)
+	routeEngine := g.routeRules.GetEngine(route.ID)
+	if g.globalRules != nil && g.globalRules.HasRequestRules() {
+		reqEnv := rules.NewRequestEnv(r, varCtx)
+		for _, result := range g.globalRules.EvaluateRequest(reqEnv) {
+			if result.Terminated {
+				rules.ExecuteTerminatingAction(w, r, result.Action)
+				return
+			}
+			if result.Action.Type == "set_headers" {
+				rules.ExecuteRequestHeaders(r, result.Action.Headers)
+			}
+		}
+	}
+	if routeEngine != nil && routeEngine.HasRequestRules() {
+		reqEnv := rules.NewRequestEnv(r, varCtx)
+		for _, result := range routeEngine.EvaluateRequest(reqEnv) {
+			if result.Terminated {
+				rules.ExecuteTerminatingAction(w, r, result.Action)
+				return
+			}
+			if result.Action.Type == "set_headers" {
+				rules.ExecuteRequestHeaders(r, result.Action.Headers)
+			}
+		}
+	}
+
 	// Step 4: Get route proxy
 	g.mu.RLock()
 	rp, ok := g.routeProxies[route.ID]
@@ -722,6 +770,15 @@ func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		r.Header.Del("Accept-Encoding")
 	}
 
+	// Step 8.5: Wrap with RulesResponseWriter if response rules exist
+	var rulesWriter *rules.RulesResponseWriter
+	hasGlobalRespRules := g.globalRules != nil && g.globalRules.HasResponseRules()
+	hasRouteRespRules := routeEngine != nil && routeEngine.HasResponseRules()
+	if hasGlobalRespRules || hasRouteRespRules {
+		rulesWriter = rules.NewRulesResponseWriter(responseWriter)
+		responseWriter = rulesWriter
+	}
+
 	// Feature 10: Buffer request body if mirroring is enabled
 	var mirrorBody []byte
 	mirrorHandler := g.mirrors.GetMirror(route.ID)
@@ -770,6 +827,26 @@ func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	if bodyBufWriter != nil {
 		transformed := applyResponseBodyTransform(bodyBufWriter.body.Bytes(), respBodyCfg)
 		bodyBufWriter.replayTo(responseWriter, transformed)
+	}
+
+	// Step 10.2: Response rules (global, then per-route)
+	if rulesWriter != nil {
+		respEnv := rules.NewResponseEnv(r, varCtx, rulesWriter.StatusCode(), rulesWriter.Header())
+		if hasGlobalRespRules {
+			for _, result := range g.globalRules.EvaluateResponse(respEnv) {
+				if result.Action.Type == "set_headers" {
+					rules.ExecuteResponseHeaders(rulesWriter, result.Action.Headers)
+				}
+			}
+		}
+		if hasRouteRespRules {
+			for _, result := range routeEngine.EvaluateResponse(respEnv) {
+				if result.Action.Type == "set_headers" {
+					rules.ExecuteResponseHeaders(rulesWriter, result.Action.Headers)
+				}
+			}
+		}
+		rulesWriter.Flush()
 	}
 
 	// Step 10.5: Mirror request async (Feature 10)
@@ -1019,6 +1096,16 @@ func (g *Gateway) GetRetryMetrics() map[string]*retry.RouteRetryMetrics {
 // GetMetricsCollector returns the metrics collector
 func (g *Gateway) GetMetricsCollector() *metrics.Collector {
 	return g.metricsCollector
+}
+
+// GetGlobalRules returns the global rules engine (may be nil).
+func (g *Gateway) GetGlobalRules() *rules.RuleEngine {
+	return g.globalRules
+}
+
+// GetRouteRules returns the per-route rules manager.
+func (g *Gateway) GetRouteRules() *rules.RulesByRoute {
+	return g.routeRules
 }
 
 // GetAPIKeyAuth returns the API key auth for admin API

@@ -1,0 +1,739 @@
+package rules
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/example/gateway/internal/config"
+	"github.com/example/gateway/internal/variables"
+)
+
+// --- Environment tests ---
+
+func TestNewRequestEnv(t *testing.T) {
+	r := httptest.NewRequest("POST", "http://example.com/api/users?page=2&sort=name", nil)
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("X-Custom", "hello")
+
+	varCtx := &variables.Context{
+		Request:    r,
+		RouteID:    "test-route",
+		PathParams: map[string]string{"id": "42"},
+		Identity: &variables.Identity{
+			ClientID: "client-1",
+			AuthType: "jwt",
+			Claims:   map[string]interface{}{"sub": "user-123"},
+		},
+	}
+
+	env := NewRequestEnv(r, varCtx)
+
+	if env.HTTP.Request.Method != "POST" {
+		t.Errorf("expected method POST, got %s", env.HTTP.Request.Method)
+	}
+	if env.HTTP.Request.URI.Path != "/api/users" {
+		t.Errorf("expected path /api/users, got %s", env.HTTP.Request.URI.Path)
+	}
+	if env.HTTP.Request.URI.Query != "page=2&sort=name" {
+		t.Errorf("expected query page=2&sort=name, got %s", env.HTTP.Request.URI.Query)
+	}
+	if env.HTTP.Request.URI.Args["page"] != "2" {
+		t.Errorf("expected arg page=2, got %s", env.HTTP.Request.URI.Args["page"])
+	}
+	if env.HTTP.Request.URI.Args["sort"] != "name" {
+		t.Errorf("expected arg sort=name, got %s", env.HTTP.Request.URI.Args["sort"])
+	}
+	if env.HTTP.Request.Headers["Content-Type"] != "application/json" {
+		t.Errorf("expected Content-Type header, got %s", env.HTTP.Request.Headers["Content-Type"])
+	}
+	if env.HTTP.Request.Headers["X-Custom"] != "hello" {
+		t.Errorf("expected X-Custom header, got %s", env.HTTP.Request.Headers["X-Custom"])
+	}
+	if env.HTTP.Request.Host != "example.com" {
+		t.Errorf("expected host example.com, got %s", env.HTTP.Request.Host)
+	}
+	if env.HTTP.Request.Scheme != "http" {
+		t.Errorf("expected scheme http, got %s", env.HTTP.Request.Scheme)
+	}
+	if env.IP.Src == "" {
+		t.Error("expected ip.src to be set")
+	}
+	if env.Route.ID != "test-route" {
+		t.Errorf("expected route.id test-route, got %s", env.Route.ID)
+	}
+	if env.Route.Params["id"] != "42" {
+		t.Errorf("expected route.params.id 42, got %s", env.Route.Params["id"])
+	}
+	if env.Auth.ClientID != "client-1" {
+		t.Errorf("expected auth.client_id client-1, got %s", env.Auth.ClientID)
+	}
+	if env.Auth.Type != "jwt" {
+		t.Errorf("expected auth.type jwt, got %s", env.Auth.Type)
+	}
+	if env.Auth.Claims["sub"] != "user-123" {
+		t.Errorf("expected auth.claims.sub user-123, got %v", env.Auth.Claims["sub"])
+	}
+}
+
+func TestNewRequestEnv_NilVarCtx(t *testing.T) {
+	r := httptest.NewRequest("GET", "http://localhost/", nil)
+	env := NewRequestEnv(r, nil)
+
+	if env.Route.ID != "" {
+		t.Errorf("expected empty route ID, got %s", env.Route.ID)
+	}
+	if env.Auth.ClientID != "" {
+		t.Errorf("expected empty client ID, got %s", env.Auth.ClientID)
+	}
+	if env.Route.Params == nil {
+		t.Error("expected non-nil params map")
+	}
+	if env.Auth.Claims == nil {
+		t.Error("expected non-nil claims map")
+	}
+}
+
+func TestNewResponseEnv(t *testing.T) {
+	r := httptest.NewRequest("GET", "http://localhost/test", nil)
+	varCtx := &variables.Context{Request: r, RouteID: "resp-route"}
+
+	respHeaders := http.Header{}
+	respHeaders.Set("Content-Type", "text/html")
+	respHeaders.Set("Server", "nginx")
+
+	env := NewResponseEnv(r, varCtx, 200, respHeaders)
+
+	if env.HTTP.Response.Code != 200 {
+		t.Errorf("expected status 200, got %d", env.HTTP.Response.Code)
+	}
+	if env.HTTP.Response.Headers["Content-Type"] != "text/html" {
+		t.Errorf("expected response Content-Type text/html, got %s", env.HTTP.Response.Headers["Content-Type"])
+	}
+	if env.HTTP.Response.Headers["Server"] != "nginx" {
+		t.Errorf("expected response Server nginx, got %s", env.HTTP.Response.Headers["Server"])
+	}
+	// Request fields remain available
+	if env.HTTP.Request.URI.Path != "/test" {
+		t.Errorf("expected path /test, got %s", env.HTTP.Request.URI.Path)
+	}
+}
+
+// --- Compilation and evaluation tests ---
+
+func TestCompileRequestRule_BasicExpression(t *testing.T) {
+	cfg := config.RuleConfig{
+		ID:         "test-block",
+		Expression: `http.request.method == "POST"`,
+		Action:     "block",
+		StatusCode: 403,
+	}
+
+	rule, err := CompileRequestRule(cfg)
+	if err != nil {
+		t.Fatalf("compile error: %v", err)
+	}
+	if rule.ID != "test-block" {
+		t.Errorf("expected ID test-block, got %s", rule.ID)
+	}
+	if !rule.Enabled {
+		t.Error("expected rule to be enabled by default")
+	}
+
+	// Evaluate against POST
+	r := httptest.NewRequest("POST", "http://localhost/", nil)
+	env := NewRequestEnv(r, nil)
+	matched, err := rule.Evaluate(env)
+	if err != nil {
+		t.Fatalf("evaluate error: %v", err)
+	}
+	if !matched {
+		t.Error("expected rule to match POST request")
+	}
+
+	// Evaluate against GET
+	r = httptest.NewRequest("GET", "http://localhost/", nil)
+	env = NewRequestEnv(r, nil)
+	matched, err = rule.Evaluate(env)
+	if err != nil {
+		t.Fatalf("evaluate error: %v", err)
+	}
+	if matched {
+		t.Error("expected rule NOT to match GET request")
+	}
+}
+
+func TestCompileRequestRule_IPInList(t *testing.T) {
+	cfg := config.RuleConfig{
+		ID:         "block-ip",
+		Expression: `ip.src in ["1.2.3.4", "5.6.7.8"]`,
+		Action:     "block",
+		StatusCode: 403,
+	}
+
+	rule, err := CompileRequestRule(cfg)
+	if err != nil {
+		t.Fatalf("compile error: %v", err)
+	}
+
+	r := httptest.NewRequest("GET", "http://localhost/", nil)
+	r.RemoteAddr = "1.2.3.4:12345"
+	env := NewRequestEnv(r, nil)
+	matched, err := rule.Evaluate(env)
+	if err != nil {
+		t.Fatalf("evaluate error: %v", err)
+	}
+	if !matched {
+		t.Error("expected rule to match blocked IP")
+	}
+
+	r.RemoteAddr = "10.0.0.1:12345"
+	env = NewRequestEnv(r, nil)
+	matched, err = rule.Evaluate(env)
+	if err != nil {
+		t.Fatalf("evaluate error: %v", err)
+	}
+	if matched {
+		t.Error("expected rule NOT to match safe IP")
+	}
+}
+
+func TestCompileRequestRule_HeaderContains(t *testing.T) {
+	cfg := config.RuleConfig{
+		ID:         "require-json",
+		Expression: `http.request.method == "POST" and not (http.request.headers["Content-Type"] contains "application/json")`,
+		Action:     "block",
+		StatusCode: 415,
+	}
+
+	rule, err := CompileRequestRule(cfg)
+	if err != nil {
+		t.Fatalf("compile error: %v", err)
+	}
+
+	// POST without JSON content type -> match
+	r := httptest.NewRequest("POST", "http://localhost/", nil)
+	r.Header.Set("Content-Type", "text/plain")
+	env := NewRequestEnv(r, nil)
+	matched, err := rule.Evaluate(env)
+	if err != nil {
+		t.Fatalf("evaluate error: %v", err)
+	}
+	if !matched {
+		t.Error("expected rule to match POST with non-JSON content type")
+	}
+
+	// POST with JSON content type -> no match
+	r.Header.Set("Content-Type", "application/json")
+	env = NewRequestEnv(r, nil)
+	matched, err = rule.Evaluate(env)
+	if err != nil {
+		t.Fatalf("evaluate error: %v", err)
+	}
+	if matched {
+		t.Error("expected rule NOT to match POST with JSON content type")
+	}
+
+	// GET without JSON content type -> no match (method check)
+	r = httptest.NewRequest("GET", "http://localhost/", nil)
+	env = NewRequestEnv(r, nil)
+	matched, err = rule.Evaluate(env)
+	if err != nil {
+		t.Fatalf("evaluate error: %v", err)
+	}
+	if matched {
+		t.Error("expected rule NOT to match GET request")
+	}
+}
+
+func TestCompileRequestRule_DisabledRule(t *testing.T) {
+	enabled := false
+	cfg := config.RuleConfig{
+		ID:         "disabled",
+		Expression: `true`,
+		Action:     "block",
+		Enabled:    &enabled,
+	}
+
+	rule, err := CompileRequestRule(cfg)
+	if err != nil {
+		t.Fatalf("compile error: %v", err)
+	}
+	if rule.Enabled {
+		t.Error("expected rule to be disabled")
+	}
+}
+
+func TestCompileRequestRule_InvalidExpression(t *testing.T) {
+	cfg := config.RuleConfig{
+		ID:         "bad",
+		Expression: `invalid syntax !!!`,
+		Action:     "block",
+	}
+
+	_, err := CompileRequestRule(cfg)
+	if err == nil {
+		t.Error("expected compile error for invalid expression")
+	}
+}
+
+func TestCompileResponseRule(t *testing.T) {
+	cfg := config.RuleConfig{
+		ID:         "strip-header",
+		Expression: `http.response.code == 200`,
+		Action:     "set_headers",
+		Headers: config.HeaderTransform{
+			Remove: []string{"Server"},
+		},
+	}
+
+	rule, err := CompileResponseRule(cfg)
+	if err != nil {
+		t.Fatalf("compile error: %v", err)
+	}
+
+	r := httptest.NewRequest("GET", "http://localhost/", nil)
+	env := NewResponseEnv(r, nil, 200, http.Header{})
+	matched, err := rule.Evaluate(env)
+	if err != nil {
+		t.Fatalf("evaluate error: %v", err)
+	}
+	if !matched {
+		t.Error("expected rule to match status 200")
+	}
+
+	env = NewResponseEnv(r, nil, 500, http.Header{})
+	matched, err = rule.Evaluate(env)
+	if err != nil {
+		t.Fatalf("evaluate error: %v", err)
+	}
+	if matched {
+		t.Error("expected rule NOT to match status 500")
+	}
+}
+
+// --- IsTerminating tests ---
+
+func TestIsTerminating(t *testing.T) {
+	tests := []struct {
+		actionType string
+		expected   bool
+	}{
+		{"block", true},
+		{"custom_response", true},
+		{"redirect", true},
+		{"set_headers", false},
+	}
+
+	for _, tt := range tests {
+		got := IsTerminating(Action{Type: tt.actionType})
+		if got != tt.expected {
+			t.Errorf("IsTerminating(%s) = %v, want %v", tt.actionType, got, tt.expected)
+		}
+	}
+}
+
+// --- Actions tests ---
+
+func TestExecuteTerminatingAction_Block(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+
+	ExecuteTerminatingAction(w, r, Action{
+		Type:       "block",
+		StatusCode: 403,
+		Body:       "Forbidden by rule",
+	})
+
+	if w.Code != 403 {
+		t.Errorf("expected status 403, got %d", w.Code)
+	}
+	if w.Body.String() != "Forbidden by rule" {
+		t.Errorf("expected body 'Forbidden by rule', got %s", w.Body.String())
+	}
+}
+
+func TestExecuteTerminatingAction_BlockDefaultStatus(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+
+	ExecuteTerminatingAction(w, r, Action{Type: "block"})
+
+	if w.Code != 403 {
+		t.Errorf("expected default status 403, got %d", w.Code)
+	}
+}
+
+func TestExecuteTerminatingAction_Redirect(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/old", nil)
+
+	ExecuteTerminatingAction(w, r, Action{
+		Type:        "redirect",
+		StatusCode:  301,
+		RedirectURL: "https://example.com/new",
+	})
+
+	if w.Code != 301 {
+		t.Errorf("expected status 301, got %d", w.Code)
+	}
+	if loc := w.Header().Get("Location"); loc != "https://example.com/new" {
+		t.Errorf("expected Location header https://example.com/new, got %s", loc)
+	}
+}
+
+func TestExecuteTerminatingAction_CustomResponse(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+
+	ExecuteTerminatingAction(w, r, Action{
+		Type:       "custom_response",
+		StatusCode: 200,
+		Body:       `{"status":"ok"}`,
+	})
+
+	if w.Code != 200 {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+	if w.Body.String() != `{"status":"ok"}` {
+		t.Errorf("unexpected body: %s", w.Body.String())
+	}
+}
+
+func TestExecuteRequestHeaders(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Header.Set("X-Existing", "old-value")
+
+	ExecuteRequestHeaders(r, config.HeaderTransform{
+		Add: map[string]string{"X-Added": "added"},
+		Set: map[string]string{"X-Existing": "new-value"},
+	})
+
+	if r.Header.Get("X-Added") != "added" {
+		t.Errorf("expected X-Added header, got %s", r.Header.Get("X-Added"))
+	}
+	if r.Header.Get("X-Existing") != "new-value" {
+		t.Errorf("expected X-Existing to be overwritten, got %s", r.Header.Get("X-Existing"))
+	}
+}
+
+func TestExecuteResponseHeaders(t *testing.T) {
+	w := httptest.NewRecorder()
+	w.Header().Set("Server", "nginx")
+	w.Header().Set("X-Powered-By", "PHP")
+
+	ExecuteResponseHeaders(w, config.HeaderTransform{
+		Set:    map[string]string{"X-Frame-Options": "DENY"},
+		Remove: []string{"Server", "X-Powered-By"},
+	})
+
+	if w.Header().Get("X-Frame-Options") != "DENY" {
+		t.Errorf("expected X-Frame-Options DENY, got %s", w.Header().Get("X-Frame-Options"))
+	}
+	if w.Header().Get("Server") != "" {
+		t.Errorf("expected Server header to be removed, got %s", w.Header().Get("Server"))
+	}
+	if w.Header().Get("X-Powered-By") != "" {
+		t.Errorf("expected X-Powered-By header to be removed, got %s", w.Header().Get("X-Powered-By"))
+	}
+}
+
+// --- Engine tests ---
+
+func TestEngine_EvaluateRequest_TerminatingStops(t *testing.T) {
+	engine, err := NewEngine(
+		[]config.RuleConfig{
+			{
+				ID:         "block-all",
+				Expression: `true`,
+				Action:     "block",
+				StatusCode: 403,
+			},
+			{
+				ID:         "never-reached",
+				Expression: `true`,
+				Action:     "set_headers",
+				Headers:    config.HeaderTransform{Set: map[string]string{"X-Test": "val"}},
+			},
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("engine creation error: %v", err)
+	}
+
+	r := httptest.NewRequest("GET", "http://localhost/", nil)
+	env := NewRequestEnv(r, nil)
+	results := engine.EvaluateRequest(env)
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result (terminating stops), got %d", len(results))
+	}
+	if results[0].RuleID != "block-all" {
+		t.Errorf("expected rule block-all, got %s", results[0].RuleID)
+	}
+	if !results[0].Terminated {
+		t.Error("expected result to be terminated")
+	}
+}
+
+func TestEngine_EvaluateRequest_NonTerminatingContinues(t *testing.T) {
+	engine, err := NewEngine(
+		[]config.RuleConfig{
+			{
+				ID:         "add-header-1",
+				Expression: `true`,
+				Action:     "set_headers",
+				Headers:    config.HeaderTransform{Set: map[string]string{"X-1": "val1"}},
+			},
+			{
+				ID:         "add-header-2",
+				Expression: `true`,
+				Action:     "set_headers",
+				Headers:    config.HeaderTransform{Set: map[string]string{"X-2": "val2"}},
+			},
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("engine creation error: %v", err)
+	}
+
+	r := httptest.NewRequest("GET", "http://localhost/", nil)
+	env := NewRequestEnv(r, nil)
+	results := engine.EvaluateRequest(env)
+
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+}
+
+func TestEngine_DisabledRuleSkipped(t *testing.T) {
+	enabled := false
+	engine, err := NewEngine(
+		[]config.RuleConfig{
+			{
+				ID:         "disabled-block",
+				Expression: `true`,
+				Action:     "block",
+				Enabled:    &enabled,
+			},
+			{
+				ID:         "active-header",
+				Expression: `true`,
+				Action:     "set_headers",
+			},
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("engine creation error: %v", err)
+	}
+
+	r := httptest.NewRequest("GET", "http://localhost/", nil)
+	env := NewRequestEnv(r, nil)
+	results := engine.EvaluateRequest(env)
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result (disabled skipped), got %d", len(results))
+	}
+	if results[0].RuleID != "active-header" {
+		t.Errorf("expected active-header, got %s", results[0].RuleID)
+	}
+}
+
+func TestEngine_HasRules(t *testing.T) {
+	engine, err := NewEngine(
+		[]config.RuleConfig{{ID: "r", Expression: `true`, Action: "block"}},
+		[]config.RuleConfig{{ID: "s", Expression: `true`, Action: "set_headers"}},
+	)
+	if err != nil {
+		t.Fatalf("engine creation error: %v", err)
+	}
+
+	if !engine.HasRequestRules() {
+		t.Error("expected HasRequestRules to be true")
+	}
+	if !engine.HasResponseRules() {
+		t.Error("expected HasResponseRules to be true")
+	}
+
+	empty, err := NewEngine(nil, nil)
+	if err != nil {
+		t.Fatalf("engine creation error: %v", err)
+	}
+	if empty.HasRequestRules() {
+		t.Error("expected HasRequestRules to be false for empty engine")
+	}
+	if empty.HasResponseRules() {
+		t.Error("expected HasResponseRules to be false for empty engine")
+	}
+}
+
+// --- Metrics tests ---
+
+func TestMetrics_Tracking(t *testing.T) {
+	engine, err := NewEngine(
+		[]config.RuleConfig{
+			{
+				ID:         "match-post",
+				Expression: `http.request.method == "POST"`,
+				Action:     "block",
+				StatusCode: 403,
+			},
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("engine creation error: %v", err)
+	}
+
+	// Evaluate twice with POST (matches, blocks)
+	r := httptest.NewRequest("POST", "http://localhost/", nil)
+	env := NewRequestEnv(r, nil)
+	engine.EvaluateRequest(env)
+	engine.EvaluateRequest(env)
+
+	// Evaluate once with GET (no match)
+	r = httptest.NewRequest("GET", "http://localhost/", nil)
+	env = NewRequestEnv(r, nil)
+	engine.EvaluateRequest(env)
+
+	snap := engine.GetMetrics()
+	if snap.Evaluated != 3 {
+		t.Errorf("expected 3 evaluated, got %d", snap.Evaluated)
+	}
+	if snap.Matched != 2 {
+		t.Errorf("expected 2 matched, got %d", snap.Matched)
+	}
+	if snap.Blocked != 2 {
+		t.Errorf("expected 2 blocked, got %d", snap.Blocked)
+	}
+}
+
+// --- RulesByRoute tests ---
+
+func TestRulesByRoute(t *testing.T) {
+	rbr := NewRulesByRoute()
+
+	err := rbr.AddRoute("route-1", config.RulesConfig{
+		Request: []config.RuleConfig{
+			{ID: "r1", Expression: `true`, Action: "set_headers"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddRoute error: %v", err)
+	}
+
+	engine := rbr.GetEngine("route-1")
+	if engine == nil {
+		t.Fatal("expected engine for route-1")
+	}
+	if !engine.HasRequestRules() {
+		t.Error("expected request rules for route-1")
+	}
+
+	if rbr.GetEngine("nonexistent") != nil {
+		t.Error("expected nil for nonexistent route")
+	}
+
+	stats := rbr.Stats()
+	if _, ok := stats["route-1"]; !ok {
+		t.Error("expected stats for route-1")
+	}
+}
+
+func TestRulesByRoute_CompileError(t *testing.T) {
+	rbr := NewRulesByRoute()
+
+	err := rbr.AddRoute("bad-route", config.RulesConfig{
+		Request: []config.RuleConfig{
+			{ID: "bad", Expression: `invalid !!!`, Action: "block"},
+		},
+	})
+	if err == nil {
+		t.Error("expected error for invalid expression")
+	}
+}
+
+// --- Writer tests ---
+
+func TestRulesResponseWriter(t *testing.T) {
+	rec := httptest.NewRecorder()
+	rw := NewRulesResponseWriter(rec)
+
+	// WriteHeader should be captured but not flushed
+	rw.WriteHeader(201)
+	if rw.StatusCode() != 201 {
+		t.Errorf("expected captured status 201, got %d", rw.StatusCode())
+	}
+	if rw.Flushed() {
+		t.Error("expected not flushed yet")
+	}
+	if rec.Code != 200 { // httptest.Recorder default
+		t.Errorf("expected underlying to still be default 200, got %d", rec.Code)
+	}
+
+	// Write body before flush — should be buffered, not sent
+	n, err := rw.Write([]byte("hello"))
+	if err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+	if n != 5 {
+		t.Errorf("expected 5 bytes written, got %d", n)
+	}
+	if rec.Body.Len() != 0 {
+		t.Errorf("expected no body on underlying before flush, got %s", rec.Body.String())
+	}
+	if rw.Flushed() {
+		t.Error("expected not flushed after buffered Write")
+	}
+
+	// Modify headers before flush
+	rw.Header().Set("X-Custom", "value")
+
+	// Flush sends everything through
+	rw.Flush()
+	if !rw.Flushed() {
+		t.Error("expected flushed after Flush()")
+	}
+	if rec.Code != 201 {
+		t.Errorf("expected underlying status 201 after flush, got %d", rec.Code)
+	}
+	if rec.Body.String() != "hello" {
+		t.Errorf("expected body 'hello' after flush, got %s", rec.Body.String())
+	}
+
+	// Header should be present
+	if rec.Header().Get("X-Custom") != "value" {
+		t.Errorf("expected X-Custom header, got %s", rec.Header().Get("X-Custom"))
+	}
+
+	// Write after flush passes through directly
+	rw.Write([]byte(" world"))
+	if rec.Body.String() != "hello world" {
+		t.Errorf("expected body 'hello world' after post-flush write, got %s", rec.Body.String())
+	}
+}
+
+func TestRulesResponseWriter_FlushSendsBufferedBody(t *testing.T) {
+	rec := httptest.NewRecorder()
+	rw := NewRulesResponseWriter(rec)
+
+	rw.WriteHeader(404)
+	rw.Write([]byte("not found"))
+
+	// Nothing on underlying yet
+	if rec.Body.Len() != 0 {
+		t.Error("expected no body before flush")
+	}
+
+	// Flush sends status + body
+	rw.Flush()
+	if rec.Code != 404 {
+		t.Errorf("expected status 404, got %d", rec.Code)
+	}
+	if rec.Body.String() != "not found" {
+		t.Errorf("expected body 'not found', got %s", rec.Body.String())
+	}
+}

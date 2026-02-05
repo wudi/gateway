@@ -242,6 +242,9 @@ func (s *Server) adminHandler() http.Handler {
 		mux.HandleFunc(metricsPath, s.handleMetrics)
 	}
 
+	// Rules engine status
+	mux.HandleFunc("/rules", s.handleRules)
+
 	// Feature 14: API Key management endpoints
 	if s.gateway.GetAPIKeyAuth() != nil {
 		mux.HandleFunc("/admin/keys", s.handleAdminKeys)
@@ -442,6 +445,30 @@ func (s *Server) handleRetries(w http.ResponseWriter, r *http.Request) {
 	for routeID, m := range metrics {
 		result[routeID] = m.Snapshot()
 	}
+	json.NewEncoder(w).Encode(result)
+}
+
+// handleRules handles rules engine status requests
+func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	result := make(map[string]interface{})
+
+	// Global rules
+	if globalEngine := s.gateway.GetGlobalRules(); globalEngine != nil {
+		result["global"] = map[string]interface{}{
+			"request_rules":  globalEngine.RequestRuleInfos(),
+			"response_rules": globalEngine.ResponseRuleInfos(),
+			"metrics":        globalEngine.GetMetrics(),
+		}
+	}
+
+	// Per-route rules
+	routeStats := s.gateway.GetRouteRules().Stats()
+	if len(routeStats) > 0 {
+		result["routes"] = routeStats
+	}
+
 	json.NewEncoder(w).Encode(result)
 }
 

@@ -26,6 +26,7 @@ type Config struct {
 	Admin          AdminConfig          `yaml:"admin"`
 	Tracing        TracingConfig        `yaml:"tracing"`         // Feature 9: Distributed tracing
 	IPFilter       IPFilterConfig       `yaml:"ip_filter"`       // Feature 2: Global IP filter
+	Rules          RulesConfig          `yaml:"rules"`           // Global rules engine
 }
 
 // ListenerConfig defines a listener configuration
@@ -223,6 +224,7 @@ type RouteConfig struct {
 	Validation     ValidationConfig     `yaml:"validation"`       // Feature 8: Request validation
 	Mirror         MirrorConfig         `yaml:"mirror"`           // Feature 10: Traffic mirroring
 	GRPC           GRPCConfig           `yaml:"grpc"`             // Feature 12: gRPC proxying
+	Rules          RulesConfig          `yaml:"rules"`            // Per-route rules engine
 }
 
 // RetryConfig defines retry policy settings
@@ -434,6 +436,25 @@ type AdminConfig struct {
 	Enabled bool          `yaml:"enabled"`
 	Port    int           `yaml:"port"`
 	Metrics MetricsConfig `yaml:"metrics"` // Feature 5: Prometheus metrics
+}
+
+// RulesConfig defines request and response phase rules.
+type RulesConfig struct {
+	Request  []RuleConfig `yaml:"request"`
+	Response []RuleConfig `yaml:"response"`
+}
+
+// RuleConfig defines a single rule.
+type RuleConfig struct {
+	ID          string          `yaml:"id"`
+	Enabled     *bool           `yaml:"enabled"`       // default true
+	Expression  string          `yaml:"expression"`
+	Action      string          `yaml:"action"`        // block, custom_response, redirect, set_headers
+	StatusCode  int             `yaml:"status_code"`
+	Body        string          `yaml:"body"`
+	RedirectURL string          `yaml:"redirect_url"`
+	Headers     HeaderTransform `yaml:"headers"`
+	Description string          `yaml:"description"`
 }
 
 // DefaultConfig returns a configuration with sensible defaults

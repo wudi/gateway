@@ -1758,6 +1758,502 @@ func TestRegexHeaderRouting(t *testing.T) {
 	}
 }
 
+// ============================================================
+// Rules Engine Integration Tests
+// ============================================================
+
+// TestGlobalRequestRuleBlock tests that a global request rule can block requests.
+func TestGlobalRequestRuleBlock(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(200)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"ok"}`)
+	}))
+	defer backend.Close()
+
+	cfg := baseConfig()
+	cfg.Rules = config.RulesConfig{
+		Request: []config.RuleConfig{
+			{
+				ID:         "block-delete",
+				Expression: `http.request.method == "DELETE"`,
+				Action:     "block",
+				StatusCode: 403,
+				Body:       "DELETE not allowed",
+			},
+		},
+	}
+	cfg.Routes = []config.RouteConfig{
+		{
+			ID:         "global-rule-test",
+			Path:       "/api",
+			PathPrefix: true,
+			Backends:   []config.BackendConfig{{URL: backend.URL}},
+		},
+	}
+
+	_, ts := newTestGateway(t, cfg)
+
+	// GET should pass through
+	resp, err := http.Get(ts.URL + "/api/data")
+	if err != nil {
+		t.Fatalf("GET request failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("GET: expected 200, got %d", resp.StatusCode)
+	}
+
+	// DELETE should be blocked by global rule
+	req, _ := http.NewRequest("DELETE", ts.URL+"/api/data", nil)
+	resp2, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("DELETE request failed: %v", err)
+	}
+	body, _ := io.ReadAll(resp2.Body)
+	resp2.Body.Close()
+
+	if resp2.StatusCode != http.StatusForbidden {
+		t.Errorf("DELETE: expected 403, got %d", resp2.StatusCode)
+	}
+	if string(body) != "DELETE not allowed" {
+		t.Errorf("DELETE: expected body 'DELETE not allowed', got %q", string(body))
+	}
+}
+
+// TestPerRouteRequestRule tests per-route request rules.
+func TestPerRouteRequestRule(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(200)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"ok"}`)
+	}))
+	defer backend.Close()
+
+	cfg := baseConfig()
+	cfg.Routes = []config.RouteConfig{
+		{
+			ID:         "strict-api",
+			Path:       "/strict",
+			PathPrefix: true,
+			Backends:   []config.BackendConfig{{URL: backend.URL}},
+			Rules: config.RulesConfig{
+				Request: []config.RuleConfig{
+					{
+						ID:         "require-json-post",
+						Expression: `http.request.method == "POST" and not (http.request.headers["Content-Type"] contains "application/json")`,
+						Action:     "block",
+						StatusCode: 415,
+						Body:       `{"error":"Content-Type must be application/json"}`,
+					},
+				},
+			},
+		},
+		{
+			ID:         "relaxed-api",
+			Path:       "/relaxed",
+			PathPrefix: true,
+			Backends:   []config.BackendConfig{{URL: backend.URL}},
+		},
+	}
+
+	_, ts := newTestGateway(t, cfg)
+
+	// POST to /strict without JSON Content-Type → blocked
+	req, _ := http.NewRequest("POST", ts.URL+"/strict/data", strings.NewReader("plain text"))
+	req.Header.Set("Content-Type", "text/plain")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 415 {
+		t.Errorf("Expected 415, got %d", resp.StatusCode)
+	}
+
+	// POST to /strict with JSON Content-Type → allowed
+	req2, _ := http.NewRequest("POST", ts.URL+"/strict/data", strings.NewReader(`{"key":"val"}`))
+	req2.Header.Set("Content-Type", "application/json")
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Errorf("Expected 200, got %d", resp2.StatusCode)
+	}
+
+	// GET to /strict → allowed (rule only matches POST)
+	resp3, err := http.Get(ts.URL + "/strict/data")
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	resp3.Body.Close()
+	if resp3.StatusCode != http.StatusOK {
+		t.Errorf("Expected 200, got %d", resp3.StatusCode)
+	}
+
+	// POST to /relaxed without JSON → allowed (no rules on this route)
+	req4, _ := http.NewRequest("POST", ts.URL+"/relaxed/data", strings.NewReader("plain text"))
+	req4.Header.Set("Content-Type", "text/plain")
+	resp4, err := http.DefaultClient.Do(req4)
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	resp4.Body.Close()
+	if resp4.StatusCode != http.StatusOK {
+		t.Errorf("Expected 200, got %d", resp4.StatusCode)
+	}
+}
+
+// TestRequestRuleSetHeaders tests non-terminating set_headers rules modify the request.
+func TestRequestRuleSetHeaders(t *testing.T) {
+	var receivedHeaders http.Header
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(200)
+			return
+		}
+		receivedHeaders = r.Header.Clone()
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"ok"}`)
+	}))
+	defer backend.Close()
+
+	cfg := baseConfig()
+	cfg.Rules = config.RulesConfig{
+		Request: []config.RuleConfig{
+			{
+				ID:         "add-security-header",
+				Expression: `true`,
+				Action:     "set_headers",
+				Headers: config.HeaderTransform{
+					Set: map[string]string{
+						"X-Gateway-Source": "rules-engine",
+					},
+				},
+			},
+		},
+	}
+	cfg.Routes = []config.RouteConfig{
+		{
+			ID:         "headers-test",
+			Path:       "/api",
+			PathPrefix: true,
+			Backends:   []config.BackendConfig{{URL: backend.URL}},
+		},
+	}
+
+	_, ts := newTestGateway(t, cfg)
+
+	resp, err := http.Get(ts.URL + "/api/test")
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected 200, got %d", resp.StatusCode)
+	}
+
+	// Verify the request rule added the header before reaching the backend
+	if receivedHeaders.Get("X-Gateway-Source") != "rules-engine" {
+		t.Errorf("Expected X-Gateway-Source header on backend request, got %q", receivedHeaders.Get("X-Gateway-Source"))
+	}
+}
+
+// TestResponseRuleSetHeaders tests response-phase rules modify response headers.
+func TestResponseRuleSetHeaders(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(200)
+			return
+		}
+		w.Header().Set("Server", "nginx/1.25")
+		w.Header().Set("X-Powered-By", "PHP/8.1")
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"ok"}`)
+	}))
+	defer backend.Close()
+
+	cfg := baseConfig()
+	cfg.Rules = config.RulesConfig{
+		Response: []config.RuleConfig{
+			{
+				ID:         "strip-server-headers",
+				Expression: `true`,
+				Action:     "set_headers",
+				Headers: config.HeaderTransform{
+					Remove: []string{"Server", "X-Powered-By"},
+					Set:    map[string]string{"X-Frame-Options": "DENY"},
+				},
+			},
+		},
+	}
+	cfg.Routes = []config.RouteConfig{
+		{
+			ID:         "resp-headers-test",
+			Path:       "/api",
+			PathPrefix: true,
+			Backends:   []config.BackendConfig{{URL: backend.URL}},
+		},
+	}
+
+	_, ts := newTestGateway(t, cfg)
+
+	resp, err := http.Get(ts.URL + "/api/test")
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected 200, got %d", resp.StatusCode)
+	}
+
+	// Server and X-Powered-By should be stripped by response rule
+	if resp.Header.Get("Server") != "" {
+		t.Errorf("Expected Server header to be removed, got %q", resp.Header.Get("Server"))
+	}
+	if resp.Header.Get("X-Powered-By") != "" {
+		t.Errorf("Expected X-Powered-By header to be removed, got %q", resp.Header.Get("X-Powered-By"))
+	}
+	// X-Frame-Options should be added
+	if resp.Header.Get("X-Frame-Options") != "DENY" {
+		t.Errorf("Expected X-Frame-Options DENY, got %q", resp.Header.Get("X-Frame-Options"))
+	}
+}
+
+// TestGlobalAndPerRouteRulesCombined tests that global rules run before per-route rules.
+func TestGlobalAndPerRouteRulesCombined(t *testing.T) {
+	var receivedHeaders http.Header
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(200)
+			return
+		}
+		receivedHeaders = r.Header.Clone()
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"ok"}`)
+	}))
+	defer backend.Close()
+
+	cfg := baseConfig()
+	cfg.Rules = config.RulesConfig{
+		Request: []config.RuleConfig{
+			{
+				ID:         "global-header",
+				Expression: `true`,
+				Action:     "set_headers",
+				Headers: config.HeaderTransform{
+					Set: map[string]string{"X-Global": "true"},
+				},
+			},
+		},
+	}
+	cfg.Routes = []config.RouteConfig{
+		{
+			ID:         "combined-rules",
+			Path:       "/api",
+			PathPrefix: true,
+			Backends:   []config.BackendConfig{{URL: backend.URL}},
+			Rules: config.RulesConfig{
+				Request: []config.RuleConfig{
+					{
+						ID:         "route-header",
+						Expression: `true`,
+						Action:     "set_headers",
+						Headers: config.HeaderTransform{
+							Set: map[string]string{"X-Route": "combined-rules"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	_, ts := newTestGateway(t, cfg)
+
+	resp, err := http.Get(ts.URL + "/api/test")
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected 200, got %d", resp.StatusCode)
+	}
+
+	// Both global and per-route headers should be set
+	if receivedHeaders.Get("X-Global") != "true" {
+		t.Errorf("Expected X-Global header from global rule, got %q", receivedHeaders.Get("X-Global"))
+	}
+	if receivedHeaders.Get("X-Route") != "combined-rules" {
+		t.Errorf("Expected X-Route header from per-route rule, got %q", receivedHeaders.Get("X-Route"))
+	}
+}
+
+// TestRuleRedirectAction tests the redirect action.
+func TestRuleRedirectAction(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(200)
+			return
+		}
+		w.WriteHeader(200)
+	}))
+	defer backend.Close()
+
+	cfg := baseConfig()
+	cfg.Routes = []config.RouteConfig{
+		{
+			ID:         "redirect-test",
+			Path:       "/old",
+			PathPrefix: true,
+			Backends:   []config.BackendConfig{{URL: backend.URL}},
+			Rules: config.RulesConfig{
+				Request: []config.RuleConfig{
+					{
+						ID:          "redirect-old",
+						Expression:  `http.request.uri.path == "/old/page"`,
+						Action:      "redirect",
+						StatusCode:  301,
+						RedirectURL: "https://example.com/new/page",
+					},
+				},
+			},
+		},
+	}
+
+	_, ts := newTestGateway(t, cfg)
+
+	// Disable redirect following
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	resp, err := client.Get(ts.URL + "/old/page")
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != 301 {
+		t.Errorf("Expected 301, got %d", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != "https://example.com/new/page" {
+		t.Errorf("Expected redirect to https://example.com/new/page, got %q", loc)
+	}
+
+	// Different path should not be redirected
+	resp2, err := client.Get(ts.URL + "/old/other")
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Errorf("Expected 200 for non-matching path, got %d", resp2.StatusCode)
+	}
+}
+
+// TestRulesAdminEndpoint tests the /rules admin API endpoint.
+func TestRulesAdminEndpoint(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer backend.Close()
+
+	cfg := baseConfig()
+	cfg.Admin = config.AdminConfig{Enabled: true, Port: 0}
+	cfg.Rules = config.RulesConfig{
+		Request: []config.RuleConfig{
+			{
+				ID:         "global-block",
+				Expression: `ip.src == "10.0.0.1"`,
+				Action:     "block",
+				StatusCode: 403,
+			},
+		},
+		Response: []config.RuleConfig{
+			{
+				ID:     "strip-server",
+				Expression: `true`,
+				Action: "set_headers",
+				Headers: config.HeaderTransform{
+					Remove: []string{"Server"},
+				},
+			},
+		},
+	}
+	cfg.Routes = []config.RouteConfig{
+		{
+			ID:         "admin-rules-test",
+			Path:       "/api",
+			PathPrefix: true,
+			Backends:   []config.BackendConfig{{URL: backend.URL}},
+			Rules: config.RulesConfig{
+				Request: []config.RuleConfig{
+					{
+						ID:         "route-block",
+						Expression: `http.request.method == "DELETE"`,
+						Action:     "block",
+						StatusCode: 405,
+					},
+				},
+			},
+		},
+	}
+
+	srv, err := gateway.NewServer(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+	t.Cleanup(func() { srv.Gateway().Close() })
+
+	gw := srv.Gateway()
+
+	// Verify global rules
+	globalEngine := gw.GetGlobalRules()
+	if globalEngine == nil {
+		t.Fatal("Expected global rules engine")
+	}
+
+	reqInfos := globalEngine.RequestRuleInfos()
+	if len(reqInfos) != 1 || reqInfos[0].ID != "global-block" {
+		t.Errorf("Expected 1 global request rule 'global-block', got %+v", reqInfos)
+	}
+
+	respInfos := globalEngine.ResponseRuleInfos()
+	if len(respInfos) != 1 || respInfos[0].ID != "strip-server" {
+		t.Errorf("Expected 1 global response rule 'strip-server', got %+v", respInfos)
+	}
+
+	// Verify per-route rules
+	routeEngine := gw.GetRouteRules().GetEngine("admin-rules-test")
+	if routeEngine == nil {
+		t.Fatal("Expected per-route rules engine for admin-rules-test")
+	}
+	if !routeEngine.HasRequestRules() {
+		t.Error("Expected request rules for admin-rules-test")
+	}
+
+	// Verify stats
+	stats := gw.GetRouteRules().Stats()
+	if _, ok := stats["admin-rules-test"]; !ok {
+		t.Error("Expected stats for admin-rules-test")
+	}
+}
+
 // TestAdminAPIRouteMatchInfo tests that the admin /routes endpoint shows match criteria.
 func TestAdminAPIRouteMatchInfo(t *testing.T) {
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

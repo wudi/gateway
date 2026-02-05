@@ -207,6 +207,24 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate global rules
+	if err := l.validateRules(cfg.Rules.Request, "request"); err != nil {
+		return fmt.Errorf("global rules: %w", err)
+	}
+	if err := l.validateRules(cfg.Rules.Response, "response"); err != nil {
+		return fmt.Errorf("global rules: %w", err)
+	}
+
+	// Validate per-route rules
+	for _, route := range cfg.Routes {
+		if err := l.validateRules(route.Rules.Request, "request"); err != nil {
+			return fmt.Errorf("route %s rules: %w", route.ID, err)
+		}
+		if err := l.validateRules(route.Rules.Response, "response"); err != nil {
+			return fmt.Errorf("route %s rules: %w", route.ID, err)
+		}
+	}
+
 	// Validate new route-level configs
 	for _, route := range cfg.Routes {
 		// Validate retry policy
@@ -251,6 +269,63 @@ func (l *Loader) validate(cfg *Config) error {
 			}
 			if route.WebSocket.WriteBufferSize != 0 && route.WebSocket.WriteBufferSize < 1 {
 				return fmt.Errorf("route %s: websocket write_buffer_size must be > 0", route.ID)
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateRules validates a list of rule configs for a given phase.
+func (l *Loader) validateRules(rules []RuleConfig, phase string) error {
+	validActions := map[string]bool{
+		"block":           true,
+		"custom_response": true,
+		"redirect":        true,
+		"set_headers":     true,
+	}
+
+	terminatingActions := map[string]bool{
+		"block":           true,
+		"custom_response": true,
+		"redirect":        true,
+	}
+
+	ids := make(map[string]bool)
+
+	for i, rule := range rules {
+		if rule.ID == "" {
+			return fmt.Errorf("%s rule %d: id is required", phase, i)
+		}
+		if ids[rule.ID] {
+			return fmt.Errorf("%s rule %s: duplicate id", phase, rule.ID)
+		}
+		ids[rule.ID] = true
+
+		if rule.Expression == "" {
+			return fmt.Errorf("%s rule %s: expression is required", phase, rule.ID)
+		}
+
+		if !validActions[rule.Action] {
+			return fmt.Errorf("%s rule %s: invalid action %q (must be block, custom_response, redirect, or set_headers)", phase, rule.ID, rule.Action)
+		}
+
+		// Response phase: reject terminating actions for now
+		if phase == "response" && terminatingActions[rule.Action] {
+			return fmt.Errorf("%s rule %s: terminating action %q is not allowed in response phase", phase, rule.ID, rule.Action)
+		}
+
+		if rule.Action == "redirect" && rule.RedirectURL == "" {
+			return fmt.Errorf("%s rule %s: redirect action requires redirect_url", phase, rule.ID)
+		}
+
+		if rule.StatusCode != 0 && (rule.StatusCode < 100 || rule.StatusCode > 599) {
+			return fmt.Errorf("%s rule %s: invalid status_code %d", phase, rule.ID, rule.StatusCode)
+		}
+
+		if rule.Action == "set_headers" {
+			if len(rule.Headers.Add) == 0 && len(rule.Headers.Set) == 0 && len(rule.Headers.Remove) == 0 {
+				return fmt.Errorf("%s rule %s: set_headers action requires at least one header operation", phase, rule.ID)
 			}
 		}
 	}
