@@ -7,14 +7,12 @@ import (
 )
 
 func TestCacheGetSet(t *testing.T) {
-	c := NewCache(10)
+	c := NewCache(10, 1*time.Minute)
 
 	entry := &Entry{
 		StatusCode: 200,
 		Headers:    http.Header{"Content-Type": {"application/json"}},
 		Body:       []byte(`{"ok":true}`),
-		CreatedAt:  time.Now(),
-		TTL:        1 * time.Minute,
 	}
 
 	c.Set("key1", entry)
@@ -32,7 +30,7 @@ func TestCacheGetSet(t *testing.T) {
 }
 
 func TestCacheMiss(t *testing.T) {
-	c := NewCache(10)
+	c := NewCache(10, 1*time.Minute)
 
 	_, ok := c.Get("nonexistent")
 	if ok {
@@ -41,16 +39,16 @@ func TestCacheMiss(t *testing.T) {
 }
 
 func TestCacheExpiry(t *testing.T) {
-	c := NewCache(10)
+	c := NewCache(10, 10*time.Millisecond)
 
 	entry := &Entry{
 		StatusCode: 200,
 		Body:       []byte("data"),
-		CreatedAt:  time.Now().Add(-2 * time.Minute),
-		TTL:        1 * time.Minute,
 	}
 
 	c.Set("expired", entry)
+
+	time.Sleep(50 * time.Millisecond)
 
 	_, ok := c.Get("expired")
 	if ok {
@@ -59,14 +57,12 @@ func TestCacheExpiry(t *testing.T) {
 }
 
 func TestCacheLRUEviction(t *testing.T) {
-	c := NewCache(3)
+	c := NewCache(3, 1*time.Minute)
 
 	for i := 0; i < 3; i++ {
 		c.Set(string(rune('a'+i)), &Entry{
 			StatusCode: 200,
 			Body:       []byte("data"),
-			CreatedAt:  time.Now(),
-			TTL:        1 * time.Minute,
 		})
 	}
 
@@ -74,8 +70,6 @@ func TestCacheLRUEviction(t *testing.T) {
 	c.Set("d", &Entry{
 		StatusCode: 200,
 		Body:       []byte("data"),
-		CreatedAt:  time.Now(),
-		TTL:        1 * time.Minute,
 	})
 
 	_, ok := c.Get("a")
@@ -90,14 +84,12 @@ func TestCacheLRUEviction(t *testing.T) {
 }
 
 func TestCacheLRUAccessOrder(t *testing.T) {
-	c := NewCache(3)
+	c := NewCache(3, 1*time.Minute)
 
 	for i := 0; i < 3; i++ {
 		c.Set(string(rune('a'+i)), &Entry{
 			StatusCode: 200,
 			Body:       []byte("data"),
-			CreatedAt:  time.Now(),
-			TTL:        1 * time.Minute,
 		})
 	}
 
@@ -108,8 +100,6 @@ func TestCacheLRUAccessOrder(t *testing.T) {
 	c.Set("d", &Entry{
 		StatusCode: 200,
 		Body:       []byte("data"),
-		CreatedAt:  time.Now(),
-		TTL:        1 * time.Minute,
 	})
 
 	_, ok := c.Get("a")
@@ -124,13 +114,11 @@ func TestCacheLRUAccessOrder(t *testing.T) {
 }
 
 func TestCacheDelete(t *testing.T) {
-	c := NewCache(10)
+	c := NewCache(10, 1*time.Minute)
 
 	c.Set("key1", &Entry{
 		StatusCode: 200,
 		Body:       []byte("data"),
-		CreatedAt:  time.Now(),
-		TTL:        1 * time.Minute,
 	})
 
 	c.Delete("key1")
@@ -142,14 +130,12 @@ func TestCacheDelete(t *testing.T) {
 }
 
 func TestCachePurge(t *testing.T) {
-	c := NewCache(10)
+	c := NewCache(10, 1*time.Minute)
 
 	for i := 0; i < 5; i++ {
 		c.Set(string(rune('a'+i)), &Entry{
 			StatusCode: 200,
 			Body:       []byte("data"),
-			CreatedAt:  time.Now(),
-			TTL:        1 * time.Minute,
 		})
 	}
 
@@ -162,13 +148,11 @@ func TestCachePurge(t *testing.T) {
 }
 
 func TestCacheStats(t *testing.T) {
-	c := NewCache(10)
+	c := NewCache(10, 1*time.Minute)
 
 	c.Set("key1", &Entry{
 		StatusCode: 200,
 		Body:       []byte("data"),
-		CreatedAt:  time.Now(),
-		TTL:        1 * time.Minute,
 	})
 
 	c.Get("key1") // hit
@@ -187,20 +171,16 @@ func TestCacheStats(t *testing.T) {
 }
 
 func TestCacheUpdateExisting(t *testing.T) {
-	c := NewCache(10)
+	c := NewCache(10, 1*time.Minute)
 
 	c.Set("key1", &Entry{
 		StatusCode: 200,
 		Body:       []byte("v1"),
-		CreatedAt:  time.Now(),
-		TTL:        1 * time.Minute,
 	})
 
 	c.Set("key1", &Entry{
 		StatusCode: 201,
 		Body:       []byte("v2"),
-		CreatedAt:  time.Now(),
-		TTL:        1 * time.Minute,
 	})
 
 	got, ok := c.Get("key1")

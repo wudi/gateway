@@ -2,6 +2,7 @@ package retry
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -255,7 +256,7 @@ func TestExecuteContextCancellation(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		_, err := p.Execute(ctx, transport, req)
-		if err != context.Canceled {
+		if !errors.Is(err, context.Canceled) {
 			t.Errorf("expected context.Canceled, got %v", err)
 		}
 		close(done)
@@ -294,33 +295,6 @@ func TestExecuteNoRetryOnPOST(t *testing.T) {
 	}
 	if transport.calls != 1 {
 		t.Errorf("expected 1 call (no retry for POST), got %d", transport.calls)
-	}
-}
-
-func TestCalculateBackoff(t *testing.T) {
-	p := &Policy{
-		InitialBackoff:    100 * time.Millisecond,
-		MaxBackoff:        1 * time.Second,
-		BackoffMultiplier: 2.0,
-	}
-
-	tests := []struct {
-		attempt  int
-		expected time.Duration
-	}{
-		{1, 100 * time.Millisecond},
-		{2, 200 * time.Millisecond},
-		{3, 400 * time.Millisecond},
-		{4, 800 * time.Millisecond},
-		{5, 1 * time.Second}, // capped at MaxBackoff
-		{6, 1 * time.Second}, // capped at MaxBackoff
-	}
-
-	for _, tt := range tests {
-		got := p.calculateBackoff(tt.attempt)
-		if got != tt.expected {
-			t.Errorf("calculateBackoff(%d) = %v, want %v", tt.attempt, got, tt.expected)
-		}
 	}
 }
 

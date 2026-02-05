@@ -50,7 +50,7 @@ func NewHandler(cfg config.CacheConfig) *Handler {
 	}
 
 	return &Handler{
-		cache:       NewCache(maxSize),
+		cache:       NewCache(maxSize, ttl),
 		ttl:         ttl,
 		maxBodySize: maxBodySize,
 		keyHeaders:  cfg.KeyHeaders,
@@ -136,8 +136,6 @@ func (h *Handler) Get(r *http.Request) (*Entry, bool) {
 // Store stores a response in the cache
 func (h *Handler) Store(r *http.Request, entry *Entry) {
 	key := h.BuildKey(r, h.keyHeaders)
-	entry.TTL = h.ttl
-	entry.CreatedAt = time.Now()
 	h.cache.Set(key, entry)
 }
 

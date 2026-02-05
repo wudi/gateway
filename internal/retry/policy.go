@@ -2,11 +2,12 @@ package retry
 
 import (
 	"context"
-	"math"
+	"fmt"
 	"net/http"
 	"sync/atomic"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/example/gateway/internal/config"
 )
 
@@ -126,47 +127,64 @@ func (p *Policy) Execute(ctx context.Context, transport http.RoundTripper, req *
 		return resp, nil
 	}
 
+	b := &backoff.ExponentialBackOff{
+		InitialInterval:     p.InitialBackoff,
+		MaxInterval:         p.MaxBackoff,
+		Multiplier:          p.BackoffMultiplier,
+		RandomizationFactor: 0,
+		MaxElapsedTime:      0, // rely on MaxRetries, not time
+		Clock:               backoff.SystemClock,
+		Stop:                backoff.Stop,
+	}
+	b.Reset()
+
+	bMax := backoff.WithMaxRetries(b, uint64(p.MaxRetries))
+	bCtx := backoff.WithContext(bMax, ctx)
+
 	var lastResp *http.Response
 	var lastErr error
 
-	for attempt := 0; attempt <= p.MaxRetries; attempt++ {
-		if attempt > 0 {
-			p.Metrics.Retries.Add(1)
-
-			// Wait with backoff
-			backoff := p.calculateBackoff(attempt)
-			select {
-			case <-ctx.Done():
-				if lastResp != nil {
-					lastResp.Body.Close()
-				}
-				p.Metrics.Failures.Add(1)
-				return nil, ctx.Err()
-			case <-time.After(backoff):
+	resp, err := backoff.RetryNotifyWithData(
+		func() (*http.Response, error) {
+			resp, err := p.doRoundTrip(ctx, transport, req)
+			if err != nil {
+				lastErr = err
+				lastResp = nil
+				return nil, err
 			}
-		}
 
-		resp, err := p.doRoundTrip(ctx, transport, req)
-		if err != nil {
-			lastErr = err
-			lastResp = nil
-			continue
-		}
+			if !p.IsRetryable(req.Method, resp.StatusCode) {
+				return resp, nil
+			}
 
-		if !p.IsRetryable(req.Method, resp.StatusCode) {
-			p.Metrics.Successes.Add(1)
-			return resp, nil
-		}
+			// Retryable status — save response, signal retry
+			if lastResp != nil {
+				lastResp.Body.Close()
+			}
+			lastResp = resp
+			lastErr = nil
+			return nil, fmt.Errorf("retryable status %d", resp.StatusCode)
+		},
+		bCtx,
+		func(err error, d time.Duration) {
+			p.Metrics.Retries.Add(1)
+		},
+	)
 
-		// Close the body before retrying
+	if err == nil {
+		p.Metrics.Successes.Add(1)
+		return resp, nil
+	}
+
+	// If context was cancelled, close any saved response and return the context error
+	if ctx.Err() != nil {
 		if lastResp != nil {
 			lastResp.Body.Close()
 		}
-		lastResp = resp
-		lastErr = nil
+		p.Metrics.Failures.Add(1)
+		return nil, ctx.Err()
 	}
 
-	// All retries exhausted
 	p.Metrics.Failures.Add(1)
 	if lastResp != nil {
 		return lastResp, nil
@@ -189,13 +207,4 @@ func (p *Policy) IsRetryable(method string, statusCode int) bool {
 		return false
 	}
 	return p.RetryableStatuses[statusCode]
-}
-
-// calculateBackoff returns the backoff duration for a given attempt
-func (p *Policy) calculateBackoff(attempt int) time.Duration {
-	backoff := float64(p.InitialBackoff) * math.Pow(p.BackoffMultiplier, float64(attempt-1))
-	if backoff > float64(p.MaxBackoff) {
-		backoff = float64(p.MaxBackoff)
-	}
-	return time.Duration(backoff)
 }
