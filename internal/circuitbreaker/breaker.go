@@ -148,6 +148,17 @@ func (br *BreakerByRoute) GetBreaker(routeID string) *Breaker {
 	return br.breakers[routeID]
 }
 
+// RouteIDs returns all route IDs with circuit breakers.
+func (br *BreakerByRoute) RouteIDs() []string {
+	br.mu.RLock()
+	defer br.mu.RUnlock()
+	ids := make([]string, 0, len(br.breakers))
+	for id := range br.breakers {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // Snapshots returns snapshots of all circuit breakers.
 func (br *BreakerByRoute) Snapshots() map[string]BreakerSnapshot {
 	br.mu.RLock()

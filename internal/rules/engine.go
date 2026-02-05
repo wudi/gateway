@@ -189,6 +189,17 @@ type EngineStats struct {
 	Metrics       MetricsSnapshot `json:"metrics"`
 }
 
+// RouteIDs returns all route IDs with rule engines.
+func (rbr *RulesByRoute) RouteIDs() []string {
+	rbr.mu.RLock()
+	defer rbr.mu.RUnlock()
+	ids := make([]string, 0, len(rbr.engines))
+	for id := range rbr.engines {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // Stats returns admin API info for all routes.
 func (rbr *RulesByRoute) Stats() map[string]EngineStats {
 	rbr.mu.RLock()

@@ -660,8 +660,10 @@ func TestAuthRateLimitCORS(t *testing.T) {
 		t.Errorf("Expected 401, got %d", resp2.StatusCode)
 	}
 
-	// 3. Authenticated requests should work (5 of them)
-	for i := 0; i < 5; i++ {
+	// 3. Authenticated requests should work (4 of them; the unauthenticated
+	// request above consumed 1 of 5 burst tokens since rate limiting runs
+	// before auth in the middleware pipeline).
+	for i := 0; i < 4; i++ {
 		req3, _ := http.NewRequest("GET", ts.URL+"/secure/test", nil)
 		req3.Header.Set("X-API-Key", "valid-key")
 		resp3, err := http.DefaultClient.Do(req3)
@@ -674,10 +676,17 @@ func TestAuthRateLimitCORS(t *testing.T) {
 		}
 	}
 
-	// 4. Rate limiting note: per-route rate limiting middleware runs before route
-	// matching (architectural limitation), so the per-route limiter key is empty.
-	// This test validates auth + CORS integration; rate limiting is tested at the
-	// middleware unit-test level.
+	// 4. Next request should be rate limited
+	req4, _ := http.NewRequest("GET", ts.URL+"/secure/test", nil)
+	req4.Header.Set("X-API-Key", "valid-key")
+	resp4, err := http.DefaultClient.Do(req4)
+	if err != nil {
+		t.Fatalf("Rate limited request failed: %v", err)
+	}
+	resp4.Body.Close()
+	if resp4.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("Expected 429, got %d", resp4.StatusCode)
+	}
 }
 
 // TestIPFilterBeforeAuth tests that IP filter runs before auth.

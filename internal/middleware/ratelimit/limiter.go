@@ -207,6 +207,17 @@ func (rl *RateLimitByRoute) AddRoute(routeID string, cfg Config) {
 	rl.limiters[routeID] = NewLimiter(cfg)
 }
 
+// RouteIDs returns all route IDs with rate limiters.
+func (rl *RateLimitByRoute) RouteIDs() []string {
+	rl.mu.RLock()
+	defer rl.mu.RUnlock()
+	ids := make([]string, 0, len(rl.limiters))
+	for id := range rl.limiters {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // GetLimiter returns the rate limiter for a route
 func (rl *RateLimitByRoute) GetLimiter(routeID string) *Limiter {
 	rl.mu.RLock()

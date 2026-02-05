@@ -13,6 +13,8 @@ import (
 
 	"github.com/example/gateway/internal/config"
 	"github.com/example/gateway/internal/listener"
+	"github.com/example/gateway/internal/proxy/tcp"
+	"github.com/example/gateway/internal/proxy/udp"
 )
 
 // Server wraps the gateway with HTTP server functionality
@@ -21,6 +23,8 @@ type Server struct {
 	manager     *listener.Manager
 	adminServer *http.Server
 	config      *config.Config
+	tcpProxy    *tcp.Proxy
+	udpProxy    *udp.Proxy
 }
 
 // NewServer creates a new gateway server
@@ -34,6 +38,11 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		gateway: gw,
 		manager: listener.NewManager(),
 		config:  cfg,
+	}
+
+	// Initialize TCP/UDP proxies if needed
+	if err := s.initL4Proxies(); err != nil {
+		return nil, fmt.Errorf("failed to initialize L4 proxies: %w", err)
 	}
 
 	// Initialize listeners
@@ -52,6 +61,31 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	}
 
 	return s, nil
+}
+
+// initL4Proxies initializes TCP and UDP proxies if routes are configured
+func (s *Server) initL4Proxies() error {
+	if len(s.config.TCPRoutes) > 0 {
+		s.tcpProxy = tcp.NewProxy(tcp.Config{})
+		for _, routeCfg := range s.config.TCPRoutes {
+			if err := s.tcpProxy.AddRoute(routeCfg); err != nil {
+				return fmt.Errorf("failed to add TCP route %s: %w", routeCfg.ID, err)
+			}
+		}
+		log.Printf("Initialized TCP proxy with %d routes", len(s.config.TCPRoutes))
+	}
+
+	if len(s.config.UDPRoutes) > 0 {
+		s.udpProxy = udp.NewProxy(udp.Config{})
+		for _, routeCfg := range s.config.UDPRoutes {
+			if err := s.udpProxy.AddRoute(routeCfg); err != nil {
+				return fmt.Errorf("failed to add UDP route %s: %w", routeCfg.ID, err)
+			}
+		}
+		log.Printf("Initialized UDP proxy with %d routes", len(s.config.UDPRoutes))
+	}
+
+	return nil
 }
 
 // initListeners initializes all listeners from configuration
@@ -78,28 +112,26 @@ func (s *Server) initListeners() error {
 			})
 
 		case config.ProtocolTCP:
-			tcpProxy := s.gateway.GetTCPProxy()
-			if tcpProxy == nil {
+			if s.tcpProxy == nil {
 				return fmt.Errorf("TCP proxy not initialized for listener %s", listenerCfg.ID)
 			}
 			l, err = listener.NewTCPListener(listener.TCPListenerConfig{
 				ID:          listenerCfg.ID,
 				Address:     listenerCfg.Address,
-				Proxy:       tcpProxy,
+				Proxy:       s.tcpProxy,
 				TLS:         listenerCfg.TLS,
 				SNIRouting:  listenerCfg.TCP.SNIRouting,
 				IdleTimeout: listenerCfg.TCP.IdleTimeout,
 			})
 
 		case config.ProtocolUDP:
-			udpProxy := s.gateway.GetUDPProxy()
-			if udpProxy == nil {
+			if s.udpProxy == nil {
 				return fmt.Errorf("UDP proxy not initialized for listener %s", listenerCfg.ID)
 			}
 			l, err = listener.NewUDPListener(listener.UDPListenerConfig{
 				ID:      listenerCfg.ID,
 				Address: listenerCfg.Address,
-				Proxy:   udpProxy,
+				Proxy:   s.udpProxy,
 				UDP:     listenerCfg.UDP,
 			})
 
@@ -185,6 +217,14 @@ func (s *Server) Shutdown(timeout time.Duration) error {
 	// Shutdown all listeners
 	if err := s.manager.StopAll(ctx); err != nil {
 		log.Printf("Listener manager shutdown error: %v", err)
+	}
+
+	// Close L4 proxies
+	if s.tcpProxy != nil {
+		s.tcpProxy.Close()
+	}
+	if s.udpProxy != nil {
+		s.udpProxy.Close()
 	}
 
 	// Close gateway
@@ -304,12 +344,12 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Add TCP/UDP stats if available
-	if tcpProxy := s.gateway.GetTCPProxy(); tcpProxy != nil {
+	if s.tcpProxy != nil {
 		response["tcp_routes"] = len(s.config.TCPRoutes)
 	}
-	if udpProxy := s.gateway.GetUDPProxy(); udpProxy != nil {
+	if s.udpProxy != nil {
 		response["udp_routes"] = len(s.config.UDPRoutes)
-		response["udp_sessions"] = udpProxy.SessionCount()
+		response["udp_sessions"] = s.udpProxy.SessionCount()
 	}
 
 	json.NewEncoder(w).Encode(response)
@@ -490,4 +530,14 @@ func (s *Server) Gateway() *Gateway {
 // ListenerManager returns the listener manager
 func (s *Server) ListenerManager() *listener.Manager {
 	return s.manager
+}
+
+// GetTCPProxy returns the TCP proxy
+func (s *Server) GetTCPProxy() *tcp.Proxy {
+	return s.tcpProxy
+}
+
+// GetUDPProxy returns the UDP proxy
+func (s *Server) GetUDPProxy() *udp.Proxy {
+	return s.udpProxy
 }

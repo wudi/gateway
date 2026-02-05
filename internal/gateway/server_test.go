@@ -145,7 +145,7 @@ func TestServerWithTCPRoutes(t *testing.T) {
 	defer server.Gateway().Close()
 
 	// Verify TCP proxy was initialized
-	if server.Gateway().GetTCPProxy() == nil {
+	if server.GetTCPProxy() == nil {
 		t.Error("TCP proxy should be initialized")
 	}
 }
@@ -186,7 +186,7 @@ func TestServerWithUDPRoutes(t *testing.T) {
 	defer server.Gateway().Close()
 
 	// Verify UDP proxy was initialized
-	if server.Gateway().GetUDPProxy() == nil {
+	if server.GetUDPProxy() == nil {
 		t.Error("UDP proxy should be initialized")
 	}
 }

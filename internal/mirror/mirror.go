@@ -154,3 +154,14 @@ func (m *MirrorByRoute) GetMirror(routeID string) *Mirror {
 	defer m.mu.RUnlock()
 	return m.mirrors[routeID]
 }
+
+// RouteIDs returns all route IDs with mirrors.
+func (m *MirrorByRoute) RouteIDs() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	ids := make([]string, 0, len(m.mirrors))
+	for id := range m.mirrors {
+		ids = append(ids, id)
+	}
+	return ids
+}

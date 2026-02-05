@@ -171,6 +171,17 @@ func (m *IPFilterByRoute) CheckRequest(routeID string, r *http.Request) bool {
 	return f.Check(r)
 }
 
+// RouteIDs returns all route IDs with IP filters.
+func (m *IPFilterByRoute) RouteIDs() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	ids := make([]string, 0, len(m.filters))
+	for id := range m.filters {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // RejectRequest sends a 403 Forbidden response
 func RejectRequest(w http.ResponseWriter) {
 	errors.ErrForbidden.WithDetails("IP address not allowed").WriteJSON(w)

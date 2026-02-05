@@ -177,8 +177,8 @@ func TestCachingResponseWriter(t *testing.T) {
 	crw.WriteHeader(201)
 	crw.Write([]byte("hello"))
 
-	if crw.StatusCode != 201 {
-		t.Errorf("expected status 201, got %d", crw.StatusCode)
+	if crw.StatusCode() != 201 {
+		t.Errorf("expected status 201, got %d", crw.StatusCode())
 	}
 	if crw.Body.String() != "hello" {
 		t.Errorf("expected body 'hello', got '%s'", crw.Body.String())

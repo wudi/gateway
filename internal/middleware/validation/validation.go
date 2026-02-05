@@ -224,3 +224,14 @@ func (m *ValidatorByRoute) GetValidator(routeID string) *Validator {
 	defer m.mu.RUnlock()
 	return m.validators[routeID]
 }
+
+// RouteIDs returns all route IDs with validators.
+func (m *ValidatorByRoute) RouteIDs() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	ids := make([]string, 0, len(m.validators))
+	for id := range m.validators {
+		ids = append(ids, id)
+	}
+	return ids
+}

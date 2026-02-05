@@ -168,3 +168,14 @@ func (m *CORSByRoute) GetHandler(routeID string) *Handler {
 	defer m.mu.RUnlock()
 	return m.handlers[routeID]
 }
+
+// RouteIDs returns all route IDs with CORS handlers.
+func (m *CORSByRoute) RouteIDs() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	ids := make([]string, 0, len(m.handlers))
+	for id := range m.handlers {
+		ids = append(ids, id)
+	}
+	return ids
+}

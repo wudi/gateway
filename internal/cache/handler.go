@@ -168,7 +168,7 @@ func IsMutatingMethod(method string) bool {
 // CachingResponseWriter wraps http.ResponseWriter to capture the response for caching
 type CachingResponseWriter struct {
 	http.ResponseWriter
-	StatusCode  int
+	statusCode  int
 	Body        bytes.Buffer
 	wroteHeader bool
 }
@@ -177,17 +177,22 @@ type CachingResponseWriter struct {
 func NewCachingResponseWriter(w http.ResponseWriter) *CachingResponseWriter {
 	return &CachingResponseWriter{
 		ResponseWriter: w,
-		StatusCode:     http.StatusOK,
+		statusCode:     http.StatusOK,
 	}
 }
 
 // WriteHeader captures the status code and writes it to the underlying writer
 func (crw *CachingResponseWriter) WriteHeader(code int) {
 	if !crw.wroteHeader {
-		crw.StatusCode = code
+		crw.statusCode = code
 		crw.wroteHeader = true
 		crw.ResponseWriter.WriteHeader(code)
 	}
+}
+
+// StatusCode returns the captured status code.
+func (crw *CachingResponseWriter) StatusCode() int {
+	return crw.statusCode
 }
 
 // Write captures the body and writes it to the underlying writer
@@ -248,6 +253,17 @@ func (cbr *CacheByRoute) GetHandler(routeID string) *Handler {
 	cbr.mu.RLock()
 	defer cbr.mu.RUnlock()
 	return cbr.handlers[routeID]
+}
+
+// RouteIDs returns all route IDs with cache handlers.
+func (cbr *CacheByRoute) RouteIDs() []string {
+	cbr.mu.RLock()
+	defer cbr.mu.RUnlock()
+	ids := make([]string, 0, len(cbr.handlers))
+	for id := range cbr.handlers {
+		ids = append(ids, id)
+	}
+	return ids
 }
 
 // Stats returns cache statistics for all routes

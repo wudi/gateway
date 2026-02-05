@@ -252,3 +252,14 @@ func (m *CompressorByRoute) GetCompressor(routeID string) *Compressor {
 	defer m.mu.RUnlock()
 	return m.compressors[routeID]
 }
+
+// RouteIDs returns all route IDs with compressors.
+func (m *CompressorByRoute) RouteIDs() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	ids := make([]string, 0, len(m.compressors))
+	for id := range m.compressors {
+		ids = append(ids, id)
+	}
+	return ids
+}

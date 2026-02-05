@@ -9,7 +9,6 @@ import (
 	"log"
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/example/gateway/internal/cache"
 	"github.com/example/gateway/internal/circuitbreaker"
@@ -24,14 +23,11 @@ import (
 	"github.com/example/gateway/internal/middleware/cors"
 	"github.com/example/gateway/internal/middleware/ipfilter"
 	"github.com/example/gateway/internal/middleware/ratelimit"
-	"github.com/example/gateway/internal/middleware/transform"
 	"github.com/example/gateway/internal/middleware/validation"
 	"github.com/example/gateway/internal/mirror"
 	grpcproxy "github.com/example/gateway/internal/proxy/grpc"
 	"github.com/example/gateway/internal/rules"
 	"github.com/example/gateway/internal/proxy"
-	"github.com/example/gateway/internal/proxy/tcp"
-	"github.com/example/gateway/internal/proxy/udp"
 	"github.com/example/gateway/internal/registry"
 	"github.com/example/gateway/internal/registry/consul"
 	"github.com/example/gateway/internal/registry/etcd"
@@ -48,8 +44,6 @@ type Gateway struct {
 	config        *config.Config
 	router        *router.Router
 	proxy         *proxy.Proxy
-	tcpProxy      *tcp.Proxy
-	udpProxy      *udp.Proxy
 	registry      registry.Registry
 	healthChecker *health.Checker
 	apiKeyAuth    *auth.APIKeyAuth
@@ -78,9 +72,12 @@ type Gateway struct {
 	globalRules *rules.RuleEngine
 	routeRules  *rules.RulesByRoute
 
-	routeProxies map[string]*proxy.RouteProxy
-	watchCancels map[string]context.CancelFunc
-	mu           sync.RWMutex
+	features []Feature
+
+	routeProxies  map[string]*proxy.RouteProxy
+	routeHandlers map[string]http.Handler
+	watchCancels  map[string]context.CancelFunc
+	mu            sync.RWMutex
 }
 
 // statusRecorder wraps http.ResponseWriter to capture the status code
@@ -94,79 +91,9 @@ func (sr *statusRecorder) WriteHeader(code int) {
 	sr.ResponseWriter.WriteHeader(code)
 }
 
-// bodyBufferResponseWriter captures the response body for transformation before writing
-type bodyBufferResponseWriter struct {
-	http.ResponseWriter
-	statusCode int
-	body       bytes.Buffer
-	header     http.Header
-}
-
-func newBodyBufferResponseWriter(w http.ResponseWriter) *bodyBufferResponseWriter {
-	return &bodyBufferResponseWriter{
-		ResponseWriter: w,
-		statusCode:     200,
-		header:         make(http.Header),
-	}
-}
-
-func (bw *bodyBufferResponseWriter) Header() http.Header {
-	return bw.header
-}
-
-func (bw *bodyBufferResponseWriter) WriteHeader(code int) {
-	bw.statusCode = code
-}
-
-func (bw *bodyBufferResponseWriter) Write(b []byte) (int, error) {
-	return bw.body.Write(b)
-}
-
-// replayTo writes the buffered response (with transformed body) through the real writer chain.
-func (bw *bodyBufferResponseWriter) replayTo(w http.ResponseWriter, body []byte) {
-	// Copy captured headers to real writer
-	for k, vv := range bw.header {
-		for _, v := range vv {
-			w.Header().Add(k, v)
-		}
-	}
-	// Update Content-Length for transformed body
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(body)))
-	w.WriteHeader(bw.statusCode)
-	w.Write(body)
-}
-
-// applyResponseBodyTransform applies response body transformations to JSON bodies
-func applyResponseBodyTransform(body []byte, cfg config.BodyTransformConfig) []byte {
-	// Only transform JSON
-	var data map[string]interface{}
-	if err := json.Unmarshal(body, &data); err != nil {
-		return body
-	}
-
-	// Add fields
-	for key, value := range cfg.AddFields {
-		data[key] = value
-	}
-
-	// Remove fields
-	for _, key := range cfg.RemoveFields {
-		delete(data, key)
-	}
-
-	// Rename fields
-	for oldKey, newKey := range cfg.RenameFields {
-		if val, ok := data[oldKey]; ok {
-			data[newKey] = val
-			delete(data, oldKey)
-		}
-	}
-
-	newBody, err := json.Marshal(data)
-	if err != nil {
-		return body
-	}
-	return newBody
+// StatusCode implements StatusCapture.
+func (sr *statusRecorder) StatusCode() int {
+	return sr.statusCode
 }
 
 // New creates a new gateway
@@ -188,7 +115,20 @@ func New(cfg *config.Config) (*Gateway, error) {
 		grpcHandlers:     make(map[string]*grpcproxy.Handler),
 		routeRules:       rules.NewRulesByRoute(),
 		routeProxies:     make(map[string]*proxy.RouteProxy),
+		routeHandlers:    make(map[string]http.Handler),
 		watchCancels:     make(map[string]context.CancelFunc),
+	}
+
+	// Register features for generic setup iteration
+	g.features = []Feature{
+		&ipFilterFeature{g.ipFilters},
+		&corsFeature{g.corsHandlers},
+		&circuitBreakerFeature{g.circuitBreakers},
+		&cacheFeature{g.caches},
+		&compressionFeature{g.compressors},
+		&validationFeature{g.validators},
+		&mirrorFeature{g.mirrors},
+		&rulesFeature{g.routeRules},
 	}
 
 	// Initialize global IP filter
@@ -240,11 +180,6 @@ func New(cfg *config.Config) (*Gateway, error) {
 	// Initialize routes
 	if err := g.initRoutes(); err != nil {
 		return nil, fmt.Errorf("failed to initialize routes: %w", err)
-	}
-
-	// Initialize TCP/UDP proxies if needed
-	if err := g.initL4Proxies(); err != nil {
-		return nil, fmt.Errorf("failed to initialize L4 proxies: %w", err)
 	}
 
 	return g, nil
@@ -307,35 +242,6 @@ func (g *Gateway) initRoutes() error {
 			return fmt.Errorf("failed to add route %s: %w", routeCfg.ID, err)
 		}
 	}
-	return nil
-}
-
-// initL4Proxies initializes TCP and UDP proxies if routes are configured
-func (g *Gateway) initL4Proxies() error {
-	// Initialize TCP proxy if TCP routes are configured
-	if len(g.config.TCPRoutes) > 0 {
-		g.tcpProxy = tcp.NewProxy(tcp.Config{})
-
-		for _, routeCfg := range g.config.TCPRoutes {
-			if err := g.tcpProxy.AddRoute(routeCfg); err != nil {
-				return fmt.Errorf("failed to add TCP route %s: %w", routeCfg.ID, err)
-			}
-		}
-		log.Printf("Initialized TCP proxy with %d routes", len(g.config.TCPRoutes))
-	}
-
-	// Initialize UDP proxy if UDP routes are configured
-	if len(g.config.UDPRoutes) > 0 {
-		g.udpProxy = udp.NewProxy(udp.Config{})
-
-		for _, routeCfg := range g.config.UDPRoutes {
-			if err := g.udpProxy.AddRoute(routeCfg); err != nil {
-				return fmt.Errorf("failed to add UDP route %s: %w", routeCfg.ID, err)
-			}
-		}
-		log.Printf("Initialized UDP proxy with %d routes", len(g.config.UDPRoutes))
-	}
-
 	return nil
 }
 
@@ -406,7 +312,7 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 	}
 	g.mu.Unlock()
 
-	// Set up rate limiting
+	// Set up rate limiting (unique setup signature, not in feature loop)
 	if routeCfg.RateLimit.Enabled || routeCfg.RateLimit.Rate > 0 {
 		g.rateLimiters.AddRoute(routeCfg.ID, ratelimit.Config{
 			Rate:   routeCfg.RateLimit.Rate,
@@ -416,58 +322,124 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 		})
 	}
 
-	// Set up circuit breaker
-	if routeCfg.CircuitBreaker.Enabled {
-		g.circuitBreakers.AddRoute(routeCfg.ID, routeCfg.CircuitBreaker)
-	}
-
-	// Set up cache
-	if routeCfg.Cache.Enabled {
-		g.caches.AddRoute(routeCfg.ID, routeCfg.Cache)
-	}
-
-	// Feature 2: Set up per-route IP filter
-	if routeCfg.IPFilter.Enabled {
-		if err := g.ipFilters.AddRoute(routeCfg.ID, routeCfg.IPFilter); err != nil {
-			return fmt.Errorf("failed to add IP filter for route %s: %w", routeCfg.ID, err)
-		}
-	}
-
-	// Feature 3: Set up CORS
-	if routeCfg.CORS.Enabled {
-		g.corsHandlers.AddRoute(routeCfg.ID, routeCfg.CORS)
-	}
-
-	// Feature 4: Set up compression
-	if routeCfg.Compression.Enabled {
-		g.compressors.AddRoute(routeCfg.ID, routeCfg.Compression)
-	}
-
-	// Feature 8: Set up request validation
-	if routeCfg.Validation.Enabled {
-		if err := g.validators.AddRoute(routeCfg.ID, routeCfg.Validation); err != nil {
-			return fmt.Errorf("failed to add validator for route %s: %w", routeCfg.ID, err)
-		}
-	}
-
-	// Feature 10: Set up traffic mirroring
-	if routeCfg.Mirror.Enabled {
-		g.mirrors.AddRoute(routeCfg.ID, routeCfg.Mirror)
-	}
-
-	// Feature 12: Set up gRPC handler once per route
+	// Set up gRPC handler (unique setup signature, not in feature loop)
 	if routeCfg.GRPC.Enabled {
 		g.grpcHandlers[routeCfg.ID] = grpcproxy.New(true)
 	}
 
-	// Set up per-route rules engine
-	if len(routeCfg.Rules.Request) > 0 || len(routeCfg.Rules.Response) > 0 {
-		if err := g.routeRules.AddRoute(routeCfg.ID, routeCfg.Rules); err != nil {
-			return fmt.Errorf("failed to compile rules for route %s: %w", routeCfg.ID, err)
+	// Set up all features generically
+	for _, f := range g.features {
+		if err := f.Setup(routeCfg.ID, routeCfg); err != nil {
+			return fmt.Errorf("feature %s: route %s: %w", f.Name(), routeCfg.ID, err)
 		}
 	}
 
+	// Build the per-route middleware pipeline handler
+	handler := g.buildRouteHandler(routeCfg.ID, routeCfg, route, g.routeProxies[routeCfg.ID])
+	g.mu.Lock()
+	g.routeHandlers[routeCfg.ID] = handler
+	g.mu.Unlock()
+
 	return nil
+}
+
+// buildRouteHandler constructs the per-route middleware pipeline.
+// Chain ordering matches CLAUDE.md serveHTTP flow exactly.
+func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, route *router.Route, rp *proxy.RouteProxy) http.Handler {
+	chain := middleware.NewBuilder()
+
+	// 1. metricsMW — outermost: timing + status (Step 13)
+	chain = chain.Use(metricsMW(g.metricsCollector, routeID))
+
+	// 2. ipFilterMW — global + per-route (Step 1.1)
+	routeIPFilter := g.ipFilters.GetFilter(routeID)
+	if g.globalIPFilter != nil || routeIPFilter != nil {
+		chain = chain.Use(ipFilterMW(g.globalIPFilter, routeIPFilter))
+	}
+
+	// 3. corsMW — preflight + headers (Step 1.5)
+	if corsHandler := g.corsHandlers.GetHandler(routeID); corsHandler != nil && corsHandler.IsEnabled() {
+		chain = chain.Use(corsMW(corsHandler))
+	}
+
+	// 4. varContextMW — set RouteID + PathParams (Step 2)
+	chain = chain.Use(varContextMW(routeID))
+
+	// 5. rateLimitMW — per-route limiter
+	if limiter := g.rateLimiters.GetLimiter(routeID); limiter != nil {
+		chain = chain.Use(rateLimitMW(limiter))
+	}
+
+	// 6. authMW — authenticate (Step 3)
+	if route.Auth.Required {
+		chain = chain.Use(authMW(g, route.Auth))
+	}
+
+	// 7. requestRulesMW — global + per-route (Step 3.5)
+	routeEngine := g.routeRules.GetEngine(routeID)
+	hasReqRules := (g.globalRules != nil && g.globalRules.HasRequestRules()) ||
+		(routeEngine != nil && routeEngine.HasRequestRules())
+	if hasReqRules {
+		chain = chain.Use(requestRulesMW(g.globalRules, routeEngine))
+	}
+
+	// 8. bodyLimitMW — MaxBodySize (Step 4.5)
+	if route.MaxBodySize > 0 {
+		chain = chain.Use(bodyLimitMW(route.MaxBodySize))
+	}
+
+	// 9. validationMW — request validation (Step 4.6)
+	if v := g.validators.GetValidator(routeID); v != nil && v.IsEnabled() {
+		chain = chain.Use(validationMW(v))
+	}
+
+	// 10. websocketMW — WS upgrade bypass (Step 5)
+	if route.WebSocket.Enabled {
+		chain = chain.Use(websocketMW(g.wsProxy, func() loadbalancer.Balancer {
+			return rp.GetBalancer()
+		}))
+	}
+
+	// 11. cacheMW — HIT check + store (Steps 6+12)
+	if cacheHandler := g.caches.GetHandler(routeID); cacheHandler != nil {
+		chain = chain.Use(cacheMW(cacheHandler, g.metricsCollector, routeID))
+	}
+
+	// 12. circuitBreakerMW — Allow + Done (Steps 7+11)
+	isGRPC := cfg.GRPC.Enabled
+	if cb := g.circuitBreakers.GetBreaker(routeID); cb != nil {
+		chain = chain.Use(circuitBreakerMW(cb, isGRPC))
+	}
+
+	// 13. compressionMW — wrap writer (Step 8)
+	if compressor := g.compressors.GetCompressor(routeID); compressor != nil && compressor.IsEnabled() {
+		chain = chain.Use(compressionMW(compressor))
+	}
+
+	// 14. responseRulesMW — wrap writer + eval (Steps 8.5+10.2)
+	hasRespRules := (g.globalRules != nil && g.globalRules.HasResponseRules()) ||
+		(routeEngine != nil && routeEngine.HasResponseRules())
+	if hasRespRules {
+		chain = chain.Use(responseRulesMW(g.globalRules, routeEngine))
+	}
+
+	// 15. mirrorMW — buffer + async send (Step 10.5)
+	if mirrorHandler := g.mirrors.GetMirror(routeID); mirrorHandler != nil && mirrorHandler.IsEnabled() {
+		chain = chain.Use(mirrorMW(mirrorHandler))
+	}
+
+	// 16. requestTransformMW — headers + body + gRPC (Step 9)
+	chain = chain.Use(requestTransformMW(route, g.grpcHandlers[routeID]))
+
+	// 17. responseBodyTransformMW — buffer + replay (Steps 9.5+10.1)
+	respBodyCfg := route.Transform.Response.Body
+	hasRespBodyTransform := len(respBodyCfg.AddFields) > 0 || len(respBodyCfg.RemoveFields) > 0 || len(respBodyCfg.RenameFields) > 0
+	if hasRespBodyTransform {
+		chain = chain.Use(responseBodyTransformMW(respBodyCfg))
+	}
+
+	// Innermost: the proxy (Step 10)
+	return chain.Handler(rp)
 }
 
 // watchService watches for service changes from registry
@@ -566,341 +538,43 @@ func (g *Gateway) updateBackendHealth(url string, status health.Status) {
 
 // Handler returns the main HTTP handler
 func (g *Gateway) Handler() http.Handler {
-	// Build middleware chain
 	chain := middleware.NewBuilder().
 		Use(middleware.Recovery()).
 		Use(middleware.RequestID())
 
-	// Feature 9: Add tracing middleware
 	if g.tracer != nil {
 		chain = chain.Use(g.tracer.Middleware())
 	}
 
-	chain = chain.
-		Use(middleware.LoggingWithConfig(middleware.LoggingConfig{
-			Format: g.config.Logging.Format,
-			JSON:   g.config.Logging.Level == "json",
-		})).
-		Use(g.rateLimiters.Middleware())
+	chain = chain.Use(middleware.LoggingWithConfig(middleware.LoggingConfig{
+		Format: g.config.Logging.Format,
+		JSON:   g.config.Logging.Level == "json",
+	}))
 
 	return chain.Handler(http.HandlerFunc(g.serveHTTP))
 }
 
-// serveHTTP handles incoming requests
+// serveHTTP handles incoming requests by dispatching to the per-route handler pipeline.
 func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
-	requestStart := time.Now()
-
-	// Step 1: Match route
 	match := g.router.Match(r)
 	if match == nil {
 		errors.ErrNotFound.WriteJSON(w)
 		return
 	}
 
-	route := match.Route
-
-	// Step 1.1: IP filter check (Feature 2)
-	// Check global IP filter first
-	if g.globalIPFilter != nil && !g.globalIPFilter.Check(r) {
-		ipfilter.RejectRequest(w)
-		return
-	}
-	// Check per-route IP filter
-	if !g.ipFilters.CheckRequest(route.ID, r) {
-		ipfilter.RejectRequest(w)
-		return
-	}
-
-	// Step 1.5: CORS preflight check (Feature 3)
-	if corsHandler := g.corsHandlers.GetHandler(route.ID); corsHandler != nil && corsHandler.IsEnabled() {
-		if corsHandler.IsPreflight(r) {
-			corsHandler.HandlePreflight(w, r)
-			return
-		}
-		// Non-preflight: apply response headers
-		corsHandler.ApplyHeaders(w, r)
-	}
-
-	// Step 2: Variable context setup
-	varCtx := variables.GetFromRequest(r)
-	varCtx.RouteID = route.ID
-	varCtx.PathParams = match.PathParams
-	ctx := context.WithValue(r.Context(), variables.RequestContextKey{}, varCtx)
+	ctx := context.WithValue(r.Context(), routeMatchKey{}, match)
 	r = r.WithContext(ctx)
 
-	// Step 3: Authentication (+ OAuth Feature 7)
-	if route.Auth.Required {
-		if !g.authenticate(w, r, route.Auth.Methods) {
-			return
-		}
-	}
-
-	// Step 3.5: Request rules (global, then per-route)
-	routeEngine := g.routeRules.GetEngine(route.ID)
-	if g.globalRules != nil && g.globalRules.HasRequestRules() {
-		reqEnv := rules.NewRequestEnv(r, varCtx)
-		for _, result := range g.globalRules.EvaluateRequest(reqEnv) {
-			if result.Terminated {
-				rules.ExecuteTerminatingAction(w, r, result.Action)
-				return
-			}
-			if result.Action.Type == "set_headers" {
-				rules.ExecuteRequestHeaders(r, result.Action.Headers)
-			}
-		}
-	}
-	if routeEngine != nil && routeEngine.HasRequestRules() {
-		reqEnv := rules.NewRequestEnv(r, varCtx)
-		for _, result := range routeEngine.EvaluateRequest(reqEnv) {
-			if result.Terminated {
-				rules.ExecuteTerminatingAction(w, r, result.Action)
-				return
-			}
-			if result.Action.Type == "set_headers" {
-				rules.ExecuteRequestHeaders(r, result.Action.Headers)
-			}
-		}
-	}
-
-	// Step 4: Get route proxy
 	g.mu.RLock()
-	rp, ok := g.routeProxies[route.ID]
+	handler, ok := g.routeHandlers[match.Route.ID]
 	g.mu.RUnlock()
 
 	if !ok {
-		errors.ErrInternalServer.WithDetails("Route proxy not found").WriteJSON(w)
+		errors.ErrInternalServer.WithDetails("Route handler not found").WriteJSON(w)
 		return
 	}
 
-	// Step 4.5: Body size limit check (Feature 1)
-	if route.MaxBodySize > 0 {
-		// Check Content-Length for early rejection
-		if r.ContentLength > route.MaxBodySize {
-			errors.ErrRequestEntityTooLarge.WithDetails(
-				fmt.Sprintf("Request body exceeds maximum size of %d bytes", route.MaxBodySize),
-			).WriteJSON(w)
-			return
-		}
-		// Wrap body with MaxBytesReader for chunked transfers
-		r.Body = http.MaxBytesReader(w, r.Body, route.MaxBodySize)
-	}
-
-	// Step 4.6: Request validation (Feature 8)
-	if v := g.validators.GetValidator(route.ID); v != nil && v.IsEnabled() {
-		if err := v.Validate(r); err != nil {
-			validation.RejectValidation(w, err)
-			return
-		}
-	}
-
-	// Step 5: WebSocket upgrade — bypass cache/circuit breaker
-	if route.WebSocket.Enabled && websocket.IsUpgradeRequest(r) {
-		backend := rp.GetBalancer().Next()
-		if backend == nil {
-			errors.ErrServiceUnavailable.WithDetails("No healthy backends available").WriteJSON(w)
-			return
-		}
-		g.wsProxy.ServeHTTP(w, r, backend.URL)
-		return
-	}
-
-	// Step 6: Cache HIT — return early
-	if cacheHandler := g.caches.GetHandler(route.ID); cacheHandler != nil {
-		if cacheHandler.ShouldCache(r) {
-			if entry, ok := cacheHandler.Get(r); ok {
-				// Feature 5: Record cache hit metric
-				g.metricsCollector.RecordCacheHit(route.ID)
-				cache.WriteCachedResponse(w, entry)
-				g.recordMetrics(route.ID, r.Method, 200, time.Since(requestStart))
-				return
-			}
-			// Feature 5: Record cache miss
-			g.metricsCollector.RecordCacheMiss(route.ID)
-		}
-
-		// Invalidate cache on mutating requests
-		if cache.IsMutatingMethod(r.Method) {
-			cacheHandler.InvalidateByPath(r.URL.Path)
-		}
-	}
-
-	// Step 7: Circuit breaker check
-	cb := g.circuitBreakers.GetBreaker(route.ID)
-	var cbDone func(error)
-	if cb != nil {
-		var err error
-		cbDone, err = cb.Allow()
-		if err != nil {
-			errors.ErrServiceUnavailable.WithDetails("Circuit breaker is open").WriteJSON(w)
-			g.recordMetrics(route.ID, r.Method, 503, time.Since(requestStart))
-			return
-		}
-	}
-
-	// Step 8: Conditional ResponseWriter wrapping
-	cacheHandler := g.caches.GetHandler(route.ID)
-	shouldCache := cacheHandler != nil && cacheHandler.ShouldCache(r)
-
-	var recorder *statusRecorder
-	var cachingWriter *cache.CachingResponseWriter
-	var compressingWriter *compression.CompressingResponseWriter
-	var responseWriter http.ResponseWriter = w
-
-	// Only wrap when needed
-	if cbDone != nil {
-		recorder = &statusRecorder{ResponseWriter: w, statusCode: 200}
-		responseWriter = recorder
-	}
-
-	if shouldCache {
-		if recorder == nil {
-			recorder = &statusRecorder{ResponseWriter: w, statusCode: 200}
-			responseWriter = recorder
-		}
-		cachingWriter = cache.NewCachingResponseWriter(recorder)
-		responseWriter = cachingWriter
-	}
-
-	// Feature 4: Response compression wrapping (after cache so cached data is uncompressed)
-	compressor := g.compressors.GetCompressor(route.ID)
-	if compressor != nil && compressor.ShouldCompress(r) {
-		compressingWriter = compression.NewCompressingResponseWriter(responseWriter, compressor)
-		responseWriter = compressingWriter
-		// Strip Accept-Encoding from forwarded request so backend returns uncompressed
-		r.Header.Del("Accept-Encoding")
-	}
-
-	// Step 8.5: Wrap with RulesResponseWriter if response rules exist
-	var rulesWriter *rules.RulesResponseWriter
-	hasGlobalRespRules := g.globalRules != nil && g.globalRules.HasResponseRules()
-	hasRouteRespRules := routeEngine != nil && routeEngine.HasResponseRules()
-	if hasGlobalRespRules || hasRouteRespRules {
-		rulesWriter = rules.NewRulesResponseWriter(responseWriter)
-		responseWriter = rulesWriter
-	}
-
-	// Feature 10: Buffer request body if mirroring is enabled
-	var mirrorBody []byte
-	mirrorHandler := g.mirrors.GetMirror(route.ID)
-	if mirrorHandler != nil && mirrorHandler.IsEnabled() && mirrorHandler.ShouldMirror() {
-		var err error
-		mirrorBody, err = mirror.BufferRequestBody(r)
-		if err != nil {
-			// Body read error, but continue with primary request
-			mirrorBody = nil
-		}
-	}
-
-	// Step 9: Apply request transformations
-	transformer := transform.NewHeaderTransformer()
-	transformer.TransformRequest(r, route.Transform.Request.Headers, varCtx)
-
-	// Feature 13: Apply request body transformations
-	if len(route.Transform.Request.Body.AddFields) > 0 || len(route.Transform.Request.Body.RemoveFields) > 0 || len(route.Transform.Request.Body.RenameFields) > 0 {
-		applyBodyTransform(r, route.Transform.Request.Body)
-	}
-
-	// Feature 12: Prepare gRPC request if needed
-	var isGRPC bool
-	if grpcHandler := g.grpcHandlers[route.ID]; grpcHandler != nil && grpcproxy.IsGRPCRequest(r) {
-		grpcHandler.PrepareRequest(r)
-		isGRPC = true
-	}
-
-	// Step 9.5: Check if response body transforms are configured
-	respBodyCfg := route.Transform.Response.Body
-	hasRespBodyTransform := len(respBodyCfg.AddFields) > 0 || len(respBodyCfg.RemoveFields) > 0 || len(respBodyCfg.RenameFields) > 0
-	var bodyBufWriter *bodyBufferResponseWriter
-	proxyTarget := responseWriter
-	if hasRespBodyTransform {
-		bodyBufWriter = newBodyBufferResponseWriter(responseWriter)
-		proxyTarget = bodyBufWriter
-	}
-
-	// Step 10: Proxy the request (retry policy handled inside proxy)
-	if cachingWriter != nil {
-		cachingWriter.Header().Set("X-Cache", "MISS")
-	}
-	rp.ServeHTTP(proxyTarget, r)
-
-	// Step 10.1: Apply response body transform and replay
-	if bodyBufWriter != nil {
-		transformed := applyResponseBodyTransform(bodyBufWriter.body.Bytes(), respBodyCfg)
-		bodyBufWriter.replayTo(responseWriter, transformed)
-	}
-
-	// Step 10.2: Response rules (global, then per-route)
-	if rulesWriter != nil {
-		respEnv := rules.NewResponseEnv(r, varCtx, rulesWriter.StatusCode(), rulesWriter.Header())
-		if hasGlobalRespRules {
-			for _, result := range g.globalRules.EvaluateResponse(respEnv) {
-				if result.Action.Type == "set_headers" {
-					rules.ExecuteResponseHeaders(rulesWriter, result.Action.Headers)
-				}
-			}
-		}
-		if hasRouteRespRules {
-			for _, result := range routeEngine.EvaluateResponse(respEnv) {
-				if result.Action.Type == "set_headers" {
-					rules.ExecuteResponseHeaders(rulesWriter, result.Action.Headers)
-				}
-			}
-		}
-		rulesWriter.Flush()
-	}
-
-	// Step 10.5: Mirror request async (Feature 10)
-	if mirrorHandler != nil && mirrorBody != nil {
-		mirrorHandler.SendAsync(r, mirrorBody)
-	}
-
-	// Feature 4: Close compression writer
-	if compressingWriter != nil {
-		compressingWriter.Close()
-	}
-
-	// Step 11: Record circuit breaker outcome
-	finalStatus := 200
-	if recorder != nil {
-		finalStatus = recorder.statusCode
-	}
-
-	if cbDone != nil && recorder != nil {
-		cbStatus := recorder.statusCode
-		// For gRPC, check the Grpc-Status header since HTTP 200 may still be a failure
-		if isGRPC && recorder.statusCode == 200 {
-			grpcStatus := responseWriter.Header().Get("Grpc-Status")
-			if grpcStatus != "" && grpcStatus != "0" {
-				cbStatus = 500 // Treat non-OK gRPC status as failure
-			}
-		}
-		if cbStatus >= 500 {
-			cbDone(fmt.Errorf("server error: %d", cbStatus))
-		} else {
-			cbDone(nil)
-		}
-	}
-
-	// Step 12: Store cacheable response
-	if cachingWriter != nil && cacheHandler != nil {
-		if cacheHandler.ShouldStore(cachingWriter.StatusCode, cachingWriter.Header(), int64(cachingWriter.Body.Len())) {
-			entry := &cache.Entry{
-				StatusCode: cachingWriter.StatusCode,
-				Headers:    cachingWriter.Header().Clone(),
-				Body:       cachingWriter.Body.Bytes(),
-			}
-			cacheHandler.Store(r, entry)
-		}
-		finalStatus = cachingWriter.StatusCode
-	}
-
-	// Step 13: Record Prometheus metrics (Feature 5)
-	g.recordMetrics(route.ID, r.Method, finalStatus, time.Since(requestStart))
-}
-
-// recordMetrics records request metrics
-func (g *Gateway) recordMetrics(routeID, method string, status int, duration time.Duration) {
-	g.metricsCollector.RecordRequest(routeID, method, status, duration)
+	handler.ServeHTTP(w, r)
 }
 
 // applyBodyTransform applies body transformations to the request
@@ -1021,16 +695,6 @@ func (g *Gateway) Close() error {
 	// Stop health checker
 	g.healthChecker.Stop()
 
-	// Close TCP proxy
-	if g.tcpProxy != nil {
-		g.tcpProxy.Close()
-	}
-
-	// Close UDP proxy
-	if g.udpProxy != nil {
-		g.udpProxy.Close()
-	}
-
 	// Close tracer
 	if g.tracer != nil {
 		g.tracer.Close()
@@ -1057,16 +721,6 @@ func (g *Gateway) GetRegistry() registry.Registry {
 // GetHealthChecker returns the health checker
 func (g *Gateway) GetHealthChecker() *health.Checker {
 	return g.healthChecker
-}
-
-// GetTCPProxy returns the TCP proxy
-func (g *Gateway) GetTCPProxy() *tcp.Proxy {
-	return g.tcpProxy
-}
-
-// GetUDPProxy returns the UDP proxy
-func (g *Gateway) GetUDPProxy() *udp.Proxy {
-	return g.udpProxy
 }
 
 // GetCircuitBreakers returns the circuit breaker manager
@@ -1106,6 +760,17 @@ func (g *Gateway) GetGlobalRules() *rules.RuleEngine {
 // GetRouteRules returns the per-route rules manager.
 func (g *Gateway) GetRouteRules() *rules.RulesByRoute {
 	return g.routeRules
+}
+
+// FeatureStats returns admin stats from features that implement AdminStatsProvider.
+func (g *Gateway) FeatureStats() map[string]any {
+	result := make(map[string]any)
+	for _, f := range g.features {
+		if sp, ok := f.(AdminStatsProvider); ok {
+			result[f.Name()] = sp.AdminStats()
+		}
+	}
+	return result
 }
 
 // GetAPIKeyAuth returns the API key auth for admin API
