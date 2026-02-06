@@ -313,6 +313,27 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate GraphQL config
+	for _, route := range cfg.Routes {
+		if route.GraphQL.Enabled {
+			if route.GraphQL.MaxDepth < 0 {
+				return fmt.Errorf("route %s: graphql max_depth must be >= 0", route.ID)
+			}
+			if route.GraphQL.MaxComplexity < 0 {
+				return fmt.Errorf("route %s: graphql max_complexity must be >= 0", route.ID)
+			}
+			validOpTypes := map[string]bool{"query": true, "mutation": true, "subscription": true}
+			for opType, limit := range route.GraphQL.OperationLimits {
+				if !validOpTypes[opType] {
+					return fmt.Errorf("route %s: graphql operation_limits key %q must be query, mutation, or subscription", route.ID, opType)
+				}
+				if limit <= 0 {
+					return fmt.Errorf("route %s: graphql operation_limits value for %q must be > 0", route.ID, opType)
+				}
+			}
+		}
+	}
+
 	// Validate new route-level configs
 	for _, route := range cfg.Routes {
 		// Validate retry policy

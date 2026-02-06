@@ -19,6 +19,7 @@ import (
 	"github.com/example/gateway/internal/middleware/ratelimit"
 	"github.com/example/gateway/internal/middleware/validation"
 	"github.com/example/gateway/internal/middleware/waf"
+	"github.com/example/gateway/internal/graphql"
 	"github.com/example/gateway/internal/mirror"
 	"github.com/example/gateway/internal/proxy"
 	grpcproxy "github.com/example/gateway/internal/proxy/grpc"
@@ -66,6 +67,7 @@ type gatewayState struct {
 	priorityConfigs   *trafficshape.PriorityByRoute
 	faultInjectors    *trafficshape.FaultInjectionByRoute
 	wafHandlers       *waf.WAFByRoute
+	graphqlParsers    *graphql.GraphQLByRoute
 	translators       *protocol.TranslatorByRoute
 	rateLimiters      *ratelimit.RateLimitByRoute
 	grpcHandlers      map[string]*grpcproxy.Handler
@@ -99,6 +101,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		priorityConfigs:   trafficshape.NewPriorityByRoute(),
 		faultInjectors:    trafficshape.NewFaultInjectionByRoute(),
 		wafHandlers:       waf.NewWAFByRoute(),
+		graphqlParsers:    graphql.NewGraphQLByRoute(),
 		translators:       protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
 		grpcHandlers:      make(map[string]*grpcproxy.Handler),
@@ -124,6 +127,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		&priorityFeature{m: s.priorityConfigs, global: &cfg.TrafficShaping.Priority},
 		&faultInjectionFeature{m: s.faultInjectors, global: &cfg.TrafficShaping.FaultInjection},
 		&wafFeature{s.wafHandlers},
+		&graphqlFeature{s.graphqlParsers},
 	}
 
 	// Initialize global IP filter
@@ -364,6 +368,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldMirrors := g.mirrors
 	oldGrpcHandlers := g.grpcHandlers
 	oldTranslators := g.translators
+	oldGraphqlParsers := g.graphqlParsers
 
 	// Install new state
 	g.ipFilters = s.ipFilters
@@ -385,6 +390,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.mirrors = s.mirrors
 	g.grpcHandlers = s.grpcHandlers
 	g.translators = s.translators
+	g.graphqlParsers = s.graphqlParsers
 
 	handler := g.buildRouteHandler(routeID, cfg, route, rp)
 
@@ -408,6 +414,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.mirrors = oldMirrors
 	g.grpcHandlers = oldGrpcHandlers
 	g.translators = oldTranslators
+	g.graphqlParsers = oldGraphqlParsers
 
 	return handler
 }
@@ -459,6 +466,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.priorityConfigs = newState.priorityConfigs
 	g.faultInjectors = newState.faultInjectors
 	g.wafHandlers = newState.wafHandlers
+	g.graphqlParsers = newState.graphqlParsers
 	g.translators = newState.translators
 	g.rateLimiters = newState.rateLimiters
 	g.grpcHandlers = newState.grpcHandlers

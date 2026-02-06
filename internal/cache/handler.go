@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/example/gateway/internal/config"
+	"github.com/example/gateway/internal/graphql"
 )
 
 // Handler manages caching for a single route
@@ -86,6 +87,14 @@ func (h *Handler) BuildKey(r *http.Request, keyHeaders []string) string {
 		}
 	}
 
+	// Include GraphQL operation info in cache key if present
+	if gqlInfo := graphql.GetInfo(r.Context()); gqlInfo != nil {
+		b.WriteString("|gql:")
+		b.WriteString(gqlInfo.OperationName)
+		b.WriteString("|vars:")
+		b.WriteString(gqlInfo.VariablesHash)
+	}
+
 	// Hash for a fixed-length key
 	hash := sha256.Sum256([]byte(b.String()))
 	return fmt.Sprintf("%x", hash)
@@ -94,9 +103,16 @@ func (h *Handler) BuildKey(r *http.Request, keyHeaders []string) string {
 // ShouldCache checks if the request is cacheable
 func (h *Handler) ShouldCache(r *http.Request) bool {
 	if !h.methods[r.Method] {
+		// Allow POST caching for GraphQL query operations
+		if r.Method == http.MethodPost {
+			if gqlInfo := graphql.GetInfo(r.Context()); gqlInfo != nil && gqlInfo.OperationType == "query" {
+				goto cacheControlCheck
+			}
+		}
 		return false
 	}
 
+cacheControlCheck:
 	// Check Cache-Control headers
 	cc := r.Header.Get("Cache-Control")
 	if strings.Contains(cc, "no-store") || strings.Contains(cc, "no-cache") {

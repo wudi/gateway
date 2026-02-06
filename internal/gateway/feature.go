@@ -4,6 +4,7 @@ import (
 	"github.com/example/gateway/internal/cache"
 	"github.com/example/gateway/internal/circuitbreaker"
 	"github.com/example/gateway/internal/config"
+	"github.com/example/gateway/internal/graphql"
 	"github.com/example/gateway/internal/middleware/compression"
 	"github.com/example/gateway/internal/middleware/cors"
 	"github.com/example/gateway/internal/middleware/ipfilter"
@@ -219,3 +220,16 @@ func (f *wafFeature) Setup(routeID string, cfg config.RouteConfig) error {
 }
 func (f *wafFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *wafFeature) AdminStats() any     { return f.m.Stats() }
+
+// graphqlFeature wraps GraphQLByRoute.
+type graphqlFeature struct{ m *graphql.GraphQLByRoute }
+
+func (f *graphqlFeature) Name() string { return "graphql" }
+func (f *graphqlFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.GraphQL.Enabled {
+		return f.m.AddRoute(routeID, cfg.GraphQL)
+	}
+	return nil
+}
+func (f *graphqlFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *graphqlFeature) AdminStats() any     { return f.m.Stats() }

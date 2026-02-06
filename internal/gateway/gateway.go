@@ -16,6 +16,7 @@ import (
 	"github.com/example/gateway/internal/circuitbreaker"
 	"github.com/example/gateway/internal/config"
 	"github.com/example/gateway/internal/errors"
+	"github.com/example/gateway/internal/graphql"
 	"github.com/example/gateway/internal/health"
 	"github.com/example/gateway/internal/loadbalancer"
 	"github.com/example/gateway/internal/metrics"
@@ -87,6 +88,7 @@ type Gateway struct {
 	priorityConfigs   *trafficshape.PriorityByRoute
 	faultInjectors    *trafficshape.FaultInjectionByRoute
 	wafHandlers       *waf.WAFByRoute
+	graphqlParsers    *graphql.GraphQLByRoute
 
 	features []Feature
 
@@ -145,6 +147,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		priorityConfigs:   trafficshape.NewPriorityByRoute(),
 		faultInjectors:    trafficshape.NewFaultInjectionByRoute(),
 		wafHandlers:       waf.NewWAFByRoute(),
+		graphqlParsers:    graphql.NewGraphQLByRoute(),
 		routeProxies:      make(map[string]*proxy.RouteProxy),
 		routeHandlers:    make(map[string]http.Handler),
 		watchCancels:     make(map[string]context.CancelFunc),
@@ -170,6 +173,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&priorityFeature{m: g.priorityConfigs, global: &cfg.TrafficShaping.Priority},
 		&faultInjectionFeature{m: g.faultInjectors, global: &cfg.TrafficShaping.FaultInjection},
 		&wafFeature{g.wafHandlers},
+		&graphqlFeature{g.graphqlParsers},
 	}
 
 	// Initialize global IP filter
@@ -518,6 +522,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 	// 9. validationMW — request validation (Step 4.6)
 	if v := g.validators.GetValidator(routeID); v != nil && v.IsEnabled() {
 		chain = chain.Use(validationMW(v))
+	}
+
+	// 9.5. graphqlMW — parse, validate depth/complexity, rate limit by operation
+	if gql := g.graphqlParsers.GetParser(routeID); gql != nil {
+		chain = chain.Use(gql.Middleware())
 	}
 
 	// 10. websocketMW — WS upgrade bypass (Step 5)
@@ -961,6 +970,11 @@ func (g *Gateway) GetWAFHandlers() *waf.WAFByRoute {
 // GetMirrors returns the mirror manager.
 func (g *Gateway) GetMirrors() *mirror.MirrorByRoute {
 	return g.mirrors
+}
+
+// GetGraphQLParsers returns the GraphQL parser manager.
+func (g *Gateway) GetGraphQLParsers() *graphql.GraphQLByRoute {
+	return g.graphqlParsers
 }
 
 // GetLoadBalancerInfo returns per-route load balancer algorithm and stats.

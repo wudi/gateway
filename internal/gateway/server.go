@@ -438,6 +438,9 @@ func (s *Server) adminHandler() http.Handler {
 	// Load balancers
 	mux.HandleFunc("/load-balancers", s.handleLoadBalancers)
 
+	// GraphQL stats
+	mux.HandleFunc("/graphql", s.handleGraphQL)
+
 	// Aggregated dashboard
 	mux.HandleFunc("/dashboard", s.handleDashboard)
 
@@ -891,6 +894,13 @@ func boolStatus(ok bool) string {
 func (s *Server) handleWAF(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	stats := s.gateway.GetWAFHandlers().Stats()
+	json.NewEncoder(w).Encode(stats)
+}
+
+// handleGraphQL handles GraphQL stats requests
+func (s *Server) handleGraphQL(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	stats := s.gateway.GetGraphQLParsers().Stats()
 	json.NewEncoder(w).Encode(stats)
 }
 

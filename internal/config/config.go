@@ -236,6 +236,7 @@ type RouteConfig struct {
 	WAF            WAFConfig            `yaml:"waf"`             // Per-route WAF settings
 	LoadBalancer   string               `yaml:"load_balancer"`   // "round_robin"|"least_conn"|"consistent_hash"|"least_response_time"
 	ConsistentHash ConsistentHashConfig `yaml:"consistent_hash"` // Config for consistent_hash LB
+	GraphQL        GraphQLConfig        `yaml:"graphql"`         // GraphQL query analysis and protection
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -444,6 +445,15 @@ type WAFConfig struct {
 	InlineRules  []string `yaml:"inline_rules"`   // inline SecLang rules
 	SQLInjection bool     `yaml:"sql_injection"`  // enable built-in SQLi rules
 	XSS          bool     `yaml:"xss"`            // enable built-in XSS rules
+}
+
+// GraphQLConfig defines GraphQL query analysis and protection settings.
+type GraphQLConfig struct {
+	Enabled         bool           `yaml:"enabled"`
+	MaxDepth        int            `yaml:"max_depth"`        // 0 = unlimited
+	MaxComplexity   int            `yaml:"max_complexity"`   // 0 = unlimited
+	Introspection   bool           `yaml:"introspection"`    // allow introspection (default false)
+	OperationLimits map[string]int `yaml:"operation_limits"` // e.g. {"query": 100, "mutation": 10} req/s
 }
 
 // BodyTransformConfig defines request/response body transformation settings (Feature 13)
