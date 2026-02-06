@@ -26,6 +26,7 @@ import (
 	grpcproxy "github.com/example/gateway/internal/proxy/grpc"
 	"github.com/example/gateway/internal/router"
 	"github.com/example/gateway/internal/rules"
+	"github.com/example/gateway/internal/trafficshape"
 	"github.com/example/gateway/internal/variables"
 	"github.com/example/gateway/internal/websocket"
 )
@@ -420,6 +421,56 @@ func varContextMW(routeID string) middleware.Middleware {
 			varCtx.PathParams = match.PathParams
 			ctx := context.WithValue(r.Context(), variables.RequestContextKey{}, varCtx)
 			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// 17. throttleMW delays requests using the throttler's token bucket.
+func throttleMW(t *trafficshape.Throttler) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := t.Throttle(r.Context(), r); err != nil {
+				errors.ErrServiceUnavailable.WithDetails("Request throttled: queue timeout exceeded").WriteJSON(w)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// 18. priorityMW enforces priority-based admission control.
+func priorityMW(admitter *trafficshape.PriorityAdmitter, cfg config.PriorityConfig) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			varCtx := variables.GetFromRequest(r)
+			level := trafficshape.DetermineLevel(r, varCtx.Identity, cfg)
+
+			ctx := r.Context()
+			if cfg.MaxWait > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, cfg.MaxWait)
+				defer cancel()
+			}
+
+			release, err := admitter.Admit(ctx, level)
+			if err != nil {
+				errors.ErrServiceUnavailable.WithDetails("Priority admission timeout").WriteJSON(w)
+				return
+			}
+			defer release()
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// 19. bandwidthMW wraps request body and response writer with bandwidth limits.
+func bandwidthMW(bw *trafficshape.BandwidthLimiter) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			bw.WrapRequest(r)
+			wrappedW := bw.WrapResponse(w)
+			next.ServeHTTP(wrappedW, r)
 		})
 	}
 }

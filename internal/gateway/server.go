@@ -288,6 +288,9 @@ func (s *Server) adminHandler() http.Handler {
 	// Protocol translators status
 	mux.HandleFunc("/protocol-translators", s.handleProtocolTranslators)
 
+	// Traffic shaping stats
+	mux.HandleFunc("/traffic-shaping", s.handleTrafficShaping)
+
 	// Feature 14: API Key management endpoints
 	if s.gateway.GetAPIKeyAuth() != nil {
 		mux.HandleFunc("/admin/keys", s.handleAdminKeys)
@@ -523,6 +526,24 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 // handleAdminKeys handles API key management requests (Feature 14)
 func (s *Server) handleAdminKeys(w http.ResponseWriter, r *http.Request) {
 	s.gateway.GetAPIKeyAuth().HandleAdminKeys(w, r)
+}
+
+// handleTrafficShaping handles traffic shaping stats requests
+func (s *Server) handleTrafficShaping(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	result := make(map[string]interface{})
+
+	if throttleStats := s.gateway.GetThrottlers().Stats(); len(throttleStats) > 0 {
+		result["throttle"] = throttleStats
+	}
+	if bwStats := s.gateway.GetBandwidthLimiters().Stats(); len(bwStats) > 0 {
+		result["bandwidth"] = bwStats
+	}
+	if pa := s.gateway.GetPriorityAdmitter(); pa != nil {
+		result["priority"] = pa.Snapshot()
+	}
+
+	json.NewEncoder(w).Encode(result)
 }
 
 // handleProtocolTranslators handles protocol translator stats requests

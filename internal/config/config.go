@@ -27,6 +27,7 @@ type Config struct {
 	Tracing        TracingConfig        `yaml:"tracing"`         // Feature 9: Distributed tracing
 	IPFilter       IPFilterConfig       `yaml:"ip_filter"`       // Feature 2: Global IP filter
 	Rules          RulesConfig          `yaml:"rules"`           // Global rules engine
+	TrafficShaping TrafficShapingConfig `yaml:"traffic_shaping"` // Global traffic shaping
 }
 
 // ListenerConfig defines a listener configuration
@@ -226,6 +227,7 @@ type RouteConfig struct {
 	GRPC           GRPCConfig           `yaml:"grpc"`             // Feature 12: gRPC proxying
 	Rules          RulesConfig          `yaml:"rules"`            // Per-route rules engine
 	Protocol       ProtocolConfig       `yaml:"protocol"`         // Protocol translation
+	TrafficShaping TrafficShapingConfig `yaml:"traffic_shaping"` // Per-route traffic shaping
 }
 
 // RetryConfig defines retry policy settings
@@ -488,6 +490,47 @@ type RuleConfig struct {
 	RedirectURL string          `yaml:"redirect_url"`
 	Headers     HeaderTransform `yaml:"headers"`
 	Description string          `yaml:"description"`
+}
+
+// TrafficShapingConfig defines traffic shaping settings.
+type TrafficShapingConfig struct {
+	Throttle  ThrottleConfig  `yaml:"throttle"`
+	Bandwidth BandwidthConfig `yaml:"bandwidth"`
+	Priority  PriorityConfig  `yaml:"priority"`
+}
+
+// ThrottleConfig defines request throttling settings.
+type ThrottleConfig struct {
+	Enabled bool          `yaml:"enabled"`
+	Rate    int           `yaml:"rate"`      // requests per second
+	Burst   int           `yaml:"burst"`     // token bucket capacity
+	MaxWait time.Duration `yaml:"max_wait"`  // max queue time (default 30s)
+	PerIP   bool          `yaml:"per_ip"`
+}
+
+// BandwidthConfig defines bandwidth limiting settings.
+type BandwidthConfig struct {
+	Enabled       bool  `yaml:"enabled"`
+	RequestRate   int64 `yaml:"request_rate"`    // bytes/sec (0 = unlimited)
+	ResponseRate  int64 `yaml:"response_rate"`   // bytes/sec (0 = unlimited)
+	RequestBurst  int64 `yaml:"request_burst"`   // default = request_rate
+	ResponseBurst int64 `yaml:"response_burst"`  // default = response_rate
+}
+
+// PriorityConfig defines priority-based admission control settings.
+type PriorityConfig struct {
+	Enabled       bool                  `yaml:"enabled"`
+	MaxConcurrent int                   `yaml:"max_concurrent"`
+	MaxWait       time.Duration         `yaml:"max_wait"`
+	DefaultLevel  int                   `yaml:"default_level"` // 1=highest, 10=lowest, default 5
+	Levels        []PriorityLevelConfig `yaml:"levels"`
+}
+
+// PriorityLevelConfig defines a priority level matching rule.
+type PriorityLevelConfig struct {
+	Level     int               `yaml:"level"`
+	Headers   map[string]string `yaml:"headers"`    // match if all headers present with value
+	ClientIDs []string          `yaml:"client_ids"` // match if auth client_id in list
 }
 
 // DefaultConfig returns a configuration with sensible defaults

@@ -225,6 +225,21 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate global traffic shaping
+	if err := l.validateTrafficShaping(cfg.TrafficShaping, "global"); err != nil {
+		return err
+	}
+
+	// Validate per-route traffic shaping
+	for _, route := range cfg.Routes {
+		if err := l.validateTrafficShaping(route.TrafficShaping, fmt.Sprintf("route %s", route.ID)); err != nil {
+			return err
+		}
+		if route.TrafficShaping.Priority.Enabled && !cfg.TrafficShaping.Priority.Enabled {
+			return fmt.Errorf("route %s: per-route priority requires global priority to be enabled", route.ID)
+		}
+	}
+
 	// Validate new route-level configs
 	for _, route := range cfg.Routes {
 		// Validate retry policy
@@ -295,6 +310,40 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	return nil
+}
+
+// validateTrafficShaping validates traffic shaping config for a given scope (global or route).
+func (l *Loader) validateTrafficShaping(cfg TrafficShapingConfig, scope string) error {
+	if cfg.Throttle.Enabled {
+		if cfg.Throttle.Rate <= 0 {
+			return fmt.Errorf("%s: throttle rate must be > 0 when enabled", scope)
+		}
+		if cfg.Throttle.Burst < 0 {
+			return fmt.Errorf("%s: throttle burst must be >= 0", scope)
+		}
+	}
+	if cfg.Bandwidth.Enabled {
+		if cfg.Bandwidth.RequestRate < 0 {
+			return fmt.Errorf("%s: bandwidth request_rate must be >= 0", scope)
+		}
+		if cfg.Bandwidth.ResponseRate < 0 {
+			return fmt.Errorf("%s: bandwidth response_rate must be >= 0", scope)
+		}
+	}
+	if cfg.Priority.Enabled {
+		if cfg.Priority.MaxConcurrent <= 0 {
+			return fmt.Errorf("%s: priority max_concurrent must be > 0 when enabled", scope)
+		}
+		if cfg.Priority.DefaultLevel != 0 && (cfg.Priority.DefaultLevel < 1 || cfg.Priority.DefaultLevel > 10) {
+			return fmt.Errorf("%s: priority default_level must be between 1 and 10", scope)
+		}
+		for i, lvl := range cfg.Priority.Levels {
+			if lvl.Level < 1 || lvl.Level > 10 {
+				return fmt.Errorf("%s: priority level %d: level must be between 1 and 10", scope, i)
+			}
+		}
+	}
 	return nil
 }
 

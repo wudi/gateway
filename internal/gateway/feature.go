@@ -10,6 +10,7 @@ import (
 	"github.com/example/gateway/internal/middleware/validation"
 	"github.com/example/gateway/internal/mirror"
 	"github.com/example/gateway/internal/rules"
+	"github.com/example/gateway/internal/trafficshape"
 )
 
 // Feature is a per-route capability that can be set up generically.
@@ -124,3 +125,62 @@ func (f *rulesFeature) Setup(routeID string, cfg config.RouteConfig) error {
 }
 func (f *rulesFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *rulesFeature) AdminStats() any     { return f.m.Stats() }
+
+// throttleFeature wraps ThrottleByRoute.
+type throttleFeature struct {
+	m      *trafficshape.ThrottleByRoute
+	global *config.ThrottleConfig
+}
+
+func (f *throttleFeature) Name() string { return "throttle" }
+func (f *throttleFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	tc := cfg.TrafficShaping.Throttle
+	if tc.Enabled {
+		merged := trafficshape.MergeThrottleConfig(tc, *f.global)
+		f.m.AddRoute(routeID, merged)
+	} else if f.global.Enabled {
+		f.m.AddRoute(routeID, *f.global)
+	}
+	return nil
+}
+func (f *throttleFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *throttleFeature) AdminStats() any     { return f.m.Stats() }
+
+// bandwidthFeature wraps BandwidthByRoute.
+type bandwidthFeature struct {
+	m      *trafficshape.BandwidthByRoute
+	global *config.BandwidthConfig
+}
+
+func (f *bandwidthFeature) Name() string { return "bandwidth" }
+func (f *bandwidthFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	bc := cfg.TrafficShaping.Bandwidth
+	if bc.Enabled {
+		merged := trafficshape.MergeBandwidthConfig(bc, *f.global)
+		f.m.AddRoute(routeID, merged)
+	} else if f.global.Enabled {
+		f.m.AddRoute(routeID, *f.global)
+	}
+	return nil
+}
+func (f *bandwidthFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *bandwidthFeature) AdminStats() any     { return f.m.Stats() }
+
+// priorityFeature wraps PriorityByRoute.
+type priorityFeature struct {
+	m      *trafficshape.PriorityByRoute
+	global *config.PriorityConfig
+}
+
+func (f *priorityFeature) Name() string { return "priority" }
+func (f *priorityFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	pc := cfg.TrafficShaping.Priority
+	if pc.Enabled {
+		merged := trafficshape.MergePriorityConfig(pc, *f.global)
+		f.m.AddRoute(routeID, merged)
+	} else if f.global.Enabled {
+		f.m.AddRoute(routeID, *f.global)
+	}
+	return nil
+}
+func (f *priorityFeature) RouteIDs() []string { return f.m.RouteIDs() }

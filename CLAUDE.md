@@ -25,6 +25,7 @@
 - `internal/listener/` — HTTP/TCP/UDP listener management
 - `internal/registry/` — service discovery (consul, etcd, kubernetes, memory)
 - `internal/rules/` — rules engine via expr-lang/expr with Cloudflare-style expressions
+- `internal/trafficshape/` — traffic shaping: throttle (x/time/rate), bandwidth limiting, priority admission
 
 ## Design Policy
 
@@ -74,11 +75,15 @@ The request handling order in `gateway.go:serveHTTP()` is:
 1.1. IP filter
 1.5. CORS preflight
 2. Variable context setup
+2.5. Rate limiting (reject with 429)
+2.6. Throttle — delay/queue via x/time/rate token bucket (returns 503 on timeout)
 3. Authentication
+3.1. Priority admission control — shared semaphore with heap queue (returns 503 on timeout)
 3.5. Request rules — global then per-route (terminates on block/redirect/custom_response)
 4. Get route proxy
 4.5. Body size limit
-4.6. Request validation
+4.6. Bandwidth limiting — wrap request body + response writer with rate-limited I/O
+4.7. Request validation
 5. WebSocket upgrade check (bypasses cache/circuit breaker, returns early)
 6. Cache HIT check (returns early if hit)
 7. Circuit breaker check (returns 503 if open)
@@ -93,4 +98,4 @@ The request handling order in `gateway.go:serveHTTP()` is:
 12. Store cacheable response
 13. Metrics
 
-Do not reorder these steps. WebSocket must be before cache/circuit breaker. Cache check must be before circuit breaker (a cache hit avoids touching the backend entirely). Circuit breaker recording must happen after the proxy call completes. Request rules must be after auth (so `auth.*` fields are populated). Response rules must be before circuit breaker outcome recording and cache store.
+Do not reorder these steps. Throttle must be after rate limiting (rejected requests never enter the queue). Priority must be after auth (so `Identity.ClientID` is available for level determination). Bandwidth must be after body limit and before validation/websocket. WebSocket must be before cache/circuit breaker. Cache check must be before circuit breaker (a cache hit avoids touching the backend entirely). Circuit breaker recording must happen after the proxy call completes. Request rules must be after auth (so `auth.*` fields are populated). Response rules must be before circuit breaker outcome recording and cache store.

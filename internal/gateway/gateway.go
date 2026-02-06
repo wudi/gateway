@@ -28,6 +28,7 @@ import (
 	grpcproxy "github.com/example/gateway/internal/proxy/grpc"
 	"github.com/example/gateway/internal/proxy/protocol"
 	"github.com/example/gateway/internal/rules"
+	"github.com/example/gateway/internal/trafficshape"
 	"github.com/example/gateway/internal/proxy"
 	"github.com/example/gateway/internal/registry"
 	"github.com/example/gateway/internal/registry/consul"
@@ -73,6 +74,12 @@ type Gateway struct {
 
 	globalRules *rules.RuleEngine
 	routeRules  *rules.RulesByRoute
+
+	// Traffic shaping managers
+	throttlers        *trafficshape.ThrottleByRoute
+	bandwidthLimiters *trafficshape.BandwidthByRoute
+	priorityAdmitter  *trafficshape.PriorityAdmitter // shared across routes, nil if disabled
+	priorityConfigs   *trafficshape.PriorityByRoute
 
 	features []Feature
 
@@ -122,11 +129,19 @@ func New(cfg *config.Config) (*Gateway, error) {
 		validators:       validation.NewValidatorByRoute(),
 		mirrors:          mirror.NewMirrorByRoute(),
 		grpcHandlers:     make(map[string]*grpcproxy.Handler),
-		translators:      protocol.NewTranslatorByRoute(),
-		routeRules:       rules.NewRulesByRoute(),
-		routeProxies:     make(map[string]*proxy.RouteProxy),
+		translators:       protocol.NewTranslatorByRoute(),
+		routeRules:        rules.NewRulesByRoute(),
+		throttlers:        trafficshape.NewThrottleByRoute(),
+		bandwidthLimiters: trafficshape.NewBandwidthByRoute(),
+		priorityConfigs:   trafficshape.NewPriorityByRoute(),
+		routeProxies:      make(map[string]*proxy.RouteProxy),
 		routeHandlers:    make(map[string]http.Handler),
 		watchCancels:     make(map[string]context.CancelFunc),
+	}
+
+	// Initialize shared priority admitter if global priority is enabled
+	if cfg.TrafficShaping.Priority.Enabled {
+		g.priorityAdmitter = trafficshape.NewPriorityAdmitter(cfg.TrafficShaping.Priority.MaxConcurrent)
 	}
 
 	// Register features for generic setup iteration
@@ -139,6 +154,9 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&validationFeature{g.validators},
 		&mirrorFeature{g.mirrors},
 		&rulesFeature{g.routeRules},
+		&throttleFeature{m: g.throttlers, global: &cfg.TrafficShaping.Throttle},
+		&bandwidthFeature{m: g.bandwidthLimiters, global: &cfg.TrafficShaping.Bandwidth},
+		&priorityFeature{m: g.priorityConfigs, global: &cfg.TrafficShaping.Priority},
 	}
 
 	// Initialize global IP filter
@@ -388,9 +406,21 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		chain = chain.Use(rateLimitMW(limiter))
 	}
 
+	// 5.5 throttleMW — delay/queue (after reject, before auth)
+	if t := g.throttlers.GetThrottler(routeID); t != nil {
+		chain = chain.Use(throttleMW(t))
+	}
+
 	// 6. authMW — authenticate (Step 3)
 	if route.Auth.Required {
 		chain = chain.Use(authMW(g, route.Auth))
+	}
+
+	// 6.5 priorityMW — admission control (after auth, needs Identity)
+	if g.priorityAdmitter != nil {
+		if pcfg, ok := g.priorityConfigs.GetConfig(routeID); ok {
+			chain = chain.Use(priorityMW(g.priorityAdmitter, pcfg))
+		}
 	}
 
 	// 7. requestRulesMW — global + per-route (Step 3.5)
@@ -404,6 +434,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 	// 8. bodyLimitMW — MaxBodySize (Step 4.5)
 	if route.MaxBodySize > 0 {
 		chain = chain.Use(bodyLimitMW(route.MaxBodySize))
+	}
+
+	// 8.5 bandwidthMW — wrap body + writer (after body limit, before validation)
+	if bw := g.bandwidthLimiters.GetLimiter(routeID); bw != nil {
+		chain = chain.Use(bandwidthMW(bw))
 	}
 
 	// 9. validationMW — request validation (Step 4.6)
@@ -790,6 +825,21 @@ func (g *Gateway) GetRouteRules() *rules.RulesByRoute {
 // GetTranslators returns the protocol translator manager.
 func (g *Gateway) GetTranslators() *protocol.TranslatorByRoute {
 	return g.translators
+}
+
+// GetThrottlers returns the throttle manager.
+func (g *Gateway) GetThrottlers() *trafficshape.ThrottleByRoute {
+	return g.throttlers
+}
+
+// GetBandwidthLimiters returns the bandwidth limiter manager.
+func (g *Gateway) GetBandwidthLimiters() *trafficshape.BandwidthByRoute {
+	return g.bandwidthLimiters
+}
+
+// GetPriorityAdmitter returns the priority admitter (may be nil).
+func (g *Gateway) GetPriorityAdmitter() *trafficshape.PriorityAdmitter {
+	return g.priorityAdmitter
 }
 
 // FeatureStats returns admin stats from features that implement AdminStatsProvider.
