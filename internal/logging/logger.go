@@ -36,7 +36,9 @@ func New(level string) (*zap.Logger, error) {
 	}
 	cfg.Level = zap.NewAtomicLevelAt(lvl)
 
-	return cfg.Build()
+	return cfg.Build(
+		zap.AddCallerSkip(1), // Skip one level to account for our wrapper functions
+	)
 }
 
 // Global returns the global logger.
