@@ -98,6 +98,13 @@ func (sr *statusRecorder) StatusCode() int {
 	return sr.statusCode
 }
 
+// Flush implements http.Flusher, forwarding to the underlying ResponseWriter if supported.
+func (sr *statusRecorder) Flush() {
+	if f, ok := sr.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 // New creates a new gateway
 func New(cfg *config.Config) (*Gateway, error) {
 	g := &Gateway{

@@ -1,6 +1,7 @@
 package grpc
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -20,6 +21,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 // Translator implements HTTP-to-gRPC protocol translation.
@@ -184,14 +186,16 @@ func (t *Translator) serveHTTP(w http.ResponseWriter, r *http.Request, routeID s
 		return
 	}
 
-	// Check for streaming (not supported in this version)
-	if md.IsStreamingClient() || md.IsStreamingServer() {
-		t.writeError(w, codes.Unimplemented, "streaming methods are not supported")
-		metrics.Failures.Add(1)
+	// Determine streaming type
+	isClientStream := md.IsStreamingClient()
+	isServerStream := md.IsStreamingServer()
+
+	if isClientStream || isServerStream {
+		t.serveStreaming(w, r, ctx, conn, md, requestBody, metrics, isClientStream, isServerStream)
 		return
 	}
 
-	// Invoke the RPC
+	// Invoke the unary RPC
 	respJSON, err := t.invoker.invokeUnary(ctx, conn, md, requestBody)
 	if err != nil {
 		st, ok := status.FromError(err)
@@ -318,6 +322,150 @@ func (t *Translator) buildTLSCredentials(cfg config.ProtocolTLSConfig) (credenti
 	}
 
 	return credentials.NewTLS(tlsConfig), nil
+}
+
+// serveStreaming handles streaming gRPC calls using NDJSON format.
+func (t *Translator) serveStreaming(
+	w http.ResponseWriter,
+	r *http.Request,
+	ctx context.Context,
+	conn *grpc.ClientConn,
+	md protoreflect.MethodDescriptor,
+	requestBody []byte,
+	metrics *protocol.RouteMetrics,
+	isClientStream, isServerStream bool,
+) {
+	start := time.Now()
+
+	// Set streaming headers
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.Header().Set("Transfer-Encoding", "chunked")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+
+	// Determine streaming type and handle accordingly
+	switch {
+	case isServerStream && !isClientStream:
+		// Server streaming: 1 request, N responses
+		t.handleServerStream(w, ctx, conn, md, requestBody, metrics, start)
+
+	case isClientStream && !isServerStream:
+		// Client streaming: N requests, 1 response
+		t.handleClientStream(w, ctx, conn, md, requestBody, metrics, start)
+
+	case isClientStream && isServerStream:
+		// Bidirectional streaming: N requests, N responses
+		t.handleBidiStream(w, ctx, conn, md, requestBody, metrics, start)
+	}
+}
+
+func (t *Translator) handleServerStream(
+	w http.ResponseWriter,
+	ctx context.Context,
+	conn *grpc.ClientConn,
+	md protoreflect.MethodDescriptor,
+	requestBody []byte,
+	metrics *protocol.RouteMetrics,
+	start time.Time,
+) {
+	// Create NDJSON writer
+	writer, err := newNDJSONWriter(w)
+	if err != nil {
+		t.writeError(w, codes.Internal, err.Error())
+		metrics.Failures.Add(1)
+		return
+	}
+
+	// Write 200 OK before streaming starts
+	w.WriteHeader(http.StatusOK)
+
+	// Invoke the streaming RPC
+	err = t.invoker.invokeServerStream(ctx, conn, md, requestBody, writer)
+	if err != nil {
+		st, ok := status.FromError(err)
+		if !ok {
+			writer.WriteError(codes.Internal, err.Error())
+		} else {
+			writer.WriteError(st.Code(), st.Message())
+		}
+		metrics.Failures.Add(1)
+		return
+	}
+
+	metrics.Successes.Add(1)
+	metrics.TotalLatencyNs.Add(time.Since(start).Nanoseconds())
+}
+
+func (t *Translator) handleClientStream(
+	w http.ResponseWriter,
+	ctx context.Context,
+	conn *grpc.ClientConn,
+	md protoreflect.MethodDescriptor,
+	requestBody []byte,
+	metrics *protocol.RouteMetrics,
+	start time.Time,
+) {
+	// Create NDJSON reader from request body (already read into bytes)
+	reader := newNDJSONReader(bytes.NewReader(requestBody))
+
+	// Invoke the streaming RPC
+	respJSON, err := t.invoker.invokeClientStream(ctx, conn, md, reader)
+	if err != nil {
+		st, ok := status.FromError(err)
+		if !ok {
+			t.writeError(w, codes.Internal, err.Error())
+		} else {
+			t.writeError(w, st.Code(), st.Message())
+		}
+		metrics.Failures.Add(1)
+		return
+	}
+
+	// Write successful response (single JSON, not NDJSON)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(respJSON)
+
+	metrics.Successes.Add(1)
+	metrics.TotalLatencyNs.Add(time.Since(start).Nanoseconds())
+}
+
+func (t *Translator) handleBidiStream(
+	w http.ResponseWriter,
+	ctx context.Context,
+	conn *grpc.ClientConn,
+	md protoreflect.MethodDescriptor,
+	requestBody []byte,
+	metrics *protocol.RouteMetrics,
+	start time.Time,
+) {
+	// Create NDJSON reader and writer (body already read into bytes)
+	reader := newNDJSONReader(bytes.NewReader(requestBody))
+
+	writer, err := newNDJSONWriter(w)
+	if err != nil {
+		t.writeError(w, codes.Internal, err.Error())
+		metrics.Failures.Add(1)
+		return
+	}
+
+	// Write 200 OK before streaming starts
+	w.WriteHeader(http.StatusOK)
+
+	// Invoke the bidirectional streaming RPC
+	err = t.invoker.invokeBidiStream(ctx, conn, md, reader, writer)
+	if err != nil {
+		st, ok := status.FromError(err)
+		if !ok {
+			writer.WriteError(codes.Internal, err.Error())
+		} else {
+			writer.WriteError(st.Code(), st.Message())
+		}
+		metrics.Failures.Add(1)
+		return
+	}
+
+	metrics.Successes.Add(1)
+	metrics.TotalLatencyNs.Add(time.Since(start).Nanoseconds())
 }
 
 // writeError writes a JSON error response with the appropriate HTTP status code.
