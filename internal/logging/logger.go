@@ -20,7 +20,7 @@ func init() {
 // New creates a new zap logger from a level string.
 func New(level string) (*zap.Logger, error) {
 	cfg := zap.NewProductionConfig()
-	cfg.EncoderConfig.TimeKey = "timestamp"
+	cfg.EncoderConfig.TimeKey = "time"
 	cfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
 
 	var lvl zapcore.Level
