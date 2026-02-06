@@ -26,33 +26,44 @@ type Policy struct {
 	RetryableStatuses map[int]bool
 	RetryableMethods  map[string]bool
 	PerTryTimeout     time.Duration
+	Budget            *Budget
+	Hedging           *HedgingExecutor
 	Metrics           *RouteRetryMetrics
 }
 
 // RouteRetryMetrics tracks retry statistics for a route
 type RouteRetryMetrics struct {
-	Requests  atomic.Int64
-	Retries   atomic.Int64
-	Successes atomic.Int64
-	Failures  atomic.Int64
+	Requests        atomic.Int64
+	Retries         atomic.Int64
+	Successes       atomic.Int64
+	Failures        atomic.Int64
+	BudgetExhausted atomic.Int64
+	HedgedRequests  atomic.Int64
+	HedgedWins      atomic.Int64
 }
 
 // Snapshot returns a point-in-time copy of the metrics
 func (m *RouteRetryMetrics) Snapshot() MetricsSnapshot {
 	return MetricsSnapshot{
-		Requests:  m.Requests.Load(),
-		Retries:   m.Retries.Load(),
-		Successes: m.Successes.Load(),
-		Failures:  m.Failures.Load(),
+		Requests:        m.Requests.Load(),
+		Retries:         m.Retries.Load(),
+		Successes:       m.Successes.Load(),
+		Failures:        m.Failures.Load(),
+		BudgetExhausted: m.BudgetExhausted.Load(),
+		HedgedRequests:  m.HedgedRequests.Load(),
+		HedgedWins:      m.HedgedWins.Load(),
 	}
 }
 
 // MetricsSnapshot is a point-in-time copy of retry metrics
 type MetricsSnapshot struct {
-	Requests  int64 `json:"requests"`
-	Retries   int64 `json:"retries"`
-	Successes int64 `json:"successes"`
-	Failures  int64 `json:"failures"`
+	Requests        int64 `json:"requests"`
+	Retries         int64 `json:"retries"`
+	Successes       int64 `json:"successes"`
+	Failures        int64 `json:"failures"`
+	BudgetExhausted int64 `json:"budget_exhausted,omitempty"`
+	HedgedRequests  int64 `json:"hedged_requests,omitempty"`
+	HedgedWins      int64 `json:"hedged_wins,omitempty"`
 }
 
 // NewPolicy creates a retry policy from config
@@ -97,6 +108,16 @@ func NewPolicy(cfg config.RetryConfig) *Policy {
 		p.RetryableMethods[m] = true
 	}
 
+	// Create retry budget if configured
+	if cfg.Budget.Ratio > 0 {
+		p.Budget = NewBudget(cfg.Budget.Ratio, cfg.Budget.MinRetries, cfg.Budget.Window)
+	}
+
+	// Create hedging executor if configured
+	if cfg.Hedging.Enabled {
+		p.Hedging = NewHedgingExecutor(cfg.Hedging, p.Metrics)
+	}
+
 	return p
 }
 
@@ -116,6 +137,10 @@ func NewPolicyFromLegacy(retries int, timeout time.Duration) *Policy {
 // Execute runs the request with retry logic
 func (p *Policy) Execute(ctx context.Context, transport http.RoundTripper, req *http.Request) (*http.Response, error) {
 	p.Metrics.Requests.Add(1)
+
+	if p.Budget != nil {
+		p.Budget.RecordRequest()
+	}
 
 	if p.MaxRetries <= 0 {
 		resp, err := p.doRoundTrip(ctx, transport, req)
@@ -143,9 +168,21 @@ func (p *Policy) Execute(ctx context.Context, transport http.RoundTripper, req *
 
 	var lastResp *http.Response
 	var lastErr error
+	attempt := 0
 
 	resp, err := backoff.RetryNotifyWithData(
 		func() (*http.Response, error) {
+			attempt++
+
+			// Budget check on retry attempts (not the first attempt)
+			if attempt > 1 && p.Budget != nil {
+				if !p.Budget.AllowRetry() {
+					p.Metrics.BudgetExhausted.Add(1)
+					return nil, backoff.Permanent(fmt.Errorf("retry budget exhausted"))
+				}
+				p.Budget.RecordRetry()
+			}
+
 			resp, err := p.doRoundTrip(ctx, transport, req)
 			if err != nil {
 				lastErr = err

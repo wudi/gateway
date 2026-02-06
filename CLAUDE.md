@@ -63,6 +63,10 @@ The circuit breaker is backed by `sony/gobreaker/v2` `TwoStepCircuitBreaker`. `A
 
 When writing test backends that accept raw TCP connections for WebSocket upgrade testing, use `http.ReadRequest(bufio.NewReader(conn))` to fully consume the HTTP request including all headers. Using raw `conn.Read()` leaves unparsed bytes in the kernel buffer that corrupt subsequent data reads.
 
+### Retry and hedging are mutually exclusive
+
+A route can use either traditional retries (`max_retries > 0`) or hedging (`hedging.enabled: true`), but not both. This is enforced by config validation. Hedging sends speculative duplicate requests to different backends after a delay, while retries sequentially re-attempt the same backend on failure. Retry budget (`budget.ratio`) can be combined with retries but not with hedging.
+
 ### Rules engine uses expr-lang/expr with buffering response writer
 
 The rules engine (`internal/rules/`) compiles expressions at startup via `expr.Compile()` with `expr.Env()` and `expr.AsBool()`. Expressions use Cloudflare-style dot notation (`http.request.method`, `ip.src`, etc.) mapped via `expr:"tag"` struct tags. The `RulesResponseWriter` buffers both status and body until `Flush()` is called — this is necessary because the proxy writes the full response (headers, status, body) in a single `ServeHTTP` call, and response rules must evaluate after the proxy completes but before the response is sent to the client. Response phase currently only supports `set_headers` (no terminating actions).
@@ -80,6 +84,7 @@ The request handling order in `gateway.go:serveHTTP()` is:
 3. Authentication
 3.1. Priority admission control — shared semaphore with heap queue (returns 503 on timeout)
 3.5. Request rules — global then per-route (terminates on block/redirect/custom_response)
+3.7. Fault injection — inject delays/aborts for chaos testing (returns configured status on abort)
 4. Get route proxy
 4.5. Body size limit
 4.6. Bandwidth limiting — wrap request body + response writer with rate-limited I/O

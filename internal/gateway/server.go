@@ -542,6 +542,9 @@ func (s *Server) handleTrafficShaping(w http.ResponseWriter, r *http.Request) {
 	if pa := s.gateway.GetPriorityAdmitter(); pa != nil {
 		result["priority"] = pa.Snapshot()
 	}
+	if fiStats := s.gateway.GetFaultInjectors().Stats(); len(fiStats) > 0 {
+		result["fault_injection"] = fiStats
+	}
 
 	json.NewEncoder(w).Encode(result)
 }

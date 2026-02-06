@@ -254,6 +254,30 @@ func (l *Loader) validate(cfg *Config) error {
 			}
 		}
 
+		// Validate retry budget
+		if route.RetryPolicy.Budget.Ratio > 0 {
+			if route.RetryPolicy.Budget.Ratio > 1.0 {
+				return fmt.Errorf("route %s: retry_policy budget ratio must be between 0.0 and 1.0", route.ID)
+			}
+			if route.RetryPolicy.Budget.MinRetries < 0 {
+				return fmt.Errorf("route %s: retry_policy budget min_retries must be >= 0", route.ID)
+			}
+			if route.RetryPolicy.Budget.Window < 0 {
+				return fmt.Errorf("route %s: retry_policy budget window must be > 0", route.ID)
+			}
+		}
+
+		// Validate hedging config
+		if route.RetryPolicy.Hedging.Enabled {
+			if route.RetryPolicy.Hedging.MaxRequests < 2 {
+				return fmt.Errorf("route %s: retry_policy hedging max_requests must be >= 2", route.ID)
+			}
+			// Hedging and retries are mutually exclusive
+			if route.RetryPolicy.MaxRetries > 0 {
+				return fmt.Errorf("route %s: retry_policy cannot use both hedging and max_retries", route.ID)
+			}
+		}
+
 		// Validate circuit breaker
 		if route.CircuitBreaker.Enabled {
 			if route.CircuitBreaker.FailureThreshold != 0 && route.CircuitBreaker.FailureThreshold < 1 {
@@ -342,6 +366,20 @@ func (l *Loader) validateTrafficShaping(cfg TrafficShapingConfig, scope string) 
 			if lvl.Level < 1 || lvl.Level > 10 {
 				return fmt.Errorf("%s: priority level %d: level must be between 1 and 10", scope, i)
 			}
+		}
+	}
+	if cfg.FaultInjection.Enabled {
+		if cfg.FaultInjection.Delay.Percentage < 0 || cfg.FaultInjection.Delay.Percentage > 100 {
+			return fmt.Errorf("%s: fault_injection delay percentage must be between 0 and 100", scope)
+		}
+		if cfg.FaultInjection.Delay.Percentage > 0 && cfg.FaultInjection.Delay.Duration <= 0 {
+			return fmt.Errorf("%s: fault_injection delay duration must be > 0 when percentage is set", scope)
+		}
+		if cfg.FaultInjection.Abort.Percentage < 0 || cfg.FaultInjection.Abort.Percentage > 100 {
+			return fmt.Errorf("%s: fault_injection abort percentage must be between 0 and 100", scope)
+		}
+		if cfg.FaultInjection.Abort.Percentage > 0 && (cfg.FaultInjection.Abort.StatusCode < 100 || cfg.FaultInjection.Abort.StatusCode > 599) {
+			return fmt.Errorf("%s: fault_injection abort status_code must be between 100 and 599", scope)
 		}
 	}
 	return nil

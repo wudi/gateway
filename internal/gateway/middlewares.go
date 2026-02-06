@@ -464,7 +464,21 @@ func priorityMW(admitter *trafficshape.PriorityAdmitter, cfg config.PriorityConf
 	}
 }
 
-// 19. bandwidthMW wraps request body and response writer with bandwidth limits.
+// 19. faultInjectionMW injects delays and/or aborts for chaos testing.
+func faultInjectionMW(fi *trafficshape.FaultInjector) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			aborted, statusCode := fi.Apply(r.Context())
+			if aborted {
+				w.WriteHeader(statusCode)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// 20. bandwidthMW wraps request body and response writer with bandwidth limits.
 func bandwidthMW(bw *trafficshape.BandwidthLimiter) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

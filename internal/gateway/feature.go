@@ -184,3 +184,23 @@ func (f *priorityFeature) Setup(routeID string, cfg config.RouteConfig) error {
 	return nil
 }
 func (f *priorityFeature) RouteIDs() []string { return f.m.RouteIDs() }
+
+// faultInjectionFeature wraps FaultInjectionByRoute.
+type faultInjectionFeature struct {
+	m      *trafficshape.FaultInjectionByRoute
+	global *config.FaultInjectionConfig
+}
+
+func (f *faultInjectionFeature) Name() string { return "fault_injection" }
+func (f *faultInjectionFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	fi := cfg.TrafficShaping.FaultInjection
+	if fi.Enabled {
+		merged := trafficshape.MergeFaultInjectionConfig(fi, *f.global)
+		f.m.AddRoute(routeID, merged)
+	} else if f.global.Enabled {
+		f.m.AddRoute(routeID, *f.global)
+	}
+	return nil
+}
+func (f *faultInjectionFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *faultInjectionFeature) AdminStats() any     { return f.m.Stats() }

@@ -239,6 +239,22 @@ type RetryConfig struct {
 	RetryableStatuses []int         `yaml:"retryable_statuses"`
 	RetryableMethods  []string      `yaml:"retryable_methods"`
 	PerTryTimeout     time.Duration `yaml:"per_try_timeout"`
+	Budget            BudgetConfig  `yaml:"budget"`
+	Hedging           HedgingConfig `yaml:"hedging"`
+}
+
+// BudgetConfig defines retry budget settings to prevent retry storms.
+type BudgetConfig struct {
+	Ratio      float64       `yaml:"ratio"`       // max ratio of retries to total requests (0.0-1.0)
+	MinRetries int           `yaml:"min_retries"` // always allow at least N retries/sec
+	Window     time.Duration `yaml:"window"`      // sliding window (default 10s)
+}
+
+// HedgingConfig defines request hedging settings.
+type HedgingConfig struct {
+	Enabled     bool          `yaml:"enabled"`
+	MaxRequests int           `yaml:"max_requests"` // total concurrent (original + hedged), default 2
+	Delay       time.Duration `yaml:"delay"`        // wait before hedging
 }
 
 // TimeoutConfig defines timeout policy settings
@@ -494,9 +510,10 @@ type RuleConfig struct {
 
 // TrafficShapingConfig defines traffic shaping settings.
 type TrafficShapingConfig struct {
-	Throttle  ThrottleConfig  `yaml:"throttle"`
-	Bandwidth BandwidthConfig `yaml:"bandwidth"`
-	Priority  PriorityConfig  `yaml:"priority"`
+	Throttle       ThrottleConfig       `yaml:"throttle"`
+	Bandwidth      BandwidthConfig      `yaml:"bandwidth"`
+	Priority       PriorityConfig       `yaml:"priority"`
+	FaultInjection FaultInjectionConfig `yaml:"fault_injection"`
 }
 
 // ThrottleConfig defines request throttling settings.
@@ -531,6 +548,25 @@ type PriorityLevelConfig struct {
 	Level     int               `yaml:"level"`
 	Headers   map[string]string `yaml:"headers"`    // match if all headers present with value
 	ClientIDs []string          `yaml:"client_ids"` // match if auth client_id in list
+}
+
+// FaultInjectionConfig defines fault injection settings for chaos testing.
+type FaultInjectionConfig struct {
+	Enabled bool             `yaml:"enabled"`
+	Delay   FaultDelayConfig `yaml:"delay"`
+	Abort   FaultAbortConfig `yaml:"abort"`
+}
+
+// FaultDelayConfig defines delay injection settings.
+type FaultDelayConfig struct {
+	Percentage int           `yaml:"percentage"` // 0-100
+	Duration   time.Duration `yaml:"duration"`
+}
+
+// FaultAbortConfig defines abort injection settings.
+type FaultAbortConfig struct {
+	Percentage int `yaml:"percentage"`  // 0-100
+	StatusCode int `yaml:"status_code"` // HTTP status to return
 }
 
 // DefaultConfig returns a configuration with sensible defaults

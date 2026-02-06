@@ -80,6 +80,7 @@ type Gateway struct {
 	bandwidthLimiters *trafficshape.BandwidthByRoute
 	priorityAdmitter  *trafficshape.PriorityAdmitter // shared across routes, nil if disabled
 	priorityConfigs   *trafficshape.PriorityByRoute
+	faultInjectors    *trafficshape.FaultInjectionByRoute
 
 	features []Feature
 
@@ -134,6 +135,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		throttlers:        trafficshape.NewThrottleByRoute(),
 		bandwidthLimiters: trafficshape.NewBandwidthByRoute(),
 		priorityConfigs:   trafficshape.NewPriorityByRoute(),
+		faultInjectors:    trafficshape.NewFaultInjectionByRoute(),
 		routeProxies:      make(map[string]*proxy.RouteProxy),
 		routeHandlers:    make(map[string]http.Handler),
 		watchCancels:     make(map[string]context.CancelFunc),
@@ -157,6 +159,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&throttleFeature{m: g.throttlers, global: &cfg.TrafficShaping.Throttle},
 		&bandwidthFeature{m: g.bandwidthLimiters, global: &cfg.TrafficShaping.Bandwidth},
 		&priorityFeature{m: g.priorityConfigs, global: &cfg.TrafficShaping.Priority},
+		&faultInjectionFeature{m: g.faultInjectors, global: &cfg.TrafficShaping.FaultInjection},
 	}
 
 	// Initialize global IP filter
@@ -429,6 +432,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		(routeEngine != nil && routeEngine.HasRequestRules())
 	if hasReqRules {
 		chain = chain.Use(requestRulesMW(g.globalRules, routeEngine))
+	}
+
+	// 7.5. faultInjectionMW — inject delays/aborts (Step 7.5)
+	if fi := g.faultInjectors.GetInjector(routeID); fi != nil {
+		chain = chain.Use(faultInjectionMW(fi))
 	}
 
 	// 8. bodyLimitMW — MaxBodySize (Step 4.5)
@@ -840,6 +848,11 @@ func (g *Gateway) GetBandwidthLimiters() *trafficshape.BandwidthByRoute {
 // GetPriorityAdmitter returns the priority admitter (may be nil).
 func (g *Gateway) GetPriorityAdmitter() *trafficshape.PriorityAdmitter {
 	return g.priorityAdmitter
+}
+
+// GetFaultInjectors returns the fault injection manager.
+func (g *Gateway) GetFaultInjectors() *trafficshape.FaultInjectionByRoute {
+	return g.faultInjectors
 }
 
 // FeatureStats returns admin stats from features that implement AdminStatsProvider.

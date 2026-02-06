@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -86,27 +87,6 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 		varCtx := variables.GetFromRequest(r)
 		varCtx.RouteID = route.ID
 
-		// Get backend from load balancer
-		backend := balancer.Next()
-		if backend == nil {
-			errors.ErrServiceUnavailable.WithDetails("No healthy backends available").WriteJSON(w)
-			return
-		}
-
-		varCtx.UpstreamAddr = backend.URL
-
-		// Parse backend URL
-		targetURL, err := url.Parse(backend.URL)
-		if err != nil {
-			errors.ErrBadGateway.WithDetails("Invalid backend URL").WriteJSON(w)
-			return
-		}
-
-		// Request transformations are applied by gateway.serveHTTP() — not here.
-
-		// Create the proxy request
-		proxyReq := p.createProxyRequest(r, targetURL, route, varCtx)
-
 		// Set timeout
 		timeout := p.defaultTimeout
 		if route.TimeoutPolicy.Request > 0 {
@@ -117,20 +97,71 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 
 		ctx, cancel := context.WithTimeout(r.Context(), timeout)
 		defer cancel()
-		proxyReq = proxyReq.WithContext(ctx)
 
-		// Execute request (with or without retry)
 		start := time.Now()
 		var resp *http.Response
-		if retryPolicy != nil {
-			resp, err = retryPolicy.Execute(ctx, p.transport, proxyReq)
+		var err error
+		var backendURL string
+
+		if retryPolicy != nil && retryPolicy.Hedging != nil {
+			// Hedging path: let hedging executor pick backends and send concurrent requests
+			// Buffer the body so it can be reused across hedged requests
+			var bodyBytes []byte
+			if r.Body != nil {
+				bodyBytes, err = retry.BufferBody(r)
+				if err != nil {
+					errors.ErrBadGateway.WithDetails("Failed to read request body").WriteJSON(w)
+					return
+				}
+			}
+
+			nextBackend := func() string {
+				if b := balancer.Next(); b != nil {
+					return b.URL
+				}
+				return ""
+			}
+			makeReq := func(target *url.URL) (*http.Request, error) {
+				// Restore body for each hedged request
+				if bodyBytes != nil {
+					r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+				}
+				req := p.createProxyRequest(r, target, route, varCtx)
+				return req, nil
+			}
+			resp, err = retryPolicy.Hedging.Execute(ctx, p.transport, nextBackend, makeReq, retryPolicy.PerTryTimeout)
+			if resp != nil {
+				backendURL = "" // hedging picks multiple backends
+			}
 		} else {
-			resp, err = p.transport.RoundTrip(proxyReq)
+			// Standard path: single backend selection
+			backend := balancer.Next()
+			if backend == nil {
+				errors.ErrServiceUnavailable.WithDetails("No healthy backends available").WriteJSON(w)
+				return
+			}
+			varCtx.UpstreamAddr = backend.URL
+			backendURL = backend.URL
+
+			targetURL, parseErr := url.Parse(backend.URL)
+			if parseErr != nil {
+				errors.ErrBadGateway.WithDetails("Invalid backend URL").WriteJSON(w)
+				return
+			}
+
+			proxyReq := p.createProxyRequest(r, targetURL, route, varCtx)
+			proxyReq = proxyReq.WithContext(ctx)
+
+			if retryPolicy != nil {
+				resp, err = retryPolicy.Execute(ctx, p.transport, proxyReq)
+			} else {
+				resp, err = p.transport.RoundTrip(proxyReq)
+			}
 		}
 		varCtx.UpstreamResponseTime = time.Since(start)
 
 		if err != nil {
-			p.handleError(w, r, err, backend.URL, balancer)
+			p.handleError(w, r, err, backendURL, balancer)
 			return
 		}
 		defer resp.Body.Close()

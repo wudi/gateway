@@ -24,3 +24,11 @@ type PrioritySnapshot struct {
 	TotalAdmitted int64 `json:"total_admitted"`
 	TotalRejected int64 `json:"total_rejected"`
 }
+
+// FaultInjectionSnapshot contains point-in-time fault injection metrics.
+type FaultInjectionSnapshot struct {
+	TotalRequests int64 `json:"total_requests"`
+	TotalDelayed  int64 `json:"total_delayed"`
+	TotalAborted  int64 `json:"total_aborted"`
+	TotalDelayNs  int64 `json:"total_delay_ns"`
+}

@@ -191,3 +191,63 @@ func MergePriorityConfig(route, global config.PriorityConfig) config.PriorityCon
 	}
 	return route
 }
+
+// FaultInjectionByRoute manages per-route fault injectors.
+type FaultInjectionByRoute struct {
+	injectors map[string]*FaultInjector
+	mu        sync.RWMutex
+}
+
+// NewFaultInjectionByRoute creates a new FaultInjectionByRoute.
+func NewFaultInjectionByRoute() *FaultInjectionByRoute {
+	return &FaultInjectionByRoute{
+		injectors: make(map[string]*FaultInjector),
+	}
+}
+
+// AddRoute creates and stores a fault injector for a route.
+func (m *FaultInjectionByRoute) AddRoute(routeID string, cfg config.FaultInjectionConfig) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.injectors[routeID] = NewFaultInjector(cfg)
+}
+
+// GetInjector returns the fault injector for a route, or nil.
+func (m *FaultInjectionByRoute) GetInjector(routeID string) *FaultInjector {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.injectors[routeID]
+}
+
+// RouteIDs returns all route IDs with fault injectors.
+func (m *FaultInjectionByRoute) RouteIDs() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	ids := make([]string, 0, len(m.injectors))
+	for id := range m.injectors {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// Stats returns snapshots for all routes.
+func (m *FaultInjectionByRoute) Stats() map[string]FaultInjectionSnapshot {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make(map[string]FaultInjectionSnapshot, len(m.injectors))
+	for id, fi := range m.injectors {
+		result[id] = fi.Snapshot()
+	}
+	return result
+}
+
+// MergeFaultInjectionConfig merges a route-level fault injection config with the global config as fallback.
+func MergeFaultInjectionConfig(route, global config.FaultInjectionConfig) config.FaultInjectionConfig {
+	if route.Delay.Percentage == 0 && global.Delay.Percentage > 0 {
+		route.Delay = global.Delay
+	}
+	if route.Abort.Percentage == 0 && global.Abort.Percentage > 0 {
+		route.Abort = global.Abort
+	}
+	return route
+}

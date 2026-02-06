@@ -331,3 +331,139 @@ func TestMetrics(t *testing.T) {
 		t.Errorf("expected 0 failures, got %d", snap.Failures)
 	}
 }
+
+func TestBudgetExhaustedStopsRetries(t *testing.T) {
+	// All responses are retryable 503s
+	transport := &mockTransport{
+		responses: []*http.Response{
+			{StatusCode: 503, Body: io.NopCloser(strings.NewReader("bad"))},
+			{StatusCode: 503, Body: io.NopCloser(strings.NewReader("bad"))},
+			{StatusCode: 503, Body: io.NopCloser(strings.NewReader("bad"))},
+			{StatusCode: 503, Body: io.NopCloser(strings.NewReader("bad"))},
+			{StatusCode: 503, Body: io.NopCloser(strings.NewReader("bad"))},
+		},
+	}
+
+	p := NewPolicy(config.RetryConfig{
+		MaxRetries:     5,
+		InitialBackoff: 1 * time.Millisecond,
+		MaxBackoff:     2 * time.Millisecond,
+		Budget: config.BudgetConfig{
+			Ratio:      0.01, // extremely tight: ~1% retry ratio
+			MinRetries: 0,    // no minimum bypass
+			Window:     10 * time.Second,
+		},
+	})
+
+	if p.Budget == nil {
+		t.Fatal("expected budget to be non-nil")
+	}
+
+	// Simulate many prior requests to fill the budget window
+	for i := 0; i < 100; i++ {
+		p.Budget.RecordRequest()
+	}
+	// Record 2 retries → 2/100 = 2%, well over the 1% limit
+	p.Budget.RecordRetry()
+	p.Budget.RecordRetry()
+
+	req, _ := http.NewRequest("GET", "http://example.com", nil)
+	resp, err := p.Execute(context.Background(), transport, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should return 503 (the first response) because budget prevented retries
+	if resp.StatusCode != 503 {
+		t.Errorf("expected 503, got %d", resp.StatusCode)
+	}
+
+	// Budget should have been exhausted — only 1 attempt (first call), retry blocked
+	if transport.calls != 1 {
+		t.Errorf("expected 1 call (budget should prevent retries), got %d", transport.calls)
+	}
+
+	snap := p.Metrics.Snapshot()
+	if snap.BudgetExhausted != 1 {
+		t.Errorf("expected BudgetExhausted=1, got %d", snap.BudgetExhausted)
+	}
+}
+
+func TestBudgetAllowsRetriesWithinLimit(t *testing.T) {
+	transport := &mockTransport{
+		responses: []*http.Response{
+			{StatusCode: 503, Body: io.NopCloser(strings.NewReader("bad"))},
+			{StatusCode: 200, Body: io.NopCloser(strings.NewReader("ok"))},
+		},
+	}
+
+	p := NewPolicy(config.RetryConfig{
+		MaxRetries:     3,
+		InitialBackoff: 1 * time.Millisecond,
+		MaxBackoff:     2 * time.Millisecond,
+		Budget: config.BudgetConfig{
+			Ratio:      0.5, // generous: 50% retries allowed
+			MinRetries: 0,
+			Window:     10 * time.Second,
+		},
+	})
+
+	req, _ := http.NewRequest("GET", "http://example.com", nil)
+	resp, err := p.Execute(context.Background(), transport, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.StatusCode != 200 {
+		t.Errorf("expected 200 (retry should succeed), got %d", resp.StatusCode)
+	}
+	if transport.calls != 2 {
+		t.Errorf("expected 2 calls, got %d", transport.calls)
+	}
+
+	snap := p.Metrics.Snapshot()
+	if snap.BudgetExhausted != 0 {
+		t.Errorf("expected BudgetExhausted=0, got %d", snap.BudgetExhausted)
+	}
+}
+
+func TestNewPolicyCreatesHedging(t *testing.T) {
+	p := NewPolicy(config.RetryConfig{
+		Hedging: config.HedgingConfig{
+			Enabled:     true,
+			MaxRequests: 3,
+			Delay:       50 * time.Millisecond,
+		},
+	})
+
+	if p.Hedging == nil {
+		t.Fatal("expected hedging executor to be created")
+	}
+	if p.Hedging.maxRequests != 3 {
+		t.Errorf("expected maxRequests=3, got %d", p.Hedging.maxRequests)
+	}
+	if p.Hedging.delay != 50*time.Millisecond {
+		t.Errorf("expected delay=50ms, got %v", p.Hedging.delay)
+	}
+}
+
+func TestNewPolicyCreatesBudget(t *testing.T) {
+	p := NewPolicy(config.RetryConfig{
+		MaxRetries: 3,
+		Budget: config.BudgetConfig{
+			Ratio:      0.2,
+			MinRetries: 5,
+			Window:     30 * time.Second,
+		},
+	})
+
+	if p.Budget == nil {
+		t.Fatal("expected budget to be created")
+	}
+	if p.Budget.ratio != 0.2 {
+		t.Errorf("expected ratio=0.2, got %f", p.Budget.ratio)
+	}
+	if p.Budget.minRetriesPerS != 5 {
+		t.Errorf("expected minRetriesPerS=5, got %d", p.Budget.minRetriesPerS)
+	}
+}
