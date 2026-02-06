@@ -243,6 +243,9 @@ type Context struct {
 	BodyBytesSent        int64
 	ServerPort           int
 
+	// Traffic management
+	TrafficGroup string
+
 	// Custom values
 	Custom map[string]string
 }

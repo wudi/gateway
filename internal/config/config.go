@@ -228,6 +228,16 @@ type RouteConfig struct {
 	Rules          RulesConfig          `yaml:"rules"`            // Per-route rules engine
 	Protocol       ProtocolConfig       `yaml:"protocol"`         // Protocol translation
 	TrafficShaping TrafficShapingConfig `yaml:"traffic_shaping"` // Per-route traffic shaping
+	Sticky         StickyConfig         `yaml:"sticky"`          // Sticky sessions for traffic split
+}
+
+// StickyConfig defines sticky session settings for consistent traffic group assignment.
+type StickyConfig struct {
+	Enabled    bool          `yaml:"enabled"`
+	Mode       string        `yaml:"mode"`        // "cookie", "header", "hash"
+	CookieName string        `yaml:"cookie_name"` // default "X-Traffic-Group"
+	HashKey    string        `yaml:"hash_key"`    // header name for header/hash mode
+	TTL        time.Duration `yaml:"ttl"`         // cookie TTL, default 24h
 }
 
 // RetryConfig defines retry policy settings
@@ -351,9 +361,24 @@ type TracingConfig struct {
 
 // MirrorConfig defines traffic mirroring settings (Feature 10)
 type MirrorConfig struct {
-	Enabled    bool            `yaml:"enabled"`
-	Backends   []BackendConfig `yaml:"backends"`
-	Percentage int             `yaml:"percentage"` // 0-100
+	Enabled    bool                   `yaml:"enabled"`
+	Backends   []BackendConfig        `yaml:"backends"`
+	Percentage int                    `yaml:"percentage"` // 0-100
+	Conditions MirrorConditionsConfig `yaml:"conditions"`
+	Compare    MirrorCompareConfig    `yaml:"compare"`
+}
+
+// MirrorConditionsConfig defines conditions for when to mirror requests.
+type MirrorConditionsConfig struct {
+	Methods   []string          `yaml:"methods"`
+	Headers   map[string]string `yaml:"headers"`
+	PathRegex string            `yaml:"path_regex"`
+}
+
+// MirrorCompareConfig defines response comparison settings for mirrored traffic.
+type MirrorCompareConfig struct {
+	Enabled       bool `yaml:"enabled"`
+	LogMismatches bool `yaml:"log_mismatches"`
 }
 
 // GRPCConfig defines gRPC proxying settings (Feature 12)

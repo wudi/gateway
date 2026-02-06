@@ -135,7 +135,19 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 			}
 		} else {
 			// Standard path: single backend selection
-			backend := balancer.Next()
+			// Check for request-aware balancer (sticky sessions / traffic split)
+			type requestAwareBalancer interface {
+				NextForHTTPRequest(r *http.Request) (*loadbalancer.Backend, string)
+				HasStickyPolicy() bool
+			}
+			var backend *loadbalancer.Backend
+			if ra, ok := balancer.(requestAwareBalancer); ok && ra.HasStickyPolicy() {
+				var groupName string
+				backend, groupName = ra.NextForHTTPRequest(r)
+				varCtx.TrafficGroup = groupName
+			} else {
+				backend = balancer.Next()
+			}
 			if backend == nil {
 				errors.ErrServiceUnavailable.WithDetails("No healthy backends available").WriteJSON(w)
 				return

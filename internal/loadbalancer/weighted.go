@@ -2,6 +2,7 @@ package loadbalancer
 
 import (
 	"math/rand"
+	"net/http"
 	"strings"
 	"sync"
 
@@ -18,14 +19,18 @@ type TrafficGroup struct {
 
 // WeightedBalancer implements traffic splitting across multiple backend groups
 type WeightedBalancer struct {
-	groups    []*TrafficGroup
-	totalWeight int
-	mu        sync.RWMutex
+	groups       []*TrafficGroup
+	groupsByName map[string]*TrafficGroup
+	totalWeight  int
+	sticky       *StickyPolicy
+	mu           sync.RWMutex
 }
 
 // NewWeightedBalancer creates a new weighted traffic splitting balancer
 func NewWeightedBalancer(splits []config.TrafficSplitConfig) *WeightedBalancer {
-	wb := &WeightedBalancer{}
+	wb := &WeightedBalancer{
+		groupsByName: make(map[string]*TrafficGroup),
+	}
 
 	for _, split := range splits {
 		var backends []*Backend
@@ -48,9 +53,17 @@ func NewWeightedBalancer(splits []config.TrafficSplitConfig) *WeightedBalancer {
 			MatchHeaders: split.MatchHeaders,
 		}
 		wb.groups = append(wb.groups, group)
+		wb.groupsByName[split.Name] = group
 		wb.totalWeight += split.Weight
 	}
 
+	return wb
+}
+
+// NewWeightedBalancerWithSticky creates a weighted balancer with sticky session support.
+func NewWeightedBalancerWithSticky(splits []config.TrafficSplitConfig, stickyCfg config.StickyConfig) *WeightedBalancer {
+	wb := NewWeightedBalancer(splits)
+	wb.sticky = NewStickyPolicy(stickyCfg)
 	return wb
 }
 
@@ -85,6 +98,75 @@ func (wb *WeightedBalancer) NextForRequest(headers map[string]string) *Backend {
 		return wb.groups[len(wb.groups)-1].Balancer.Next()
 	}
 	return nil
+}
+
+// NextForHTTPRequest selects a backend using sticky policy if available.
+// Returns the selected backend and the traffic group name.
+func (wb *WeightedBalancer) NextForHTTPRequest(r *http.Request) (*Backend, string) {
+	wb.mu.RLock()
+	defer wb.mu.RUnlock()
+
+	// Try sticky policy first
+	if wb.sticky != nil {
+		groupName := wb.sticky.ResolveGroup(r, wb.groups)
+		if groupName != "" {
+			if group, ok := wb.groupsByName[groupName]; ok {
+				return group.Balancer.Next(), groupName
+			}
+		}
+	}
+
+	// Check header-based overrides
+	if r != nil {
+		headers := make(map[string]string)
+		for _, group := range wb.groups {
+			for k := range group.MatchHeaders {
+				headers[k] = r.Header.Get(k)
+			}
+		}
+		for _, group := range wb.groups {
+			if len(group.MatchHeaders) > 0 && matchAllHeaders(headers, group.MatchHeaders) {
+				return group.Balancer.Next(), group.Name
+			}
+		}
+	}
+
+	// Random weighted selection
+	if wb.totalWeight <= 0 {
+		return nil, ""
+	}
+
+	roll := rand.Intn(wb.totalWeight)
+	cumulative := 0
+	for _, group := range wb.groups {
+		cumulative += group.Weight
+		if roll < cumulative {
+			return group.Balancer.Next(), group.Name
+		}
+	}
+
+	if len(wb.groups) > 0 {
+		last := wb.groups[len(wb.groups)-1]
+		return last.Balancer.Next(), last.Name
+	}
+	return nil, ""
+}
+
+// HasStickyPolicy returns true if a sticky policy is configured.
+func (wb *WeightedBalancer) HasStickyPolicy() bool {
+	return wb.sticky != nil
+}
+
+// GetStickyPolicy returns the sticky policy (may be nil).
+func (wb *WeightedBalancer) GetStickyPolicy() *StickyPolicy {
+	return wb.sticky
+}
+
+// GetGroupByName returns a traffic group by name.
+func (wb *WeightedBalancer) GetGroupByName(name string) *TrafficGroup {
+	wb.mu.RLock()
+	defer wb.mu.RUnlock()
+	return wb.groupsByName[name]
 }
 
 // Next implements Balancer interface (without header context, uses weight-only)

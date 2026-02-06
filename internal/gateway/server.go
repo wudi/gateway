@@ -291,6 +291,12 @@ func (s *Server) adminHandler() http.Handler {
 	// Traffic shaping stats
 	mux.HandleFunc("/traffic-shaping", s.handleTrafficShaping)
 
+	// Mirror stats
+	mux.HandleFunc("/mirrors", s.handleMirrors)
+
+	// Traffic splits (A/B testing / canary)
+	mux.HandleFunc("/traffic-splits", s.handleTrafficSplits)
+
 	// Feature 14: API Key management endpoints
 	if s.gateway.GetAPIKeyAuth() != nil {
 		mux.HandleFunc("/admin/keys", s.handleAdminKeys)
@@ -547,6 +553,20 @@ func (s *Server) handleTrafficShaping(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(result)
+}
+
+// handleMirrors handles mirror stats requests
+func (s *Server) handleMirrors(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	stats := s.gateway.GetMirrors().Stats()
+	json.NewEncoder(w).Encode(stats)
+}
+
+// handleTrafficSplits handles traffic split / A/B testing stats requests
+func (s *Server) handleTrafficSplits(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	stats := s.gateway.GetTrafficSplitStats()
+	json.NewEncoder(w).Encode(stats)
 }
 
 // handleProtocolTranslators handles protocol translator stats requests

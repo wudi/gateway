@@ -282,24 +282,79 @@ func responseRulesMW(global, route *rules.RuleEngine) middleware.Middleware {
 }
 
 // 13. mirrorMW buffers the request body and sends mirrored requests async.
+// If compare is enabled, wraps writer with CapturingWriter to capture primary response.
 func mirrorMW(m *mirror.Mirror) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var mirrorBody []byte
-			if m.ShouldMirror() {
-				var err error
-				mirrorBody, err = mirror.BufferRequestBody(r)
-				if err != nil {
-					mirrorBody = nil
-				}
+			if !m.ShouldMirror(r) {
+				next.ServeHTTP(w, r)
+				return
 			}
 
-			next.ServeHTTP(w, r)
+			mirrorBody, err := mirror.BufferRequestBody(r)
+			if err != nil {
+				next.ServeHTTP(w, r)
+				return
+			}
 
-			if mirrorBody != nil {
-				m.SendAsync(r, mirrorBody)
+			if m.CompareEnabled() {
+				cw := mirror.NewCapturingWriter(w)
+				next.ServeHTTP(cw, r)
+				primary := &mirror.PrimaryResponse{
+					StatusCode: cw.StatusCode(),
+					BodyHash:   cw.BodyHash(),
+				}
+				m.SendAsync(r, mirrorBody, primary)
+			} else {
+				next.ServeHTTP(w, r)
+				m.SendAsync(r, mirrorBody, nil)
 			}
 		})
+	}
+}
+
+// trafficGroupMW injects A/B variant response header and sticky cookie after proxy completes.
+func trafficGroupMW(sp *loadbalancer.StickyPolicy) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			abw := &abVariantWriter{ResponseWriter: w, sp: sp, r: r}
+			next.ServeHTTP(abw, r)
+		})
+	}
+}
+
+// abVariantWriter intercepts WriteHeader to inject traffic group headers and cookies.
+type abVariantWriter struct {
+	http.ResponseWriter
+	sp            *loadbalancer.StickyPolicy
+	r             *http.Request
+	headerWritten bool
+}
+
+func (w *abVariantWriter) WriteHeader(code int) {
+	if !w.headerWritten {
+		w.headerWritten = true
+		varCtx := variables.GetFromRequest(w.r)
+		if varCtx.TrafficGroup != "" {
+			w.ResponseWriter.Header().Set("X-AB-Variant", varCtx.TrafficGroup)
+			if cookie := w.sp.SetCookie(varCtx.TrafficGroup); cookie != nil {
+				http.SetCookie(w.ResponseWriter, cookie)
+			}
+		}
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *abVariantWriter) Write(b []byte) (int, error) {
+	if !w.headerWritten {
+		w.WriteHeader(200)
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *abVariantWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"log"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -15,17 +16,24 @@ import (
 
 // Mirror handles traffic mirroring/shadowing for a route
 type Mirror struct {
-	enabled    bool
-	backends   []string
-	percentage int
-	client     *http.Client
+	enabled     bool
+	backends    []string
+	percentage  int
+	client      *http.Client
+	conditions  *Conditions
+	compare     bool
+	logMismatch bool
+	metrics     *MirrorMetrics
 }
 
 // New creates a new Mirror from config
-func New(cfg config.MirrorConfig) *Mirror {
+func New(cfg config.MirrorConfig) (*Mirror, error) {
 	m := &Mirror{
-		enabled:    cfg.Enabled,
-		percentage: cfg.Percentage,
+		enabled:     cfg.Enabled,
+		percentage:  cfg.Percentage,
+		compare:     cfg.Compare.Enabled,
+		logMismatch: cfg.Compare.LogMismatches,
+		metrics:     NewMirrorMetrics(),
 		client: &http.Client{
 			Timeout: 5 * time.Second,
 			Transport: &http.Transport{
@@ -44,7 +52,17 @@ func New(cfg config.MirrorConfig) *Mirror {
 		m.percentage = 100
 	}
 
-	return m
+	// Compile conditions
+	hasConds := len(cfg.Conditions.Methods) > 0 || len(cfg.Conditions.Headers) > 0 || cfg.Conditions.PathRegex != ""
+	if hasConds {
+		conds, err := NewConditions(cfg.Conditions)
+		if err != nil {
+			return nil, err
+		}
+		m.conditions = conds
+	}
+
+	return m, nil
 }
 
 // IsEnabled returns whether mirroring is enabled
@@ -52,15 +70,29 @@ func (m *Mirror) IsEnabled() bool {
 	return m.enabled && len(m.backends) > 0
 }
 
-// ShouldMirror returns whether this request should be mirrored (based on percentage)
-func (m *Mirror) ShouldMirror() bool {
+// ShouldMirror returns whether this request should be mirrored
+func (m *Mirror) ShouldMirror(r *http.Request) bool {
 	if !m.IsEnabled() {
+		return false
+	}
+	// Check conditions first
+	if m.conditions != nil && !m.conditions.Match(r) {
 		return false
 	}
 	if m.percentage >= 100 {
 		return true
 	}
 	return rand.Intn(100) < m.percentage
+}
+
+// CompareEnabled returns whether response comparison is enabled.
+func (m *Mirror) CompareEnabled() bool {
+	return m.compare
+}
+
+// GetMetrics returns the mirror metrics.
+func (m *Mirror) GetMetrics() *MirrorMetrics {
+	return m.metrics
 }
 
 // BufferRequestBody reads and returns the request body, replacing it on the original request
@@ -78,19 +110,23 @@ func BufferRequestBody(r *http.Request) ([]byte, error) {
 	return body, nil
 }
 
-// SendAsync sends mirrored requests asynchronously (fire-and-forget)
-func (m *Mirror) SendAsync(r *http.Request, body []byte) {
+// SendAsync sends mirrored requests asynchronously (fire-and-forget).
+// If primary is non-nil and compare is enabled, responses are compared.
+func (m *Mirror) SendAsync(r *http.Request, body []byte, primary *PrimaryResponse) {
 	for _, backend := range m.backends {
-		go m.sendMirror(r, backend, body)
+		go m.sendMirrorWithMetrics(r, backend, body, primary)
 	}
 }
 
-func (m *Mirror) sendMirror(original *http.Request, backendURL string, body []byte) {
+func (m *Mirror) sendMirrorWithMetrics(original *http.Request, backendURL string, body []byte, primary *PrimaryResponse) {
+	start := time.Now()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	targetURL, err := url.Parse(backendURL)
 	if err != nil {
+		m.metrics.RecordError()
 		return
 	}
 
@@ -106,6 +142,7 @@ func (m *Mirror) sendMirror(original *http.Request, backendURL string, body []by
 
 	req, err := http.NewRequestWithContext(ctx, original.Method, mirrorURL.String(), bodyReader)
 	if err != nil {
+		m.metrics.RecordError()
 		return
 	}
 
@@ -119,13 +156,29 @@ func (m *Mirror) sendMirror(original *http.Request, backendURL string, body []by
 	// Mark as mirrored
 	req.Header.Set("X-Mirrored-From", original.Host)
 
-	// Fire and forget — ignore response
 	resp, err := m.client.Do(req)
 	if err != nil {
+		m.metrics.RecordError()
 		return
 	}
-	io.Copy(io.Discard, resp.Body)
+
+	latency := time.Since(start)
+
+	// Compare if enabled and primary is available
+	if m.compare && primary != nil {
+		result := CompareMirrorResponse(primary, resp)
+		m.metrics.RecordComparison(result)
+		if m.logMismatch && (!result.StatusMatch || !result.BodyMatch) {
+			log.Printf("mirror mismatch route=%s path=%s status_match=%t body_match=%t primary_status=%d mirror_status=%d",
+				original.Host, original.URL.Path, result.StatusMatch, result.BodyMatch,
+				primary.StatusCode, resp.StatusCode)
+		}
+	} else {
+		io.Copy(io.Discard, resp.Body)
+	}
 	resp.Body.Close()
+
+	m.metrics.RecordSuccess(latency)
 }
 
 // MirrorByRoute manages mirrors per route
@@ -142,10 +195,15 @@ func NewMirrorByRoute() *MirrorByRoute {
 }
 
 // AddRoute adds a mirror for a route
-func (m *MirrorByRoute) AddRoute(routeID string, cfg config.MirrorConfig) {
+func (m *MirrorByRoute) AddRoute(routeID string, cfg config.MirrorConfig) error {
+	mirror, err := New(cfg)
+	if err != nil {
+		return err
+	}
 	m.mu.Lock()
-	m.mirrors[routeID] = New(cfg)
+	m.mirrors[routeID] = mirror
 	m.mu.Unlock()
+	return nil
 }
 
 // GetMirror returns the mirror for a route
@@ -164,4 +222,15 @@ func (m *MirrorByRoute) RouteIDs() []string {
 		ids = append(ids, id)
 	}
 	return ids
+}
+
+// Stats returns a snapshot of metrics for all routes.
+func (m *MirrorByRoute) Stats() map[string]MirrorSnapshot {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make(map[string]MirrorSnapshot, len(m.mirrors))
+	for id, mirror := range m.mirrors {
+		result[id] = mirror.metrics.Snapshot()
+	}
+	return result
 }

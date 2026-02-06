@@ -11,8 +11,16 @@ import (
 	"github.com/example/gateway/internal/config"
 )
 
+func newMirror(cfg config.MirrorConfig) *Mirror {
+	m, err := New(cfg)
+	if err != nil {
+		panic(err)
+	}
+	return m
+}
+
 func TestMirrorEnabled(t *testing.T) {
-	m := New(config.MirrorConfig{
+	m := newMirror(config.MirrorConfig{
 		Enabled:    true,
 		Backends:   []config.BackendConfig{{URL: "http://mirror:8080"}},
 		Percentage: 100,
@@ -24,7 +32,7 @@ func TestMirrorEnabled(t *testing.T) {
 }
 
 func TestMirrorDisabled(t *testing.T) {
-	m := New(config.MirrorConfig{
+	m := newMirror(config.MirrorConfig{
 		Enabled: false,
 	})
 
@@ -32,13 +40,14 @@ func TestMirrorDisabled(t *testing.T) {
 		t.Error("mirror should be disabled")
 	}
 
-	if m.ShouldMirror() {
+	r := httptest.NewRequest("GET", "/test", nil)
+	if m.ShouldMirror(r) {
 		t.Error("disabled mirror should not mirror")
 	}
 }
 
 func TestMirrorPercentage(t *testing.T) {
-	m := New(config.MirrorConfig{
+	m := newMirror(config.MirrorConfig{
 		Enabled:    true,
 		Backends:   []config.BackendConfig{{URL: "http://mirror:8080"}},
 		Percentage: 50,
@@ -48,7 +57,8 @@ func TestMirrorPercentage(t *testing.T) {
 	iterations := 10000
 
 	for i := 0; i < iterations; i++ {
-		if m.ShouldMirror() {
+		r := httptest.NewRequest("GET", "/test", nil)
+		if m.ShouldMirror(r) {
 			mirrored++
 		}
 	}
@@ -89,14 +99,14 @@ func TestMirrorSendAsync(t *testing.T) {
 	}))
 	defer server.Close()
 
-	m := New(config.MirrorConfig{
+	m := newMirror(config.MirrorConfig{
 		Enabled:    true,
 		Backends:   []config.BackendConfig{{URL: server.URL}},
 		Percentage: 100,
 	})
 
 	r := httptest.NewRequest("GET", "/test", nil)
-	m.SendAsync(r, nil)
+	m.SendAsync(r, nil, nil)
 
 	// Wait for async request
 	time.Sleep(500 * time.Millisecond)
@@ -108,11 +118,14 @@ func TestMirrorSendAsync(t *testing.T) {
 
 func TestMirrorByRoute(t *testing.T) {
 	m := NewMirrorByRoute()
-	m.AddRoute("route1", config.MirrorConfig{
+	err := m.AddRoute("route1", config.MirrorConfig{
 		Enabled:    true,
 		Backends:   []config.BackendConfig{{URL: "http://mirror:8080"}},
 		Percentage: 100,
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	mirror := m.GetMirror("route1")
 	if mirror == nil || !mirror.IsEnabled() {
@@ -121,5 +134,84 @@ func TestMirrorByRoute(t *testing.T) {
 
 	if m.GetMirror("unknown") != nil {
 		t.Error("expected nil for unknown route")
+	}
+}
+
+func TestMirrorConditionsMethod(t *testing.T) {
+	m := newMirror(config.MirrorConfig{
+		Enabled:    true,
+		Backends:   []config.BackendConfig{{URL: "http://mirror:8080"}},
+		Percentage: 100,
+		Conditions: config.MirrorConditionsConfig{
+			Methods: []string{"POST", "PUT"},
+		},
+	})
+
+	get := httptest.NewRequest("GET", "/test", nil)
+	if m.ShouldMirror(get) {
+		t.Error("GET should not be mirrored when conditions restrict to POST/PUT")
+	}
+
+	post := httptest.NewRequest("POST", "/test", nil)
+	if !m.ShouldMirror(post) {
+		t.Error("POST should be mirrored")
+	}
+}
+
+func TestMirrorConditionsPathRegex(t *testing.T) {
+	m := newMirror(config.MirrorConfig{
+		Enabled:    true,
+		Backends:   []config.BackendConfig{{URL: "http://mirror:8080"}},
+		Percentage: 100,
+		Conditions: config.MirrorConditionsConfig{
+			PathRegex: "^/api/v2/",
+		},
+	})
+
+	v1 := httptest.NewRequest("GET", "/api/v1/users", nil)
+	if m.ShouldMirror(v1) {
+		t.Error("v1 path should not be mirrored")
+	}
+
+	v2 := httptest.NewRequest("GET", "/api/v2/users", nil)
+	if !m.ShouldMirror(v2) {
+		t.Error("v2 path should be mirrored")
+	}
+}
+
+func TestMirrorMetricsIntegration(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	m := newMirror(config.MirrorConfig{
+		Enabled:    true,
+		Backends:   []config.BackendConfig{{URL: server.URL}},
+		Percentage: 100,
+	})
+
+	r := httptest.NewRequest("GET", "/test", nil)
+	m.SendAsync(r, nil, nil)
+	time.Sleep(500 * time.Millisecond)
+
+	snap := m.metrics.Snapshot()
+	if snap.TotalMirrored != 1 {
+		t.Errorf("expected TotalMirrored=1, got %d", snap.TotalMirrored)
+	}
+}
+
+func TestMirrorStats(t *testing.T) {
+	mbr := NewMirrorByRoute()
+	mbr.AddRoute("r1", config.MirrorConfig{
+		Enabled:    true,
+		Backends:   []config.BackendConfig{{URL: "http://mirror:8080"}},
+		Percentage: 100,
+	})
+
+	stats := mbr.Stats()
+	if _, ok := stats["r1"]; !ok {
+		t.Error("expected stats for r1")
 	}
 }

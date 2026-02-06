@@ -107,11 +107,12 @@ type mirrorFeature struct{ m *mirror.MirrorByRoute }
 func (f *mirrorFeature) Name() string { return "mirror" }
 func (f *mirrorFeature) Setup(routeID string, cfg config.RouteConfig) error {
 	if cfg.Mirror.Enabled {
-		f.m.AddRoute(routeID, cfg.Mirror)
+		return f.m.AddRoute(routeID, cfg.Mirror)
 	}
 	return nil
 }
 func (f *mirrorFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *mirrorFeature) AdminStats() any     { return f.m.Stats() }
 
 // rulesFeature wraps RulesByRoute.
 type rulesFeature struct{ m *rules.RulesByRoute }

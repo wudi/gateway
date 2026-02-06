@@ -335,8 +335,12 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 	// Create route proxy (with weighted balancer if traffic split is configured)
 	g.mu.Lock()
 	if len(routeCfg.TrafficSplit) > 0 {
-		// Feature 6: Use weighted balancer for traffic splitting
-		wb := loadbalancer.NewWeightedBalancer(routeCfg.TrafficSplit)
+		var wb *loadbalancer.WeightedBalancer
+		if routeCfg.Sticky.Enabled {
+			wb = loadbalancer.NewWeightedBalancerWithSticky(routeCfg.TrafficSplit, routeCfg.Sticky)
+		} else {
+			wb = loadbalancer.NewWeightedBalancer(routeCfg.TrafficSplit)
+		}
 		g.routeProxies[routeCfg.ID] = proxy.NewRouteProxyWithBalancer(g.proxy, route, wb)
 	} else {
 		g.routeProxies[routeCfg.ID] = proxy.NewRouteProxy(g.proxy, route, backends)
@@ -484,9 +488,14 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		chain = chain.Use(responseRulesMW(g.globalRules, routeEngine))
 	}
 
-	// 15. mirrorMW — buffer + async send (Step 10.5)
+	// 15. mirrorMW — buffer + async send + optional comparison (Step 10.5)
 	if mirrorHandler := g.mirrors.GetMirror(routeID); mirrorHandler != nil && mirrorHandler.IsEnabled() {
 		chain = chain.Use(mirrorMW(mirrorHandler))
+	}
+
+	// 15.5 trafficGroupMW — inject A/B variant header + sticky cookie (after mirror, before transforms)
+	if wb, ok := rp.GetBalancer().(*loadbalancer.WeightedBalancer); ok && wb.HasStickyPolicy() {
+		chain = chain.Use(trafficGroupMW(wb.GetStickyPolicy()))
 	}
 
 	// 16. requestTransformMW — headers + body + gRPC (Step 9)
@@ -853,6 +862,48 @@ func (g *Gateway) GetPriorityAdmitter() *trafficshape.PriorityAdmitter {
 // GetFaultInjectors returns the fault injection manager.
 func (g *Gateway) GetFaultInjectors() *trafficshape.FaultInjectionByRoute {
 	return g.faultInjectors
+}
+
+// GetMirrors returns the mirror manager.
+func (g *Gateway) GetMirrors() *mirror.MirrorByRoute {
+	return g.mirrors
+}
+
+// GetTrafficSplitStats returns per-route traffic split information.
+func (g *Gateway) GetTrafficSplitStats() map[string]interface{} {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	result := make(map[string]interface{})
+	for routeID, rp := range g.routeProxies {
+		wb, ok := rp.GetBalancer().(*loadbalancer.WeightedBalancer)
+		if !ok {
+			continue
+		}
+		groups := wb.GetGroups()
+		groupInfos := make([]map[string]interface{}, 0, len(groups))
+		for _, g := range groups {
+			backends := g.Balancer.GetBackends()
+			healthy := 0
+			for _, b := range backends {
+				if b.Healthy {
+					healthy++
+				}
+			}
+			groupInfos = append(groupInfos, map[string]interface{}{
+				"name":             g.Name,
+				"weight":           g.Weight,
+				"backends_total":   len(backends),
+				"backends_healthy": healthy,
+			})
+		}
+		info := map[string]interface{}{
+			"groups": groupInfos,
+			"sticky": wb.HasStickyPolicy(),
+		}
+		result[routeID] = info
+	}
+	return result
 }
 
 // FeatureStats returns admin stats from features that implement AdminStatsProvider.

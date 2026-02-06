@@ -240,6 +240,49 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate sticky + traffic_split + mirror conditions per route
+	for _, route := range cfg.Routes {
+		// Validate sticky config
+		if route.Sticky.Enabled {
+			validModes := map[string]bool{"cookie": true, "header": true, "hash": true}
+			if route.Sticky.Mode == "" {
+				return fmt.Errorf("route %s: sticky.mode is required when enabled", route.ID)
+			}
+			if !validModes[route.Sticky.Mode] {
+				return fmt.Errorf("route %s: sticky.mode must be cookie, header, or hash", route.ID)
+			}
+			if len(route.TrafficSplit) == 0 {
+				return fmt.Errorf("route %s: sticky requires traffic_split to be configured", route.ID)
+			}
+			if (route.Sticky.Mode == "header" || route.Sticky.Mode == "hash") && route.Sticky.HashKey == "" {
+				return fmt.Errorf("route %s: sticky.hash_key is required for header/hash mode", route.ID)
+			}
+		}
+
+		// Validate traffic_split weights sum to 100
+		if len(route.TrafficSplit) > 0 {
+			totalWeight := 0
+			for _, split := range route.TrafficSplit {
+				totalWeight += split.Weight
+			}
+			if totalWeight != 100 {
+				return fmt.Errorf("route %s: traffic_split weights must sum to 100, got %d", route.ID, totalWeight)
+			}
+		}
+
+		// Validate mirror conditions
+		if route.Mirror.Enabled && route.Mirror.Conditions.PathRegex != "" {
+			if _, err := regexp.Compile(route.Mirror.Conditions.PathRegex); err != nil {
+				return fmt.Errorf("route %s: mirror conditions path_regex is invalid: %w", route.ID, err)
+			}
+		}
+		if route.Mirror.Enabled && route.Mirror.Percentage != 0 {
+			if route.Mirror.Percentage < 0 || route.Mirror.Percentage > 100 {
+				return fmt.Errorf("route %s: mirror percentage must be between 0 and 100", route.ID)
+			}
+		}
+	}
+
 	// Validate new route-level configs
 	for _, route := range cfg.Routes {
 		// Validate retry policy
