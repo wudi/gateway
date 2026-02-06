@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/example/gateway/internal/config"
 	"github.com/example/gateway/internal/variables"
@@ -116,6 +117,124 @@ func TestNewResponseEnv(t *testing.T) {
 	// Request fields remain available
 	if env.HTTP.Request.URI.Path != "/test" {
 		t.Errorf("expected path /test, got %s", env.HTTP.Request.URI.Path)
+	}
+}
+
+func TestNewRequestEnv_Cookies(t *testing.T) {
+	r := httptest.NewRequest("GET", "http://localhost/", nil)
+	r.AddCookie(&http.Cookie{Name: "session", Value: "abc123"})
+	r.AddCookie(&http.Cookie{Name: "theme", Value: "dark"})
+
+	env := NewRequestEnv(r, nil)
+
+	if env.HTTP.Request.Cookies["session"] != "abc123" {
+		t.Errorf("expected cookie session=abc123, got %s", env.HTTP.Request.Cookies["session"])
+	}
+	if env.HTTP.Request.Cookies["theme"] != "dark" {
+		t.Errorf("expected cookie theme=dark, got %s", env.HTTP.Request.Cookies["theme"])
+	}
+	if len(env.HTTP.Request.Cookies) != 2 {
+		t.Errorf("expected 2 cookies, got %d", len(env.HTTP.Request.Cookies))
+	}
+}
+
+func TestNewRequestEnv_NoCookies(t *testing.T) {
+	r := httptest.NewRequest("GET", "http://localhost/", nil)
+	env := NewRequestEnv(r, nil)
+
+	if env.HTTP.Request.Cookies == nil {
+		t.Error("expected non-nil cookies map")
+	}
+	if len(env.HTTP.Request.Cookies) != 0 {
+		t.Errorf("expected empty cookies map, got %d entries", len(env.HTTP.Request.Cookies))
+	}
+}
+
+func TestNewResponseEnv_ResponseTime(t *testing.T) {
+	r := httptest.NewRequest("GET", "http://localhost/", nil)
+	varCtx := &variables.Context{
+		Request:   r,
+		StartTime: time.Now().Add(-100 * time.Millisecond),
+	}
+
+	env := NewResponseEnv(r, varCtx, 200, http.Header{})
+
+	if env.HTTP.Response.ResponseTime <= 0 {
+		t.Errorf("expected positive response_time, got %f", env.HTTP.Response.ResponseTime)
+	}
+}
+
+func TestNewResponseEnv_ResponseTime_NilVarCtx(t *testing.T) {
+	r := httptest.NewRequest("GET", "http://localhost/", nil)
+	env := NewResponseEnv(r, nil, 200, http.Header{})
+
+	if env.HTTP.Response.ResponseTime != 0 {
+		t.Errorf("expected response_time 0 for nil varCtx, got %f", env.HTTP.Response.ResponseTime)
+	}
+}
+
+func TestCompileRequestRule_CookieExpression(t *testing.T) {
+	cfg := config.RuleConfig{
+		ID:         "require-session",
+		Expression: `http.request.cookies["session"] == "abc123"`,
+		Action:     "block",
+		StatusCode: 403,
+	}
+
+	rule, err := CompileRequestRule(cfg)
+	if err != nil {
+		t.Fatalf("compile error: %v", err)
+	}
+
+	// Request with matching cookie
+	r := httptest.NewRequest("GET", "http://localhost/", nil)
+	r.AddCookie(&http.Cookie{Name: "session", Value: "abc123"})
+	env := NewRequestEnv(r, nil)
+	matched, err := rule.Evaluate(env)
+	if err != nil {
+		t.Fatalf("evaluate error: %v", err)
+	}
+	if !matched {
+		t.Error("expected rule to match request with session cookie")
+	}
+
+	// Request without cookie
+	r = httptest.NewRequest("GET", "http://localhost/", nil)
+	env = NewRequestEnv(r, nil)
+	matched, err = rule.Evaluate(env)
+	if err != nil {
+		t.Fatalf("evaluate error: %v", err)
+	}
+	if matched {
+		t.Error("expected rule NOT to match request without session cookie")
+	}
+}
+
+func TestCompileResponseRule_ResponseTimeExpression(t *testing.T) {
+	cfg := config.RuleConfig{
+		ID:         "slow-response",
+		Expression: `http.response.response_time > 0`,
+		Action:     "set_headers",
+		Headers:    config.HeaderTransform{Set: map[string]string{"X-Slow": "true"}},
+	}
+
+	rule, err := CompileResponseRule(cfg)
+	if err != nil {
+		t.Fatalf("compile error: %v", err)
+	}
+
+	r := httptest.NewRequest("GET", "http://localhost/", nil)
+	varCtx := &variables.Context{
+		Request:   r,
+		StartTime: time.Now().Add(-50 * time.Millisecond),
+	}
+	env := NewResponseEnv(r, varCtx, 200, http.Header{})
+	matched, err := rule.Evaluate(env)
+	if err != nil {
+		t.Fatalf("evaluate error: %v", err)
+	}
+	if !matched {
+		t.Error("expected rule to match response with positive response_time")
 	}
 }
 

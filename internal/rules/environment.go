@@ -2,6 +2,7 @@ package rules
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/example/gateway/internal/variables"
 )
@@ -26,6 +27,7 @@ type HTTPRequestEnv struct {
 	Method   string            `expr:"method"`
 	URI      URIEnv            `expr:"uri"`
 	Headers  map[string]string `expr:"headers"`
+	Cookies  map[string]string `expr:"cookies"`
 	Host     string            `expr:"host"`
 	Scheme   string            `expr:"scheme"`
 	BodySize int64             `expr:"body_size"`
@@ -59,8 +61,9 @@ type AuthEnv struct {
 
 // HTTPResponseEnv provides response fields (only populated in response phase).
 type HTTPResponseEnv struct {
-	Code    int               `expr:"code"`
-	Headers map[string]string `expr:"headers"`
+	Code         int               `expr:"code"`
+	Headers      map[string]string `expr:"headers"`
+	ResponseTime float64           `expr:"response_time"`
 }
 
 // ResponseEnv is the expression environment for response-phase rules.
@@ -81,6 +84,12 @@ func NewRequestEnv(r *http.Request, varCtx *variables.Context) RequestEnv {
 		if len(v) > 0 {
 			args[k] = v[0]
 		}
+	}
+
+	// Build cookies map
+	cookies := make(map[string]string, len(r.Cookies()))
+	for _, c := range r.Cookies() {
+		cookies[c.Name] = c.Value
 	}
 
 	// Determine scheme
@@ -123,6 +132,7 @@ func NewRequestEnv(r *http.Request, varCtx *variables.Context) RequestEnv {
 					Args:  args,
 				},
 				Headers:  headers,
+				Cookies:  cookies,
 				Host:     r.Host,
 				Scheme:   scheme,
 				BodySize: r.ContentLength,
@@ -153,9 +163,15 @@ func NewResponseEnv(r *http.Request, varCtx *variables.Context, statusCode int, 
 		rh[k] = respHeaders.Get(k)
 	}
 
+	var responseTimeMs float64
+	if varCtx != nil && !varCtx.StartTime.IsZero() {
+		responseTimeMs = float64(time.Since(varCtx.StartTime).Milliseconds())
+	}
+
 	env.HTTP.Response = HTTPResponseEnv{
-		Code:    statusCode,
-		Headers: rh,
+		Code:         statusCode,
+		Headers:      rh,
+		ResponseTime: responseTimeMs,
 	}
 
 	return env
