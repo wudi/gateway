@@ -492,12 +492,20 @@ func (l *Loader) validateRules(rules []RuleConfig, phase string) error {
 		"custom_response": true,
 		"redirect":        true,
 		"set_headers":     true,
+		"rewrite":         true,
+		"group":           true,
+		"log":             true,
 	}
 
 	terminatingActions := map[string]bool{
 		"block":           true,
 		"custom_response": true,
 		"redirect":        true,
+	}
+
+	requestOnlyActions := map[string]bool{
+		"rewrite": true,
+		"group":   true,
 	}
 
 	ids := make(map[string]bool)
@@ -516,12 +524,17 @@ func (l *Loader) validateRules(rules []RuleConfig, phase string) error {
 		}
 
 		if !validActions[rule.Action] {
-			return fmt.Errorf("%s rule %s: invalid action %q (must be block, custom_response, redirect, or set_headers)", phase, rule.ID, rule.Action)
+			return fmt.Errorf("%s rule %s: invalid action %q (must be block, custom_response, redirect, set_headers, rewrite, group, or log)", phase, rule.ID, rule.Action)
 		}
 
 		// Response phase: reject terminating actions for now
 		if phase == "response" && terminatingActions[rule.Action] {
 			return fmt.Errorf("%s rule %s: terminating action %q is not allowed in response phase", phase, rule.ID, rule.Action)
+		}
+
+		// Response phase: reject request-only actions
+		if phase == "response" && requestOnlyActions[rule.Action] {
+			return fmt.Errorf("%s rule %s: action %q is only allowed in request phase", phase, rule.ID, rule.Action)
 		}
 
 		if rule.Action == "redirect" && rule.RedirectURL == "" {
@@ -535,6 +548,22 @@ func (l *Loader) validateRules(rules []RuleConfig, phase string) error {
 		if rule.Action == "set_headers" {
 			if len(rule.Headers.Add) == 0 && len(rule.Headers.Set) == 0 && len(rule.Headers.Remove) == 0 {
 				return fmt.Errorf("%s rule %s: set_headers action requires at least one header operation", phase, rule.ID)
+			}
+		}
+
+		if rule.Action == "rewrite" {
+			if rule.Rewrite == nil {
+				return fmt.Errorf("%s rule %s: rewrite action requires rewrite config", phase, rule.ID)
+			}
+			if rule.Rewrite.Path == "" && rule.Rewrite.Query == "" &&
+				len(rule.Rewrite.Headers.Add) == 0 && len(rule.Rewrite.Headers.Set) == 0 && len(rule.Rewrite.Headers.Remove) == 0 {
+				return fmt.Errorf("%s rule %s: rewrite action requires at least one of path, query, or headers", phase, rule.ID)
+			}
+		}
+
+		if rule.Action == "group" {
+			if rule.Group == "" {
+				return fmt.Errorf("%s rule %s: group action requires group field", phase, rule.ID)
 			}
 		}
 	}

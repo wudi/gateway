@@ -4,6 +4,9 @@ import (
 	"net/http"
 
 	"github.com/example/gateway/internal/config"
+	"github.com/example/gateway/internal/logging"
+	"github.com/example/gateway/internal/variables"
+	"go.uber.org/zap"
 )
 
 // ExecuteTerminatingAction writes the appropriate response for a terminating action.
@@ -66,4 +69,52 @@ func ExecuteResponseHeaders(w http.ResponseWriter, headers config.HeaderTransfor
 	for _, k := range headers.Remove {
 		w.Header().Del(k)
 	}
+}
+
+// ExecuteRewrite rewrites the request URI path, query string, and/or headers (non-terminating).
+func ExecuteRewrite(r *http.Request, cfg *config.RewriteActionConfig) {
+	if cfg.Path != "" {
+		r.URL.Path = cfg.Path
+	}
+	if cfg.Query != "" {
+		r.URL.RawQuery = cfg.Query
+	}
+	ExecuteRequestHeaders(r, cfg.Headers)
+}
+
+// ExecuteGroup assigns the request to a named traffic split group (non-terminating).
+func ExecuteGroup(varCtx *variables.Context, groupName string) {
+	varCtx.TrafficGroup = groupName
+}
+
+// ExecuteLog logs a matched request-phase rule with structured context (non-terminating).
+func ExecuteLog(ruleID string, r *http.Request, varCtx *variables.Context, message string) {
+	fields := []zap.Field{
+		zap.String("rule_id", ruleID),
+		zap.String("method", r.Method),
+		zap.String("path", r.URL.Path),
+		zap.String("remote_addr", r.RemoteAddr),
+	}
+	if varCtx != nil && varCtx.RouteID != "" {
+		fields = append(fields, zap.String("route_id", varCtx.RouteID))
+	}
+	if message != "" {
+		fields = append(fields, zap.String("message", message))
+	}
+	logging.Info("rule_log", fields...)
+}
+
+// ExecuteResponseLog logs a matched response-phase rule with structured context (non-terminating).
+func ExecuteResponseLog(ruleID string, r *http.Request, statusCode int, message string) {
+	fields := []zap.Field{
+		zap.String("rule_id", ruleID),
+		zap.String("method", r.Method),
+		zap.String("path", r.URL.Path),
+		zap.String("remote_addr", r.RemoteAddr),
+		zap.Int("status", statusCode),
+	}
+	if message != "" {
+		fields = append(fields, zap.String("message", message))
+	}
+	logging.Info("rule_log", fields...)
 }

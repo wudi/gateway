@@ -568,15 +568,25 @@ type RulesConfig struct {
 
 // RuleConfig defines a single rule.
 type RuleConfig struct {
-	ID          string          `yaml:"id"`
-	Enabled     *bool           `yaml:"enabled"`       // default true
-	Expression  string          `yaml:"expression"`
-	Action      string          `yaml:"action"`        // block, custom_response, redirect, set_headers
-	StatusCode  int             `yaml:"status_code"`
-	Body        string          `yaml:"body"`
-	RedirectURL string          `yaml:"redirect_url"`
-	Headers     HeaderTransform `yaml:"headers"`
-	Description string          `yaml:"description"`
+	ID          string               `yaml:"id"`
+	Enabled     *bool                `yaml:"enabled"`       // default true
+	Expression  string               `yaml:"expression"`
+	Action      string               `yaml:"action"`        // block, custom_response, redirect, set_headers, rewrite, group, log
+	StatusCode  int                  `yaml:"status_code"`
+	Body        string               `yaml:"body"`
+	RedirectURL string               `yaml:"redirect_url"`
+	Headers     HeaderTransform      `yaml:"headers"`
+	Description string               `yaml:"description"`
+	Rewrite     *RewriteActionConfig `yaml:"rewrite"`
+	Group       string               `yaml:"group"`       // traffic split group name
+	LogMessage  string               `yaml:"log_message"` // optional custom log message
+}
+
+// RewriteActionConfig defines path/query/header rewriting for the rewrite action.
+type RewriteActionConfig struct {
+	Path    string          `yaml:"path"`
+	Query   string          `yaml:"query"`
+	Headers HeaderTransform `yaml:"headers"`
 }
 
 // TrafficShapingConfig defines traffic shaping settings.

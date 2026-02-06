@@ -19,11 +19,14 @@ type CompiledRule struct {
 
 // Action defines what happens when a rule matches.
 type Action struct {
-	Type        string                 // block, custom_response, redirect, set_headers
+	Type        string                      // block, custom_response, redirect, set_headers, rewrite, group, log
 	StatusCode  int
 	Body        string
 	RedirectURL string
 	Headers     config.HeaderTransform
+	Rewrite     *config.RewriteActionConfig // rewrite action config
+	Group       string                      // traffic split group name
+	LogMessage  string                      // optional log message
 }
 
 // IsTerminating returns true for actions that end request processing.
@@ -98,5 +101,8 @@ func actionFromConfig(cfg config.RuleConfig) Action {
 		Body:        cfg.Body,
 		RedirectURL: cfg.RedirectURL,
 		Headers:     cfg.Headers,
+		Rewrite:     cfg.Rewrite,
+		Group:       cfg.Group,
+		LogMessage:  cfg.LogMessage,
 	}
 }

@@ -8,6 +8,7 @@ type Metrics struct {
 	Matched   atomic.Int64
 	Blocked   atomic.Int64
 	Errors    atomic.Int64
+	Logged    atomic.Int64
 }
 
 // MetricsSnapshot is a point-in-time copy of Metrics for JSON serialization.
@@ -16,6 +17,7 @@ type MetricsSnapshot struct {
 	Matched   int64 `json:"matched"`
 	Blocked   int64 `json:"blocked"`
 	Errors    int64 `json:"errors"`
+	Logged    int64 `json:"logged"`
 }
 
 // Snapshot returns a point-in-time copy of the metrics.
@@ -25,5 +27,6 @@ func (m *Metrics) Snapshot() MetricsSnapshot {
 		Matched:   m.Matched.Load(),
 		Blocked:   m.Blocked.Load(),
 		Errors:    m.Errors.Load(),
+		Logged:    m.Logged.Load(),
 	}
 }

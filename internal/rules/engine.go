@@ -87,6 +87,9 @@ func (e *RuleEngine) evaluate(rules []*CompiledRule, env any) []Result {
 		if terminated {
 			e.metrics.Blocked.Add(1)
 		}
+		if rule.Action.Type == "log" {
+			e.metrics.Logged.Add(1)
+		}
 
 		results = append(results, Result{
 			Matched:    true,

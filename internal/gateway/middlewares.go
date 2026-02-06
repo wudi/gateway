@@ -88,8 +88,15 @@ func requestRulesMW(global, route *rules.RuleEngine) middleware.Middleware {
 						rules.ExecuteTerminatingAction(w, r, result.Action)
 						return
 					}
-					if result.Action.Type == "set_headers" {
+					switch result.Action.Type {
+					case "set_headers":
 						rules.ExecuteRequestHeaders(r, result.Action.Headers)
+					case "rewrite":
+						rules.ExecuteRewrite(r, result.Action.Rewrite)
+					case "group":
+						rules.ExecuteGroup(varCtx, result.Action.Group)
+					case "log":
+						rules.ExecuteLog(result.RuleID, r, varCtx, result.Action.LogMessage)
 					}
 				}
 			}
@@ -101,8 +108,15 @@ func requestRulesMW(global, route *rules.RuleEngine) middleware.Middleware {
 						rules.ExecuteTerminatingAction(w, r, result.Action)
 						return
 					}
-					if result.Action.Type == "set_headers" {
+					switch result.Action.Type {
+					case "set_headers":
 						rules.ExecuteRequestHeaders(r, result.Action.Headers)
+					case "rewrite":
+						rules.ExecuteRewrite(r, result.Action.Rewrite)
+					case "group":
+						rules.ExecuteGroup(varCtx, result.Action.Group)
+					case "log":
+						rules.ExecuteLog(result.RuleID, r, varCtx, result.Action.LogMessage)
 					}
 				}
 			}
@@ -264,15 +278,21 @@ func responseRulesMW(global, route *rules.RuleEngine) middleware.Middleware {
 
 			if global != nil && global.HasResponseRules() {
 				for _, result := range global.EvaluateResponse(respEnv) {
-					if result.Action.Type == "set_headers" {
+					switch result.Action.Type {
+					case "set_headers":
 						rules.ExecuteResponseHeaders(rulesWriter, result.Action.Headers)
+					case "log":
+						rules.ExecuteResponseLog(result.RuleID, r, rulesWriter.StatusCode(), result.Action.LogMessage)
 					}
 				}
 			}
 			if route != nil && route.HasResponseRules() {
 				for _, result := range route.EvaluateResponse(respEnv) {
-					if result.Action.Type == "set_headers" {
+					switch result.Action.Type {
+					case "set_headers":
 						rules.ExecuteResponseHeaders(rulesWriter, result.Action.Headers)
+					case "log":
+						rules.ExecuteResponseLog(result.RuleID, r, rulesWriter.StatusCode(), result.Action.LogMessage)
 					}
 				}
 			}

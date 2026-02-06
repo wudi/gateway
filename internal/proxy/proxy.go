@@ -141,10 +141,20 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 			}
 			var backend *loadbalancer.Backend
 			if ra, ok := balancer.(requestAwareBalancer); ok {
-				var groupName string
-				backend, groupName = ra.NextForHTTPRequest(r)
-				if groupName != "" {
-					varCtx.TrafficGroup = groupName
+				// Check if rules pre-assigned a traffic group
+				if varCtx.TrafficGroup != "" {
+					if wb, ok := balancer.(*loadbalancer.WeightedBalancer); ok {
+						if tg := wb.GetGroupByName(varCtx.TrafficGroup); tg != nil {
+							backend = tg.Balancer.Next()
+						}
+					}
+				}
+				if backend == nil {
+					var groupName string
+					backend, groupName = ra.NextForHTTPRequest(r)
+					if groupName != "" {
+						varCtx.TrafficGroup = groupName
+					}
 				}
 			} else {
 				backend = balancer.Next()
