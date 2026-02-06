@@ -663,3 +663,330 @@ udp_routes:
 		})
 	}
 }
+
+func TestLoaderValidateProtocolTranslation(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+	}{
+		{
+			name: "valid http_to_grpc protocol",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: grpc-route
+    path: /api/grpc
+    path_prefix: true
+    backends:
+      - url: grpc://localhost:50051
+    protocol:
+      type: http_to_grpc
+      grpc:
+        service: myapp.UserService
+        timeout: 10s
+`,
+			wantErr: false,
+		},
+		{
+			name: "invalid protocol type",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: grpc-route
+    path: /api/grpc
+    backends:
+      - url: grpc://localhost:50051
+    protocol:
+      type: invalid_protocol
+`,
+			wantErr: true,
+		},
+		{
+			name: "protocol and grpc.enabled conflict",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: grpc-route
+    path: /api/grpc
+    backends:
+      - url: grpc://localhost:50051
+    protocol:
+      type: http_to_grpc
+    grpc:
+      enabled: true
+`,
+			wantErr: true,
+		},
+		{
+			name: "protocol TLS enabled without CA file",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: grpc-route
+    path: /api/grpc
+    backends:
+      - url: grpc://localhost:50051
+    protocol:
+      type: http_to_grpc
+      grpc:
+        tls:
+          enabled: true
+`,
+			wantErr: true,
+		},
+		{
+			name: "protocol TLS with CA file",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: grpc-route
+    path: /api/grpc
+    backends:
+      - url: grpc://localhost:50051
+    protocol:
+      type: http_to_grpc
+      grpc:
+        tls:
+          enabled: true
+          ca_file: /path/to/ca.crt
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid REST-to-gRPC mappings",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: grpc-route
+    path: /api/users
+    path_prefix: true
+    backends:
+      - url: grpc://localhost:50051
+    protocol:
+      type: http_to_grpc
+      grpc:
+        service: myapp.UserService
+        mappings:
+          - http_method: GET
+            http_path: /api/users/:user_id
+            grpc_method: GetUser
+          - http_method: POST
+            http_path: /api/users
+            grpc_method: CreateUser
+            body: "*"
+`,
+			wantErr: false,
+		},
+		{
+			name: "mappings without service",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: grpc-route
+    path: /api/users
+    backends:
+      - url: grpc://localhost:50051
+    protocol:
+      type: http_to_grpc
+      grpc:
+        mappings:
+          - http_method: GET
+            http_path: /api/users/:user_id
+            grpc_method: GetUser
+`,
+			wantErr: true,
+		},
+		{
+			name: "mapping with missing http_method",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: grpc-route
+    path: /api/users
+    backends:
+      - url: grpc://localhost:50051
+    protocol:
+      type: http_to_grpc
+      grpc:
+        service: myapp.UserService
+        mappings:
+          - http_path: /api/users/:user_id
+            grpc_method: GetUser
+`,
+			wantErr: true,
+		},
+		{
+			name: "mapping with invalid http_method",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: grpc-route
+    path: /api/users
+    backends:
+      - url: grpc://localhost:50051
+    protocol:
+      type: http_to_grpc
+      grpc:
+        service: myapp.UserService
+        mappings:
+          - http_method: INVALID
+            http_path: /api/users/:user_id
+            grpc_method: GetUser
+`,
+			wantErr: true,
+		},
+		{
+			name: "mapping with missing grpc_method",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: grpc-route
+    path: /api/users
+    backends:
+      - url: grpc://localhost:50051
+    protocol:
+      type: http_to_grpc
+      grpc:
+        service: myapp.UserService
+        mappings:
+          - http_method: GET
+            http_path: /api/users/:user_id
+`,
+			wantErr: true,
+		},
+		{
+			name: "duplicate mapping",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: grpc-route
+    path: /api/users
+    backends:
+      - url: grpc://localhost:50051
+    protocol:
+      type: http_to_grpc
+      grpc:
+        service: myapp.UserService
+        mappings:
+          - http_method: GET
+            http_path: /api/users/:user_id
+            grpc_method: GetUser
+          - http_method: GET
+            http_path: /api/users/:user_id
+            grpc_method: GetUserV2
+`,
+			wantErr: true,
+		},
+		{
+			name: "valid fixed method",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: demo-route
+    path: /demo
+    backends:
+      - url: grpc://localhost:50051
+    protocol:
+      type: http_to_grpc
+      grpc:
+        service: myapp.UserService
+        method: GetUser
+        timeout: 10s
+`,
+			wantErr: false,
+		},
+		{
+			name: "fixed method without service",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: demo-route
+    path: /demo
+    backends:
+      - url: grpc://localhost:50051
+    protocol:
+      type: http_to_grpc
+      grpc:
+        method: GetUser
+`,
+			wantErr: true,
+		},
+		{
+			name: "fixed method with mappings conflict",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: demo-route
+    path: /demo
+    backends:
+      - url: grpc://localhost:50051
+    protocol:
+      type: http_to_grpc
+      grpc:
+        service: myapp.UserService
+        method: GetUser
+        mappings:
+          - http_method: GET
+            http_path: /demo
+            grpc_method: ListUsers
+`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}

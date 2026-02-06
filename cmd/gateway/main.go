@@ -8,6 +8,9 @@ import (
 
 	"github.com/example/gateway/internal/config"
 	"github.com/example/gateway/internal/gateway"
+
+	// Protocol translators (auto-register)
+	_ "github.com/example/gateway/internal/proxy/protocol/grpc"
 )
 
 var (

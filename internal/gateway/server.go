@@ -285,6 +285,9 @@ func (s *Server) adminHandler() http.Handler {
 	// Rules engine status
 	mux.HandleFunc("/rules", s.handleRules)
 
+	// Protocol translators status
+	mux.HandleFunc("/protocol-translators", s.handleProtocolTranslators)
+
 	// Feature 14: API Key management endpoints
 	if s.gateway.GetAPIKeyAuth() != nil {
 		mux.HandleFunc("/admin/keys", s.handleAdminKeys)
@@ -520,6 +523,13 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 // handleAdminKeys handles API key management requests (Feature 14)
 func (s *Server) handleAdminKeys(w http.ResponseWriter, r *http.Request) {
 	s.gateway.GetAPIKeyAuth().HandleAdminKeys(w, r)
+}
+
+// handleProtocolTranslators handles protocol translator stats requests
+func (s *Server) handleProtocolTranslators(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	stats := s.gateway.GetTranslators().Stats()
+	json.NewEncoder(w).Encode(stats)
 }
 
 // Gateway returns the underlying gateway

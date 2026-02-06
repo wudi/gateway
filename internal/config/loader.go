@@ -271,6 +271,28 @@ func (l *Loader) validate(cfg *Config) error {
 				return fmt.Errorf("route %s: websocket write_buffer_size must be > 0", route.ID)
 			}
 		}
+
+		// Validate protocol translation config
+		if route.Protocol.Type != "" {
+			validProtocolTypes := map[string]bool{"http_to_grpc": true}
+			if !validProtocolTypes[route.Protocol.Type] {
+				return fmt.Errorf("route %s: unknown protocol type: %s", route.ID, route.Protocol.Type)
+			}
+			// Protocol translation and gRPC passthrough are mutually exclusive
+			if route.GRPC.Enabled {
+				return fmt.Errorf("route %s: cannot enable both grpc.enabled and protocol translation", route.ID)
+			}
+			// Validate TLS config if enabled
+			if route.Protocol.GRPC.TLS.Enabled {
+				if route.Protocol.GRPC.TLS.CAFile == "" {
+					return fmt.Errorf("route %s: protocol grpc tls enabled but ca_file not provided", route.ID)
+				}
+			}
+			// Validate REST-to-gRPC mappings
+			if err := l.validateGRPCMappings(route.ID, route.Protocol.GRPC); err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil
@@ -328,6 +350,57 @@ func (l *Loader) validateRules(rules []RuleConfig, phase string) error {
 				return fmt.Errorf("%s rule %s: set_headers action requires at least one header operation", phase, rule.ID)
 			}
 		}
+	}
+
+	return nil
+}
+
+// validateGRPCMappings validates REST-to-gRPC method mappings
+func (l *Loader) validateGRPCMappings(routeID string, cfg GRPCTranslateConfig) error {
+	// If method is set, service must also be set
+	if cfg.Method != "" && cfg.Service == "" {
+		return fmt.Errorf("route %s: grpc.service is required when grpc.method is set", routeID)
+	}
+
+	// Method and mappings are mutually exclusive
+	if cfg.Method != "" && len(cfg.Mappings) > 0 {
+		return fmt.Errorf("route %s: cannot use both grpc.method and grpc.mappings", routeID)
+	}
+
+	if len(cfg.Mappings) == 0 {
+		return nil
+	}
+
+	// If mappings are used, service must be specified
+	if cfg.Service == "" {
+		return fmt.Errorf("route %s: grpc.service is required when using mappings", routeID)
+	}
+
+	validMethods := map[string]bool{
+		"GET": true, "POST": true, "PUT": true, "DELETE": true, "PATCH": true,
+	}
+
+	seen := make(map[string]bool)
+	for i, m := range cfg.Mappings {
+		if m.HTTPMethod == "" {
+			return fmt.Errorf("route %s: mapping %d: http_method is required", routeID, i)
+		}
+		if !validMethods[m.HTTPMethod] {
+			return fmt.Errorf("route %s: mapping %d: invalid http_method: %s", routeID, i, m.HTTPMethod)
+		}
+		if m.HTTPPath == "" {
+			return fmt.Errorf("route %s: mapping %d: http_path is required", routeID, i)
+		}
+		if m.GRPCMethod == "" {
+			return fmt.Errorf("route %s: mapping %d: grpc_method is required", routeID, i)
+		}
+
+		// Check for duplicate method+path combinations
+		key := m.HTTPMethod + " " + m.HTTPPath
+		if seen[key] {
+			return fmt.Errorf("route %s: mapping %d: duplicate mapping for %s", routeID, i, key)
+		}
+		seen[key] = true
 	}
 
 	return nil

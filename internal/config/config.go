@@ -225,6 +225,7 @@ type RouteConfig struct {
 	Mirror         MirrorConfig         `yaml:"mirror"`           // Feature 10: Traffic mirroring
 	GRPC           GRPCConfig           `yaml:"grpc"`             // Feature 12: gRPC proxying
 	Rules          RulesConfig          `yaml:"rules"`            // Per-route rules engine
+	Protocol       ProtocolConfig       `yaml:"protocol"`         // Protocol translation
 }
 
 // RetryConfig defines retry policy settings
@@ -340,6 +341,38 @@ type MirrorConfig struct {
 // GRPCConfig defines gRPC proxying settings (Feature 12)
 type GRPCConfig struct {
 	Enabled bool `yaml:"enabled"`
+}
+
+// ProtocolConfig defines protocol translation settings per route.
+type ProtocolConfig struct {
+	Type string              `yaml:"type"` // "http_to_grpc"
+	GRPC GRPCTranslateConfig `yaml:"grpc"`
+}
+
+// GRPCTranslateConfig defines HTTP-to-gRPC translation settings.
+type GRPCTranslateConfig struct {
+	Service            string              `yaml:"service"`              // optional: fully-qualified service name
+	Method             string              `yaml:"method"`               // optional: fixed gRPC method name (requires service)
+	Timeout            time.Duration       `yaml:"timeout"`              // per-call timeout (default 30s)
+	DescriptorCacheTTL time.Duration       `yaml:"descriptor_cache_ttl"` // default 5m
+	TLS                ProtocolTLSConfig   `yaml:"tls"`
+	Mappings           []GRPCMethodMapping `yaml:"mappings"` // REST-to-gRPC method mappings
+}
+
+// GRPCMethodMapping defines a REST-to-gRPC method mapping.
+type GRPCMethodMapping struct {
+	HTTPMethod string `yaml:"http_method"` // GET, POST, PUT, DELETE, PATCH
+	HTTPPath   string `yaml:"http_path"`   // /users/:user_id or /users/{user_id}
+	GRPCMethod string `yaml:"grpc_method"` // GetUser (method name within the service)
+	Body       string `yaml:"body"`        // "*" = whole body, "field" = nested under field, "" = no body (use params only)
+}
+
+// ProtocolTLSConfig defines TLS settings for protocol translation.
+type ProtocolTLSConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	CertFile string `yaml:"cert_file"`
+	KeyFile  string `yaml:"key_file"`
+	CAFile   string `yaml:"ca_file"`
 }
 
 // BodyTransformConfig defines request/response body transformation settings (Feature 13)

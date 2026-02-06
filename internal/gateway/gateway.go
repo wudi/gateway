@@ -26,6 +26,7 @@ import (
 	"github.com/example/gateway/internal/middleware/validation"
 	"github.com/example/gateway/internal/mirror"
 	grpcproxy "github.com/example/gateway/internal/proxy/grpc"
+	"github.com/example/gateway/internal/proxy/protocol"
 	"github.com/example/gateway/internal/rules"
 	"github.com/example/gateway/internal/proxy"
 	"github.com/example/gateway/internal/registry"
@@ -68,6 +69,7 @@ type Gateway struct {
 	tracer         *tracing.Tracer
 
 	grpcHandlers map[string]*grpcproxy.Handler
+	translators  *protocol.TranslatorByRoute
 
 	globalRules *rules.RuleEngine
 	routeRules  *rules.RulesByRoute
@@ -113,6 +115,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		validators:       validation.NewValidatorByRoute(),
 		mirrors:          mirror.NewMirrorByRoute(),
 		grpcHandlers:     make(map[string]*grpcproxy.Handler),
+		translators:      protocol.NewTranslatorByRoute(),
 		routeRules:       rules.NewRulesByRoute(),
 		routeProxies:     make(map[string]*proxy.RouteProxy),
 		routeHandlers:    make(map[string]http.Handler),
@@ -327,6 +330,14 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 		g.grpcHandlers[routeCfg.ID] = grpcproxy.New(true)
 	}
 
+	// Set up protocol translator (replaces RouteProxy as innermost handler)
+	if routeCfg.Protocol.Type != "" {
+		balancer := g.routeProxies[routeCfg.ID].GetBalancer()
+		if err := g.translators.AddRoute(routeCfg.ID, routeCfg.Protocol, balancer); err != nil {
+			return fmt.Errorf("protocol translator: route %s: %w", routeCfg.ID, err)
+		}
+	}
+
 	// Set up all features generically
 	for _, f := range g.features {
 		if err := f.Setup(routeCfg.ID, routeCfg); err != nil {
@@ -438,8 +449,12 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		chain = chain.Use(responseBodyTransformMW(respBodyCfg))
 	}
 
-	// Innermost: the proxy (Step 10)
-	return chain.Handler(rp)
+	// Innermost handler: translator if configured, otherwise the proxy (Step 10)
+	var innermost http.Handler = rp
+	if translatorHandler := g.translators.GetHandler(routeID); translatorHandler != nil {
+		innermost = translatorHandler
+	}
+	return chain.Handler(innermost)
 }
 
 // watchService watches for service changes from registry
@@ -700,6 +715,9 @@ func (g *Gateway) Close() error {
 		g.tracer.Close()
 	}
 
+	// Close protocol translators
+	g.translators.Close()
+
 	// Close registry
 	if g.registry != nil {
 		return g.registry.Close()
@@ -760,6 +778,11 @@ func (g *Gateway) GetGlobalRules() *rules.RuleEngine {
 // GetRouteRules returns the per-route rules manager.
 func (g *Gateway) GetRouteRules() *rules.RulesByRoute {
 	return g.routeRules
+}
+
+// GetTranslators returns the protocol translator manager.
+func (g *Gateway) GetTranslators() *protocol.TranslatorByRoute {
+	return g.translators
 }
 
 // FeatureStats returns admin stats from features that implement AdminStatsProvider.
