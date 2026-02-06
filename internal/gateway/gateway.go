@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"sync"
+
+	"github.com/example/gateway/internal/logging"
+	"go.uber.org/zap"
 
 	"github.com/example/gateway/internal/cache"
 	"github.com/example/gateway/internal/circuitbreaker"
@@ -21,9 +23,11 @@ import (
 	"github.com/example/gateway/internal/middleware/auth"
 	"github.com/example/gateway/internal/middleware/compression"
 	"github.com/example/gateway/internal/middleware/cors"
+	"github.com/example/gateway/internal/middleware/mtls"
 	"github.com/example/gateway/internal/middleware/ipfilter"
 	"github.com/example/gateway/internal/middleware/ratelimit"
 	"github.com/example/gateway/internal/middleware/validation"
+	"github.com/example/gateway/internal/middleware/waf"
 	"github.com/example/gateway/internal/mirror"
 	grpcproxy "github.com/example/gateway/internal/proxy/grpc"
 	"github.com/example/gateway/internal/proxy/protocol"
@@ -31,6 +35,7 @@ import (
 	"github.com/example/gateway/internal/trafficshape"
 	"github.com/example/gateway/internal/proxy"
 	"github.com/example/gateway/internal/registry"
+	"github.com/redis/go-redis/v9"
 	"github.com/example/gateway/internal/registry/consul"
 	"github.com/example/gateway/internal/registry/etcd"
 	"github.com/example/gateway/internal/registry/memory"
@@ -81,8 +86,11 @@ type Gateway struct {
 	priorityAdmitter  *trafficshape.PriorityAdmitter // shared across routes, nil if disabled
 	priorityConfigs   *trafficshape.PriorityByRoute
 	faultInjectors    *trafficshape.FaultInjectionByRoute
+	wafHandlers       *waf.WAFByRoute
 
 	features []Feature
+
+	redisClient *redis.Client // shared Redis client for distributed features
 
 	routeProxies  map[string]*proxy.RouteProxy
 	routeHandlers map[string]http.Handler
@@ -136,6 +144,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		bandwidthLimiters: trafficshape.NewBandwidthByRoute(),
 		priorityConfigs:   trafficshape.NewPriorityByRoute(),
 		faultInjectors:    trafficshape.NewFaultInjectionByRoute(),
+		wafHandlers:       waf.NewWAFByRoute(),
 		routeProxies:      make(map[string]*proxy.RouteProxy),
 		routeHandlers:    make(map[string]http.Handler),
 		watchCancels:     make(map[string]context.CancelFunc),
@@ -160,6 +169,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&bandwidthFeature{m: g.bandwidthLimiters, global: &cfg.TrafficShaping.Bandwidth},
 		&priorityFeature{m: g.priorityConfigs, global: &cfg.TrafficShaping.Priority},
 		&faultInjectionFeature{m: g.faultInjectors, global: &cfg.TrafficShaping.FaultInjection},
+		&wafFeature{g.wafHandlers},
 	}
 
 	// Initialize global IP filter
@@ -182,13 +192,31 @@ func New(cfg *config.Config) (*Gateway, error) {
 
 	// Initialize tracer
 	if cfg.Tracing.Enabled {
-		g.tracer = tracing.New(cfg.Tracing)
+		var err error
+		g.tracer, err = tracing.New(cfg.Tracing)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize tracer: %w", err)
+		}
+	}
+
+	// Initialize Redis client if configured
+	if cfg.Redis.Address != "" {
+		g.redisClient = redis.NewClient(&redis.Options{
+			Addr:        cfg.Redis.Address,
+			Password:    cfg.Redis.Password,
+			DB:          cfg.Redis.DB,
+			PoolSize:    cfg.Redis.PoolSize,
+			DialTimeout: cfg.Redis.DialTimeout,
+		})
 	}
 
 	// Initialize health checker
 	g.healthChecker = health.NewChecker(health.Config{
 		OnChange: func(url string, status health.Status) {
-			log.Printf("Backend %s health changed to %s", url, status)
+			logging.Info("Backend health changed",
+				zap.String("backend", url),
+				zap.String("status", string(status)),
+			)
 			g.updateBackendHealth(url, status)
 		},
 	})
@@ -298,7 +326,10 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 		// Discover initial backends
 		services, err := g.registry.DiscoverWithTags(ctx, routeCfg.Service.Name, routeCfg.Service.Tags)
 		if err != nil {
-			log.Printf("Warning: failed to discover service %s: %v", routeCfg.Service.Name, err)
+			logging.Warn("Failed to discover service",
+				zap.String("service", routeCfg.Service.Name),
+				zap.Error(err),
+			)
 		}
 
 		for _, svc := range services {
@@ -349,12 +380,23 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 
 	// Set up rate limiting (unique setup signature, not in feature loop)
 	if routeCfg.RateLimit.Enabled || routeCfg.RateLimit.Rate > 0 {
-		g.rateLimiters.AddRoute(routeCfg.ID, ratelimit.Config{
-			Rate:   routeCfg.RateLimit.Rate,
-			Period: routeCfg.RateLimit.Period,
-			Burst:  routeCfg.RateLimit.Burst,
-			PerIP:  routeCfg.RateLimit.PerIP,
-		})
+		if routeCfg.RateLimit.Mode == "distributed" && g.redisClient != nil {
+			g.rateLimiters.AddRouteDistributed(routeCfg.ID, ratelimit.RedisLimiterConfig{
+				Client: g.redisClient,
+				Prefix: "gw:rl:" + routeCfg.ID + ":",
+				Rate:   routeCfg.RateLimit.Rate,
+				Period: routeCfg.RateLimit.Period,
+				Burst:  routeCfg.RateLimit.Burst,
+				PerIP:  routeCfg.RateLimit.PerIP,
+			})
+		} else {
+			g.rateLimiters.AddRoute(routeCfg.ID, ratelimit.Config{
+				Rate:   routeCfg.RateLimit.Rate,
+				Period: routeCfg.RateLimit.Period,
+				Burst:  routeCfg.RateLimit.Burst,
+				PerIP:  routeCfg.RateLimit.PerIP,
+			})
+		}
 	}
 
 	// Set up gRPC handler (unique setup signature, not in feature loop)
@@ -408,9 +450,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 	// 4. varContextMW — set RouteID + PathParams (Step 2)
 	chain = chain.Use(varContextMW(routeID))
 
-	// 5. rateLimitMW — per-route limiter
-	if limiter := g.rateLimiters.GetLimiter(routeID); limiter != nil {
-		chain = chain.Use(rateLimitMW(limiter))
+	// 5. rateLimitMW — per-route limiter (local or distributed)
+	if mw := g.rateLimiters.GetMiddleware(routeID); mw != nil {
+		chain = chain.Use(mw)
 	}
 
 	// 5.5 throttleMW — delay/queue (after reject, before auth)
@@ -436,6 +478,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		(routeEngine != nil && routeEngine.HasRequestRules())
 	if hasReqRules {
 		chain = chain.Use(requestRulesMW(g.globalRules, routeEngine))
+	}
+
+	// 7.25 wafMW — WAF inspection (after request rules, before fault injection)
+	if wafHandler := g.wafHandlers.GetWAF(routeID); wafHandler != nil {
+		chain = chain.Use(wafMW(wafHandler))
 	}
 
 	// 7.5. faultInjectionMW — inject delays/aborts (Step 7.5)
@@ -530,7 +577,10 @@ func (g *Gateway) watchService(routeID, serviceName string, tags []string) {
 	go func() {
 		ch, err := g.registry.Watch(ctx, serviceName)
 		if err != nil {
-			log.Printf("Failed to watch service %s: %v", serviceName, err)
+			logging.Error("Failed to watch service",
+				zap.String("service", serviceName),
+				zap.Error(err),
+			)
 			return
 		}
 
@@ -568,7 +618,10 @@ func (g *Gateway) watchService(routeID, serviceName string, tags []string) {
 
 				if ok {
 					rp.UpdateBackends(backends)
-					log.Printf("Updated backends for route %s: %d services", routeID, len(backends))
+					logging.Info("Updated backends for route",
+						zap.String("route", routeID),
+						zap.Int("services", len(backends)),
+					)
 				}
 			}
 		}
@@ -614,7 +667,8 @@ func (g *Gateway) updateBackendHealth(url string, status health.Status) {
 func (g *Gateway) Handler() http.Handler {
 	chain := middleware.NewBuilder().
 		Use(middleware.Recovery()).
-		Use(middleware.RequestID())
+		Use(middleware.RequestID()).
+		Use(mtls.Middleware())
 
 	if g.tracer != nil {
 		chain = chain.Use(g.tracer.Middleware())
@@ -769,9 +823,19 @@ func (g *Gateway) Close() error {
 	// Stop health checker
 	g.healthChecker.Stop()
 
+	// Close JWKS providers
+	if g.jwtAuth != nil {
+		g.jwtAuth.Close()
+	}
+
 	// Close tracer
 	if g.tracer != nil {
 		g.tracer.Close()
+	}
+
+	// Close Redis client
+	if g.redisClient != nil {
+		g.redisClient.Close()
 	}
 
 	// Close protocol translators
@@ -862,6 +926,21 @@ func (g *Gateway) GetPriorityAdmitter() *trafficshape.PriorityAdmitter {
 // GetFaultInjectors returns the fault injection manager.
 func (g *Gateway) GetFaultInjectors() *trafficshape.FaultInjectionByRoute {
 	return g.faultInjectors
+}
+
+// GetRateLimiters returns the rate limiter manager.
+func (g *Gateway) GetRateLimiters() *ratelimit.RateLimitByRoute {
+	return g.rateLimiters
+}
+
+// GetTracer returns the tracer (may be nil).
+func (g *Gateway) GetTracer() *tracing.Tracer {
+	return g.tracer
+}
+
+// GetWAFHandlers returns the WAF manager.
+func (g *Gateway) GetWAFHandlers() *waf.WAFByRoute {
+	return g.wafHandlers
 }
 
 // GetMirrors returns the mirror manager.

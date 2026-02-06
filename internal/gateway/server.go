@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,8 +12,10 @@ import (
 
 	"github.com/example/gateway/internal/config"
 	"github.com/example/gateway/internal/listener"
+	"github.com/example/gateway/internal/logging"
 	"github.com/example/gateway/internal/proxy/tcp"
 	"github.com/example/gateway/internal/proxy/udp"
+	"go.uber.org/zap"
 )
 
 // Server wraps the gateway with HTTP server functionality
@@ -25,6 +26,7 @@ type Server struct {
 	config      *config.Config
 	tcpProxy    *tcp.Proxy
 	udpProxy    *udp.Proxy
+	startTime   time.Time
 }
 
 // NewServer creates a new gateway server
@@ -35,9 +37,10 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	}
 
 	s := &Server{
-		gateway: gw,
-		manager: listener.NewManager(),
-		config:  cfg,
+		gateway:   gw,
+		manager:   listener.NewManager(),
+		config:    cfg,
+		startTime: time.Now(),
 	}
 
 	// Initialize TCP/UDP proxies if needed
@@ -72,7 +75,7 @@ func (s *Server) initL4Proxies() error {
 				return fmt.Errorf("failed to add TCP route %s: %w", routeCfg.ID, err)
 			}
 		}
-		log.Printf("Initialized TCP proxy with %d routes", len(s.config.TCPRoutes))
+		logging.Info("Initialized TCP proxy", zap.Int("routes", len(s.config.TCPRoutes)))
 	}
 
 	if len(s.config.UDPRoutes) > 0 {
@@ -82,7 +85,7 @@ func (s *Server) initL4Proxies() error {
 				return fmt.Errorf("failed to add UDP route %s: %w", routeCfg.ID, err)
 			}
 		}
-		log.Printf("Initialized UDP proxy with %d routes", len(s.config.UDPRoutes))
+		logging.Info("Initialized UDP proxy", zap.Int("routes", len(s.config.UDPRoutes)))
 	}
 
 	return nil
@@ -166,7 +169,7 @@ func (s *Server) Start() error {
 	// Start admin server if enabled
 	if s.adminServer != nil {
 		go func() {
-			log.Printf("Starting admin server on port %d", s.config.Admin.Port)
+			logging.Info("Starting admin server", zap.Int("port", s.config.Admin.Port))
 			if err := s.adminServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				errCh <- fmt.Errorf("admin server error: %w", err)
 			}
@@ -196,7 +199,7 @@ func (s *Server) Run() error {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Println("Shutting down gracefully...")
+	logging.Info("Shutting down gracefully...")
 
 	// Graceful shutdown
 	return s.Shutdown(30 * time.Second)
@@ -210,13 +213,13 @@ func (s *Server) Shutdown(timeout time.Duration) error {
 	// Shutdown admin server first
 	if s.adminServer != nil {
 		if err := s.adminServer.Shutdown(ctx); err != nil {
-			log.Printf("Admin server shutdown error: %v", err)
+			logging.Error("Admin server shutdown error", zap.Error(err))
 		}
 	}
 
 	// Shutdown all listeners
 	if err := s.manager.StopAll(ctx); err != nil {
-		log.Printf("Listener manager shutdown error: %v", err)
+		logging.Error("Listener manager shutdown error", zap.Error(err))
 	}
 
 	// Close L4 proxies
@@ -229,11 +232,11 @@ func (s *Server) Shutdown(timeout time.Duration) error {
 
 	// Close gateway
 	if err := s.gateway.Close(); err != nil {
-		log.Printf("Gateway close error: %v", err)
+		logging.Error("Gateway close error", zap.Error(err))
 		return err
 	}
 
-	log.Println("Server shutdown complete")
+	logging.Info("Server shutdown complete")
 	return nil
 }
 
@@ -297,6 +300,18 @@ func (s *Server) adminHandler() http.Handler {
 	// Traffic splits (A/B testing / canary)
 	mux.HandleFunc("/traffic-splits", s.handleTrafficSplits)
 
+	// Tracing status
+	mux.HandleFunc("/tracing", s.handleTracing)
+
+	// Rate limits status
+	mux.HandleFunc("/rate-limits", s.handleRateLimits)
+
+	// WAF status
+	mux.HandleFunc("/waf", s.handleWAF)
+
+	// Aggregated dashboard
+	mux.HandleFunc("/dashboard", s.handleDashboard)
+
 	// Feature 14: API Key management endpoints
 	if s.gateway.GetAPIKeyAuth() != nil {
 		mux.HandleFunc("/admin/keys", s.handleAdminKeys)
@@ -305,40 +320,110 @@ func (s *Server) adminHandler() http.Handler {
 	return mux
 }
 
-// handleHealth handles health check requests
+// handleHealth handles health check requests with dependency checks
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+
+	checks := make(map[string]interface{})
+	allHealthy := true
+
+	// Backend health check
+	stats := s.gateway.GetStats()
+	backendsOK := stats.HealthyRoutes > 0 || stats.Routes == 0
+	checks["backends"] = map[string]interface{}{
+		"status":         boolStatus(backendsOK),
+		"total_routes":   stats.Routes,
+		"healthy_routes": stats.HealthyRoutes,
+	}
+	if !backendsOK {
+		allHealthy = false
+	}
+
+	// Redis health check (if configured)
+	if s.gateway.redisClient != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		err := s.gateway.redisClient.Ping(ctx).Err()
+		redisOK := err == nil
+		redisStatus := map[string]interface{}{
+			"status": boolStatus(redisOK),
+		}
+		if err != nil {
+			redisStatus["error"] = err.Error()
+			allHealthy = false
+		}
+		checks["redis"] = redisStatus
+	}
+
+	// Tracer health
+	if s.gateway.tracer != nil {
+		checks["tracing"] = map[string]interface{}{
+			"status": "ok",
+		}
+	}
+
+	status := http.StatusOK
+	statusStr := "ok"
+	if !allHealthy {
+		status = http.StatusServiceUnavailable
+		statusStr = "degraded"
+	}
+
+	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":    "ok",
+		"status":    statusStr,
 		"timestamp": time.Now().Format(time.RFC3339),
+		"uptime":    time.Since(s.startTime).String(),
+		"checks":    checks,
 	})
 }
 
-// handleReady handles readiness check requests
+// handleReady handles readiness check requests with configurable checks
 func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	stats := s.gateway.GetStats()
+	readyCfg := s.config.Admin.Readiness
 
 	w.Header().Set("Content-Type", "application/json")
 
-	// Check if we have at least one healthy route
-	if stats.HealthyRoutes > 0 || stats.Routes == 0 {
+	ready := true
+	reasons := []string{}
+
+	// Check healthy backends threshold
+	minHealthy := readyCfg.MinHealthyBackends
+	if minHealthy <= 0 {
+		minHealthy = 1
+	}
+	if stats.Routes > 0 && stats.HealthyRoutes < minHealthy {
+		ready = false
+		reasons = append(reasons, fmt.Sprintf("need %d healthy routes, have %d", minHealthy, stats.HealthyRoutes))
+	}
+
+	// Check Redis if required
+	if readyCfg.RequireRedis && s.gateway.redisClient != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if err := s.gateway.redisClient.Ping(ctx).Err(); err != nil {
+			ready = false
+			reasons = append(reasons, "redis unavailable: "+err.Error())
+		}
+	}
+
+	response := map[string]interface{}{
+		"routes":         stats.Routes,
+		"healthy_routes": stats.HealthyRoutes,
+		"listeners":      s.manager.Count(),
+	}
+
+	if ready {
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":         "ready",
-			"routes":         stats.Routes,
-			"healthy_routes": stats.HealthyRoutes,
-			"listeners":      s.manager.Count(),
-		})
+		response["status"] = "ready"
 	} else {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":         "not_ready",
-			"routes":         stats.Routes,
-			"healthy_routes": stats.HealthyRoutes,
-			"listeners":      s.manager.Count(),
-		})
+		response["status"] = "not_ready"
+		response["reasons"] = reasons
 	}
+
+	json.NewEncoder(w).Encode(response)
 }
 
 // handleStats handles stats requests
@@ -526,7 +611,7 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 
 // handleMetrics handles Prometheus metrics requests (Feature 5)
 func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
-	s.gateway.GetMetricsCollector().WritePrometheus(w)
+	s.gateway.GetMetricsCollector().Handler().ServeHTTP(w, r)
 }
 
 // handleAdminKeys handles API key management requests (Feature 14)
@@ -566,6 +651,117 @@ func (s *Server) handleMirrors(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTrafficSplits(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	stats := s.gateway.GetTrafficSplitStats()
+	json.NewEncoder(w).Encode(stats)
+}
+
+// handleRateLimits handles rate limiter status requests
+func (s *Server) handleRateLimits(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	routeIDs := s.gateway.GetRateLimiters().RouteIDs()
+	result := make(map[string]interface{})
+	for _, id := range routeIDs {
+		info := map[string]interface{}{
+			"mode": "local",
+		}
+		if dl := s.gateway.GetRateLimiters().GetDistributedLimiter(id); dl != nil {
+			info["mode"] = "distributed"
+		}
+		result[id] = info
+	}
+	json.NewEncoder(w).Encode(result)
+}
+
+// handleTracing handles tracing status requests
+func (s *Server) handleTracing(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	tracer := s.gateway.GetTracer()
+	if tracer != nil {
+		json.NewEncoder(w).Encode(tracer.Status())
+	} else {
+		json.NewEncoder(w).Encode(map[string]interface{}{"enabled": false})
+	}
+}
+
+// handleDashboard returns aggregated stats from all feature managers
+func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	stats := s.gateway.GetStats()
+	dashboard := map[string]interface{}{
+		"uptime":    time.Since(s.startTime).String(),
+		"timestamp": time.Now().Format(time.RFC3339),
+		"routes": map[string]interface{}{
+			"total":   stats.Routes,
+			"healthy": stats.HealthyRoutes,
+		},
+		"listeners": s.manager.Count(),
+	}
+
+	// Aggregate feature stats
+	featureStats := s.gateway.FeatureStats()
+	if len(featureStats) > 0 {
+		dashboard["features"] = featureStats
+	}
+
+	// Circuit breakers
+	if snapshots := s.gateway.GetCircuitBreakers().Snapshots(); len(snapshots) > 0 {
+		dashboard["circuit_breakers"] = snapshots
+	}
+
+	// Cache stats
+	if cacheStats := s.gateway.GetCaches().Stats(); len(cacheStats) > 0 {
+		dashboard["cache"] = cacheStats
+	}
+
+	// Retry metrics
+	retryMetrics := s.gateway.GetRetryMetrics()
+	if len(retryMetrics) > 0 {
+		retries := make(map[string]interface{}, len(retryMetrics))
+		for id, m := range retryMetrics {
+			retries[id] = m.Snapshot()
+		}
+		dashboard["retries"] = retries
+	}
+
+	// Traffic splits
+	if splits := s.gateway.GetTrafficSplitStats(); len(splits) > 0 {
+		dashboard["traffic_splits"] = splits
+	}
+
+	// WAF
+	if wafStats := s.gateway.GetWAFHandlers().Stats(); len(wafStats) > 0 {
+		dashboard["waf"] = wafStats
+	}
+
+	// Tracing
+	if tracer := s.gateway.GetTracer(); tracer != nil {
+		dashboard["tracing"] = tracer.Status()
+	}
+
+	// TCP/UDP stats
+	if s.tcpProxy != nil {
+		dashboard["tcp_routes"] = len(s.config.TCPRoutes)
+	}
+	if s.udpProxy != nil {
+		dashboard["udp_routes"] = len(s.config.UDPRoutes)
+		dashboard["udp_sessions"] = s.udpProxy.SessionCount()
+	}
+
+	json.NewEncoder(w).Encode(dashboard)
+}
+
+// boolStatus returns "ok" or "fail" for a boolean.
+func boolStatus(ok bool) string {
+	if ok {
+		return "ok"
+	}
+	return "fail"
+}
+
+// handleWAF handles WAF status requests
+func (s *Server) handleWAF(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	stats := s.gateway.GetWAFHandlers().Stats()
 	json.NewEncoder(w).Encode(stats)
 }
 

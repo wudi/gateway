@@ -3,8 +3,10 @@ package listener
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
+
+	"github.com/example/gateway/internal/logging"
+	"go.uber.org/zap"
 )
 
 // Listener represents a network listener that can accept connections
@@ -87,7 +89,7 @@ func (m *Manager) StartAll(ctx context.Context) error {
 	for _, l := range m.listeners {
 		listener := l // capture for goroutine
 		go func() {
-			log.Printf("Starting %s listener %s on %s", listener.Protocol(), listener.ID(), listener.Addr())
+			logging.Info("starting listener", zap.String("protocol", listener.Protocol()), zap.String("listener", listener.ID()), zap.String("address", listener.Addr()))
 			if err := listener.Start(ctx); err != nil {
 				errCh <- fmt.Errorf("listener %s: %w", listener.ID(), err)
 			}
@@ -118,7 +120,7 @@ func (m *Manager) StopAll(ctx context.Context) error {
 		listener := l // capture for goroutine
 		go func() {
 			defer wg.Done()
-			log.Printf("Stopping %s listener %s", listener.Protocol(), listener.ID())
+			logging.Info("stopping listener", zap.String("protocol", listener.Protocol()), zap.String("listener", listener.ID()))
 			if err := listener.Stop(ctx); err != nil {
 				errCh <- fmt.Errorf("listener %s: %w", listener.ID(), err)
 			}

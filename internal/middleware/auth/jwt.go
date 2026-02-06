@@ -18,12 +18,13 @@ import (
 
 // JWTAuth provides JWT authentication
 type JWTAuth struct {
-	secret     []byte
-	publicKey  *rsa.PublicKey
-	issuer     string
-	audience   []string
-	algorithm  string
-	keyFunc    jwt.Keyfunc
+	secret       []byte
+	publicKey    *rsa.PublicKey
+	issuer       string
+	audience     []string
+	algorithm    string
+	keyFunc      jwt.Keyfunc
+	jwksProvider *JWKSProvider
 }
 
 // NewJWTAuth creates a new JWT authenticator
@@ -36,6 +37,17 @@ func NewJWTAuth(cfg config.JWTConfig) (*JWTAuth, error) {
 
 	if auth.algorithm == "" {
 		auth.algorithm = "HS256"
+	}
+
+	// If JWKS URL is configured, use it for key resolution
+	if cfg.JWKSURL != "" {
+		provider, err := NewJWKSProvider(cfg.JWKSURL, cfg.JWKSRefreshInterval)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize JWKS: %w", err)
+		}
+		auth.jwksProvider = provider
+		auth.keyFunc = provider.KeyFunc()
+		return auth, nil
 	}
 
 	// Set up key based on algorithm
@@ -170,7 +182,14 @@ func (a *JWTAuth) containsAudience(tokenAud []string) bool {
 
 // IsEnabled returns true if JWT auth is configured
 func (a *JWTAuth) IsEnabled() bool {
-	return len(a.secret) > 0 || a.publicKey != nil
+	return len(a.secret) > 0 || a.publicKey != nil || a.jwksProvider != nil
+}
+
+// Close releases JWKS resources if any.
+func (a *JWTAuth) Close() {
+	if a.jwksProvider != nil {
+		a.jwksProvider.Close()
+	}
 }
 
 // Middleware creates a middleware for JWT authentication

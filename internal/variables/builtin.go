@@ -124,6 +124,33 @@ func (b *BuiltinVariables) Get(name string, ctx *Context) (string, bool) {
 			return ctx.Identity.AuthType, true
 		}
 		return "", true
+
+	// Client certificate variables (mTLS)
+	case "client_cert_subject":
+		if ctx.CertInfo != nil {
+			return ctx.CertInfo.Subject, true
+		}
+		return "", true
+	case "client_cert_issuer":
+		if ctx.CertInfo != nil {
+			return ctx.CertInfo.Issuer, true
+		}
+		return "", true
+	case "client_cert_fingerprint":
+		if ctx.CertInfo != nil {
+			return ctx.CertInfo.Fingerprint, true
+		}
+		return "", true
+	case "client_cert_serial":
+		if ctx.CertInfo != nil {
+			return ctx.CertInfo.SerialNumber, true
+		}
+		return "", true
+	case "client_cert_dns_names":
+		if ctx.CertInfo != nil {
+			return strings.Join(ctx.CertInfo.DNSNames, ","), true
+		}
+		return "", true
 	}
 
 	return "", false
@@ -216,6 +243,13 @@ func (b *BuiltinVariables) AllVariables() []string {
 		// Auth
 		"auth_client_id",
 		"auth_type",
+
+		// Client certificate (mTLS)
+		"client_cert_subject",
+		"client_cert_issuer",
+		"client_cert_fingerprint",
+		"client_cert_serial",
+		"client_cert_dns_names",
 	}
 }
 
@@ -226,6 +260,15 @@ type Identity struct {
 	Claims   map[string]interface{}
 }
 
+// CertInfo holds extracted client certificate information for mTLS.
+type CertInfo struct {
+	Subject      string
+	Issuer       string
+	SerialNumber string
+	Fingerprint  string
+	DNSNames     []string
+}
+
 // Context holds the context for variable resolution
 type Context struct {
 	Request              *http.Request
@@ -234,6 +277,7 @@ type Context struct {
 	RouteID              string
 	PathParams           map[string]string
 	Identity             *Identity
+	CertInfo             *CertInfo
 	UpstreamAddr         string
 	UpstreamStatus       int
 	UpstreamResponseTime time.Duration
@@ -267,6 +311,7 @@ func (c *Context) Clone() *Context {
 		RequestID:            c.RequestID,
 		RouteID:              c.RouteID,
 		Identity:             c.Identity,
+		CertInfo:             c.CertInfo,
 		UpstreamAddr:         c.UpstreamAddr,
 		UpstreamStatus:       c.UpstreamStatus,
 		UpstreamResponseTime: c.UpstreamResponseTime,

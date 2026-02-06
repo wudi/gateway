@@ -99,13 +99,16 @@ func TestIPFilterMW_NilFilters(t *testing.T) {
 // --- corsMW ---
 
 func TestCorsMW_Preflight(t *testing.T) {
-	h := cors.New(config.CORSConfig{
+	h, err := cors.New(config.CORSConfig{
 		Enabled:      true,
 		AllowOrigins: []string{"https://example.com"},
 		AllowMethods: []string{"GET", "POST"},
 		AllowHeaders: []string{"Content-Type"},
 		MaxAge:       3600,
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	called := false
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -130,11 +133,14 @@ func TestCorsMW_Preflight(t *testing.T) {
 }
 
 func TestCorsMW_NormalRequest(t *testing.T) {
-	h := cors.New(config.CORSConfig{
+	h, err := cors.New(config.CORSConfig{
 		Enabled:      true,
 		AllowOrigins: []string{"*"},
 		AllowMethods: []string{"GET"},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	called := false
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

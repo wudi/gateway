@@ -2,6 +2,7 @@ package cors
 
 import (
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -11,22 +12,34 @@ import (
 
 // Handler manages CORS for a route
 type Handler struct {
-	enabled          bool
-	allowOrigins     []string
-	allowMethods     string
-	allowHeaders     string
-	exposeHeaders    string
-	allowCredentials bool
-	maxAge           string
-	allowAllOrigins  bool
+	enabled             bool
+	allowOrigins        []string
+	allowOriginPatterns []*regexp.Regexp
+	allowMethods        string
+	allowHeaders        string
+	exposeHeaders       string
+	allowCredentials    bool
+	allowPrivateNetwork bool
+	maxAge              string
+	allowAllOrigins     bool
 }
 
 // New creates a new CORS handler from config
-func New(cfg config.CORSConfig) *Handler {
+func New(cfg config.CORSConfig) (*Handler, error) {
 	h := &Handler{
-		enabled:          cfg.Enabled,
-		allowOrigins:     cfg.AllowOrigins,
-		allowCredentials: cfg.AllowCredentials,
+		enabled:             cfg.Enabled,
+		allowOrigins:        cfg.AllowOrigins,
+		allowCredentials:    cfg.AllowCredentials,
+		allowPrivateNetwork: cfg.AllowPrivateNetwork,
+	}
+
+	// Compile regex patterns
+	for _, pattern := range cfg.AllowOriginPatterns {
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return nil, err
+		}
+		h.allowOriginPatterns = append(h.allowOriginPatterns, re)
 	}
 
 	if len(cfg.AllowMethods) > 0 {
@@ -58,7 +71,7 @@ func New(cfg config.CORSConfig) *Handler {
 		}
 	}
 
-	return h
+	return h, nil
 }
 
 // IsEnabled returns whether CORS is enabled
@@ -90,6 +103,10 @@ func (h *Handler) HandlePreflight(w http.ResponseWriter, r *http.Request) {
 
 	if h.allowCredentials {
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
+	}
+
+	if h.allowPrivateNetwork && r.Header.Get("Access-Control-Request-Private-Network") == "true" {
+		w.Header().Set("Access-Control-Allow-Private-Network", "true")
 	}
 
 	w.Header().Set("Access-Control-Max-Age", h.maxAge)
@@ -139,6 +156,14 @@ func (h *Handler) isOriginAllowed(origin string) bool {
 			}
 		}
 	}
+
+	// Check regex patterns
+	for _, re := range h.allowOriginPatterns {
+		if re.MatchString(origin) {
+			return true
+		}
+	}
+
 	return false
 }
 
@@ -156,10 +181,15 @@ func NewCORSByRoute() *CORSByRoute {
 }
 
 // AddRoute adds a CORS handler for a route
-func (m *CORSByRoute) AddRoute(routeID string, cfg config.CORSConfig) {
+func (m *CORSByRoute) AddRoute(routeID string, cfg config.CORSConfig) error {
+	h, err := New(cfg)
+	if err != nil {
+		return err
+	}
 	m.mu.Lock()
-	m.handlers[routeID] = New(cfg)
+	m.handlers[routeID] = h
 	m.mu.Unlock()
+	return nil
 }
 
 // GetHandler returns the CORS handler for a route

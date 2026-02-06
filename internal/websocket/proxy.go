@@ -2,7 +2,6 @@ package websocket
 
 import (
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -10,6 +9,8 @@ import (
 	"time"
 
 	"github.com/example/gateway/internal/config"
+	"github.com/example/gateway/internal/logging"
+	"go.uber.org/zap"
 )
 
 // Proxy handles WebSocket proxying via HTTP hijack
@@ -108,7 +109,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request, backendURL str
 	// Dial the backend
 	backendConn, err := net.DialTimeout("tcp", backendAddr, 10*time.Second)
 	if err != nil {
-		log.Printf("WebSocket proxy: failed to dial backend %s: %v", backendAddr, err)
+		logging.Error("WebSocket proxy: failed to dial backend", zap.String("backend", backendAddr), zap.Error(err))
 		clientBuf.WriteString("HTTP/1.1 502 Bad Gateway\r\n\r\n")
 		clientBuf.Flush()
 		return
@@ -137,7 +138,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request, backendURL str
 	buf := make([]byte, p.readBufferSize)
 	n, err := backendConn.Read(buf)
 	if err != nil {
-		log.Printf("WebSocket proxy: failed to read backend response: %v", err)
+		logging.Error("WebSocket proxy: failed to read backend response", zap.Error(err))
 		clientBuf.WriteString("HTTP/1.1 502 Bad Gateway\r\n\r\n")
 		clientBuf.Flush()
 		return

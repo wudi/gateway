@@ -28,6 +28,8 @@ type Config struct {
 	IPFilter       IPFilterConfig       `yaml:"ip_filter"`       // Feature 2: Global IP filter
 	Rules          RulesConfig          `yaml:"rules"`           // Global rules engine
 	TrafficShaping TrafficShapingConfig `yaml:"traffic_shaping"` // Global traffic shaping
+	Redis          RedisConfig          `yaml:"redis"`           // Redis for distributed features
+	WAF            WAFConfig            `yaml:"waf"`             // Global WAF settings
 }
 
 // ListenerConfig defines a listener configuration
@@ -175,12 +177,14 @@ type APIKeyEntry struct {
 
 // JWTConfig defines JWT authentication settings
 type JWTConfig struct {
-	Enabled   bool     `yaml:"enabled"`
-	Secret    string   `yaml:"secret"`
-	PublicKey string   `yaml:"public_key"`
-	Issuer    string   `yaml:"issuer"`
-	Audience  []string `yaml:"audience"`
-	Algorithm string   `yaml:"algorithm"` // HS256, RS256
+	Enabled             bool          `yaml:"enabled"`
+	Secret              string        `yaml:"secret"`
+	PublicKey           string        `yaml:"public_key"`
+	Issuer              string        `yaml:"issuer"`
+	Audience            []string      `yaml:"audience"`
+	Algorithm           string        `yaml:"algorithm"`             // HS256, RS256
+	JWKSURL             string        `yaml:"jwks_url"`              // JWKS endpoint for dynamic key fetching
+	JWKSRefreshInterval time.Duration `yaml:"jwks_refresh_interval"` // default 1h
 }
 
 // OAuthConfig defines OAuth 2.0 / OIDC settings (Feature 7)
@@ -229,6 +233,7 @@ type RouteConfig struct {
 	Protocol       ProtocolConfig       `yaml:"protocol"`         // Protocol translation
 	TrafficShaping TrafficShapingConfig `yaml:"traffic_shaping"` // Per-route traffic shaping
 	Sticky         StickyConfig         `yaml:"sticky"`          // Sticky sessions for traffic split
+	WAF            WAFConfig            `yaml:"waf"`             // Per-route WAF settings
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -312,13 +317,15 @@ type IPFilterConfig struct {
 
 // CORSConfig defines CORS settings (Feature 3)
 type CORSConfig struct {
-	Enabled          bool     `yaml:"enabled"`
-	AllowOrigins     []string `yaml:"allow_origins"`
-	AllowMethods     []string `yaml:"allow_methods"`
-	AllowHeaders     []string `yaml:"allow_headers"`
-	ExposeHeaders    []string `yaml:"expose_headers"`
-	AllowCredentials bool     `yaml:"allow_credentials"`
-	MaxAge           int      `yaml:"max_age"` // seconds
+	Enabled             bool     `yaml:"enabled"`
+	AllowOrigins        []string `yaml:"allow_origins"`
+	AllowOriginPatterns []string `yaml:"allow_origin_patterns"` // regex patterns
+	AllowMethods        []string `yaml:"allow_methods"`
+	AllowHeaders        []string `yaml:"allow_headers"`
+	ExposeHeaders       []string `yaml:"expose_headers"`
+	AllowCredentials    bool     `yaml:"allow_credentials"`
+	AllowPrivateNetwork bool     `yaml:"allow_private_network"` // Access-Control-Allow-Private-Network
+	MaxAge              int      `yaml:"max_age"`               // seconds
 }
 
 // CompressionConfig defines response compression settings (Feature 4)
@@ -352,11 +359,13 @@ type ValidationConfig struct {
 
 // TracingConfig defines distributed tracing settings (Feature 9)
 type TracingConfig struct {
-	Enabled     bool    `yaml:"enabled"`
-	Exporter    string  `yaml:"exporter"`     // "otlp", "jaeger", "zipkin"
-	Endpoint    string  `yaml:"endpoint"`
-	ServiceName string  `yaml:"service_name"`
-	SampleRate  float64 `yaml:"sample_rate"`  // 0.0 to 1.0
+	Enabled     bool              `yaml:"enabled"`
+	Exporter    string            `yaml:"exporter"`     // "otlp"
+	Endpoint    string            `yaml:"endpoint"`
+	ServiceName string            `yaml:"service_name"`
+	SampleRate  float64           `yaml:"sample_rate"`  // 0.0 to 1.0
+	Insecure    bool              `yaml:"insecure"`     // use insecure gRPC connection
+	Headers     map[string]string `yaml:"headers"`      // extra headers for OTLP exporter
 }
 
 // MirrorConfig defines traffic mirroring settings (Feature 10)
@@ -418,6 +427,16 @@ type ProtocolTLSConfig struct {
 	CAFile   string `yaml:"ca_file"`
 }
 
+// WAFConfig defines Web Application Firewall settings.
+type WAFConfig struct {
+	Enabled      bool     `yaml:"enabled"`
+	Mode         string   `yaml:"mode"`           // "block" or "detect" (log only)
+	RuleFiles    []string `yaml:"rule_files"`     // paths to SecLang rule files
+	InlineRules  []string `yaml:"inline_rules"`   // inline SecLang rules
+	SQLInjection bool     `yaml:"sql_injection"`  // enable built-in SQLi rules
+	XSS          bool     `yaml:"xss"`            // enable built-in XSS rules
+}
+
 // BodyTransformConfig defines request/response body transformation settings (Feature 13)
 type BodyTransformConfig struct {
 	AddFields    map[string]string `yaml:"add_fields"`
@@ -473,6 +492,17 @@ type RateLimitConfig struct {
 	Period  time.Duration `yaml:"period"`
 	Burst   int           `yaml:"burst"`
 	PerIP   bool          `yaml:"per_ip"`
+	Mode    string        `yaml:"mode"` // "local" (default) or "distributed"
+}
+
+// RedisConfig defines Redis connection settings for distributed features.
+type RedisConfig struct {
+	Address     string        `yaml:"address"`
+	Password    string        `yaml:"password"`
+	DB          int           `yaml:"db"`
+	TLS         bool          `yaml:"tls"`
+	PoolSize    int           `yaml:"pool_size"`
+	DialTimeout time.Duration `yaml:"dial_timeout"`
 }
 
 // TransformConfig defines request/response transformations
@@ -509,9 +539,16 @@ type LoggingConfig struct {
 
 // AdminConfig defines admin API settings
 type AdminConfig struct {
-	Enabled bool          `yaml:"enabled"`
-	Port    int           `yaml:"port"`
-	Metrics MetricsConfig `yaml:"metrics"` // Feature 5: Prometheus metrics
+	Enabled   bool            `yaml:"enabled"`
+	Port      int             `yaml:"port"`
+	Metrics   MetricsConfig   `yaml:"metrics"`   // Feature 5: Prometheus metrics
+	Readiness ReadinessConfig `yaml:"readiness"` // Readiness probe configuration
+}
+
+// ReadinessConfig defines readiness probe settings.
+type ReadinessConfig struct {
+	MinHealthyBackends int  `yaml:"min_healthy_backends"` // default 1
+	RequireRedis       bool `yaml:"require_redis"`
 }
 
 // RulesConfig defines request and response phase rules.

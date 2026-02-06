@@ -1,14 +1,14 @@
 package middleware
 
 import (
-	"encoding/json"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"time"
 
+	"github.com/example/gateway/internal/logging"
 	"github.com/example/gateway/internal/variables"
+	"go.uber.org/zap"
 )
 
 // LoggingConfig configures the logging middleware
@@ -64,8 +64,6 @@ func LoggingWithConfig(cfg LoggingConfig) Middleware {
 		skipPaths[p] = true
 	}
 
-	logger := log.New(cfg.Output, "", 0)
-
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Skip logging for certain paths
@@ -95,30 +93,35 @@ func LoggingWithConfig(cfg LoggingConfig) Middleware {
 			varCtx.ResponseTime = duration
 
 			if cfg.JSON {
-				entry := LogEntry{
-					Timestamp:    time.Now().Format(time.RFC3339),
-					RequestID:    varCtx.RequestID,
-					RemoteAddr:   variables.ExtractClientIP(r),
-					Method:       r.Method,
-					Path:         r.URL.Path,
-					Query:        r.URL.RawQuery,
-					Status:       lrw.status,
-					BodyBytes:    lrw.bytes,
-					UserAgent:    r.UserAgent(),
-					ResponseTime: duration.String(),
-					RouteID:      varCtx.RouteID,
-					UpstreamAddr: varCtx.UpstreamAddr,
+				fields := []zap.Field{
+					zap.String("request_id", varCtx.RequestID),
+					zap.String("remote_addr", variables.ExtractClientIP(r)),
+					zap.String("method", r.Method),
+					zap.String("path", r.URL.Path),
+					zap.Int("status", lrw.status),
+					zap.Int64("body_bytes", lrw.bytes),
+					zap.Duration("response_time", duration),
+				}
+				if r.URL.RawQuery != "" {
+					fields = append(fields, zap.String("query", r.URL.RawQuery))
+				}
+				if varCtx.RouteID != "" {
+					fields = append(fields, zap.String("route_id", varCtx.RouteID))
+				}
+				if varCtx.UpstreamAddr != "" {
+					fields = append(fields, zap.String("upstream_addr", varCtx.UpstreamAddr))
 				}
 				if varCtx.Identity != nil {
-					entry.AuthClientID = varCtx.Identity.ClientID
+					fields = append(fields, zap.String("auth_client_id", varCtx.Identity.ClientID))
 				}
-
-				jsonBytes, _ := json.Marshal(entry)
-				logger.Println(string(jsonBytes))
+				if ua := r.UserAgent(); ua != "" {
+					fields = append(fields, zap.String("user_agent", ua))
+				}
+				logging.Info("HTTP request", fields...)
 			} else {
 				// Use format string with variable interpolation
 				logLine := resolver.Resolve(cfg.Format, varCtx)
-				logger.Println(logLine)
+				logging.Info(logLine)
 			}
 		})
 	}

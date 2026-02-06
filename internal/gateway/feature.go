@@ -8,6 +8,7 @@ import (
 	"github.com/example/gateway/internal/middleware/cors"
 	"github.com/example/gateway/internal/middleware/ipfilter"
 	"github.com/example/gateway/internal/middleware/validation"
+	"github.com/example/gateway/internal/middleware/waf"
 	"github.com/example/gateway/internal/mirror"
 	"github.com/example/gateway/internal/rules"
 	"github.com/example/gateway/internal/trafficshape"
@@ -45,7 +46,7 @@ type corsFeature struct{ m *cors.CORSByRoute }
 func (f *corsFeature) Name() string { return "cors" }
 func (f *corsFeature) Setup(routeID string, cfg config.RouteConfig) error {
 	if cfg.CORS.Enabled {
-		f.m.AddRoute(routeID, cfg.CORS)
+		return f.m.AddRoute(routeID, cfg.CORS)
 	}
 	return nil
 }
@@ -205,3 +206,16 @@ func (f *faultInjectionFeature) Setup(routeID string, cfg config.RouteConfig) er
 }
 func (f *faultInjectionFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *faultInjectionFeature) AdminStats() any     { return f.m.Stats() }
+
+// wafFeature wraps WAFByRoute.
+type wafFeature struct{ m *waf.WAFByRoute }
+
+func (f *wafFeature) Name() string { return "waf" }
+func (f *wafFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.WAF.Enabled {
+		return f.m.AddRoute(routeID, cfg.WAF)
+	}
+	return nil
+}
+func (f *wafFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *wafFeature) AdminStats() any     { return f.m.Stats() }

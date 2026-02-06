@@ -4,14 +4,15 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"log"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/example/gateway/internal/config"
+	"github.com/example/gateway/internal/logging"
 	"github.com/example/gateway/internal/proxy/tcp"
+	"go.uber.org/zap"
 )
 
 // TCPListener handles TCP connections
@@ -133,7 +134,7 @@ func (l *TCPListener) acceptLoop(ctx context.Context) {
 			case <-l.closeCh:
 				return
 			default:
-				log.Printf("TCP listener %s accept error: %v", l.id, err)
+				logging.Error("TCP listener accept error", zap.String("listener", l.id), zap.Error(err))
 				continue
 			}
 		}
@@ -161,7 +162,7 @@ func (l *TCPListener) handleConn(ctx context.Context, conn net.Conn) {
 
 	// Delegate to proxy
 	if err := l.proxy.Handle(ctx, conn, l.id, l.sniRouting); err != nil {
-		log.Printf("TCP proxy error for listener %s: %v", l.id, err)
+		logging.Error("TCP proxy error", zap.String("listener", l.id), zap.Error(err))
 	}
 }
 
@@ -184,9 +185,9 @@ func (l *TCPListener) Stop(ctx context.Context) error {
 
 	select {
 	case <-done:
-		log.Printf("TCP listener %s stopped gracefully", l.id)
+		logging.Info("TCP listener stopped gracefully", zap.String("listener", l.id))
 	case <-ctx.Done():
-		log.Printf("TCP listener %s stop timed out with %d active connections", l.id, atomic.LoadInt64(&l.activeConns))
+		logging.Warn("TCP listener stop timed out", zap.String("listener", l.id), zap.Int64("active_connections", atomic.LoadInt64(&l.activeConns)))
 	}
 
 	return nil

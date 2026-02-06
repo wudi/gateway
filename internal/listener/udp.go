@@ -3,12 +3,13 @@ package listener
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"sync"
 
 	"github.com/example/gateway/internal/config"
+	"github.com/example/gateway/internal/logging"
 	"github.com/example/gateway/internal/proxy/udp"
+	"go.uber.org/zap"
 )
 
 // UDPListener handles UDP connections
@@ -84,12 +85,12 @@ func (l *UDPListener) Start(ctx context.Context) error {
 	// Set buffer sizes
 	if l.readBufferSize > 0 {
 		if err := conn.SetReadBuffer(l.readBufferSize); err != nil {
-			log.Printf("Warning: failed to set UDP read buffer size: %v", err)
+			logging.Warn("failed to set UDP read buffer size", zap.Error(err))
 		}
 	}
 	if l.writeBufferSize > 0 {
 		if err := conn.SetWriteBuffer(l.writeBufferSize); err != nil {
-			log.Printf("Warning: failed to set UDP write buffer size: %v", err)
+			logging.Warn("failed to set UDP write buffer size", zap.Error(err))
 		}
 	}
 
@@ -104,7 +105,7 @@ func (l *UDPListener) Start(ctx context.Context) error {
 			case <-l.closeCh:
 				// Expected during shutdown
 			default:
-				log.Printf("UDP listener %s serve error: %v", l.id, err)
+				logging.Error("UDP listener serve error", zap.String("listener", l.id), zap.Error(err))
 			}
 		}
 	}()
@@ -131,9 +132,9 @@ func (l *UDPListener) Stop(ctx context.Context) error {
 
 	select {
 	case <-done:
-		log.Printf("UDP listener %s stopped gracefully", l.id)
+		logging.Info("UDP listener stopped gracefully", zap.String("listener", l.id))
 	case <-ctx.Done():
-		log.Printf("UDP listener %s stop timed out", l.id)
+		logging.Warn("UDP listener stop timed out", zap.String("listener", l.id))
 	}
 
 	return nil

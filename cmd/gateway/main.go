@@ -3,11 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"os"
 
 	"github.com/example/gateway/internal/config"
 	"github.com/example/gateway/internal/gateway"
+	"github.com/example/gateway/internal/logging"
+	"go.uber.org/zap"
 
 	// Protocol translators (auto-register)
 	_ "github.com/example/gateway/internal/proxy/protocol/grpc"
@@ -34,7 +35,8 @@ func main() {
 	loader := config.NewLoader()
 	cfg, err := loader.Load(*configPath)
 	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
+		fmt.Fprintf(os.Stderr, "Failed to load configuration: %v\n", err)
+		os.Exit(1)
 	}
 
 	if *validateOnly {
@@ -42,20 +44,33 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Initialize structured logger
+	logger, err := logging.New(cfg.Logging.Level)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
+		os.Exit(1)
+	}
+	defer logger.Sync()
+	logging.SetGlobal(logger)
+
 	// Print startup banner
-	log.Printf("Starting API Gateway %s", version)
-	log.Printf("Configuration loaded from %s", *configPath)
-	log.Printf("Registry type: %s", cfg.Registry.Type)
-	log.Printf("Routes configured: %d", len(cfg.Routes))
+	logging.Info("Starting API Gateway",
+		zap.String("version", version),
+		zap.String("config", *configPath),
+		zap.String("registry", cfg.Registry.Type),
+		zap.Int("routes", len(cfg.Routes)),
+	)
 
 	// Create and start the server
 	server, err := gateway.NewServer(cfg)
 	if err != nil {
-		log.Fatalf("Failed to create gateway: %v", err)
+		logging.Error("Failed to create gateway", zap.Error(err))
+		os.Exit(1)
 	}
 
 	// Run the server
 	if err := server.Run(); err != nil {
-		log.Fatalf("Server error: %v", err)
+		logging.Error("Server error", zap.Error(err))
+		os.Exit(1)
 	}
 }

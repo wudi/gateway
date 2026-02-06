@@ -2,10 +2,11 @@ package rules
 
 import (
 	"fmt"
-	"log"
 	"sync"
 
 	"github.com/example/gateway/internal/config"
+	"github.com/example/gateway/internal/logging"
+	"go.uber.org/zap"
 )
 
 // Result is the outcome of evaluating a single rule.
@@ -73,7 +74,7 @@ func (e *RuleEngine) evaluate(rules []*CompiledRule, env any) []Result {
 		matched, err := rule.Evaluate(env)
 		if err != nil {
 			e.metrics.Errors.Add(1)
-			log.Printf("Rule %s evaluation error: %v", rule.ID, err)
+			logging.Error("rule evaluation error", zap.String("rule_id", rule.ID), zap.Error(err))
 			continue
 		}
 

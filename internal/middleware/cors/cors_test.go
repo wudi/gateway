@@ -8,8 +8,17 @@ import (
 	"github.com/example/gateway/internal/config"
 )
 
+func mustNew(t *testing.T, cfg config.CORSConfig) *Handler {
+	t.Helper()
+	h, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
 func TestCORSPreflight(t *testing.T) {
-	h := New(config.CORSConfig{
+	h := mustNew(t, config.CORSConfig{
 		Enabled:      true,
 		AllowOrigins: []string{"https://example.com"},
 		AllowMethods: []string{"GET", "POST"},
@@ -42,7 +51,7 @@ func TestCORSPreflight(t *testing.T) {
 }
 
 func TestCORSPreflightDisallowedOrigin(t *testing.T) {
-	h := New(config.CORSConfig{
+	h := mustNew(t, config.CORSConfig{
 		Enabled:      true,
 		AllowOrigins: []string{"https://example.com"},
 	})
@@ -60,7 +69,7 @@ func TestCORSPreflightDisallowedOrigin(t *testing.T) {
 }
 
 func TestCORSWildcardOrigin(t *testing.T) {
-	h := New(config.CORSConfig{
+	h := mustNew(t, config.CORSConfig{
 		Enabled:      true,
 		AllowOrigins: []string{"*"},
 	})
@@ -77,7 +86,7 @@ func TestCORSWildcardOrigin(t *testing.T) {
 }
 
 func TestCORSCredentialsWithExplicitOrigin(t *testing.T) {
-	h := New(config.CORSConfig{
+	h := mustNew(t, config.CORSConfig{
 		Enabled:          true,
 		AllowOrigins:     []string{"https://example.com"},
 		AllowCredentials: true,
@@ -99,7 +108,7 @@ func TestCORSCredentialsWithExplicitOrigin(t *testing.T) {
 }
 
 func TestCORSWildcardSubdomain(t *testing.T) {
-	h := New(config.CORSConfig{
+	h := mustNew(t, config.CORSConfig{
 		Enabled:      true,
 		AllowOrigins: []string{"*.example.com"},
 	})
@@ -115,12 +124,60 @@ func TestCORSWildcardSubdomain(t *testing.T) {
 	}
 }
 
+func TestCORSRegexPattern(t *testing.T) {
+	h := mustNew(t, config.CORSConfig{
+		Enabled:             true,
+		AllowOriginPatterns: []string{`^https://.*\.example\.com$`},
+	})
+
+	// Should match
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Header.Set("Origin", "https://app.example.com")
+	w := httptest.NewRecorder()
+	h.ApplyHeaders(w, r)
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://app.example.com" {
+		t.Errorf("expected echoed origin for regex match, got %q", got)
+	}
+
+	// Should not match
+	r2 := httptest.NewRequest("GET", "/", nil)
+	r2.Header.Set("Origin", "https://evil.com")
+	w2 := httptest.NewRecorder()
+	h.ApplyHeaders(w2, r2)
+	if got := w2.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("expected no origin for non-matching, got %q", got)
+	}
+}
+
+func TestCORSPrivateNetwork(t *testing.T) {
+	h := mustNew(t, config.CORSConfig{
+		Enabled:             true,
+		AllowOrigins:        []string{"https://example.com"},
+		AllowPrivateNetwork: true,
+	})
+
+	r := httptest.NewRequest("OPTIONS", "/", nil)
+	r.Header.Set("Origin", "https://example.com")
+	r.Header.Set("Access-Control-Request-Method", "GET")
+	r.Header.Set("Access-Control-Request-Private-Network", "true")
+
+	w := httptest.NewRecorder()
+	h.HandlePreflight(w, r)
+
+	if got := w.Header().Get("Access-Control-Allow-Private-Network"); got != "true" {
+		t.Errorf("expected Access-Control-Allow-Private-Network: true, got %q", got)
+	}
+}
+
 func TestCORSByRoute(t *testing.T) {
 	m := NewCORSByRoute()
-	m.AddRoute("route1", config.CORSConfig{
+	err := m.AddRoute("route1", config.CORSConfig{
 		Enabled:      true,
 		AllowOrigins: []string{"https://example.com"},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	h := m.GetHandler("route1")
 	if h == nil || !h.IsEnabled() {

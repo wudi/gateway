@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/url"
 	"strings"
@@ -13,6 +12,8 @@ import (
 
 	"github.com/example/gateway/internal/config"
 	"github.com/example/gateway/internal/loadbalancer"
+	"github.com/example/gateway/internal/logging"
+	"go.uber.org/zap"
 )
 
 // Proxy handles TCP proxying
@@ -104,7 +105,7 @@ func (p *Proxy) AddRoute(routeCfg config.TCPRouteConfig) error {
 	p.routes[routeCfg.ID] = route
 	p.mu.Unlock()
 
-	log.Printf("Added TCP route %s -> %d backends", routeCfg.ID, len(backends))
+	logging.Info("added TCP route", zap.String("route", routeCfg.ID), zap.Int("backends", len(backends)))
 	return nil
 }
 
@@ -152,28 +153,28 @@ func (p *Proxy) Handle(ctx context.Context, conn net.Conn, listenerID string, sn
 		var err error
 		sni, err = ParseClientHelloSNI(buffConn)
 		if err != nil && err != ErrNotTLS && err != ErrNoSNI {
-			log.Printf("Failed to parse SNI: %v", err)
+			logging.Warn("failed to parse SNI", zap.Error(err))
 		}
 	}
 
 	// Find matching route
 	route := p.matchRoute(listenerID, sni, clientAddr)
 	if route == nil {
-		log.Printf("No matching route for listener=%s sni=%s client=%s", listenerID, sni, clientAddr)
+		logging.Warn("no matching route", zap.String("listener", listenerID), zap.String("sni", sni), zap.String("client", clientAddr.String()))
 		return fmt.Errorf("no matching route")
 	}
 
 	// Get backend from load balancer
 	backend := route.Balancer.Next()
 	if backend == nil {
-		log.Printf("No healthy backends for route %s", route.ID)
+		logging.Warn("no healthy backends for route", zap.String("route", route.ID))
 		return fmt.Errorf("no healthy backends")
 	}
 
 	// Connect to backend
 	backendConn, err := p.connPool.Get(backend.URL)
 	if err != nil {
-		log.Printf("Failed to connect to backend %s: %v", backend.URL, err)
+		logging.Error("failed to connect to backend", zap.String("backend", backend.URL), zap.Error(err))
 		route.Balancer.MarkUnhealthy(backend.URL)
 		return fmt.Errorf("failed to connect to backend: %w", err)
 	}

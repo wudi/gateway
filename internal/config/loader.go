@@ -202,8 +202,15 @@ func (l *Loader) validate(cfg *Config) error {
 
 	// Validate JWT config if enabled
 	if cfg.Authentication.JWT.Enabled {
-		if cfg.Authentication.JWT.Secret == "" && cfg.Authentication.JWT.PublicKey == "" {
-			return fmt.Errorf("JWT authentication enabled but no secret or public key provided")
+		if cfg.Authentication.JWT.Secret == "" && cfg.Authentication.JWT.PublicKey == "" && cfg.Authentication.JWT.JWKSURL == "" {
+			return fmt.Errorf("JWT authentication enabled but no secret, public key, or JWKS URL provided")
+		}
+	}
+
+	// Validate distributed rate limiting requires Redis
+	for _, route := range cfg.Routes {
+		if route.RateLimit.Mode == "distributed" && cfg.Redis.Address == "" {
+			return fmt.Errorf("route %s: distributed rate limiting requires redis.address to be configured", route.ID)
 		}
 	}
 
@@ -279,6 +286,29 @@ func (l *Loader) validate(cfg *Config) error {
 		if route.Mirror.Enabled && route.Mirror.Percentage != 0 {
 			if route.Mirror.Percentage < 0 || route.Mirror.Percentage > 100 {
 				return fmt.Errorf("route %s: mirror percentage must be between 0 and 100", route.ID)
+			}
+		}
+	}
+
+	// Validate CORS regex patterns
+	for _, route := range cfg.Routes {
+		for _, pattern := range route.CORS.AllowOriginPatterns {
+			if _, err := regexp.Compile(pattern); err != nil {
+				return fmt.Errorf("route %s: cors allow_origin_patterns: invalid regex %q: %w", route.ID, pattern, err)
+			}
+		}
+	}
+
+	// Validate WAF config
+	if cfg.WAF.Enabled {
+		if cfg.WAF.Mode != "" && cfg.WAF.Mode != "block" && cfg.WAF.Mode != "detect" {
+			return fmt.Errorf("global WAF mode must be 'block' or 'detect'")
+		}
+	}
+	for _, route := range cfg.Routes {
+		if route.WAF.Enabled {
+			if route.WAF.Mode != "" && route.WAF.Mode != "block" && route.WAF.Mode != "detect" {
+				return fmt.Errorf("route %s: WAF mode must be 'block' or 'detect'", route.ID)
 			}
 		}
 	}

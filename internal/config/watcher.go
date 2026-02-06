@@ -1,12 +1,13 @@
 package config
 
 import (
-	"log"
 	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/example/gateway/internal/logging"
 	"github.com/fsnotify/fsnotify"
+	"go.uber.org/zap"
 )
 
 // Watcher watches configuration files for changes
@@ -104,7 +105,7 @@ func (w *Watcher) watch() {
 			if !ok {
 				return
 			}
-			log.Printf("Config watcher error: %v", err)
+			logging.Error("config watcher error", zap.Error(err))
 		}
 	}
 }
@@ -113,7 +114,7 @@ func (w *Watcher) watch() {
 func (w *Watcher) reload() {
 	cfg, err := w.loader.Load(w.configPath)
 	if err != nil {
-		log.Printf("Failed to reload config: %v", err)
+		logging.Error("failed to reload config", zap.Error(err))
 		return
 	}
 
@@ -123,7 +124,7 @@ func (w *Watcher) reload() {
 	copy(callbacks, w.callbacks)
 	w.mu.Unlock()
 
-	log.Printf("Configuration reloaded from %s", w.configPath)
+	logging.Info("configuration reloaded", zap.String("path", w.configPath))
 
 	// Notify all callbacks
 	for _, cb := range callbacks {

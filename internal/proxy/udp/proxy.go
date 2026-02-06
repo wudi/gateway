@@ -3,7 +3,6 @@ package udp
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"net/url"
 	"strings"
@@ -12,6 +11,8 @@ import (
 
 	"github.com/example/gateway/internal/config"
 	"github.com/example/gateway/internal/loadbalancer"
+	"github.com/example/gateway/internal/logging"
+	"go.uber.org/zap"
 )
 
 // Proxy handles UDP proxying
@@ -88,7 +89,7 @@ func (p *Proxy) AddRoute(routeCfg config.UDPRouteConfig) error {
 	p.routes[routeCfg.ID] = route
 	p.mu.Unlock()
 
-	log.Printf("Added UDP route %s -> %d backends", routeCfg.ID, len(backends))
+	logging.Info("added UDP route", zap.String("route", routeCfg.ID), zap.Int("backends", len(backends)))
 	return nil
 }
 
@@ -156,7 +157,7 @@ func (p *Proxy) handleDatagram(ctx context.Context, clientConn *net.UDPConn, cli
 	// Find route for this listener
 	route := p.getRouteForListener(listenerID)
 	if route == nil {
-		log.Printf("No UDP route for listener %s", listenerID)
+		logging.Warn("no UDP route for listener", zap.String("listener", listenerID))
 		return
 	}
 
@@ -166,7 +167,7 @@ func (p *Proxy) handleDatagram(ctx context.Context, clientConn *net.UDPConn, cli
 		// Get backend from load balancer
 		backend := route.Balancer.Next()
 		if backend == nil {
-			log.Printf("No healthy backends for UDP route %s", route.ID)
+			logging.Warn("no healthy backends for UDP route", zap.String("route", route.ID))
 			return
 		}
 
@@ -174,7 +175,7 @@ func (p *Proxy) handleDatagram(ctx context.Context, clientConn *net.UDPConn, cli
 		var err error
 		session, err = p.sessions.Create(clientAddr, backend.URL)
 		if err != nil {
-			log.Printf("Failed to create UDP session: %v", err)
+			logging.Error("failed to create UDP session", zap.Error(err))
 			return
 		}
 
@@ -185,7 +186,7 @@ func (p *Proxy) handleDatagram(ctx context.Context, clientConn *net.UDPConn, cli
 	// Forward datagram to backend
 	_, err := session.BackendConn.Write(data)
 	if err != nil {
-		log.Printf("Failed to forward UDP datagram: %v", err)
+		logging.Error("failed to forward UDP datagram", zap.Error(err))
 		p.sessions.Remove(clientAddr.String())
 	}
 }
@@ -214,7 +215,7 @@ func (p *Proxy) receiveResponses(ctx context.Context, clientConn *net.UDPConn, s
 				}
 				continue
 			}
-			log.Printf("UDP backend read error: %v", err)
+			logging.Error("UDP backend read error", zap.Error(err))
 			p.sessions.Remove(session.ClientAddr.String())
 			return
 		}
@@ -225,7 +226,7 @@ func (p *Proxy) receiveResponses(ctx context.Context, clientConn *net.UDPConn, s
 		// Forward response to client
 		_, err = clientConn.WriteToUDP(buf[:n], session.ClientAddr)
 		if err != nil {
-			log.Printf("UDP client write error: %v", err)
+			logging.Error("UDP client write error", zap.Error(err))
 		}
 	}
 }

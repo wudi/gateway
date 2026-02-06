@@ -2,11 +2,12 @@ package middleware
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"runtime/debug"
 
 	"github.com/example/gateway/internal/errors"
+	"github.com/example/gateway/internal/logging"
+	"go.uber.org/zap"
 )
 
 // RecoveryConfig configures the recovery middleware
@@ -24,7 +25,10 @@ var DefaultRecoveryConfig = RecoveryConfig{
 }
 
 func defaultLogFunc(err interface{}, stack []byte) {
-	log.Printf("[PANIC] %v\n%s", err, stack)
+	logging.Error("Panic recovered",
+		zap.Any("error", err),
+		zap.ByteString("stack", stack),
+	)
 }
 
 // Recovery creates a panic recovery middleware

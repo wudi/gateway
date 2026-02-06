@@ -21,6 +21,7 @@ import (
 	"github.com/example/gateway/internal/middleware/ipfilter"
 	"github.com/example/gateway/internal/middleware/ratelimit"
 	"github.com/example/gateway/internal/middleware/transform"
+	"github.com/example/gateway/internal/middleware/waf"
 	"github.com/example/gateway/internal/middleware/validation"
 	"github.com/example/gateway/internal/mirror"
 	grpcproxy "github.com/example/gateway/internal/proxy/grpc"
@@ -531,6 +532,11 @@ func faultInjectionMW(fi *trafficshape.FaultInjector) middleware.Middleware {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// 21. wafMW runs WAF inspection on the request.
+func wafMW(w *waf.WAF) middleware.Middleware {
+	return w.Middleware()
 }
 
 // 20. bandwidthMW wraps request body and response writer with bandwidth limits.

@@ -85,7 +85,7 @@ func TestWritePrometheus(t *testing.T) {
 	c.SetCircuitBreakerState("api", 0)
 
 	w := httptest.NewRecorder()
-	c.WritePrometheus(w)
+	c.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/metrics", nil))
 
 	body := w.Body.String()
 
@@ -99,7 +99,38 @@ func TestWritePrometheus(t *testing.T) {
 		t.Error("missing gateway_circuit_breaker_state")
 	}
 
-	if w.Header().Get("Content-Type") != "text/plain; version=0.0.4; charset=utf-8" {
-		t.Errorf("unexpected content type: %s", w.Header().Get("Content-Type"))
+	ct := w.Header().Get("Content-Type")
+	if !strings.HasPrefix(ct, "text/plain") {
+		t.Errorf("unexpected content type: %s", ct)
+	}
+}
+
+func TestCollectorActiveRequests(t *testing.T) {
+	c := NewCollector()
+
+	c.RecordActiveRequest("route1", 1)
+	c.RecordActiveRequest("route1", 1)
+	c.RecordActiveRequest("route1", -1)
+
+	// Active requests is a gauge, verify it's tracked via prometheus output
+	w := httptest.NewRecorder()
+	c.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/metrics", nil))
+	body := w.Body.String()
+	if !strings.Contains(body, "gateway_active_requests") {
+		t.Error("missing gateway_active_requests")
+	}
+}
+
+func TestCollectorRateLimitRejects(t *testing.T) {
+	c := NewCollector()
+
+	c.RecordRateLimitReject("route1")
+	c.RecordRateLimitReject("route1")
+
+	w := httptest.NewRecorder()
+	c.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/metrics", nil))
+	body := w.Body.String()
+	if !strings.Contains(body, "gateway_rate_limit_rejects_total") {
+		t.Error("missing gateway_rate_limit_rejects_total")
 	}
 }

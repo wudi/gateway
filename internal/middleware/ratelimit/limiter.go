@@ -187,16 +187,23 @@ func (l *Limiter) Allow(r *http.Request) bool {
 	return allowed
 }
 
+// RateLimitMiddleware is the interface for both local and distributed rate limiters.
+type RateLimitMiddleware interface {
+	Middleware() middleware.Middleware
+}
+
 // RateLimitByRoute creates a map of rate limiters per route
 type RateLimitByRoute struct {
-	limiters map[string]*Limiter
-	mu       sync.RWMutex
+	limiters    map[string]*Limiter
+	distributed map[string]*RedisLimiter
+	mu          sync.RWMutex
 }
 
 // NewRateLimitByRoute creates a new route-based rate limiter
 func NewRateLimitByRoute() *RateLimitByRoute {
 	return &RateLimitByRoute{
-		limiters: make(map[string]*Limiter),
+		limiters:    make(map[string]*Limiter),
+		distributed: make(map[string]*RedisLimiter),
 	}
 }
 
@@ -207,22 +214,54 @@ func (rl *RateLimitByRoute) AddRoute(routeID string, cfg Config) {
 	rl.limiters[routeID] = NewLimiter(cfg)
 }
 
+// AddRouteDistributed adds a Redis-backed rate limiter for a specific route.
+func (rl *RateLimitByRoute) AddRouteDistributed(routeID string, cfg RedisLimiterConfig) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	rl.distributed[routeID] = NewRedisLimiter(cfg)
+}
+
 // RouteIDs returns all route IDs with rate limiters.
 func (rl *RateLimitByRoute) RouteIDs() []string {
 	rl.mu.RLock()
 	defer rl.mu.RUnlock()
-	ids := make([]string, 0, len(rl.limiters))
+	ids := make([]string, 0, len(rl.limiters)+len(rl.distributed))
 	for id := range rl.limiters {
 		ids = append(ids, id)
+	}
+	for id := range rl.distributed {
+		if _, ok := rl.limiters[id]; !ok {
+			ids = append(ids, id)
+		}
 	}
 	return ids
 }
 
-// GetLimiter returns the rate limiter for a route
+// GetLimiter returns the local rate limiter for a route
 func (rl *RateLimitByRoute) GetLimiter(routeID string) *Limiter {
 	rl.mu.RLock()
 	defer rl.mu.RUnlock()
 	return rl.limiters[routeID]
+}
+
+// GetDistributedLimiter returns the Redis rate limiter for a route.
+func (rl *RateLimitByRoute) GetDistributedLimiter(routeID string) *RedisLimiter {
+	rl.mu.RLock()
+	defer rl.mu.RUnlock()
+	return rl.distributed[routeID]
+}
+
+// GetMiddleware returns the appropriate middleware for a route (distributed or local).
+func (rl *RateLimitByRoute) GetMiddleware(routeID string) middleware.Middleware {
+	rl.mu.RLock()
+	defer rl.mu.RUnlock()
+	if dl, ok := rl.distributed[routeID]; ok {
+		return dl.Middleware()
+	}
+	if l, ok := rl.limiters[routeID]; ok {
+		return l.Middleware()
+	}
+	return nil
 }
 
 // Middleware creates a middleware that rate limits based on route

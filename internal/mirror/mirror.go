@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"log"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -12,6 +11,8 @@ import (
 	"time"
 
 	"github.com/example/gateway/internal/config"
+	"github.com/example/gateway/internal/logging"
+	"go.uber.org/zap"
 )
 
 // Mirror handles traffic mirroring/shadowing for a route
@@ -169,9 +170,14 @@ func (m *Mirror) sendMirrorWithMetrics(original *http.Request, backendURL string
 		result := CompareMirrorResponse(primary, resp)
 		m.metrics.RecordComparison(result)
 		if m.logMismatch && (!result.StatusMatch || !result.BodyMatch) {
-			log.Printf("mirror mismatch route=%s path=%s status_match=%t body_match=%t primary_status=%d mirror_status=%d",
-				original.Host, original.URL.Path, result.StatusMatch, result.BodyMatch,
-				primary.StatusCode, resp.StatusCode)
+			logging.Warn("mirror mismatch",
+				zap.String("route", original.Host),
+				zap.String("path", original.URL.Path),
+				zap.Bool("status_match", result.StatusMatch),
+				zap.Bool("body_match", result.BodyMatch),
+				zap.Int("primary_status", primary.StatusCode),
+				zap.Int("mirror_status", resp.StatusCode),
+			)
 		}
 	} else {
 		io.Copy(io.Discard, resp.Body)

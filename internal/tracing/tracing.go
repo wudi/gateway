@@ -1,42 +1,95 @@
 package tracing
 
 import (
-	"crypto/rand"
-	"encoding/hex"
-	"fmt"
+	"context"
 	"net/http"
 
 	"github.com/example/gateway/internal/config"
 	"github.com/example/gateway/internal/middleware"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
-// Tracer provides distributed tracing functionality
+// Tracer provides distributed tracing functionality via OpenTelemetry
 type Tracer struct {
-	enabled     bool
-	exporter    string
-	endpoint    string
-	serviceName string
-	sampleRate  float64
+	enabled    bool
+	provider   *sdktrace.TracerProvider
+	tracer     trace.Tracer
+	propagator propagation.TextMapPropagator
 }
 
 // New creates a new Tracer from config
-func New(cfg config.TracingConfig) *Tracer {
+func New(cfg config.TracingConfig) (*Tracer, error) {
 	t := &Tracer{
-		enabled:     cfg.Enabled,
-		exporter:    cfg.Exporter,
-		endpoint:    cfg.Endpoint,
-		serviceName: cfg.ServiceName,
-		sampleRate:  cfg.SampleRate,
+		enabled: cfg.Enabled,
 	}
 
-	if t.serviceName == "" {
-		t.serviceName = "api-gateway"
-	}
-	if t.sampleRate <= 0 {
-		t.sampleRate = 1.0
+	if !cfg.Enabled {
+		return t, nil
 	}
 
-	return t
+	serviceName := cfg.ServiceName
+	if serviceName == "" {
+		serviceName = "api-gateway"
+	}
+	sampleRate := cfg.SampleRate
+	if sampleRate <= 0 {
+		sampleRate = 1.0
+	}
+
+	ctx := context.Background()
+
+	// Set up OTLP exporter
+	opts := []otlptracegrpc.Option{}
+	if cfg.Endpoint != "" {
+		opts = append(opts, otlptracegrpc.WithEndpoint(cfg.Endpoint))
+	}
+	if cfg.Insecure {
+		opts = append(opts, otlptracegrpc.WithDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())))
+		opts = append(opts, otlptracegrpc.WithInsecure())
+	}
+	if len(cfg.Headers) > 0 {
+		opts = append(opts, otlptracegrpc.WithHeaders(cfg.Headers))
+	}
+
+	exporter, err := otlptracegrpc.New(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	res, err := resource.New(ctx,
+		resource.WithAttributes(
+			semconv.ServiceNameKey.String(serviceName),
+		),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	t.provider = sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(res),
+		sdktrace.WithSampler(sdktrace.TraceIDRatioBased(sampleRate)),
+	)
+
+	otel.SetTracerProvider(t.provider)
+	t.propagator = propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	)
+	otel.SetTextMapPropagator(t.propagator)
+
+	t.tracer = t.provider.Tracer("gateway")
+
+	return t, nil
 }
 
 // IsEnabled returns whether tracing is enabled
@@ -44,7 +97,7 @@ func (t *Tracer) IsEnabled() bool {
 	return t.enabled
 }
 
-// Middleware returns a middleware that propagates W3C trace context headers
+// Middleware returns a middleware that creates root spans per request
 func (t *Tracer) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -53,55 +106,94 @@ func (t *Tracer) Middleware() middleware.Middleware {
 				return
 			}
 
-			// Check for existing traceparent header
-			traceparent := r.Header.Get("traceparent")
-			if traceparent == "" {
-				// Generate a new trace context
-				traceparent = generateTraceparent()
-				r.Header.Set("traceparent", traceparent)
+			// Extract incoming trace context
+			ctx := t.propagator.Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+
+			// Start a span
+			ctx, span := t.tracer.Start(ctx, r.Method+" "+r.URL.Path,
+				trace.WithSpanKind(trace.SpanKindServer),
+				trace.WithAttributes(
+					semconv.HTTPRequestMethodKey.String(r.Method),
+					semconv.URLPath(r.URL.Path),
+					semconv.ServerAddress(r.Host),
+					semconv.UserAgentOriginal(r.UserAgent()),
+				),
+			)
+			defer span.End()
+
+			// Inject trace ID into response header
+			if span.SpanContext().HasTraceID() {
+				w.Header().Set("X-Trace-ID", span.SpanContext().TraceID().String())
 			}
 
-			// Propagate tracestate if present
-			// tracestate is forwarded as-is
+			// Wrap writer to capture status
+			tw := &tracingWriter{ResponseWriter: w, statusCode: 200}
+			next.ServeHTTP(tw, r.WithContext(ctx))
 
-			// Set response headers for tracing
-			w.Header().Set("X-Trace-ID", extractTraceID(traceparent))
-
-			next.ServeHTTP(w, r)
+			span.SetAttributes(attribute.Int("http.response.status_code", tw.statusCode))
+			if tw.statusCode >= 500 {
+				span.SetStatus(2, http.StatusText(tw.statusCode)) // codes.Error = 2
+			}
 		})
 	}
 }
 
-// generateTraceparent generates a W3C traceparent header
-// Format: version-traceid-parentid-traceflags
-func generateTraceparent() string {
-	traceID := make([]byte, 16)
-	parentID := make([]byte, 8)
-	rand.Read(traceID)
-	rand.Read(parentID)
-	return fmt.Sprintf("00-%s-%s-01", hex.EncodeToString(traceID), hex.EncodeToString(parentID))
-}
-
-// extractTraceID extracts the trace ID from a traceparent header
-func extractTraceID(traceparent string) string {
-	// Format: version-traceid-parentid-traceflags
-	if len(traceparent) < 55 {
-		return ""
+// StartSpan creates a child span in the given context
+func (t *Tracer) StartSpan(ctx context.Context, name string) (context.Context, trace.Span) {
+	if !t.enabled {
+		return ctx, trace.SpanFromContext(ctx)
 	}
-	return traceparent[3:35]
+	return t.tracer.Start(ctx, name)
 }
 
-// InjectHeaders injects trace context headers into an outgoing request
+// InjectHeaders injects trace context headers into an outgoing request.
+// It uses the OTEL propagator to inject from the source request's context,
+// and also copies traceparent/tracestate headers directly as a fallback.
 func InjectHeaders(src, dst *http.Request) {
-	if tp := src.Header.Get("traceparent"); tp != "" {
-		dst.Header.Set("traceparent", tp)
+	prop := otel.GetTextMapPropagator()
+	prop.Inject(src.Context(), propagation.HeaderCarrier(dst.Header))
+
+	// Direct header copy as fallback for non-OTEL contexts
+	if dst.Header.Get("traceparent") == "" {
+		if tp := src.Header.Get("traceparent"); tp != "" {
+			dst.Header.Set("traceparent", tp)
+		}
 	}
-	if ts := src.Header.Get("tracestate"); ts != "" {
-		dst.Header.Set("tracestate", ts)
+	if dst.Header.Get("tracestate") == "" {
+		if ts := src.Header.Get("tracestate"); ts != "" {
+			dst.Header.Set("tracestate", ts)
+		}
 	}
 }
 
 // Close shuts down the tracer
 func (t *Tracer) Close() error {
+	if t.provider != nil {
+		return t.provider.Shutdown(context.Background())
+	}
 	return nil
+}
+
+// Status returns the tracing status for admin API
+func (t *Tracer) Status() map[string]interface{} {
+	return map[string]interface{}{
+		"enabled": t.enabled,
+	}
+}
+
+// tracingWriter wraps ResponseWriter to capture status code
+type tracingWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (tw *tracingWriter) WriteHeader(code int) {
+	tw.statusCode = code
+	tw.ResponseWriter.WriteHeader(code)
+}
+
+func (tw *tracingWriter) Flush() {
+	if f, ok := tw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
