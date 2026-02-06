@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/example/gateway/internal/config"
@@ -21,6 +22,7 @@ type HTTPListener struct {
 	handler  http.Handler
 	tlsCfg   *tls.Config
 	listener net.Listener
+	certPtr  atomic.Pointer[tls.Certificate] // for hot TLS cert reload
 }
 
 // HTTPListenerConfig holds configuration for creating an HTTP listener
@@ -51,9 +53,13 @@ func NewHTTPListener(cfg HTTPListenerConfig) (*HTTPListener, error) {
 			return nil, fmt.Errorf("failed to load TLS certificates: %w", err)
 		}
 
+		h.certPtr.Store(&cert)
+
 		h.tlsCfg = &tls.Config{
-			Certificates: []tls.Certificate{cert},
-			MinVersion:   tls.VersionTLS12,
+			GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+				return h.certPtr.Load(), nil
+			},
+			MinVersion: tls.VersionTLS12,
 		}
 
 		// mTLS: Configure client certificate authentication
@@ -170,6 +176,16 @@ func (h *HTTPListener) Start(ctx context.Context) error {
 // Stop stops the HTTP listener
 func (h *HTTPListener) Stop(ctx context.Context) error {
 	return h.server.Shutdown(ctx)
+}
+
+// ReloadTLSCert hot-swaps the TLS certificate without restarting the listener.
+func (h *HTTPListener) ReloadTLSCert(certFile, keyFile string) error {
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		return fmt.Errorf("failed to load TLS certificates: %w", err)
+	}
+	h.certPtr.Store(&cert)
+	return nil
 }
 
 // Server returns the underlying HTTP server

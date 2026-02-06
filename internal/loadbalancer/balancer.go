@@ -2,14 +2,25 @@ package loadbalancer
 
 import (
 	"sync"
+	"sync/atomic"
 )
 
 // Backend represents a backend server
 type Backend struct {
-	URL     string
-	Weight  int
-	Healthy bool
+	URL            string
+	Weight         int
+	Healthy        bool
+	ActiveRequests int64
 }
+
+// IncrActive atomically increments the active request count.
+func (b *Backend) IncrActive() { atomic.AddInt64(&b.ActiveRequests, 1) }
+
+// DecrActive atomically decrements the active request count.
+func (b *Backend) DecrActive() { atomic.AddInt64(&b.ActiveRequests, -1) }
+
+// GetActive atomically reads the active request count.
+func (b *Backend) GetActive() int64 { return atomic.LoadInt64(&b.ActiveRequests) }
 
 // Balancer is the interface for load balancers
 type Balancer interface {
@@ -89,9 +100,10 @@ func (b *baseBalancer) GetBackends() []*Backend {
 	result := make([]*Backend, len(b.backends))
 	for i, backend := range b.backends {
 		result[i] = &Backend{
-			URL:     backend.URL,
-			Weight:  backend.Weight,
-			Healthy: backend.Healthy,
+			URL:            backend.URL,
+			Weight:         backend.Weight,
+			Healthy:        backend.Healthy,
+			ActiveRequests: atomic.LoadInt64(&backend.ActiveRequests),
 		}
 	}
 	return result

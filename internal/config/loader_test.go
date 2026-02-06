@@ -990,3 +990,267 @@ routes:
 		})
 	}
 }
+
+func TestLoaderValidateLoadBalancer(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+	}{
+		{
+			name: "valid least_conn",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    load_balancer: least_conn
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid consistent_hash with header key",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    load_balancer: consistent_hash
+    consistent_hash:
+      key: header
+      header_name: X-User-ID
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid consistent_hash with ip key",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    load_balancer: consistent_hash
+    consistent_hash:
+      key: ip
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid consistent_hash with path key",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    load_balancer: consistent_hash
+    consistent_hash:
+      key: path
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid least_response_time",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    load_balancer: least_response_time
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: false,
+		},
+		{
+			name: "invalid load_balancer value",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    load_balancer: random
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: true,
+		},
+		{
+			name: "consistent_hash missing key",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    load_balancer: consistent_hash
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: true,
+		},
+		{
+			name: "consistent_hash header key missing header_name",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    load_balancer: consistent_hash
+    consistent_hash:
+      key: header
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: true,
+		},
+		{
+			name: "consistent_hash cookie key missing header_name",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    load_balancer: consistent_hash
+    consistent_hash:
+      key: cookie
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: true,
+		},
+		{
+			name: "least_conn with traffic_split",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    load_balancer: least_conn
+    traffic_split:
+      - group: a
+        weight: 50
+        backends:
+          - url: http://localhost:9000
+      - group: b
+        weight: 50
+        backends:
+          - url: http://localhost:9001
+`,
+			wantErr: true,
+		},
+		{
+			name: "consistent_hash with traffic_split",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    load_balancer: consistent_hash
+    consistent_hash:
+      key: ip
+    traffic_split:
+      - group: a
+        weight: 50
+        backends:
+          - url: http://localhost:9000
+      - group: b
+        weight: 50
+        backends:
+          - url: http://localhost:9001
+`,
+			wantErr: true,
+		},
+		{
+			name: "least_response_time with traffic_split",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    load_balancer: least_response_time
+    traffic_split:
+      - group: a
+        weight: 50
+        backends:
+          - url: http://localhost:9000
+      - group: b
+        weight: 50
+        backends:
+          - url: http://localhost:9001
+`,
+			wantErr: true,
+		},
+		{
+			name: "round_robin explicit is valid",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    load_balancer: round_robin
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}

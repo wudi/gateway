@@ -363,7 +363,7 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 		}
 	}
 
-	// Create route proxy (with weighted balancer if traffic split is configured)
+	// Create route proxy with the appropriate balancer
 	g.mu.Lock()
 	if len(routeCfg.TrafficSplit) > 0 {
 		var wb *loadbalancer.WeightedBalancer
@@ -374,7 +374,8 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 		}
 		g.routeProxies[routeCfg.ID] = proxy.NewRouteProxyWithBalancer(g.proxy, route, wb)
 	} else {
-		g.routeProxies[routeCfg.ID] = proxy.NewRouteProxy(g.proxy, route, backends)
+		balancer := createBalancer(routeCfg, backends)
+		g.routeProxies[routeCfg.ID] = proxy.NewRouteProxyWithBalancer(g.proxy, route, balancer)
 	}
 	g.mu.Unlock()
 
@@ -426,6 +427,20 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 	g.mu.Unlock()
 
 	return nil
+}
+
+// createBalancer creates a load balancer for the given route config and backends.
+func createBalancer(cfg config.RouteConfig, backends []*loadbalancer.Backend) loadbalancer.Balancer {
+	switch cfg.LoadBalancer {
+	case "least_conn":
+		return loadbalancer.NewLeastConnections(backends)
+	case "consistent_hash":
+		return loadbalancer.NewConsistentHash(backends, cfg.ConsistentHash)
+	case "least_response_time":
+		return loadbalancer.NewLeastResponseTime(backends)
+	default:
+		return loadbalancer.NewRoundRobin(backends)
+	}
 }
 
 // buildRouteHandler constructs the per-route middleware pipeline.
@@ -946,6 +961,42 @@ func (g *Gateway) GetWAFHandlers() *waf.WAFByRoute {
 // GetMirrors returns the mirror manager.
 func (g *Gateway) GetMirrors() *mirror.MirrorByRoute {
 	return g.mirrors
+}
+
+// GetLoadBalancerInfo returns per-route load balancer algorithm and stats.
+func (g *Gateway) GetLoadBalancerInfo() map[string]interface{} {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	result := make(map[string]interface{})
+	for _, routeCfg := range g.config.Routes {
+		info := map[string]interface{}{
+			"algorithm": routeCfg.LoadBalancer,
+		}
+		if info["algorithm"] == "" {
+			if len(routeCfg.TrafficSplit) > 0 {
+				info["algorithm"] = "weighted_round_robin"
+			} else {
+				info["algorithm"] = "round_robin"
+			}
+		}
+		if routeCfg.LoadBalancer == "consistent_hash" {
+			info["consistent_hash"] = map[string]interface{}{
+				"key":         routeCfg.ConsistentHash.Key,
+				"header_name": routeCfg.ConsistentHash.HeaderName,
+				"replicas":    routeCfg.ConsistentHash.Replicas,
+			}
+		}
+		if routeCfg.LoadBalancer == "least_response_time" {
+			if rp, ok := g.routeProxies[routeCfg.ID]; ok {
+				if lrt, ok := rp.GetBalancer().(*loadbalancer.LeastResponseTime); ok {
+					info["latencies"] = lrt.GetLatencies()
+				}
+			}
+		}
+		result[routeCfg.ID] = info
+	}
+	return result
 }
 
 // GetTrafficSplitStats returns per-route traffic split information.

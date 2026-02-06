@@ -135,16 +135,17 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 			}
 		} else {
 			// Standard path: single backend selection
-			// Check for request-aware balancer (sticky sessions / traffic split)
+			// Check for request-aware balancer (consistent hash, sticky sessions, traffic split)
 			type requestAwareBalancer interface {
 				NextForHTTPRequest(r *http.Request) (*loadbalancer.Backend, string)
-				HasStickyPolicy() bool
 			}
 			var backend *loadbalancer.Backend
-			if ra, ok := balancer.(requestAwareBalancer); ok && ra.HasStickyPolicy() {
+			if ra, ok := balancer.(requestAwareBalancer); ok {
 				var groupName string
 				backend, groupName = ra.NextForHTTPRequest(r)
-				varCtx.TrafficGroup = groupName
+				if groupName != "" {
+					varCtx.TrafficGroup = groupName
+				}
 			} else {
 				backend = balancer.Next()
 			}
@@ -152,6 +153,8 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 				errors.ErrServiceUnavailable.WithDetails("No healthy backends available").WriteJSON(w)
 				return
 			}
+			backend.IncrActive()
+			defer backend.DecrActive()
 			varCtx.UpstreamAddr = backend.URL
 			backendURL = backend.URL
 
@@ -171,6 +174,13 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 			}
 		}
 		varCtx.UpstreamResponseTime = time.Since(start)
+
+		// Record latency for least-response-time balancer
+		if lr, ok := balancer.(interface {
+			RecordLatency(string, time.Duration)
+		}); ok && backendURL != "" {
+			lr.RecordLatency(backendURL, varCtx.UpstreamResponseTime)
+		}
 
 		if err != nil {
 			p.handleError(w, r, err, backendURL, balancer)

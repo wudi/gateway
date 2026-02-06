@@ -45,7 +45,7 @@ func TestNewServerWithListeners(t *testing.T) {
 		},
 	}
 
-	server, err := NewServer(cfg)
+	server, err := NewServer(cfg, "")
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestNewServerWithDefaultListener(t *testing.T) {
 		},
 	}
 
-	server, err := NewServer(cfg)
+	server, err := NewServer(cfg, "")
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestServerWithTCPRoutes(t *testing.T) {
 		},
 	}
 
-	server, err := NewServer(cfg)
+	server, err := NewServer(cfg, "")
 	if err != nil {
 		t.Fatalf("Failed to create server with TCP routes: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestServerWithUDPRoutes(t *testing.T) {
 		},
 	}
 
-	server, err := NewServer(cfg)
+	server, err := NewServer(cfg, "")
 	if err != nil {
 		t.Fatalf("Failed to create server with UDP routes: %v", err)
 	}
@@ -226,7 +226,7 @@ func TestAdminListenersEndpoint(t *testing.T) {
 		},
 	}
 
-	server, err := NewServer(cfg)
+	server, err := NewServer(cfg, "")
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -294,7 +294,7 @@ func TestAdminStatsWithL4Proxies(t *testing.T) {
 		},
 	}
 
-	server, err := NewServer(cfg)
+	server, err := NewServer(cfg, "")
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -360,7 +360,7 @@ func TestAdminCircuitBreakersEndpoint(t *testing.T) {
 		},
 	}
 
-	server, err := NewServer(cfg)
+	server, err := NewServer(cfg, "")
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -415,7 +415,7 @@ func TestAdminCacheEndpoint(t *testing.T) {
 		},
 	}
 
-	server, err := NewServer(cfg)
+	server, err := NewServer(cfg, "")
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -469,7 +469,7 @@ func TestAdminRetriesEndpoint(t *testing.T) {
 		},
 	}
 
-	server, err := NewServer(cfg)
+	server, err := NewServer(cfg, "")
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}

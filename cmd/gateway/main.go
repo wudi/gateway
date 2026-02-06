@@ -62,7 +62,7 @@ func main() {
 	)
 
 	// Create and start the server
-	server, err := gateway.NewServer(cfg)
+	server, err := gateway.NewServer(cfg, *configPath)
 	if err != nil {
 		logging.Error("Failed to create gateway", zap.Error(err))
 		os.Exit(1)

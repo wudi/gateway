@@ -2223,7 +2223,7 @@ func TestRulesAdminEndpoint(t *testing.T) {
 		},
 	}
 
-	srv, err := gateway.NewServer(cfg)
+	srv, err := gateway.NewServer(cfg, "")
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}

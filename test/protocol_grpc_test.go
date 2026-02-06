@@ -109,7 +109,7 @@ func TestProtocolTranslatorAdminEndpoint(t *testing.T) {
 		},
 	}
 
-	server, err := gateway.NewServer(cfg)
+	server, err := gateway.NewServer(cfg, "")
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}

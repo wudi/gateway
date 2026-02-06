@@ -234,6 +234,8 @@ type RouteConfig struct {
 	TrafficShaping TrafficShapingConfig `yaml:"traffic_shaping"` // Per-route traffic shaping
 	Sticky         StickyConfig         `yaml:"sticky"`          // Sticky sessions for traffic split
 	WAF            WAFConfig            `yaml:"waf"`             // Per-route WAF settings
+	LoadBalancer   string               `yaml:"load_balancer"`   // "round_robin"|"least_conn"|"consistent_hash"|"least_response_time"
+	ConsistentHash ConsistentHashConfig `yaml:"consistent_hash"` // Config for consistent_hash LB
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -243,6 +245,13 @@ type StickyConfig struct {
 	CookieName string        `yaml:"cookie_name"` // default "X-Traffic-Group"
 	HashKey    string        `yaml:"hash_key"`    // header name for header/hash mode
 	TTL        time.Duration `yaml:"ttl"`         // cookie TTL, default 24h
+}
+
+// ConsistentHashConfig defines consistent hash load balancer settings.
+type ConsistentHashConfig struct {
+	Key        string `yaml:"key"`         // "header"|"cookie"|"path"|"ip"
+	HeaderName string `yaml:"header_name"` // required for header/cookie
+	Replicas   int    `yaml:"replicas"`    // virtual nodes per backend, default 150
 }
 
 // RetryConfig defines retry policy settings

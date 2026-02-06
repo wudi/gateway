@@ -384,6 +384,33 @@ func (l *Loader) validate(cfg *Config) error {
 			}
 		}
 
+		// Validate load balancer algorithm
+		if route.LoadBalancer != "" {
+			validLBs := map[string]bool{
+				"round_robin":         true,
+				"least_conn":          true,
+				"consistent_hash":     true,
+				"least_response_time": true,
+			}
+			if !validLBs[route.LoadBalancer] {
+				return fmt.Errorf("route %s: load_balancer must be round_robin, least_conn, consistent_hash, or least_response_time", route.ID)
+			}
+			// consistent_hash requires key config
+			if route.LoadBalancer == "consistent_hash" {
+				validKeys := map[string]bool{"header": true, "cookie": true, "path": true, "ip": true}
+				if !validKeys[route.ConsistentHash.Key] {
+					return fmt.Errorf("route %s: consistent_hash.key must be header, cookie, path, or ip", route.ID)
+				}
+				if (route.ConsistentHash.Key == "header" || route.ConsistentHash.Key == "cookie") && route.ConsistentHash.HeaderName == "" {
+					return fmt.Errorf("route %s: consistent_hash.header_name is required for header/cookie key mode", route.ID)
+				}
+			}
+			// least_conn, consistent_hash, least_response_time are incompatible with traffic_split
+			if route.LoadBalancer != "round_robin" && len(route.TrafficSplit) > 0 {
+				return fmt.Errorf("route %s: load_balancer %s is incompatible with traffic_split", route.ID, route.LoadBalancer)
+			}
+		}
+
 		// Validate protocol translation config
 		if route.Protocol.Type != "" {
 			validProtocolTypes := map[string]bool{"http_to_grpc": true}

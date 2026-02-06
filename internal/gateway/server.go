@@ -20,27 +20,31 @@ import (
 
 // Server wraps the gateway with HTTP server functionality
 type Server struct {
-	gateway     *Gateway
-	manager     *listener.Manager
-	adminServer *http.Server
-	config      *config.Config
-	tcpProxy    *tcp.Proxy
-	udpProxy    *udp.Proxy
-	startTime   time.Time
+	gateway       *Gateway
+	manager       *listener.Manager
+	adminServer   *http.Server
+	config        *config.Config
+	configPath    string
+	tcpProxy      *tcp.Proxy
+	udpProxy      *udp.Proxy
+	startTime     time.Time
+	reloadHistory []ReloadResult
 }
 
-// NewServer creates a new gateway server
-func NewServer(cfg *config.Config) (*Server, error) {
+// NewServer creates a new gateway server.
+// configPath is the path to the YAML config file (used for reload).
+func NewServer(cfg *config.Config, configPath string) (*Server, error) {
 	gw, err := New(cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	s := &Server{
-		gateway:   gw,
-		manager:   listener.NewManager(),
-		config:    cfg,
-		startTime: time.Now(),
+		gateway:    gw,
+		manager:    listener.NewManager(),
+		config:     cfg,
+		configPath: configPath,
+		startTime:  time.Now(),
 	}
 
 	// Initialize TCP/UDP proxies if needed
@@ -187,22 +191,37 @@ func (s *Server) Start() error {
 	return nil
 }
 
-// Run starts the server and handles graceful shutdown
+// Run starts the server and handles graceful shutdown.
+// SIGHUP triggers a config reload; SIGINT/SIGTERM triggers shutdown.
 func (s *Server) Run() error {
 	// Start servers
 	if err := s.Start(); err != nil {
 		return err
 	}
 
-	// Wait for interrupt signal
+	// Wait for signals
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	for sig := range quit {
+		switch sig {
+		case syscall.SIGHUP:
+			result := s.ReloadConfig()
+			if result.Success {
+				logging.Info("Config reloaded successfully",
+					zap.Int("changes", len(result.Changes)),
+				)
+			} else {
+				logging.Error("Config reload failed",
+					zap.String("error", result.Error),
+				)
+			}
+		default:
+			logging.Info("Shutting down gracefully...")
+			return s.Shutdown(30 * time.Second)
+		}
+	}
 
-	logging.Info("Shutting down gracefully...")
-
-	// Graceful shutdown
-	return s.Shutdown(30 * time.Second)
+	return nil
 }
 
 // Shutdown gracefully shuts down the servers
@@ -238,6 +257,109 @@ func (s *Server) Shutdown(timeout time.Duration) error {
 
 	logging.Info("Server shutdown complete")
 	return nil
+}
+
+// ReloadConfig loads a new config from the config path and performs a hot reload.
+func (s *Server) ReloadConfig() ReloadResult {
+	if s.configPath == "" {
+		return ReloadResult{
+			Timestamp: time.Now(),
+			Error:     "no config path configured",
+		}
+	}
+
+	loader := config.NewLoader()
+	newCfg, err := loader.Load(s.configPath)
+	if err != nil {
+		result := ReloadResult{
+			Timestamp: time.Now(),
+			Error:     fmt.Sprintf("config load failed: %v", err),
+		}
+		s.reloadHistory = appendReloadHistory(s.reloadHistory, result)
+		return result
+	}
+
+	result := s.gateway.Reload(newCfg)
+
+	// Reconcile listeners (new/removed/TLS changes)
+	if result.Success {
+		s.reconcileListeners(newCfg)
+		s.config = newCfg
+	}
+
+	s.reloadHistory = appendReloadHistory(s.reloadHistory, result)
+	return result
+}
+
+// reconcileListeners adjusts listeners after a config reload.
+// It stops removed listeners, starts new ones, and reloads TLS certs on existing ones.
+func (s *Server) reconcileListeners(newCfg *config.Config) {
+	oldIDs := make(map[string]bool)
+	for _, l := range s.config.Listeners {
+		oldIDs[l.ID] = true
+	}
+	newIDs := make(map[string]bool)
+	for _, l := range newCfg.Listeners {
+		newIDs[l.ID] = true
+	}
+
+	// Stop removed listeners
+	for id := range oldIDs {
+		if !newIDs[id] {
+			if l, ok := s.manager.Get(id); ok {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				if err := l.Stop(ctx); err != nil {
+					logging.Error("Failed to stop removed listener", zap.String("id", id), zap.Error(err))
+				}
+				cancel()
+				s.manager.Remove(id)
+				logging.Info("Removed listener", zap.String("id", id))
+			}
+		}
+	}
+
+	// Start new listeners
+	for _, listenerCfg := range newCfg.Listeners {
+		if oldIDs[listenerCfg.ID] {
+			continue // existing listener, skip
+		}
+		if listenerCfg.Protocol != config.ProtocolHTTP {
+			continue // only handle HTTP listeners during reload
+		}
+		l, err := listener.NewHTTPListener(listener.HTTPListenerConfig{
+			ID:                listenerCfg.ID,
+			Address:           listenerCfg.Address,
+			Handler:           s.gateway.Handler(),
+			TLS:               listenerCfg.TLS,
+			ReadTimeout:       listenerCfg.HTTP.ReadTimeout,
+			WriteTimeout:      listenerCfg.HTTP.WriteTimeout,
+			IdleTimeout:       listenerCfg.HTTP.IdleTimeout,
+			MaxHeaderBytes:    listenerCfg.HTTP.MaxHeaderBytes,
+			ReadHeaderTimeout: listenerCfg.HTTP.ReadHeaderTimeout,
+		})
+		if err != nil {
+			logging.Error("Failed to create new listener", zap.String("id", listenerCfg.ID), zap.Error(err))
+			continue
+		}
+		if err := s.manager.Add(l); err != nil {
+			logging.Error("Failed to add new listener", zap.String("id", listenerCfg.ID), zap.Error(err))
+			continue
+		}
+		if err := l.Start(context.Background()); err != nil {
+			logging.Error("Failed to start new listener", zap.String("id", listenerCfg.ID), zap.Error(err))
+			continue
+		}
+		logging.Info("Started new listener", zap.String("id", listenerCfg.ID), zap.String("address", listenerCfg.Address))
+	}
+}
+
+// appendReloadHistory appends a result and keeps last 50 entries.
+func appendReloadHistory(history []ReloadResult, result ReloadResult) []ReloadResult {
+	history = append(history, result)
+	if len(history) > 50 {
+		history = history[len(history)-50:]
+	}
+	return history
 }
 
 // adminHandler creates the admin API handler
@@ -308,6 +430,13 @@ func (s *Server) adminHandler() http.Handler {
 
 	// WAF status
 	mux.HandleFunc("/waf", s.handleWAF)
+
+	// Reload endpoints
+	mux.HandleFunc("/reload", s.handleReload)
+	mux.HandleFunc("/reload/status", s.handleReloadStatus)
+
+	// Load balancers
+	mux.HandleFunc("/load-balancers", s.handleLoadBalancers)
 
 	// Aggregated dashboard
 	mux.HandleFunc("/dashboard", s.handleDashboard)
@@ -763,6 +892,30 @@ func (s *Server) handleWAF(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	stats := s.gateway.GetWAFHandlers().Stats()
 	json.NewEncoder(w).Encode(stats)
+}
+
+// handleLoadBalancers handles load balancer info requests
+func (s *Server) handleLoadBalancers(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	info := s.gateway.GetLoadBalancerInfo()
+	json.NewEncoder(w).Encode(info)
+}
+
+// handleReload handles config reload requests (POST only).
+func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	result := s.ReloadConfig()
+	json.NewEncoder(w).Encode(result)
+}
+
+// handleReloadStatus returns the reload history.
+func (s *Server) handleReloadStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.reloadHistory)
 }
 
 // handleProtocolTranslators handles protocol translator stats requests
