@@ -1,0 +1,181 @@
+# Core Concepts
+
+## Listeners
+
+Listeners define network endpoints where the gateway accepts connections. Each listener has a unique ID, bind address, and protocol.
+
+The gateway supports three protocols:
+- **HTTP** — standard HTTP/HTTPS reverse proxy with the full middleware chain
+- **TCP** — Layer 4 TCP proxy with optional SNI-based routing and PROXY protocol
+- **UDP** — Layer 4 UDP proxy with session tracking
+
+Multiple listeners can run simultaneously on different ports and protocols.
+
+```yaml
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+    http:
+      read_timeout: 30s
+      write_timeout: 30s
+      idle_timeout: 60s
+
+  - id: "https-main"
+    address: ":8443"
+    protocol: "http"
+    tls:
+      enabled: true
+      cert_file: "/etc/certs/server.crt"
+      key_file: "/etc/certs/server.key"
+
+  - id: "tcp-db"
+    address: ":5432"
+    protocol: "tcp"
+    tcp:
+      sni_routing: true
+      connect_timeout: 10s
+      idle_timeout: 5m
+
+  - id: "udp-dns"
+    address: ":5353"
+    protocol: "udp"
+    udp:
+      session_timeout: 30s
+```
+
+### TLS Termination
+
+Any HTTP listener can terminate TLS by setting `tls.enabled: true` with certificate and key paths. TLS certificates can be hot-reloaded on config reload (SIGHUP) without dropping connections.
+
+### mTLS (Mutual TLS)
+
+For client certificate authentication, set `tls.client_auth` and `tls.client_ca_file`:
+
+```yaml
+tls:
+  enabled: true
+  cert_file: "/etc/certs/server.crt"
+  key_file: "/etc/certs/server.key"
+  client_auth: "require"    # none, request, require, verify
+  client_ca_file: "/etc/certs/client-ca.crt"
+```
+
+Client certificate fields become available as [variables](transformations.md#variables) (`$client_cert_subject`, etc.) and in the [rules engine](rules-engine.md).
+
+## Routes
+
+Routes map incoming requests to backend services. HTTP routes match on path, method, domain, headers, and query parameters.
+
+```yaml
+routes:
+  - id: "users-api"
+    path: "/api/v1/users"
+    path_prefix: true          # match /api/v1/users and all sub-paths
+    methods: ["GET", "POST"]   # restrict to specific methods
+    match:
+      domains: ["api.example.com"]
+      headers:
+        - name: "X-Version"
+          value: "v2"
+      query:
+        - name: "format"
+          value: "json"
+    backends:
+      - url: "http://users-svc:9000"
+```
+
+### Path Matching
+
+- **Exact match** (`path_prefix: false`): `/health` matches only `/health`
+- **Prefix match** (`path_prefix: true`): `/api` matches `/api`, `/api/users`, `/api/users/123`, etc.
+
+### Domain, Header, and Query Matching
+
+The `match` block adds additional constraints beyond path:
+
+- **Domains**: request `Host` header must match one of the listed domains
+- **Headers**: each entry requires `name` plus exactly one of `value` (exact), `present` (exists), or `regex` (pattern)
+- **Query**: same as headers but for query parameters
+
+### TCP and UDP Routes
+
+L4 routes reference a listener by ID and define their own backends:
+
+```yaml
+tcp_routes:
+  - id: "mysql"
+    listener: "tcp-db"
+    match:
+      sni: ["mysql.example.com"]
+      source_cidr: ["10.0.0.0/8"]
+    backends:
+      - url: "tcp://mysql-primary:3306"
+
+udp_routes:
+  - id: "dns"
+    listener: "udp-dns"
+    backends:
+      - url: "udp://8.8.8.8:53"
+```
+
+## Backends
+
+Each route sends traffic to one or more backends. Backends can be defined statically or resolved through [service discovery](service-discovery.md).
+
+```yaml
+# Static backends with weights
+backends:
+  - url: "http://backend-1:9000"
+    weight: 2
+  - url: "http://backend-2:9000"
+    weight: 1
+
+# Or via service discovery
+service:
+  name: "users-service"
+  tags: ["production"]
+```
+
+Backend health is checked automatically. Unhealthy backends are removed from rotation until they recover. See [Load Balancing](load-balancing.md) for algorithm options.
+
+## Request Processing Pipeline
+
+Every HTTP request passes through the middleware chain in a fixed order. The chain is built once per route at startup (not per-request). Here is the processing order:
+
+1. **Metrics** — start timing
+2. **IP Filter** — reject blocked IPs (403)
+3. **CORS** — handle preflight, set response headers
+4. **Variable Context** — populate route ID and path params
+5. **Rate Limit** — reject over-limit requests (429)
+6. **Throttle** — queue/delay requests via token bucket (503 on timeout)
+7. **Authentication** — validate credentials
+8. **Priority** — admission control with QoS levels (503 on timeout)
+9. **Request Rules** — evaluate expression-based rules (block/redirect/rewrite)
+10. **WAF** — web application firewall inspection
+11. **Fault Injection** — inject delays/aborts for chaos testing
+12. **Body Limit** — enforce max request body size
+13. **Bandwidth** — rate-limit request/response I/O
+14. **Validation** — validate request body against JSON schema
+15. **GraphQL** — parse and enforce query limits
+16. **WebSocket** — upgrade if applicable (bypasses remaining chain)
+17. **Cache** — return cached response if hit
+18. **Circuit Breaker** — reject if circuit is open (503)
+19. **Compression** — gzip response
+20. **Response Rules** — evaluate post-proxy rules
+21. **Mirror** — send shadow traffic asynchronously
+22. **Traffic Group** — set A/B variant headers and cookies
+23. **Request Transform** — modify headers/body before proxy
+24. **Response Body Transform** — modify response JSON
+25. **Proxy** — forward to backend (with retry/hedging)
+
+## Global Handler Chain
+
+Before the per-route middleware chain, every request passes through global handlers:
+
+1. **Recovery** — panic recovery, returns 500
+2. **Request ID** — generate/propagate `X-Request-ID`
+3. **mTLS Extraction** — extract client certificate info
+4. **Tracing** — OpenTelemetry span creation
+5. **Logging** — structured access logging
+6. **serveHTTP** — route matching and dispatch to per-route handler

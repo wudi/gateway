@@ -29,6 +29,10 @@
 
 ## Design Policy
 
+### Documentation is mandatory
+
+Every code change that adds, modifies, or removes a feature must include corresponding updates to `/docs/`. This applies to new config fields, new middleware, new admin endpoints, changed validation rules, changed defaults, and changed behavior. The relevant topic file (e.g., `security.md`, `resilience.md`) must be updated with accurate descriptions and working YAML examples. If a new config field is added, it must also appear in `docs/configuration-reference.md`. If an admin endpoint is added or changed, `docs/admin-api.md` must be updated. Treat documentation as part of the implementation — a feature is not complete until its docs are accurate and current.
+
 ### Prefer open-source libraries
 
 Implement using open-source libraries whenever possible; minimize reinventing the wheel.
