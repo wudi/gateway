@@ -225,8 +225,16 @@ func New(cfg *config.Config) (*Gateway, error) {
 		},
 	})
 
-	// Initialize proxy
+	// Initialize proxy with optional custom DNS resolver
+	var transport *http.Transport
+	if len(cfg.DNSResolver.Nameservers) > 0 {
+		resolver := proxy.NewResolver(cfg.DNSResolver.Nameservers, cfg.DNSResolver.Timeout)
+		tcfg := proxy.DefaultTransportConfig
+		tcfg.Resolver = resolver
+		transport = proxy.NewTransport(tcfg)
+	}
 	g.proxy = proxy.New(proxy.Config{
+		Transport:     transport,
 		HealthChecker: g.healthChecker,
 	})
 

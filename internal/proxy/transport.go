@@ -26,6 +26,9 @@ type TransportConfig struct {
 
 	// Keep-alive
 	DisableKeepAlives bool
+
+	// DNS
+	Resolver *net.Resolver // nil = default OS resolver
 }
 
 // DefaultTransportConfig provides default transport settings
@@ -44,12 +47,14 @@ var DefaultTransportConfig = TransportConfig{
 
 // NewTransport creates a new HTTP transport with the given configuration
 func NewTransport(cfg TransportConfig) *http.Transport {
+	dialer := &net.Dialer{
+		Timeout:   cfg.DialTimeout,
+		KeepAlive: 30 * time.Second,
+		Resolver:  cfg.Resolver,
+	}
 	return &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout:   cfg.DialTimeout,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
+		Proxy:       http.ProxyFromEnvironment,
+		DialContext: dialer.DialContext,
 		MaxIdleConns:          cfg.MaxIdleConns,
 		MaxIdleConnsPerHost:   cfg.MaxIdleConnsPerHost,
 		MaxConnsPerHost:       cfg.MaxConnsPerHost,

@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"regexp"
 	"strings"
@@ -332,6 +333,18 @@ func (l *Loader) validate(cfg *Config) error {
 				}
 			}
 		}
+	}
+
+	// Validate DNS resolver config
+	if len(cfg.DNSResolver.Nameservers) > 0 {
+		for i, ns := range cfg.DNSResolver.Nameservers {
+			if _, _, err := net.SplitHostPort(ns); err != nil {
+				return fmt.Errorf("dns_resolver: nameserver %d (%q): must be host:port format: %w", i, ns, err)
+			}
+		}
+	}
+	if cfg.DNSResolver.Timeout < 0 {
+		return fmt.Errorf("dns_resolver: timeout must be positive")
 	}
 
 	// Validate new route-level configs

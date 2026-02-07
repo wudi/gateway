@@ -30,6 +30,7 @@ type Config struct {
 	TrafficShaping TrafficShapingConfig `yaml:"traffic_shaping"` // Global traffic shaping
 	Redis          RedisConfig          `yaml:"redis"`           // Redis for distributed features
 	WAF            WAFConfig            `yaml:"waf"`             // Global WAF settings
+	DNSResolver    DNSResolverConfig    `yaml:"dns_resolver"`    // Custom DNS resolver for backends
 }
 
 // ListenerConfig defines a listener configuration
@@ -522,6 +523,12 @@ type RedisConfig struct {
 	TLS         bool          `yaml:"tls"`
 	PoolSize    int           `yaml:"pool_size"`
 	DialTimeout time.Duration `yaml:"dial_timeout"`
+}
+
+// DNSResolverConfig defines custom DNS resolver settings for backend connections.
+type DNSResolverConfig struct {
+	Nameservers []string      `yaml:"nameservers"` // e.g. "10.0.0.53:53"
+	Timeout     time.Duration `yaml:"timeout"`     // per-query timeout
 }
 
 // TransformConfig defines request/response transformations

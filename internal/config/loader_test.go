@@ -991,6 +991,120 @@ routes:
 	}
 }
 
+func TestLoaderValidateDNSResolver(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+	}{
+		{
+			name: "valid dns_resolver",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+dns_resolver:
+  nameservers:
+    - "10.0.0.53:53"
+    - "8.8.8.8:53"
+  timeout: 5s
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: false,
+		},
+		{
+			name: "dns_resolver nameserver missing port",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+dns_resolver:
+  nameservers:
+    - "10.0.0.53"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: true,
+		},
+		{
+			name: "dns_resolver negative timeout",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+dns_resolver:
+  timeout: -1s
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: true,
+		},
+		{
+			name: "dns_resolver empty nameservers is valid (uses OS default)",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+dns_resolver:
+  timeout: 3s
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: false,
+		},
+		{
+			name: "dns_resolver multiple valid nameservers",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+dns_resolver:
+  nameservers:
+    - "10.0.0.53:53"
+    - "[::1]:53"
+  timeout: 2s
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestLoaderValidateLoadBalancer(t *testing.T) {
 	tests := []struct {
 		name    string
