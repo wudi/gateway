@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/goccy/go-yaml"
 )
@@ -139,8 +140,8 @@ func (l *Loader) validate(cfg *Config) error {
 			return fmt.Errorf("route %s: path is required", route.ID)
 		}
 
-		// Must have either backends or service discovery
-		if len(route.Backends) == 0 && route.Service.Name == "" {
+		// Must have either backends, service discovery, or versioning
+		if len(route.Backends) == 0 && route.Service.Name == "" && !route.Versioning.Enabled {
 			return fmt.Errorf("route %s: must have either backends or service name", route.ID)
 		}
 
@@ -558,6 +559,39 @@ func (l *Loader) validate(cfg *Config) error {
 			}
 			if route.ExtAuth.TLS.Enabled && strings.HasPrefix(route.ExtAuth.URL, "http://") {
 				return fmt.Errorf("route %s: ext_auth.tls cannot be used with http:// URL", route.ID)
+			}
+		}
+
+		// Validate versioning config
+		if route.Versioning.Enabled {
+			validSources := map[string]bool{"path": true, "header": true, "accept": true, "query": true}
+			if !validSources[route.Versioning.Source] {
+				return fmt.Errorf("route %s: versioning.source must be path, header, accept, or query", route.ID)
+			}
+			if len(route.Versioning.Versions) == 0 {
+				return fmt.Errorf("route %s: versioning.versions must not be empty", route.ID)
+			}
+			if route.Versioning.DefaultVersion == "" {
+				return fmt.Errorf("route %s: versioning.default_version is required", route.ID)
+			}
+			if _, ok := route.Versioning.Versions[route.Versioning.DefaultVersion]; !ok {
+				return fmt.Errorf("route %s: versioning.default_version %q must exist in versions", route.ID, route.Versioning.DefaultVersion)
+			}
+			for ver, vcfg := range route.Versioning.Versions {
+				if len(vcfg.Backends) == 0 {
+					return fmt.Errorf("route %s: versioning.versions[%s] must have at least one backend", route.ID, ver)
+				}
+				if vcfg.Sunset != "" {
+					if _, err := time.Parse("2006-01-02", vcfg.Sunset); err != nil {
+						return fmt.Errorf("route %s: versioning.versions[%s].sunset must be YYYY-MM-DD format", route.ID, ver)
+					}
+				}
+			}
+			if len(route.TrafficSplit) > 0 {
+				return fmt.Errorf("route %s: versioning and traffic_split are mutually exclusive", route.ID)
+			}
+			if len(route.Backends) > 0 {
+				return fmt.Errorf("route %s: versioning and top-level backends are mutually exclusive", route.ID)
 			}
 		}
 

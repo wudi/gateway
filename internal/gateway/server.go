@@ -452,6 +452,9 @@ func (s *Server) adminHandler() http.Handler {
 	// External auth stats
 	mux.HandleFunc("/ext-auth", s.handleExtAuth)
 
+	// Versioning stats
+	mux.HandleFunc("/versioning", s.handleVersioning)
+
 	// Canary deployments
 	mux.HandleFunc("/canary", s.handleCanary)
 	mux.HandleFunc("/canary/", s.handleCanaryAction)
@@ -909,6 +912,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["ext_auth"] = extAuthStats
 	}
 
+	// Versioning
+	if versioningStats := s.gateway.GetVersioners().Stats(); len(versioningStats) > 0 {
+		dashboard["versioning"] = versioningStats
+	}
+
 	// Tracing
 	if tracer := s.gateway.GetTracer(); tracer != nil {
 		dashboard["tracing"] = tracer.Status()
@@ -997,6 +1005,12 @@ func (s *Server) handleProtocolTranslators(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleExtAuth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.gateway.GetExtAuths().Stats())
+}
+
+// handleVersioning handles versioning stats requests
+func (s *Server) handleVersioning(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetVersioners().Stats())
 }
 
 // handleCanary lists all canary deployments with status.

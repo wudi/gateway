@@ -12,6 +12,7 @@ import (
 	"github.com/example/gateway/internal/middleware/extauth"
 	"github.com/example/gateway/internal/middleware/ipfilter"
 	"github.com/example/gateway/internal/middleware/validation"
+	"github.com/example/gateway/internal/middleware/versioning"
 	"github.com/example/gateway/internal/middleware/waf"
 	"github.com/example/gateway/internal/mirror"
 	"github.com/example/gateway/internal/rules"
@@ -292,3 +293,16 @@ func (f *extAuthFeature) Setup(routeID string, cfg config.RouteConfig) error {
 }
 func (f *extAuthFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *extAuthFeature) AdminStats() any    { return f.m.Stats() }
+
+// versioningFeature wraps VersioningByRoute.
+type versioningFeature struct{ m *versioning.VersioningByRoute }
+
+func (f *versioningFeature) Name() string { return "versioning" }
+func (f *versioningFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.Versioning.Enabled {
+		return f.m.AddRoute(routeID, cfg.Versioning)
+	}
+	return nil
+}
+func (f *versioningFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *versioningFeature) AdminStats() any     { return f.m.Stats() }

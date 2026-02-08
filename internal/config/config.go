@@ -241,6 +241,7 @@ type RouteConfig struct {
 	Coalesce       CoalesceConfig       `yaml:"coalesce"`        // Request coalescing (singleflight)
 	Canary         CanaryConfig         `yaml:"canary"`          // Canary deployment with automated rollback
 	ExtAuth        ExtAuthConfig        `yaml:"ext_auth"`        // External auth service
+	Versioning     VersioningConfig     `yaml:"versioning"`      // API versioning
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -508,6 +509,25 @@ type ExtAuthTLSConfig struct {
 	CAFile   string `yaml:"ca_file"`
 	CertFile string `yaml:"cert_file"` // for mTLS
 	KeyFile  string `yaml:"key_file"`  // for mTLS
+}
+
+// VersioningConfig defines API versioning settings per route.
+type VersioningConfig struct {
+	Enabled        bool                            `yaml:"enabled"`
+	Source         string                          `yaml:"source"`          // "path", "header", "accept", "query"
+	HeaderName     string                          `yaml:"header_name"`     // default "X-API-Version"
+	QueryParam     string                          `yaml:"query_param"`     // default "version"
+	PathPrefix     string                          `yaml:"path_prefix"`     // default "/v"
+	StripPrefix    bool                            `yaml:"strip_prefix"`    // strip /vN from forwarded path
+	DefaultVersion string                          `yaml:"default_version"`
+	Versions       map[string]VersionBackendConfig `yaml:"versions"`
+}
+
+// VersionBackendConfig defines backends and metadata for a specific API version.
+type VersionBackendConfig struct {
+	Backends   []BackendConfig `yaml:"backends"`
+	Deprecated bool            `yaml:"deprecated"` // adds Deprecation: true header
+	Sunset     string          `yaml:"sunset"`     // adds Sunset header (YYYY-MM-DD)
 }
 
 // BodyTransformConfig defines request/response body transformation settings (Feature 13)

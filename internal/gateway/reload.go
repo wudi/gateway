@@ -21,6 +21,7 @@ import (
 	"github.com/example/gateway/internal/middleware/ipfilter"
 	"github.com/example/gateway/internal/middleware/ratelimit"
 	"github.com/example/gateway/internal/middleware/validation"
+	"github.com/example/gateway/internal/middleware/versioning"
 	"github.com/example/gateway/internal/middleware/waf"
 	"github.com/example/gateway/internal/graphql"
 	"github.com/example/gateway/internal/mirror"
@@ -75,6 +76,7 @@ type gatewayState struct {
 	canaryControllers    *canary.CanaryByRoute
 	adaptiveLimiters     *trafficshape.AdaptiveConcurrencyByRoute
 	extAuths             *extauth.ExtAuthByRoute
+	versioners           *versioning.VersioningByRoute
 	translators          *protocol.TranslatorByRoute
 	rateLimiters      *ratelimit.RateLimitByRoute
 	grpcHandlers      map[string]*grpcproxy.Handler
@@ -113,6 +115,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		canaryControllers:  canary.NewCanaryByRoute(),
 		adaptiveLimiters:   trafficshape.NewAdaptiveConcurrencyByRoute(),
 		extAuths:           extauth.NewExtAuthByRoute(),
+		versioners:         versioning.NewVersioningByRoute(),
 		translators:        protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
 		grpcHandlers:      make(map[string]*grpcproxy.Handler),
@@ -143,6 +146,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		&coalesceFeature{s.coalescers},
 		&canaryFeature{s.canaryControllers},
 		&extAuthFeature{s.extAuths},
+		&versioningFeature{s.versioners},
 	}
 
 	// Initialize global IP filter
@@ -244,7 +248,22 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 	}
 
 	// Create route proxy
-	if len(routeCfg.TrafficSplit) > 0 {
+	if routeCfg.Versioning.Enabled {
+		versionBackends := make(map[string][]*loadbalancer.Backend)
+		for ver, vcfg := range routeCfg.Versioning.Versions {
+			var vBacks []*loadbalancer.Backend
+			for _, b := range vcfg.Backends {
+				weight := b.Weight
+				if weight == 0 {
+					weight = 1
+				}
+				vBacks = append(vBacks, &loadbalancer.Backend{URL: b.URL, Weight: weight, Healthy: true})
+			}
+			versionBackends[ver] = vBacks
+		}
+		vb := loadbalancer.NewVersionedBalancer(versionBackends, routeCfg.Versioning.DefaultVersion)
+		s.routeProxies[routeCfg.ID] = proxy.NewRouteProxyWithBalancer(g.proxy, route, vb)
+	} else if len(routeCfg.TrafficSplit) > 0 {
 		var wb *loadbalancer.WeightedBalancer
 		if routeCfg.Sticky.Enabled {
 			wb = loadbalancer.NewWeightedBalancerWithSticky(routeCfg.TrafficSplit, routeCfg.Sticky)
@@ -404,6 +423,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldCanaryControllers := g.canaryControllers
 	oldAdaptiveLimiters := g.adaptiveLimiters
 	oldExtAuths := g.extAuths
+	oldVersioners := g.versioners
 
 	// Install new state
 	g.ipFilters = s.ipFilters
@@ -430,6 +450,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.canaryControllers = s.canaryControllers
 	g.adaptiveLimiters = s.adaptiveLimiters
 	g.extAuths = s.extAuths
+	g.versioners = s.versioners
 
 	handler := g.buildRouteHandler(routeID, cfg, route, rp)
 
@@ -458,6 +479,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.canaryControllers = oldCanaryControllers
 	g.adaptiveLimiters = oldAdaptiveLimiters
 	g.extAuths = oldExtAuths
+	g.versioners = oldVersioners
 
 	return handler
 }
@@ -517,6 +539,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.canaryControllers = newState.canaryControllers
 	g.adaptiveLimiters = newState.adaptiveLimiters
 	g.extAuths = newState.extAuths
+	g.versioners = newState.versioners
 	g.translators = newState.translators
 	g.rateLimiters = newState.rateLimiters
 	g.grpcHandlers = newState.grpcHandlers

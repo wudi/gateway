@@ -112,6 +112,8 @@ func (b *BuiltinVariables) Get(name string, ctx *Context) (string, bool) {
 	// Route variables
 	case "route_id":
 		return ctx.RouteID, true
+	case "api_version":
+		return ctx.APIVersion, true
 
 	// Auth variables
 	case "auth_client_id":
@@ -239,6 +241,7 @@ func (b *BuiltinVariables) AllVariables() []string {
 
 		// Route
 		"route_id",
+		"api_version",
 
 		// Auth
 		"auth_client_id",
@@ -290,6 +293,9 @@ type Context struct {
 	// Traffic management
 	TrafficGroup string
 
+	// API versioning
+	APIVersion string
+
 	// Custom values
 	Custom map[string]string
 }
@@ -320,6 +326,8 @@ func (c *Context) Clone() *Context {
 		Status:               c.Status,
 		BodyBytesSent:        c.BodyBytesSent,
 		ServerPort:           c.ServerPort,
+		TrafficGroup:         c.TrafficGroup,
+		APIVersion:           c.APIVersion,
 		Custom:               make(map[string]string),
 	}
 

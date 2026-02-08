@@ -540,6 +540,30 @@ See [Canary Deployments](canary-deployments.md) for full documentation.
 
 ---
 
+### `versioning`
+
+```yaml
+    versioning:
+      enabled: bool
+      source: string           # "path", "header", "accept", "query"
+      header_name: string      # default "X-API-Version" (for header source)
+      query_param: string      # default "version" (for query source)
+      path_prefix: string      # default "/v" (for path source)
+      strip_prefix: bool       # strip /vN from forwarded path (path source only)
+      default_version: string  # required, must exist in versions
+      versions:
+        "<version>":
+          backends:
+            - url: string
+              weight: int
+          deprecated: bool     # adds Deprecation: true header
+          sunset: string       # adds Sunset header (YYYY-MM-DD format)
+```
+
+**Validation:** `source` must be one of: path, header, accept, query. `versions` must not be empty. `default_version` is required and must exist in versions. Each version must have at least one backend. Mutually exclusive with `traffic_split` and top-level `backends`. `sunset` must be YYYY-MM-DD if set.
+
+---
+
 ## TCP Routes
 
 ```yaml

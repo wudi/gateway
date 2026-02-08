@@ -9,6 +9,7 @@ import (
 
 	"github.com/example/gateway/internal/cache"
 	"github.com/example/gateway/internal/middleware/extauth"
+	"github.com/example/gateway/internal/middleware/versioning"
 	"github.com/example/gateway/internal/canary"
 	"github.com/example/gateway/internal/circuitbreaker"
 	"github.com/example/gateway/internal/coalesce"
@@ -578,6 +579,20 @@ func canaryObserverMW(ctrl *canary.Controller) middleware.Middleware {
 			if varCtx.TrafficGroup != "" {
 				ctrl.RecordRequest(varCtx.TrafficGroup, rec.statusCode, time.Since(start))
 			}
+		})
+	}
+}
+
+// versioningMW detects the API version, sets it in context, strips prefix if configured, and injects deprecation headers.
+func versioningMW(v *versioning.Versioner) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			version := v.DetectVersion(r)
+			varCtx := variables.GetFromRequest(r)
+			varCtx.APIVersion = version
+			v.StripVersionPrefix(r, version)
+			v.InjectDeprecationHeaders(w, version)
+			next.ServeHTTP(w, r)
 		})
 	}
 }
