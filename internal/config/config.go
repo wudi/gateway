@@ -494,6 +494,16 @@ type BodyTransformConfig struct {
 	AddFields    map[string]string `yaml:"add_fields"`
 	RemoveFields []string          `yaml:"remove_fields"`
 	RenameFields map[string]string `yaml:"rename_fields"`
+	SetFields    map[string]string `yaml:"set_fields"`
+	AllowFields  []string          `yaml:"allow_fields"`
+	DenyFields   []string          `yaml:"deny_fields"`
+	Template     string            `yaml:"template"`
+}
+
+// IsActive returns true if any body transform operation is configured.
+func (c BodyTransformConfig) IsActive() bool {
+	return len(c.AddFields) > 0 || len(c.RemoveFields) > 0 || len(c.RenameFields) > 0 ||
+		len(c.SetFields) > 0 || len(c.AllowFields) > 0 || len(c.DenyFields) > 0 || c.Template != ""
 }
 
 // MatchConfig defines route match criteria for domain/header/query matching

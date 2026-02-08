@@ -19,6 +19,7 @@ import (
 	"github.com/example/gateway/internal/middleware/cors"
 	"github.com/example/gateway/internal/middleware/ipfilter"
 	"github.com/example/gateway/internal/middleware/ratelimit"
+	"github.com/example/gateway/internal/middleware/transform"
 	"github.com/example/gateway/internal/middleware/validation"
 	"github.com/example/gateway/internal/router"
 	"github.com/example/gateway/internal/rules"
@@ -479,14 +480,18 @@ func TestCompressionMW_SkipsNoAcceptEncoding(t *testing.T) {
 	}
 }
 
-// --- responseBodyTransformMW ---
+// --- ResponseBodyTransformMiddleware ---
 
 func TestResponseBodyTransformMW_AddFields(t *testing.T) {
 	cfg := config.BodyTransformConfig{
 		AddFields: map[string]string{"added": "value"},
 	}
 
-	mw := responseBodyTransformMW(cfg)
+	ct, err := transform.NewCompiledBodyTransform(cfg)
+	if err != nil {
+		t.Fatalf("failed to compile transform: %v", err)
+	}
+	mw := transform.ResponseBodyTransformMiddleware(ct)
 	handler := mw(ok200())
 
 	req := httptest.NewRequest("GET", "/test", nil)
@@ -510,7 +515,11 @@ func TestResponseBodyTransformMW_RemoveFields(t *testing.T) {
 		RemoveFields: []string{"status"},
 	}
 
-	mw := responseBodyTransformMW(cfg)
+	ct, err := transform.NewCompiledBodyTransform(cfg)
+	if err != nil {
+		t.Fatalf("failed to compile transform: %v", err)
+	}
+	mw := transform.ResponseBodyTransformMiddleware(ct)
 	handler := mw(ok200())
 
 	req := httptest.NewRequest("GET", "/test", nil)
@@ -531,7 +540,11 @@ func TestResponseBodyTransformMW_RenameFields(t *testing.T) {
 		RenameFields: map[string]string{"status": "state"},
 	}
 
-	mw := responseBodyTransformMW(cfg)
+	ct, err := transform.NewCompiledBodyTransform(cfg)
+	if err != nil {
+		t.Fatalf("failed to compile transform: %v", err)
+	}
+	mw := transform.ResponseBodyTransformMiddleware(ct)
 	handler := mw(ok200())
 
 	req := httptest.NewRequest("GET", "/test", nil)
@@ -743,9 +756,9 @@ func TestRequestRulesMW_PassThrough(t *testing.T) {
 	}
 }
 
-// --- mwApplyResponseBodyTransform ---
+// --- CompiledBodyTransform ---
 
-func TestMwApplyResponseBodyTransform(t *testing.T) {
+func TestCompiledBodyTransform(t *testing.T) {
 	body := []byte(`{"name":"alice","age":30}`)
 	cfg := config.BodyTransformConfig{
 		AddFields:    map[string]string{"role": "admin"},
@@ -753,7 +766,12 @@ func TestMwApplyResponseBodyTransform(t *testing.T) {
 		RenameFields: map[string]string{"name": "username"},
 	}
 
-	result := mwApplyResponseBodyTransform(body, cfg)
+	ct, err := transform.NewCompiledBodyTransform(cfg)
+	if err != nil {
+		t.Fatalf("failed to compile transform: %v", err)
+	}
+
+	result := ct.Transform(body, nil)
 
 	var data map[string]interface{}
 	if err := json.Unmarshal(result, &data); err != nil {
@@ -774,13 +792,18 @@ func TestMwApplyResponseBodyTransform(t *testing.T) {
 	}
 }
 
-func TestMwApplyResponseBodyTransform_InvalidJSON(t *testing.T) {
+func TestCompiledBodyTransform_InvalidJSON(t *testing.T) {
 	body := []byte(`not json`)
 	cfg := config.BodyTransformConfig{
 		AddFields: map[string]string{"key": "val"},
 	}
 
-	result := mwApplyResponseBodyTransform(body, cfg)
+	ct, err := transform.NewCompiledBodyTransform(cfg)
+	if err != nil {
+		t.Fatalf("failed to compile transform: %v", err)
+	}
+
+	result := ct.Transform(body, nil)
 
 	if !bytes.Equal(result, body) {
 		t.Errorf("expected original body returned for invalid JSON")

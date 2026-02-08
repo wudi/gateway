@@ -17,6 +17,9 @@ require (
 	github.com/prometheus/client_golang v1.11.1
 	github.com/redis/go-redis/v9 v9.17.3
 	github.com/sony/gobreaker/v2 v2.4.0
+	github.com/tidwall/gjson v1.18.0
+	github.com/tidwall/sjson v1.2.5
+	github.com/vektah/gqlparser/v2 v2.5.31
 	go.etcd.io/etcd/client/v3 v3.5.11
 	go.opentelemetry.io/otel v1.40.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.40.0
@@ -33,7 +36,6 @@ require (
 )
 
 require (
-	github.com/agnivade/levenshtein v1.2.1 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
@@ -90,11 +92,9 @@ require (
 	github.com/segmentio/asm v1.2.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
-	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/valllabh/ocsf-schema-golang v1.0.3 // indirect
-	github.com/vektah/gqlparser/v2 v2.5.31 // indirect
 	go.etcd.io/etcd/api/v3 v3.5.11 // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.5.11 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect

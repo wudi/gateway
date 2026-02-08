@@ -1,11 +1,8 @@
 package gateway
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"sync"
 
@@ -29,6 +26,7 @@ import (
 	"github.com/example/gateway/internal/middleware/mtls"
 	"github.com/example/gateway/internal/middleware/ipfilter"
 	"github.com/example/gateway/internal/middleware/ratelimit"
+	"github.com/example/gateway/internal/middleware/transform"
 	"github.com/example/gateway/internal/middleware/validation"
 	"github.com/example/gateway/internal/middleware/waf"
 	"github.com/example/gateway/internal/mirror"
@@ -619,14 +617,22 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		chain = chain.Use(trafficGroupMW(wb.GetStickyPolicy()))
 	}
 
+	// Compile body transforms once
+	var reqBodyTransform *transform.CompiledBodyTransform
+	if route.Transform.Request.Body.IsActive() {
+		reqBodyTransform, _ = transform.NewCompiledBodyTransform(route.Transform.Request.Body)
+	}
+	var respBodyTransform *transform.CompiledBodyTransform
+	if route.Transform.Response.Body.IsActive() {
+		respBodyTransform, _ = transform.NewCompiledBodyTransform(route.Transform.Response.Body)
+	}
+
 	// 16. requestTransformMW — headers + body + gRPC (Step 9)
-	chain = chain.Use(requestTransformMW(route, g.grpcHandlers[routeID]))
+	chain = chain.Use(requestTransformMW(route, g.grpcHandlers[routeID], reqBodyTransform))
 
 	// 17. responseBodyTransformMW — buffer + replay (Steps 9.5+10.1)
-	respBodyCfg := route.Transform.Response.Body
-	hasRespBodyTransform := len(respBodyCfg.AddFields) > 0 || len(respBodyCfg.RemoveFields) > 0 || len(respBodyCfg.RenameFields) > 0
-	if hasRespBodyTransform {
-		chain = chain.Use(responseBodyTransformMW(respBodyCfg))
+	if respBodyTransform != nil {
+		chain = chain.Use(transform.ResponseBodyTransformMiddleware(respBodyTransform))
 	}
 
 	// Innermost handler: translator if configured, otherwise the proxy (Step 10)
@@ -779,57 +785,6 @@ func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	handler.ServeHTTP(w, r)
 }
 
-// applyBodyTransform applies body transformations to the request
-func applyBodyTransform(r *http.Request, cfg config.BodyTransformConfig) {
-	if r.Body == nil {
-		return
-	}
-
-	ct := r.Header.Get("Content-Type")
-	if ct != "application/json" && ct != "application/json; charset=utf-8" {
-		return
-	}
-
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		return
-	}
-	r.Body.Close()
-
-	// Parse JSON
-	var data map[string]interface{}
-	if err := json.Unmarshal(body, &data); err != nil {
-		r.Body = io.NopCloser(bytes.NewReader(body))
-		return
-	}
-
-	// Add fields
-	for key, value := range cfg.AddFields {
-		data[key] = value
-	}
-
-	// Remove fields
-	for _, key := range cfg.RemoveFields {
-		delete(data, key)
-	}
-
-	// Rename fields
-	for oldKey, newKey := range cfg.RenameFields {
-		if val, ok := data[oldKey]; ok {
-			data[newKey] = val
-			delete(data, oldKey)
-		}
-	}
-
-	newBody, err := json.Marshal(data)
-	if err != nil {
-		r.Body = io.NopCloser(bytes.NewReader(body))
-		return
-	}
-
-	r.Body = io.NopCloser(bytes.NewReader(newBody))
-	r.ContentLength = int64(len(newBody))
-}
 
 // authenticate handles authentication for a request
 func (g *Gateway) authenticate(w http.ResponseWriter, r *http.Request, methods []string) bool {

@@ -39,7 +39,11 @@ routes:
 
 ## Body Transforms
 
-Modify JSON request or response bodies by adding, removing, or renaming fields:
+Modify JSON request or response bodies. Transforms only apply to `application/json` content.
+
+### Basic Operations
+
+Add, remove, or rename top-level fields:
 
 ```yaml
 transform:
@@ -58,7 +62,86 @@ transform:
         - "debug_info"
 ```
 
-Body transforms only apply to `application/json` content.
+### JSONPath-Based Operations
+
+Use `set_fields` with dot-path notation to set nested fields, and dot-path `remove_fields` to remove nested fields:
+
+```yaml
+transform:
+  request:
+    body:
+      set_fields:
+        "metadata.source": "gateway"
+        "metadata.timestamp": "$time_unix"
+      remove_fields:
+        - "debug"
+        - "internal.secret"
+```
+
+Values in `set_fields` and `add_fields` support `$variable` substitution. Intermediate objects are created automatically when setting nested paths.
+
+### Field Filtering
+
+Use `allow_fields` or `deny_fields` to include or exclude fields (mutually exclusive):
+
+```yaml
+# Allow only specific fields in the response
+transform:
+  response:
+    body:
+      allow_fields:
+        - "name"
+        - "email"
+        - "id"
+```
+
+```yaml
+# Remove sensitive fields from the response
+transform:
+  response:
+    body:
+      deny_fields:
+        - "password_hash"
+        - "internal_id"
+        - "internal.secret"
+```
+
+### Template Rendering
+
+Use `template` for complete body reshaping with Go `text/template` syntax:
+
+```yaml
+transform:
+  response:
+    body:
+      template: |
+        {
+          "data": {{.body | json}},
+          "meta": {
+            "request_id": "{{.vars.request_id}}",
+            "timestamp": "{{.vars.time_unix}}"
+          }
+        }
+```
+
+Template data:
+- `.body` — the parsed JSON body (as a Go interface{})
+- `.vars` — a map of gateway variables (`request_id`, `route_id`, `request_method`, `request_path`, `host`, `time_unix`, `time_iso8601`, `remote_addr`)
+
+The `json` template function marshals a value to JSON. Template output must be valid JSON.
+
+When `template` is set, it is the **terminal** operation — the template output replaces the body entirely. Other operations (set/add/remove/rename/allow/deny) are applied before the template.
+
+### Processing Order
+
+Body transform operations are applied in this order:
+
+1. **allow_fields / deny_fields** — filter fields first
+2. **set_fields** — set values at dot-notation paths
+3. **add_fields** — set values at top-level keys
+4. **remove_fields** — delete fields at dot-notation paths
+5. **rename_fields** — rename fields (old key → new key)
+6. **template** — render Go template (terminal)
 
 ## Variables
 
@@ -199,7 +282,13 @@ Compression only applies when the client sends `Accept-Encoding: gzip`.
 | `transform.request.headers.add` | map | Headers to append |
 | `transform.request.headers.set` | map | Headers to replace |
 | `transform.request.headers.remove` | []string | Headers to delete |
-| `transform.request.body.add_fields` | map | JSON fields to add |
+| `transform.request.body.add_fields` | map | JSON fields to add (top-level) |
+| `transform.request.body.set_fields` | map | JSON fields to set (dot-path) |
+| `transform.request.body.remove_fields` | []string | JSON fields to remove (dot-path) |
+| `transform.request.body.rename_fields` | map | JSON fields to rename |
+| `transform.request.body.allow_fields` | []string | Allowlist filter |
+| `transform.request.body.deny_fields` | []string | Denylist filter |
+| `transform.request.body.template` | string | Go text/template |
 | `strip_prefix` | bool | Strip matched path prefix |
 | `validation.schema` | string | Inline JSON schema |
 | `validation.schema_file` | string | Path to schema file |

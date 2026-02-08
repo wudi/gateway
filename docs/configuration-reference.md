@@ -307,9 +307,13 @@ See [Canary Deployments](canary-deployments.md) for full documentation.
           set: {string: string}
           remove: [string]
         body:
-          add_fields: {string: string}
-          remove_fields: [string]
-          rename_fields: {string: string}
+          add_fields: {string: string}       # top-level field add
+          remove_fields: [string]             # dot-path field removal
+          rename_fields: {string: string}     # field rename (old: new)
+          set_fields: {string: string}        # dot-path field set with $var support
+          allow_fields: [string]              # allowlist filter (mutually exclusive with deny)
+          deny_fields: [string]               # denylist filter (mutually exclusive with allow)
+          template: string                    # Go text/template for full body reshaping
       response:
         headers:
           add: {string: string}
@@ -319,7 +323,13 @@ See [Canary Deployments](canary-deployments.md) for full documentation.
           add_fields: {string: string}
           remove_fields: [string]
           rename_fields: {string: string}
+          set_fields: {string: string}
+          allow_fields: [string]
+          deny_fields: [string]
+          template: string
 ```
+
+**Validation:** `allow_fields` and `deny_fields` are mutually exclusive. `template` must be a valid Go `text/template`.
 
 ### Validation
 

@@ -1,11 +1,13 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
 	"regexp"
 	"strings"
+	"text/template"
 
 	"github.com/goccy/go-yaml"
 )
@@ -537,8 +539,35 @@ func (l *Loader) validate(cfg *Config) error {
 				return err
 			}
 		}
+
+		// Validate body transforms
+		if err := l.validateBodyTransform(route.ID, "request", route.Transform.Request.Body); err != nil {
+			return err
+		}
+		if err := l.validateBodyTransform(route.ID, "response", route.Transform.Response.Body); err != nil {
+			return err
+		}
 	}
 
+	return nil
+}
+
+// validateBodyTransform validates body transform config for a given route and phase.
+func (l *Loader) validateBodyTransform(routeID, phase string, cfg BodyTransformConfig) error {
+	if len(cfg.AllowFields) > 0 && len(cfg.DenyFields) > 0 {
+		return fmt.Errorf("route %s: %s body transform cannot use both allow_fields and deny_fields", routeID, phase)
+	}
+	if cfg.Template != "" {
+		funcMap := template.FuncMap{
+			"json": func(v interface{}) (string, error) {
+				b, err := json.Marshal(v)
+				return string(b), err
+			},
+		}
+		if _, err := template.New("body").Funcs(funcMap).Parse(cfg.Template); err != nil {
+			return fmt.Errorf("route %s: %s body transform template is invalid: %w", routeID, phase, err)
+		}
+	}
 	return nil
 }
 

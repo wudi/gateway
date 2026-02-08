@@ -1,9 +1,7 @@
 package gateway
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -412,7 +410,7 @@ func (w *abVariantWriter) Flush() {
 }
 
 // 14. requestTransformMW applies header/body transformations and gRPC preparation.
-func requestTransformMW(route *router.Route, grpcH *grpcproxy.Handler) middleware.Middleware {
+func requestTransformMW(route *router.Route, grpcH *grpcproxy.Handler, reqBodyTransform *transform.CompiledBodyTransform) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			varCtx := variables.GetFromRequest(r)
@@ -422,9 +420,8 @@ func requestTransformMW(route *router.Route, grpcH *grpcproxy.Handler) middlewar
 			transformer.TransformRequest(r, route.Transform.Request.Headers, varCtx)
 
 			// Body transforms
-			bodyCfg := route.Transform.Request.Body
-			if len(bodyCfg.AddFields) > 0 || len(bodyCfg.RemoveFields) > 0 || len(bodyCfg.RenameFields) > 0 {
-				applyBodyTransform(r, bodyCfg)
+			if reqBodyTransform != nil {
+				reqBodyTransform.TransformRequest(r, varCtx)
 			}
 
 			// gRPC preparation
@@ -437,75 +434,6 @@ func requestTransformMW(route *router.Route, grpcH *grpcproxy.Handler) middlewar
 	}
 }
 
-// 15. responseBodyTransformMW buffers the response, transforms the JSON body, and replays.
-func responseBodyTransformMW(cfg config.BodyTransformConfig) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			bw := &mwBodyBufferWriter{
-				ResponseWriter: w,
-				statusCode:     200,
-				header:         make(http.Header),
-			}
-			next.ServeHTTP(bw, r)
-
-			transformed := mwApplyResponseBodyTransform(bw.body.Bytes(), cfg)
-			// Copy captured headers to real writer
-			for k, vv := range bw.header {
-				for _, v := range vv {
-					w.Header().Add(k, v)
-				}
-			}
-			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(transformed)))
-			w.WriteHeader(bw.statusCode)
-			w.Write(transformed)
-		})
-	}
-}
-
-// mwBodyBufferWriter captures the response for transformation.
-type mwBodyBufferWriter struct {
-	http.ResponseWriter
-	statusCode int
-	body       bytes.Buffer
-	header     http.Header
-}
-
-func (bw *mwBodyBufferWriter) Header() http.Header {
-	return bw.header
-}
-
-func (bw *mwBodyBufferWriter) WriteHeader(code int) {
-	bw.statusCode = code
-}
-
-func (bw *mwBodyBufferWriter) Write(b []byte) (int, error) {
-	return bw.body.Write(b)
-}
-
-// mwApplyResponseBodyTransform applies response body transformations to JSON bodies.
-func mwApplyResponseBodyTransform(body []byte, cfg config.BodyTransformConfig) []byte {
-	var data map[string]interface{}
-	if err := json.Unmarshal(body, &data); err != nil {
-		return body
-	}
-	for key, value := range cfg.AddFields {
-		data[key] = value
-	}
-	for _, key := range cfg.RemoveFields {
-		delete(data, key)
-	}
-	for oldKey, newKey := range cfg.RenameFields {
-		if val, ok := data[oldKey]; ok {
-			data[newKey] = val
-			delete(data, oldKey)
-		}
-	}
-	newBody, err := json.Marshal(data)
-	if err != nil {
-		return body
-	}
-	return newBody
-}
 
 // 16. metricsMW records request metrics (timing + status).
 func metricsMW(mc *metrics.Collector, routeID string) middleware.Middleware {
