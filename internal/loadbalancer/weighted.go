@@ -233,6 +233,35 @@ func (wb *WeightedBalancer) GetGroups() []*TrafficGroup {
 	return result
 }
 
+// SetGroupWeights atomically sets all group weights and recalculates totalWeight.
+// Returns true if the update was applied. Unknown group names are ignored.
+func (wb *WeightedBalancer) SetGroupWeights(weights map[string]int) bool {
+	wb.mu.Lock()
+	defer wb.mu.Unlock()
+
+	total := 0
+	for _, group := range wb.groups {
+		if w, ok := weights[group.Name]; ok {
+			group.Weight = w
+		}
+		total += group.Weight
+	}
+	wb.totalWeight = total
+	return true
+}
+
+// GetGroupWeights returns a snapshot of current group weights.
+func (wb *WeightedBalancer) GetGroupWeights() map[string]int {
+	wb.mu.RLock()
+	defer wb.mu.RUnlock()
+
+	result := make(map[string]int, len(wb.groups))
+	for _, group := range wb.groups {
+		result[group.Name] = group.Weight
+	}
+	return result
+}
+
 func matchAllHeaders(requestHeaders, required map[string]string) bool {
 	for key, val := range required {
 		reqVal, ok := requestHeaders[key]

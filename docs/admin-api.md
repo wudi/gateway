@@ -104,6 +104,8 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /graphql` | GraphQL parser statistics (depth/complexity checks) |
 | `GET /coalesce` | Request coalescing stats (groups, coalesced requests, timeouts) |
 | `GET /load-balancers` | Load balancer info (algorithm, backend states) |
+| `GET /canary` | Canary deployment status per route |
+| `POST /canary/{route}/{action}` | Control canary (start, pause, resume, promote, rollback) |
 
 ### Example: Querying Feature Endpoints
 

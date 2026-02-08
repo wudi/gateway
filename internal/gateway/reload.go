@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/example/gateway/internal/cache"
+	"github.com/example/gateway/internal/canary"
 	"github.com/example/gateway/internal/circuitbreaker"
 	"github.com/example/gateway/internal/coalesce"
 	"github.com/example/gateway/internal/config"
@@ -69,8 +70,9 @@ type gatewayState struct {
 	faultInjectors    *trafficshape.FaultInjectionByRoute
 	wafHandlers       *waf.WAFByRoute
 	graphqlParsers    *graphql.GraphQLByRoute
-	coalescers        *coalesce.CoalesceByRoute
-	translators       *protocol.TranslatorByRoute
+	coalescers         *coalesce.CoalesceByRoute
+	canaryControllers  *canary.CanaryByRoute
+	translators        *protocol.TranslatorByRoute
 	rateLimiters      *ratelimit.RateLimitByRoute
 	grpcHandlers      map[string]*grpcproxy.Handler
 
@@ -104,8 +106,9 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		faultInjectors:    trafficshape.NewFaultInjectionByRoute(),
 		wafHandlers:       waf.NewWAFByRoute(),
 		graphqlParsers:    graphql.NewGraphQLByRoute(),
-		coalescers:        coalesce.NewCoalesceByRoute(),
-		translators:       protocol.NewTranslatorByRoute(),
+		coalescers:         coalesce.NewCoalesceByRoute(),
+		canaryControllers:  canary.NewCanaryByRoute(),
+		translators:        protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
 		grpcHandlers:      make(map[string]*grpcproxy.Handler),
 	}
@@ -132,6 +135,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		&wafFeature{s.wafHandlers},
 		&graphqlFeature{s.graphqlParsers},
 		&coalesceFeature{s.coalescers},
+		&canaryFeature{s.canaryControllers},
 	}
 
 	// Initialize global IP filter
@@ -287,6 +291,15 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 		}
 	}
 
+	// Canary setup (needs WeightedBalancer)
+	if routeCfg.Canary.Enabled {
+		if wb, ok := s.routeProxies[routeCfg.ID].GetBalancer().(*loadbalancer.WeightedBalancer); ok {
+			if err := s.canaryControllers.AddRoute(routeCfg.ID, routeCfg.Canary, wb); err != nil {
+				return fmt.Errorf("canary: route %s: %w", routeCfg.ID, err)
+			}
+		}
+	}
+
 	// Build middleware pipeline - we need a temporary gateway-like context
 	handler := g.buildRouteHandlerForState(s, routeCfg.ID, routeCfg, route, s.routeProxies[routeCfg.ID])
 	s.routeHandlers[routeCfg.ID] = handler
@@ -374,6 +387,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldTranslators := g.translators
 	oldGraphqlParsers := g.graphqlParsers
 	oldCoalescers := g.coalescers
+	oldCanaryControllers := g.canaryControllers
 
 	// Install new state
 	g.ipFilters = s.ipFilters
@@ -397,6 +411,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.translators = s.translators
 	g.graphqlParsers = s.graphqlParsers
 	g.coalescers = s.coalescers
+	g.canaryControllers = s.canaryControllers
 
 	handler := g.buildRouteHandler(routeID, cfg, route, rp)
 
@@ -422,6 +437,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.translators = oldTranslators
 	g.graphqlParsers = oldGraphqlParsers
 	g.coalescers = oldCoalescers
+	g.canaryControllers = oldCanaryControllers
 
 	return handler
 }
@@ -448,6 +464,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	oldWatchCancels := g.watchCancels
 	oldTranslators := g.translators
 	oldJWT := g.jwtAuth
+	oldCanaryControllers := g.canaryControllers
 
 	// Swap all state under write lock
 	g.mu.Lock()
@@ -475,6 +492,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.wafHandlers = newState.wafHandlers
 	g.graphqlParsers = newState.graphqlParsers
 	g.coalescers = newState.coalescers
+	g.canaryControllers = newState.canaryControllers
 	g.translators = newState.translators
 	g.rateLimiters = newState.rateLimiters
 	g.grpcHandlers = newState.grpcHandlers
@@ -488,6 +506,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 		cancel()
 	}
 	oldTranslators.Close()
+	oldCanaryControllers.StopAll()
 	if oldJWT != nil {
 		oldJWT.Close()
 	}

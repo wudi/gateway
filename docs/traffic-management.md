@@ -93,6 +93,44 @@ sticky:
   hash_key: "X-Session-ID"  # required, falls back to client IP if absent
 ```
 
+## Canary Deployments
+
+The gateway supports automated canary deployments that progressively shift traffic to a canary group while monitoring error rate and p99 latency. If health thresholds are breached, traffic is automatically rolled back.
+
+```yaml
+routes:
+  - id: api
+    path: /api
+    path_prefix: true
+    traffic_split:
+      - name: stable
+        weight: 95
+        backends:
+          - url: http://v1:8080
+      - name: canary
+        weight: 5
+        backends:
+          - url: http://v2:8080
+    canary:
+      enabled: true
+      canary_group: canary
+      steps:
+        - weight: 5
+          pause: 5m
+        - weight: 25
+          pause: 10m
+        - weight: 50
+          pause: 15m
+        - weight: 100
+      analysis:
+        error_threshold: 0.05
+        latency_threshold: 500ms
+        min_requests: 100
+        interval: 30s
+```
+
+Canary deployments are started and controlled via the admin API (`POST /canary/{route}/start`). See [Canary Deployments](canary-deployments.md) for full documentation including the state machine, weight redistribution, and admin API.
+
 ## Constraints
 
 - Traffic splits require weights summing to 100

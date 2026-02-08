@@ -353,6 +353,46 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate canary config
+	for _, route := range cfg.Routes {
+		if route.Canary.Enabled {
+			if len(route.TrafficSplit) == 0 {
+				return fmt.Errorf("route %s: canary requires traffic_split to be configured", route.ID)
+			}
+			if route.Canary.CanaryGroup == "" {
+				return fmt.Errorf("route %s: canary.canary_group is required", route.ID)
+			}
+			// Validate canary_group references an existing traffic split group
+			groupFound := false
+			for _, split := range route.TrafficSplit {
+				if split.Name == route.Canary.CanaryGroup {
+					groupFound = true
+					break
+				}
+			}
+			if !groupFound {
+				return fmt.Errorf("route %s: canary.canary_group %q not found in traffic_split groups", route.ID, route.Canary.CanaryGroup)
+			}
+			if len(route.Canary.Steps) == 0 {
+				return fmt.Errorf("route %s: canary requires at least one step", route.ID)
+			}
+			for i, step := range route.Canary.Steps {
+				if step.Weight < 0 || step.Weight > 100 {
+					return fmt.Errorf("route %s: canary step %d weight must be 0-100", route.ID, i)
+				}
+				if i > 0 && step.Weight < route.Canary.Steps[i-1].Weight {
+					return fmt.Errorf("route %s: canary step weights must be monotonically non-decreasing", route.ID)
+				}
+			}
+			if route.Canary.Analysis.ErrorThreshold < 0 || route.Canary.Analysis.ErrorThreshold > 1.0 {
+				return fmt.Errorf("route %s: canary analysis error_threshold must be 0.0-1.0", route.ID)
+			}
+			if route.Canary.Analysis.Interval < 0 {
+				return fmt.Errorf("route %s: canary analysis interval must be >= 0", route.ID)
+			}
+		}
+	}
+
 	// Validate DNS resolver config
 	if len(cfg.DNSResolver.Nameservers) > 0 {
 		for i, ns := range cfg.DNSResolver.Nameservers {

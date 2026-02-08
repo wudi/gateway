@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/example/gateway/internal/cache"
+	"github.com/example/gateway/internal/canary"
 	"github.com/example/gateway/internal/circuitbreaker"
 	"github.com/example/gateway/internal/coalesce"
 	"github.com/example/gateway/internal/config"
@@ -90,7 +91,8 @@ type Gateway struct {
 	faultInjectors    *trafficshape.FaultInjectionByRoute
 	wafHandlers       *waf.WAFByRoute
 	graphqlParsers    *graphql.GraphQLByRoute
-	coalescers        *coalesce.CoalesceByRoute
+	coalescers         *coalesce.CoalesceByRoute
+	canaryControllers  *canary.CanaryByRoute
 
 	features []Feature
 
@@ -150,7 +152,8 @@ func New(cfg *config.Config) (*Gateway, error) {
 		faultInjectors:    trafficshape.NewFaultInjectionByRoute(),
 		wafHandlers:       waf.NewWAFByRoute(),
 		graphqlParsers:    graphql.NewGraphQLByRoute(),
-		coalescers:        coalesce.NewCoalesceByRoute(),
+		coalescers:         coalesce.NewCoalesceByRoute(),
+		canaryControllers:  canary.NewCanaryByRoute(),
 		routeProxies:      make(map[string]*proxy.RouteProxy),
 		routeHandlers:    make(map[string]http.Handler),
 		watchCancels:     make(map[string]context.CancelFunc),
@@ -178,6 +181,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&wafFeature{g.wafHandlers},
 		&graphqlFeature{g.graphqlParsers},
 		&coalesceFeature{g.coalescers},
+		&canaryFeature{g.canaryControllers},
 	}
 
 	// Initialize global IP filter
@@ -436,6 +440,15 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 		}
 	}
 
+	// Set up canary controller (needs WeightedBalancer, only available after route proxy creation)
+	if routeCfg.Canary.Enabled {
+		if wb, ok := g.routeProxies[routeCfg.ID].GetBalancer().(*loadbalancer.WeightedBalancer); ok {
+			if err := g.canaryControllers.AddRoute(routeCfg.ID, routeCfg.Canary, wb); err != nil {
+				return fmt.Errorf("canary: route %s: %w", routeCfg.ID, err)
+			}
+		}
+	}
+
 	// Build the per-route middleware pipeline handler
 	handler := g.buildRouteHandler(routeCfg.ID, routeCfg, route, g.routeProxies[routeCfg.ID])
 	g.mu.Lock()
@@ -466,6 +479,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 
 	// 1. metricsMW — outermost: timing + status (Step 13)
 	chain = chain.Use(metricsMW(g.metricsCollector, routeID))
+
+	// 1.5. canaryObserverMW — observe traffic group outcomes (only if canary configured)
+	if ctrl := g.canaryControllers.GetController(routeID); ctrl != nil {
+		chain = chain.Use(canaryObserverMW(ctrl))
+	}
 
 	// 2. ipFilterMW — global + per-route (Step 1.1)
 	routeIPFilter := g.ipFilters.GetFilter(routeID)
@@ -879,6 +897,9 @@ func (g *Gateway) Close() error {
 		g.redisClient.Close()
 	}
 
+	// Stop canary controllers
+	g.canaryControllers.StopAll()
+
 	// Close protocol translators
 	g.translators.Close()
 
@@ -997,6 +1018,11 @@ func (g *Gateway) GetGraphQLParsers() *graphql.GraphQLByRoute {
 // GetCoalescers returns the coalesce manager.
 func (g *Gateway) GetCoalescers() *coalesce.CoalesceByRoute {
 	return g.coalescers
+}
+
+// GetCanaryControllers returns the canary controller manager.
+func (g *Gateway) GetCanaryControllers() *canary.CanaryByRoute {
+	return g.canaryControllers
 }
 
 // GetLoadBalancerInfo returns per-route load balancer algorithm and stats.

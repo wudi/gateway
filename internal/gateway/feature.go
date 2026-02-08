@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"github.com/example/gateway/internal/cache"
+	"github.com/example/gateway/internal/canary"
 	"github.com/example/gateway/internal/circuitbreaker"
 	"github.com/example/gateway/internal/coalesce"
 	"github.com/example/gateway/internal/config"
@@ -247,3 +248,13 @@ func (f *coalesceFeature) Setup(routeID string, cfg config.RouteConfig) error {
 }
 func (f *coalesceFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *coalesceFeature) AdminStats() any     { return f.m.Stats() }
+
+// canaryFeature wraps CanaryByRoute.
+// Setup is a no-op because canary needs the WeightedBalancer reference which is
+// only available after the route proxy is created. Actual setup happens in addRoute().
+type canaryFeature struct{ m *canary.CanaryByRoute }
+
+func (f *canaryFeature) Name() string                                    { return "canary" }
+func (f *canaryFeature) Setup(routeID string, cfg config.RouteConfig) error { return nil }
+func (f *canaryFeature) RouteIDs() []string                              { return f.m.RouteIDs() }
+func (f *canaryFeature) AdminStats() any                                 { return f.m.Stats() }

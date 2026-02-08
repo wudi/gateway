@@ -239,6 +239,7 @@ type RouteConfig struct {
 	ConsistentHash ConsistentHashConfig `yaml:"consistent_hash"` // Config for consistent_hash LB
 	GraphQL        GraphQLConfig        `yaml:"graphql"`         // GraphQL query analysis and protection
 	Coalesce       CoalesceConfig       `yaml:"coalesce"`        // Request coalescing (singleflight)
+	Canary         CanaryConfig         `yaml:"canary"`          // Canary deployment with automated rollback
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -464,6 +465,28 @@ type CoalesceConfig struct {
 	Timeout    time.Duration `yaml:"timeout"`      // max wait for coalesced requests (default 30s)
 	KeyHeaders []string      `yaml:"key_headers"`  // headers included in coalesce key
 	Methods    []string      `yaml:"methods"`      // eligible methods (default GET+HEAD)
+}
+
+// CanaryConfig defines canary deployment settings.
+type CanaryConfig struct {
+	Enabled     bool                 `yaml:"enabled"`
+	CanaryGroup string               `yaml:"canary_group"`
+	Steps       []CanaryStepConfig   `yaml:"steps"`
+	Analysis    CanaryAnalysisConfig `yaml:"analysis"`
+}
+
+// CanaryStepConfig defines a single canary weight step.
+type CanaryStepConfig struct {
+	Weight int           `yaml:"weight"` // 0-100
+	Pause  time.Duration `yaml:"pause"`  // hold duration before next step
+}
+
+// CanaryAnalysisConfig defines health analysis thresholds for canary rollback.
+type CanaryAnalysisConfig struct {
+	ErrorThreshold   float64       `yaml:"error_threshold"`   // 0.0-1.0
+	LatencyThreshold time.Duration `yaml:"latency_threshold"` // max p99
+	MinRequests      int           `yaml:"min_requests"`      // min samples before eval
+	Interval         time.Duration `yaml:"interval"`          // eval frequency
 }
 
 // BodyTransformConfig defines request/response body transformation settings (Feature 13)

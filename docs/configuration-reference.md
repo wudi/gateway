@@ -234,6 +234,26 @@ routes:
 
 **Validation:** `timeout` must be >= 0. `methods` must be valid HTTP methods.
 
+### Canary Deployments
+
+```yaml
+    canary:
+      enabled: bool
+      canary_group: string        # must match a traffic_split group name
+      steps:
+        - weight: int             # 0-100, monotonically non-decreasing
+          pause: duration         # hold duration before next step
+      analysis:
+        error_threshold: float    # 0.0-1.0 (rollback threshold)
+        latency_threshold: duration  # max p99 before rollback
+        min_requests: int         # min samples before evaluation
+        interval: duration        # evaluation frequency (default 30s)
+```
+
+**Validation:** Requires `traffic_split`. `canary_group` must exist in traffic splits. At least one step required. Step weights must be 0-100 and monotonically non-decreasing. `error_threshold` must be 0.0-1.0.
+
+See [Canary Deployments](canary-deployments.md) for full documentation.
+
 ### WebSocket
 
 ```yaml

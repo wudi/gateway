@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/example/gateway/internal/cache"
+	"github.com/example/gateway/internal/canary"
 	"github.com/example/gateway/internal/circuitbreaker"
 	"github.com/example/gateway/internal/coalesce"
 	"github.com/example/gateway/internal/config"
@@ -580,6 +581,22 @@ func bandwidthMW(bw *trafficshape.BandwidthLimiter) middleware.Middleware {
 			bw.WrapRequest(r)
 			wrappedW := bw.WrapResponse(w)
 			next.ServeHTTP(wrappedW, r)
+		})
+	}
+}
+
+// 22. canaryObserverMW records per-traffic-group outcomes for canary analysis.
+func canaryObserverMW(ctrl *canary.Controller) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			rec := &statusRecorder{ResponseWriter: w, statusCode: 200}
+			next.ServeHTTP(rec, r)
+
+			varCtx := variables.GetFromRequest(r)
+			if varCtx.TrafficGroup != "" {
+				ctrl.RecordRequest(varCtx.TrafficGroup, rec.statusCode, time.Since(start))
+			}
 		})
 	}
 }

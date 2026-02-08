@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	"strings"
+
 	"github.com/example/gateway/internal/config"
 	"github.com/example/gateway/internal/listener"
 	"github.com/example/gateway/internal/logging"
@@ -444,6 +446,10 @@ func (s *Server) adminHandler() http.Handler {
 	// Coalesce stats
 	mux.HandleFunc("/coalesce", s.handleCoalesce)
 
+	// Canary deployments
+	mux.HandleFunc("/canary", s.handleCanary)
+	mux.HandleFunc("/canary/", s.handleCanaryAction)
+
 	// Aggregated dashboard
 	mux.HandleFunc("/dashboard", s.handleDashboard)
 
@@ -873,6 +879,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["coalesce"] = coalesceStats
 	}
 
+	// Canary deployments
+	if canaryStats := s.gateway.GetCanaryControllers().Stats(); len(canaryStats) > 0 {
+		dashboard["canary"] = canaryStats
+	}
+
 	// Tracing
 	if tracer := s.gateway.GetTracer(); tracer != nil {
 		dashboard["tracing"] = tracer.Status()
@@ -948,6 +959,63 @@ func (s *Server) handleProtocolTranslators(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Content-Type", "application/json")
 	stats := s.gateway.GetTranslators().Stats()
 	json.NewEncoder(w).Encode(stats)
+}
+
+// handleCanary lists all canary deployments with status.
+func (s *Server) handleCanary(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	stats := s.gateway.GetCanaryControllers().Stats()
+	json.NewEncoder(w).Encode(stats)
+}
+
+// handleCanaryAction handles POST /canary/{route}/{action}.
+func (s *Server) handleCanaryAction(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse /canary/{route}/{action}
+	path := strings.TrimPrefix(r.URL.Path, "/canary/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		http.Error(w, "usage: POST /canary/{route}/{action}", http.StatusBadRequest)
+		return
+	}
+	routeID := parts[0]
+	actionName := parts[1]
+
+	ctrl := s.gateway.GetCanaryControllers().GetController(routeID)
+	if ctrl == nil {
+		http.Error(w, fmt.Sprintf("no canary controller for route %q", routeID), http.StatusNotFound)
+		return
+	}
+
+	var err error
+	switch actionName {
+	case "start":
+		err = ctrl.Start()
+	case "pause":
+		err = ctrl.Pause()
+	case "resume":
+		err = ctrl.Resume()
+	case "promote":
+		err = ctrl.Promote()
+	case "rollback":
+		err = ctrl.Rollback()
+	default:
+		http.Error(w, fmt.Sprintf("unknown action %q (valid: start, pause, resume, promote, rollback)", actionName), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": actionName, "route": routeID})
 }
 
 // Gateway returns the underlying gateway
