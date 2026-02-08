@@ -240,6 +240,7 @@ type RouteConfig struct {
 	GraphQL        GraphQLConfig        `yaml:"graphql"`         // GraphQL query analysis and protection
 	Coalesce       CoalesceConfig       `yaml:"coalesce"`        // Request coalescing (singleflight)
 	Canary         CanaryConfig         `yaml:"canary"`          // Canary deployment with automated rollback
+	ExtAuth        ExtAuthConfig        `yaml:"ext_auth"`        // External auth service
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -487,6 +488,26 @@ type CanaryAnalysisConfig struct {
 	LatencyThreshold time.Duration `yaml:"latency_threshold"` // max p99
 	MinRequests      int           `yaml:"min_requests"`      // min samples before eval
 	Interval         time.Duration `yaml:"interval"`          // eval frequency
+}
+
+// ExtAuthConfig configures external authentication for a route.
+type ExtAuthConfig struct {
+	Enabled         bool             `yaml:"enabled"`
+	URL             string           `yaml:"url"`               // http:// or grpc:// URL
+	Timeout         time.Duration    `yaml:"timeout"`            // default 5s
+	FailOpen        bool             `yaml:"fail_open"`          // allow on error (default false = fail closed)
+	HeadersToSend   []string         `yaml:"headers_to_send"`    // request headers to forward (empty = all)
+	HeadersToInject []string         `yaml:"headers_to_inject"`  // auth response headers to copy to upstream (empty = all from auth response)
+	CacheTTL        time.Duration    `yaml:"cache_ttl"`          // cache successful auth results (0 = no cache)
+	TLS             ExtAuthTLSConfig `yaml:"tls"`
+}
+
+// ExtAuthTLSConfig configures TLS for ext auth connections.
+type ExtAuthTLSConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	CAFile   string `yaml:"ca_file"`
+	CertFile string `yaml:"cert_file"` // for mTLS
+	KeyFile  string `yaml:"key_file"`  // for mTLS
 }
 
 // BodyTransformConfig defines request/response body transformation settings (Feature 13)

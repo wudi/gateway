@@ -107,6 +107,7 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /load-balancers` | Load balancer info (algorithm, backend states) |
 | `GET /canary` | Canary deployment status per route |
 | `POST /canary/{route}/{action}` | Control canary (start, pause, resume, promote, rollback) |
+| `GET /ext-auth` | External auth metrics (total, allowed, denied, errors, cache hits, latencies) |
 
 ### Example: Querying Feature Endpoints
 

@@ -22,6 +22,7 @@ import (
 	"github.com/example/gateway/internal/middleware"
 	"github.com/example/gateway/internal/middleware/auth"
 	"github.com/example/gateway/internal/middleware/compression"
+	"github.com/example/gateway/internal/middleware/extauth"
 	"github.com/example/gateway/internal/middleware/cors"
 	"github.com/example/gateway/internal/middleware/mtls"
 	"github.com/example/gateway/internal/middleware/ipfilter"
@@ -92,6 +93,7 @@ type Gateway struct {
 	coalescers             *coalesce.CoalesceByRoute
 	canaryControllers      *canary.CanaryByRoute
 	adaptiveLimiters       *trafficshape.AdaptiveConcurrencyByRoute
+	extAuths               *extauth.ExtAuthByRoute
 
 	features []Feature
 
@@ -154,6 +156,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		coalescers:         coalesce.NewCoalesceByRoute(),
 		canaryControllers:  canary.NewCanaryByRoute(),
 		adaptiveLimiters:   trafficshape.NewAdaptiveConcurrencyByRoute(),
+		extAuths:           extauth.NewExtAuthByRoute(),
 		routeProxies:      make(map[string]*proxy.RouteProxy),
 		routeHandlers:    make(map[string]http.Handler),
 		watchCancels:     make(map[string]context.CancelFunc),
@@ -183,6 +186,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&graphqlFeature{g.graphqlParsers},
 		&coalesceFeature{g.coalescers},
 		&canaryFeature{g.canaryControllers},
+		&extAuthFeature{g.extAuths},
 	}
 
 	// Initialize global IP filter
@@ -520,6 +524,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 	// 6. authMW — authenticate (Step 3)
 	if route.Auth.Required {
 		chain = chain.Use(authMW(g, route.Auth))
+	}
+
+	// 6.25 extAuthMW — external auth service (after built-in auth, before priority)
+	if ea := g.extAuths.GetAuth(routeID); ea != nil {
+		chain = chain.Use(extAuthMW(ea))
 	}
 
 	// 6.5 priorityMW — admission control (after auth, needs Identity)
@@ -873,6 +882,9 @@ func (g *Gateway) Close() error {
 	// Stop adaptive concurrency limiters
 	g.adaptiveLimiters.StopAll()
 
+	// Close ext auth clients
+	g.extAuths.CloseAll()
+
 	// Close protocol translators
 	g.translators.Close()
 
@@ -1001,6 +1013,11 @@ func (g *Gateway) GetCanaryControllers() *canary.CanaryByRoute {
 // GetAdaptiveLimiters returns the adaptive concurrency limiter manager.
 func (g *Gateway) GetAdaptiveLimiters() *trafficshape.AdaptiveConcurrencyByRoute {
 	return g.adaptiveLimiters
+}
+
+// GetExtAuths returns the ext auth manager.
+func (g *Gateway) GetExtAuths() *extauth.ExtAuthByRoute {
+	return g.extAuths
 }
 
 // GetLoadBalancerInfo returns per-route load balancer algorithm and stats.

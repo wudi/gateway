@@ -68,6 +68,83 @@ authentication:
     cache_ttl: 5m
 ```
 
+## External Auth (ExtAuth)
+
+Delegates authentication decisions to an external HTTP or gRPC service. This is the "ForwardAuth" / "ext_authz" pattern used by Traefik, Envoy, and NGINX. The gateway sends request metadata to the external service and acts on its allow/deny response.
+
+### HTTP Mode
+
+```yaml
+routes:
+  - id: "protected"
+    path: "/api"
+    path_prefix: true
+    backends:
+      - url: "http://backend:9000"
+    ext_auth:
+      enabled: true
+      url: "http://auth-service:8080/authorize"
+      timeout: 3s
+      fail_open: false
+      headers_to_send:
+        - "Authorization"
+        - "X-Forwarded-For"
+        - "Cookie"
+      headers_to_inject:
+        - "X-Auth-User"
+        - "X-Auth-Roles"
+      cache_ttl: 30s
+```
+
+The gateway sends a POST request to the auth URL with a JSON body containing the request method, path, and selected headers. A `200` response means allow; any other status means deny, and the status code and body are returned to the client.
+
+### gRPC Mode
+
+```yaml
+    ext_auth:
+      enabled: true
+      url: "grpc://auth-service:50051"
+      timeout: 3s
+      tls:
+        enabled: true
+        ca_file: "/certs/ca.pem"
+```
+
+The gateway invokes `/extauth.AuthService/Check` using a JSON codec. The request and response are JSON-encoded `CheckRequest`/`CheckResponse` structs.
+
+### Header Injection
+
+On allow, the auth service can return response headers that get injected into the upstream request. Use `headers_to_inject` to limit which headers are copied (empty = all headers from the auth response).
+
+### Fail-Open vs Fail-Closed
+
+- **`fail_open: false`** (default): If the auth service is unreachable or returns an error, the request is denied with `502 Bad Gateway`.
+- **`fail_open: true`**: If the auth service is unreachable, the request is allowed to proceed.
+
+### Caching
+
+Set `cache_ttl` to cache successful auth results. The cache key is computed from the request method, path, and selected headers. Only allow results are cached; deny results are never cached.
+
+### Combining with Built-in Auth
+
+ExtAuth runs **after** built-in auth (JWT, API Key, OAuth), so identity information from built-in providers is available to the ext auth service via forwarded headers. Both can be used on the same route.
+
+### Key Config Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `ext_auth.enabled` | bool | false | Enable external auth |
+| `ext_auth.url` | string | | Auth service URL (`http://`, `https://`, or `grpc://`) |
+| `ext_auth.timeout` | duration | 5s | Request timeout |
+| `ext_auth.fail_open` | bool | false | Allow on auth service error |
+| `ext_auth.headers_to_send` | []string | all | Request headers to forward |
+| `ext_auth.headers_to_inject` | []string | all | Auth response headers to inject upstream |
+| `ext_auth.cache_ttl` | duration | 0 | Cache TTL (0 = disabled) |
+| `ext_auth.tls.enabled` | bool | false | Enable TLS |
+| `ext_auth.tls.ca_file` | string | | CA certificate file |
+| `ext_auth.tls.cert_file` | string | | Client certificate (mTLS) |
+| `ext_auth.tls.key_file` | string | | Client key (mTLS) |
+
 ## mTLS (Client Certificates)
 
 When mTLS is enabled on a listener, client certificate fields are extracted and made available as variables and in the rules engine:

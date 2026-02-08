@@ -518,6 +518,26 @@ See [Canary Deployments](canary-deployments.md) for full documentation.
         subscription: int
 ```
 
+### External Auth
+
+```yaml
+    ext_auth:
+      enabled: bool
+      url: string              # http://, https://, or grpc:// URL
+      timeout: duration        # default 5s
+      fail_open: bool          # default false (fail closed)
+      headers_to_send: [string]   # request headers to forward (empty = all)
+      headers_to_inject: [string] # response headers to inject upstream (empty = all)
+      cache_ttl: duration      # 0 = no caching
+      tls:
+        enabled: bool
+        ca_file: string
+        cert_file: string      # for mTLS to auth service
+        key_file: string
+```
+
+**Validation:** `url` is required when enabled and must start with `http://`, `https://`, or `grpc://`. `timeout` and `cache_ttl` must be >= 0. TLS cannot be used with `http://` URLs.
+
 ---
 
 ## TCP Routes

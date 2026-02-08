@@ -9,6 +9,7 @@ import (
 	"github.com/example/gateway/internal/graphql"
 	"github.com/example/gateway/internal/middleware/compression"
 	"github.com/example/gateway/internal/middleware/cors"
+	"github.com/example/gateway/internal/middleware/extauth"
 	"github.com/example/gateway/internal/middleware/ipfilter"
 	"github.com/example/gateway/internal/middleware/validation"
 	"github.com/example/gateway/internal/middleware/waf"
@@ -278,3 +279,16 @@ func (f *canaryFeature) Name() string                                    { retur
 func (f *canaryFeature) Setup(routeID string, cfg config.RouteConfig) error { return nil }
 func (f *canaryFeature) RouteIDs() []string                              { return f.m.RouteIDs() }
 func (f *canaryFeature) AdminStats() any                                 { return f.m.Stats() }
+
+// extAuthFeature wraps ExtAuthByRoute.
+type extAuthFeature struct{ m *extauth.ExtAuthByRoute }
+
+func (f *extAuthFeature) Name() string { return "ext_auth" }
+func (f *extAuthFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.ExtAuth.Enabled {
+		return f.m.AddRoute(routeID, cfg.ExtAuth)
+	}
+	return nil
+}
+func (f *extAuthFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *extAuthFeature) AdminStats() any    { return f.m.Stats() }

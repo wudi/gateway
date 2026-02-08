@@ -16,6 +16,7 @@ import (
 	"github.com/example/gateway/internal/logging"
 	"github.com/example/gateway/internal/middleware/auth"
 	"github.com/example/gateway/internal/middleware/compression"
+	"github.com/example/gateway/internal/middleware/extauth"
 	"github.com/example/gateway/internal/middleware/cors"
 	"github.com/example/gateway/internal/middleware/ipfilter"
 	"github.com/example/gateway/internal/middleware/ratelimit"
@@ -73,6 +74,7 @@ type gatewayState struct {
 	coalescers           *coalesce.CoalesceByRoute
 	canaryControllers    *canary.CanaryByRoute
 	adaptiveLimiters     *trafficshape.AdaptiveConcurrencyByRoute
+	extAuths             *extauth.ExtAuthByRoute
 	translators          *protocol.TranslatorByRoute
 	rateLimiters      *ratelimit.RateLimitByRoute
 	grpcHandlers      map[string]*grpcproxy.Handler
@@ -110,6 +112,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		coalescers:         coalesce.NewCoalesceByRoute(),
 		canaryControllers:  canary.NewCanaryByRoute(),
 		adaptiveLimiters:   trafficshape.NewAdaptiveConcurrencyByRoute(),
+		extAuths:           extauth.NewExtAuthByRoute(),
 		translators:        protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
 		grpcHandlers:      make(map[string]*grpcproxy.Handler),
@@ -139,6 +142,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		&graphqlFeature{s.graphqlParsers},
 		&coalesceFeature{s.coalescers},
 		&canaryFeature{s.canaryControllers},
+		&extAuthFeature{s.extAuths},
 	}
 
 	// Initialize global IP filter
@@ -399,6 +403,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldCoalescers := g.coalescers
 	oldCanaryControllers := g.canaryControllers
 	oldAdaptiveLimiters := g.adaptiveLimiters
+	oldExtAuths := g.extAuths
 
 	// Install new state
 	g.ipFilters = s.ipFilters
@@ -424,6 +429,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.coalescers = s.coalescers
 	g.canaryControllers = s.canaryControllers
 	g.adaptiveLimiters = s.adaptiveLimiters
+	g.extAuths = s.extAuths
 
 	handler := g.buildRouteHandler(routeID, cfg, route, rp)
 
@@ -451,6 +457,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.coalescers = oldCoalescers
 	g.canaryControllers = oldCanaryControllers
 	g.adaptiveLimiters = oldAdaptiveLimiters
+	g.extAuths = oldExtAuths
 
 	return handler
 }
@@ -479,6 +486,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	oldJWT := g.jwtAuth
 	oldCanaryControllers := g.canaryControllers
 	oldAdaptiveLimiters := g.adaptiveLimiters
+	oldExtAuths := g.extAuths
 
 	// Swap all state under write lock
 	g.mu.Lock()
@@ -508,6 +516,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.coalescers = newState.coalescers
 	g.canaryControllers = newState.canaryControllers
 	g.adaptiveLimiters = newState.adaptiveLimiters
+	g.extAuths = newState.extAuths
 	g.translators = newState.translators
 	g.rateLimiters = newState.rateLimiters
 	g.grpcHandlers = newState.grpcHandlers
@@ -521,6 +530,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 		cancel()
 	}
 	oldTranslators.Close()
+	oldExtAuths.CloseAll()
 	oldCanaryControllers.StopAll()
 	oldAdaptiveLimiters.StopAll()
 	if oldJWT != nil {

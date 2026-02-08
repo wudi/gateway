@@ -449,6 +449,9 @@ func (s *Server) adminHandler() http.Handler {
 	// Adaptive concurrency
 	mux.HandleFunc("/adaptive-concurrency", s.handleAdaptiveConcurrency)
 
+	// External auth stats
+	mux.HandleFunc("/ext-auth", s.handleExtAuth)
+
 	// Canary deployments
 	mux.HandleFunc("/canary", s.handleCanary)
 	mux.HandleFunc("/canary/", s.handleCanaryAction)
@@ -901,6 +904,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["canary"] = canaryStats
 	}
 
+	// Ext auth
+	if extAuthStats := s.gateway.GetExtAuths().Stats(); len(extAuthStats) > 0 {
+		dashboard["ext_auth"] = extAuthStats
+	}
+
 	// Tracing
 	if tracer := s.gateway.GetTracer(); tracer != nil {
 		dashboard["tracing"] = tracer.Status()
@@ -983,6 +991,12 @@ func (s *Server) handleProtocolTranslators(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Content-Type", "application/json")
 	stats := s.gateway.GetTranslators().Stats()
 	json.NewEncoder(w).Encode(stats)
+}
+
+// handleExtAuth handles ext auth stats requests
+func (s *Server) handleExtAuth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetExtAuths().Stats())
 }
 
 // handleCanary lists all canary deployments with status.

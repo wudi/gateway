@@ -540,6 +540,27 @@ func (l *Loader) validate(cfg *Config) error {
 			}
 		}
 
+		// Validate ext_auth config
+		if route.ExtAuth.Enabled {
+			if route.ExtAuth.URL == "" {
+				return fmt.Errorf("route %s: ext_auth.url is required when enabled", route.ID)
+			}
+			if !strings.HasPrefix(route.ExtAuth.URL, "http://") &&
+				!strings.HasPrefix(route.ExtAuth.URL, "https://") &&
+				!strings.HasPrefix(route.ExtAuth.URL, "grpc://") {
+				return fmt.Errorf("route %s: ext_auth.url must start with http://, https://, or grpc://", route.ID)
+			}
+			if route.ExtAuth.Timeout < 0 {
+				return fmt.Errorf("route %s: ext_auth.timeout must be >= 0", route.ID)
+			}
+			if route.ExtAuth.CacheTTL < 0 {
+				return fmt.Errorf("route %s: ext_auth.cache_ttl must be >= 0", route.ID)
+			}
+			if route.ExtAuth.TLS.Enabled && strings.HasPrefix(route.ExtAuth.URL, "http://") {
+				return fmt.Errorf("route %s: ext_auth.tls cannot be used with http:// URL", route.ID)
+			}
+		}
+
 		// Validate body transforms
 		if err := l.validateBodyTransform(route.ID, "request", route.Transform.Request.Body); err != nil {
 			return err

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/example/gateway/internal/cache"
+	"github.com/example/gateway/internal/middleware/extauth"
 	"github.com/example/gateway/internal/canary"
 	"github.com/example/gateway/internal/circuitbreaker"
 	"github.com/example/gateway/internal/coalesce"
@@ -69,6 +70,41 @@ func authMW(g *Gateway, cfg router.RouteAuth) middleware.Middleware {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !g.authenticate(w, r, cfg.Methods) {
 				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// 3.5. extAuthMW calls an external auth service before allowing the request.
+func extAuthMW(ea *extauth.ExtAuth) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			result, err := ea.Check(r)
+			if err != nil {
+				errors.ErrBadGateway.WriteJSON(w)
+				return
+			}
+			if !result.Allowed {
+				// Copy denied headers
+				for k, vv := range result.DeniedHeaders {
+					for _, v := range vv {
+						w.Header().Add(k, v)
+					}
+				}
+				status := result.DeniedStatus
+				if status == 0 {
+					status = http.StatusForbidden
+				}
+				w.WriteHeader(status)
+				if len(result.DeniedBody) > 0 {
+					w.Write(result.DeniedBody)
+				}
+				return
+			}
+			// Inject headers from auth service into upstream request
+			for k, v := range result.HeadersToInject {
+				r.Header.Set(k, v)
 			}
 			next.ServeHTTP(w, r)
 		})
