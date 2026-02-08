@@ -471,6 +471,14 @@ See [Canary Deployments](canary-deployments.md) for full documentation.
         abort:
           percentage: int       # 0-100
           status_code: int      # 100-599
+      adaptive_concurrency:
+        enabled: bool
+        min_concurrency: int      # default 5
+        max_concurrency: int      # default 1000
+        latency_tolerance: float  # default 2.0, must be >= 1.0
+        adjustment_interval: duration  # default 5s
+        smoothing_factor: float   # default 0.5, 0 < x < 1
+        min_latency_samples: int  # default 25
 ```
 
 ### WAF (per-route)
@@ -604,6 +612,14 @@ traffic_shaping:
     abort:
       percentage: int
       status_code: int
+  adaptive_concurrency:
+    enabled: bool
+    min_concurrency: int      # default 5
+    max_concurrency: int      # default 1000
+    latency_tolerance: float  # default 2.0, must be >= 1.0
+    adjustment_interval: duration  # default 5s
+    smoothing_factor: float   # default 0.5, 0 < x < 1
+    min_latency_samples: int  # default 25
 ```
 
 ---

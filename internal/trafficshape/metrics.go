@@ -32,3 +32,15 @@ type FaultInjectionSnapshot struct {
 	TotalAborted  int64 `json:"total_aborted"`
 	TotalDelayNs  int64 `json:"total_delay_ns"`
 }
+
+// AdaptiveConcurrencySnapshot contains point-in-time adaptive concurrency metrics.
+type AdaptiveConcurrencySnapshot struct {
+	CurrentLimit  int64   `json:"current_limit"`
+	InFlight      int64   `json:"in_flight"`
+	EWMALatencyMs float64 `json:"ewma_latency_ms"`
+	MinLatencyMs  float64 `json:"min_latency_ms"`
+	Samples       int64   `json:"samples"`
+	TotalRequests int64   `json:"total_requests"`
+	TotalAdmitted int64   `json:"total_admitted"`
+	TotalRejected int64   `json:"total_rejected"`
+}

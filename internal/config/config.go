@@ -640,10 +640,22 @@ type RewriteActionConfig struct {
 
 // TrafficShapingConfig defines traffic shaping settings.
 type TrafficShapingConfig struct {
-	Throttle       ThrottleConfig       `yaml:"throttle"`
-	Bandwidth      BandwidthConfig      `yaml:"bandwidth"`
-	Priority       PriorityConfig       `yaml:"priority"`
-	FaultInjection FaultInjectionConfig `yaml:"fault_injection"`
+	Throttle             ThrottleConfig             `yaml:"throttle"`
+	Bandwidth            BandwidthConfig            `yaml:"bandwidth"`
+	Priority             PriorityConfig             `yaml:"priority"`
+	FaultInjection       FaultInjectionConfig       `yaml:"fault_injection"`
+	AdaptiveConcurrency  AdaptiveConcurrencyConfig  `yaml:"adaptive_concurrency"`
+}
+
+// AdaptiveConcurrencyConfig defines adaptive concurrency limiting settings.
+type AdaptiveConcurrencyConfig struct {
+	Enabled            bool          `yaml:"enabled"`
+	MinConcurrency     int           `yaml:"min_concurrency"`
+	MaxConcurrency     int           `yaml:"max_concurrency"`
+	LatencyTolerance   float64       `yaml:"latency_tolerance"`
+	AdjustmentInterval time.Duration `yaml:"adjustment_interval"`
+	SmoothingFactor    float64       `yaml:"smoothing_factor"`
+	MinLatencySamples  int           `yaml:"min_latency_samples"`
 }
 
 // ThrottleConfig defines request throttling settings.

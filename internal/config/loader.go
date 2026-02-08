@@ -574,6 +574,24 @@ func (l *Loader) validateTrafficShaping(cfg TrafficShapingConfig, scope string) 
 			return fmt.Errorf("%s: fault_injection abort status_code must be between 100 and 599", scope)
 		}
 	}
+	if cfg.AdaptiveConcurrency.Enabled {
+		if cfg.AdaptiveConcurrency.MinConcurrency < 0 {
+			return fmt.Errorf("%s: adaptive_concurrency min_concurrency must be >= 0", scope)
+		}
+		if cfg.AdaptiveConcurrency.MaxConcurrency < 0 {
+			return fmt.Errorf("%s: adaptive_concurrency max_concurrency must be >= 0", scope)
+		}
+		if cfg.AdaptiveConcurrency.MinConcurrency > 0 && cfg.AdaptiveConcurrency.MaxConcurrency > 0 &&
+			cfg.AdaptiveConcurrency.MinConcurrency > cfg.AdaptiveConcurrency.MaxConcurrency {
+			return fmt.Errorf("%s: adaptive_concurrency min_concurrency must be <= max_concurrency", scope)
+		}
+		if cfg.AdaptiveConcurrency.LatencyTolerance != 0 && cfg.AdaptiveConcurrency.LatencyTolerance < 1.0 {
+			return fmt.Errorf("%s: adaptive_concurrency latency_tolerance must be >= 1.0", scope)
+		}
+		if cfg.AdaptiveConcurrency.SmoothingFactor != 0 && (cfg.AdaptiveConcurrency.SmoothingFactor <= 0 || cfg.AdaptiveConcurrency.SmoothingFactor >= 1) {
+			return fmt.Errorf("%s: adaptive_concurrency smoothing_factor must be between 0 and 1 (exclusive)", scope)
+		}
+	}
 	return nil
 }
 

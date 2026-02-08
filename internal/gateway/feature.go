@@ -249,6 +249,26 @@ func (f *coalesceFeature) Setup(routeID string, cfg config.RouteConfig) error {
 func (f *coalesceFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *coalesceFeature) AdminStats() any     { return f.m.Stats() }
 
+// adaptiveConcurrencyFeature wraps AdaptiveConcurrencyByRoute.
+type adaptiveConcurrencyFeature struct {
+	m      *trafficshape.AdaptiveConcurrencyByRoute
+	global *config.AdaptiveConcurrencyConfig
+}
+
+func (f *adaptiveConcurrencyFeature) Name() string { return "adaptive_concurrency" }
+func (f *adaptiveConcurrencyFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	ac := cfg.TrafficShaping.AdaptiveConcurrency
+	if ac.Enabled {
+		merged := trafficshape.MergeAdaptiveConcurrencyConfig(ac, *f.global)
+		f.m.AddRoute(routeID, merged)
+	} else if f.global.Enabled {
+		f.m.AddRoute(routeID, *f.global)
+	}
+	return nil
+}
+func (f *adaptiveConcurrencyFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *adaptiveConcurrencyFeature) AdminStats() any     { return f.m.Stats() }
+
 // canaryFeature wraps CanaryByRoute.
 // Setup is a no-op because canary needs the WeightedBalancer reference which is
 // only available after the route proxy is created. Actual setup happens in addRoute().

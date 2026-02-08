@@ -265,6 +265,23 @@ func circuitBreakerMW(cb *circuitbreaker.Breaker, isGRPC bool) middleware.Middle
 	}
 }
 
+// 10.5. adaptiveConcurrencyMW enforces adaptive concurrency limits.
+func adaptiveConcurrencyMW(al *trafficshape.AdaptiveLimiter) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			release, ok := al.Allow()
+			if !ok {
+				errors.ErrServiceUnavailable.WithDetails("Adaptive concurrency limit reached").WriteJSON(w)
+				return
+			}
+			start := time.Now()
+			rec := &statusRecorder{ResponseWriter: w, statusCode: 200}
+			next.ServeHTTP(rec, r)
+			release(rec.statusCode, time.Since(start))
+		})
+	}
+}
+
 // 11. compressionMW wraps the response writer with gzip compression.
 func compressionMW(c *compression.Compressor) middleware.Middleware {
 	return func(next http.Handler) http.Handler {

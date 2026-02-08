@@ -97,6 +97,7 @@ The request handling order in `gateway.go:serveHTTP()` is:
 6. Cache HIT check (returns early if hit)
 6.5. Request coalescing — singleflight dedup of concurrent identical cache misses (shares response, timeout fallback)
 7. Circuit breaker check (returns 503 if open)
+7.5. Adaptive concurrency limiting — AIMD-based concurrency control (returns 503 when at limit)
 8. Conditional ResponseWriter wrapping
 8.5. RulesResponseWriter wrapping (if response rules exist)
 9. Request transformations
@@ -108,4 +109,4 @@ The request handling order in `gateway.go:serveHTTP()` is:
 12. Store cacheable response
 13. Metrics
 
-Do not reorder these steps. Throttle must be after rate limiting (rejected requests never enter the queue). Priority must be after auth (so `Identity.ClientID` is available for level determination). Bandwidth must be after body limit and before validation/websocket. WebSocket must be before cache/circuit breaker. Cache check must be before coalescing and circuit breaker (a cache hit avoids touching the backend entirely). Coalescing must be after cache (only cache misses are coalesced) and before circuit breaker (coalesced requests share circuit breaker outcomes). Circuit breaker recording must happen after the proxy call completes. Request rules must be after auth (so `auth.*` fields are populated). Response rules must be before circuit breaker outcome recording and cache store.
+Do not reorder these steps. Throttle must be after rate limiting (rejected requests never enter the queue). Priority must be after auth (so `Identity.ClientID` is available for level determination). Bandwidth must be after body limit and before validation/websocket. WebSocket must be before cache/circuit breaker. Cache check must be before coalescing and circuit breaker (a cache hit avoids touching the backend entirely). Coalescing must be after cache (only cache misses are coalesced) and before circuit breaker (coalesced requests share circuit breaker outcomes). Circuit breaker recording must happen after the proxy call completes. Request rules must be after auth (so `auth.*` fields are populated). Response rules must be before circuit breaker outcome recording and cache store. Adaptive concurrency must be after circuit breaker (when circuit breaker is open, requests don't reach the limiter) and before compression (measured latency should include the proxy round-trip).

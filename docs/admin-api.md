@@ -95,7 +95,8 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /retries` | Retry metrics per route (attempts, budget exhaustion, hedged requests) |
 | `GET /rules` | Rules engine status (global + per-route rules and metrics) |
 | `GET /protocol-translators` | gRPC translator statistics |
-| `GET /traffic-shaping` | Throttle, bandwidth, priority, and fault injection stats |
+| `GET /traffic-shaping` | Throttle, bandwidth, priority, fault injection, and adaptive concurrency stats |
+| `GET /adaptive-concurrency` | Adaptive concurrency limiter stats (limit, in-flight, EWMA, rejections) |
 | `GET /mirrors` | Mirror metrics (counts, latencies, comparisons) |
 | `GET /traffic-splits` | Traffic split distribution per route |
 | `GET /rate-limits` | Rate limiter mode per route (local/distributed) |

@@ -446,6 +446,9 @@ func (s *Server) adminHandler() http.Handler {
 	// Coalesce stats
 	mux.HandleFunc("/coalesce", s.handleCoalesce)
 
+	// Adaptive concurrency
+	mux.HandleFunc("/adaptive-concurrency", s.handleAdaptiveConcurrency)
+
 	// Canary deployments
 	mux.HandleFunc("/canary", s.handleCanary)
 	mux.HandleFunc("/canary/", s.handleCanaryAction)
@@ -777,6 +780,9 @@ func (s *Server) handleTrafficShaping(w http.ResponseWriter, r *http.Request) {
 	if fiStats := s.gateway.GetFaultInjectors().Stats(); len(fiStats) > 0 {
 		result["fault_injection"] = fiStats
 	}
+	if acStats := s.gateway.GetAdaptiveLimiters().Stats(); len(acStats) > 0 {
+		result["adaptive_concurrency"] = acStats
+	}
 
 	json.NewEncoder(w).Encode(result)
 }
@@ -879,6 +885,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["coalesce"] = coalesceStats
 	}
 
+	// Adaptive concurrency
+	if acStats := s.gateway.GetAdaptiveLimiters().Stats(); len(acStats) > 0 {
+		dashboard["adaptive_concurrency"] = acStats
+	}
+
 	// Canary deployments
 	if canaryStats := s.gateway.GetCanaryControllers().Stats(); len(canaryStats) > 0 {
 		dashboard["canary"] = canaryStats
@@ -920,6 +931,13 @@ func (s *Server) handleWAF(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGraphQL(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	stats := s.gateway.GetGraphQLParsers().Stats()
+	json.NewEncoder(w).Encode(stats)
+}
+
+// handleAdaptiveConcurrency handles adaptive concurrency stats requests
+func (s *Server) handleAdaptiveConcurrency(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	stats := s.gateway.GetAdaptiveLimiters().Stats()
 	json.NewEncoder(w).Encode(stats)
 }
 

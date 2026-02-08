@@ -70,9 +70,10 @@ type gatewayState struct {
 	faultInjectors    *trafficshape.FaultInjectionByRoute
 	wafHandlers       *waf.WAFByRoute
 	graphqlParsers    *graphql.GraphQLByRoute
-	coalescers         *coalesce.CoalesceByRoute
-	canaryControllers  *canary.CanaryByRoute
-	translators        *protocol.TranslatorByRoute
+	coalescers           *coalesce.CoalesceByRoute
+	canaryControllers    *canary.CanaryByRoute
+	adaptiveLimiters     *trafficshape.AdaptiveConcurrencyByRoute
+	translators          *protocol.TranslatorByRoute
 	rateLimiters      *ratelimit.RateLimitByRoute
 	grpcHandlers      map[string]*grpcproxy.Handler
 
@@ -108,6 +109,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		graphqlParsers:    graphql.NewGraphQLByRoute(),
 		coalescers:         coalesce.NewCoalesceByRoute(),
 		canaryControllers:  canary.NewCanaryByRoute(),
+		adaptiveLimiters:   trafficshape.NewAdaptiveConcurrencyByRoute(),
 		translators:        protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
 		grpcHandlers:      make(map[string]*grpcproxy.Handler),
@@ -132,6 +134,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		&bandwidthFeature{m: s.bandwidthLimiters, global: &cfg.TrafficShaping.Bandwidth},
 		&priorityFeature{m: s.priorityConfigs, global: &cfg.TrafficShaping.Priority},
 		&faultInjectionFeature{m: s.faultInjectors, global: &cfg.TrafficShaping.FaultInjection},
+		&adaptiveConcurrencyFeature{m: s.adaptiveLimiters, global: &cfg.TrafficShaping.AdaptiveConcurrency},
 		&wafFeature{s.wafHandlers},
 		&graphqlFeature{s.graphqlParsers},
 		&coalesceFeature{s.coalescers},
@@ -388,6 +391,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldGraphqlParsers := g.graphqlParsers
 	oldCoalescers := g.coalescers
 	oldCanaryControllers := g.canaryControllers
+	oldAdaptiveLimiters := g.adaptiveLimiters
 
 	// Install new state
 	g.ipFilters = s.ipFilters
@@ -412,6 +416,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.graphqlParsers = s.graphqlParsers
 	g.coalescers = s.coalescers
 	g.canaryControllers = s.canaryControllers
+	g.adaptiveLimiters = s.adaptiveLimiters
 
 	handler := g.buildRouteHandler(routeID, cfg, route, rp)
 
@@ -438,6 +443,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.graphqlParsers = oldGraphqlParsers
 	g.coalescers = oldCoalescers
 	g.canaryControllers = oldCanaryControllers
+	g.adaptiveLimiters = oldAdaptiveLimiters
 
 	return handler
 }
@@ -465,6 +471,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	oldTranslators := g.translators
 	oldJWT := g.jwtAuth
 	oldCanaryControllers := g.canaryControllers
+	oldAdaptiveLimiters := g.adaptiveLimiters
 
 	// Swap all state under write lock
 	g.mu.Lock()
@@ -493,6 +500,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.graphqlParsers = newState.graphqlParsers
 	g.coalescers = newState.coalescers
 	g.canaryControllers = newState.canaryControllers
+	g.adaptiveLimiters = newState.adaptiveLimiters
 	g.translators = newState.translators
 	g.rateLimiters = newState.rateLimiters
 	g.grpcHandlers = newState.grpcHandlers
@@ -507,6 +515,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	}
 	oldTranslators.Close()
 	oldCanaryControllers.StopAll()
+	oldAdaptiveLimiters.StopAll()
 	if oldJWT != nil {
 		oldJWT.Close()
 	}

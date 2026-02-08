@@ -91,8 +91,9 @@ type Gateway struct {
 	faultInjectors    *trafficshape.FaultInjectionByRoute
 	wafHandlers       *waf.WAFByRoute
 	graphqlParsers    *graphql.GraphQLByRoute
-	coalescers         *coalesce.CoalesceByRoute
-	canaryControllers  *canary.CanaryByRoute
+	coalescers             *coalesce.CoalesceByRoute
+	canaryControllers      *canary.CanaryByRoute
+	adaptiveLimiters       *trafficshape.AdaptiveConcurrencyByRoute
 
 	features []Feature
 
@@ -154,6 +155,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		graphqlParsers:    graphql.NewGraphQLByRoute(),
 		coalescers:         coalesce.NewCoalesceByRoute(),
 		canaryControllers:  canary.NewCanaryByRoute(),
+		adaptiveLimiters:   trafficshape.NewAdaptiveConcurrencyByRoute(),
 		routeProxies:      make(map[string]*proxy.RouteProxy),
 		routeHandlers:    make(map[string]http.Handler),
 		watchCancels:     make(map[string]context.CancelFunc),
@@ -178,6 +180,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&bandwidthFeature{m: g.bandwidthLimiters, global: &cfg.TrafficShaping.Bandwidth},
 		&priorityFeature{m: g.priorityConfigs, global: &cfg.TrafficShaping.Priority},
 		&faultInjectionFeature{m: g.faultInjectors, global: &cfg.TrafficShaping.FaultInjection},
+		&adaptiveConcurrencyFeature{m: g.adaptiveLimiters, global: &cfg.TrafficShaping.AdaptiveConcurrency},
 		&wafFeature{g.wafHandlers},
 		&graphqlFeature{g.graphqlParsers},
 		&coalesceFeature{g.coalescers},
@@ -582,6 +585,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		chain = chain.Use(circuitBreakerMW(cb, isGRPC))
 	}
 
+	// 12.5. adaptiveConcurrencyMW — AIMD concurrency limiting
+	if al := g.adaptiveLimiters.GetLimiter(routeID); al != nil {
+		chain = chain.Use(adaptiveConcurrencyMW(al))
+	}
+
 	// 13. compressionMW — wrap writer (Step 8)
 	if compressor := g.compressors.GetCompressor(routeID); compressor != nil && compressor.IsEnabled() {
 		chain = chain.Use(compressionMW(compressor))
@@ -900,6 +908,9 @@ func (g *Gateway) Close() error {
 	// Stop canary controllers
 	g.canaryControllers.StopAll()
 
+	// Stop adaptive concurrency limiters
+	g.adaptiveLimiters.StopAll()
+
 	// Close protocol translators
 	g.translators.Close()
 
@@ -1023,6 +1034,11 @@ func (g *Gateway) GetCoalescers() *coalesce.CoalesceByRoute {
 // GetCanaryControllers returns the canary controller manager.
 func (g *Gateway) GetCanaryControllers() *canary.CanaryByRoute {
 	return g.canaryControllers
+}
+
+// GetAdaptiveLimiters returns the adaptive concurrency limiter manager.
+func (g *Gateway) GetAdaptiveLimiters() *trafficshape.AdaptiveConcurrencyByRoute {
+	return g.adaptiveLimiters
 }
 
 // GetLoadBalancerInfo returns per-route load balancer algorithm and stats.
