@@ -102,6 +102,7 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /tracing` | Tracing/OTEL status |
 | `GET /waf` | WAF statistics (blocks, detections) |
 | `GET /graphql` | GraphQL parser statistics (depth/complexity checks) |
+| `GET /coalesce` | Request coalescing stats (groups, coalesced requests, timeouts) |
 | `GET /load-balancers` | Load balancer info (algorithm, backend states) |
 
 ### Example: Querying Feature Endpoints

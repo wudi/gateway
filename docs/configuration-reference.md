@@ -222,6 +222,18 @@ routes:
       key_headers: [string]     # extra headers in cache key
 ```
 
+### Coalesce (Request Coalescing)
+
+```yaml
+    coalesce:
+      enabled: bool
+      timeout: duration         # max wait for coalesced requests (default 30s, >= 0)
+      key_headers: [string]     # headers included in coalesce key
+      methods: [string]         # eligible methods (default ["GET", "HEAD"])
+```
+
+**Validation:** `timeout` must be >= 0. `methods` must be valid HTTP methods.
+
 ### WebSocket
 
 ```yaml

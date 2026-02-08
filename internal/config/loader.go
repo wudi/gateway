@@ -335,6 +335,24 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate coalesce config
+	validHTTPMethods := map[string]bool{
+		"GET": true, "HEAD": true, "POST": true, "PUT": true,
+		"DELETE": true, "PATCH": true, "OPTIONS": true,
+	}
+	for _, route := range cfg.Routes {
+		if route.Coalesce.Enabled {
+			if route.Coalesce.Timeout < 0 {
+				return fmt.Errorf("route %s: coalesce timeout must be >= 0", route.ID)
+			}
+			for _, m := range route.Coalesce.Methods {
+				if !validHTTPMethods[m] {
+					return fmt.Errorf("route %s: coalesce methods contains invalid HTTP method: %s", route.ID, m)
+				}
+			}
+		}
+	}
+
 	// Validate DNS resolver config
 	if len(cfg.DNSResolver.Nameservers) > 0 {
 		for i, ns := range cfg.DNSResolver.Nameservers {

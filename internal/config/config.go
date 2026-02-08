@@ -238,6 +238,7 @@ type RouteConfig struct {
 	LoadBalancer   string               `yaml:"load_balancer"`   // "round_robin"|"least_conn"|"consistent_hash"|"least_response_time"
 	ConsistentHash ConsistentHashConfig `yaml:"consistent_hash"` // Config for consistent_hash LB
 	GraphQL        GraphQLConfig        `yaml:"graphql"`         // GraphQL query analysis and protection
+	Coalesce       CoalesceConfig       `yaml:"coalesce"`        // Request coalescing (singleflight)
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -455,6 +456,14 @@ type GraphQLConfig struct {
 	MaxComplexity   int            `yaml:"max_complexity"`   // 0 = unlimited
 	Introspection   bool           `yaml:"introspection"`    // allow introspection (default false)
 	OperationLimits map[string]int `yaml:"operation_limits"` // e.g. {"query": 100, "mutation": 10} req/s
+}
+
+// CoalesceConfig defines request coalescing (singleflight) settings.
+type CoalesceConfig struct {
+	Enabled    bool          `yaml:"enabled"`
+	Timeout    time.Duration `yaml:"timeout"`      // max wait for coalesced requests (default 30s)
+	KeyHeaders []string      `yaml:"key_headers"`  // headers included in coalesce key
+	Methods    []string      `yaml:"methods"`      // eligible methods (default GET+HEAD)
 }
 
 // BodyTransformConfig defines request/response body transformation settings (Feature 13)

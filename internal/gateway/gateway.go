@@ -14,6 +14,7 @@ import (
 
 	"github.com/example/gateway/internal/cache"
 	"github.com/example/gateway/internal/circuitbreaker"
+	"github.com/example/gateway/internal/coalesce"
 	"github.com/example/gateway/internal/config"
 	"github.com/example/gateway/internal/errors"
 	"github.com/example/gateway/internal/graphql"
@@ -89,6 +90,7 @@ type Gateway struct {
 	faultInjectors    *trafficshape.FaultInjectionByRoute
 	wafHandlers       *waf.WAFByRoute
 	graphqlParsers    *graphql.GraphQLByRoute
+	coalescers        *coalesce.CoalesceByRoute
 
 	features []Feature
 
@@ -148,6 +150,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		faultInjectors:    trafficshape.NewFaultInjectionByRoute(),
 		wafHandlers:       waf.NewWAFByRoute(),
 		graphqlParsers:    graphql.NewGraphQLByRoute(),
+		coalescers:        coalesce.NewCoalesceByRoute(),
 		routeProxies:      make(map[string]*proxy.RouteProxy),
 		routeHandlers:    make(map[string]http.Handler),
 		watchCancels:     make(map[string]context.CancelFunc),
@@ -174,6 +177,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&faultInjectionFeature{m: g.faultInjectors, global: &cfg.TrafficShaping.FaultInjection},
 		&wafFeature{g.wafHandlers},
 		&graphqlFeature{g.graphqlParsers},
+		&coalesceFeature{g.coalescers},
 	}
 
 	// Initialize global IP filter
@@ -547,6 +551,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 	// 11. cacheMW — HIT check + store (Steps 6+12)
 	if cacheHandler := g.caches.GetHandler(routeID); cacheHandler != nil {
 		chain = chain.Use(cacheMW(cacheHandler, g.metricsCollector, routeID))
+	}
+
+	// 11.5. coalesceMW — singleflight dedup (between cache and circuit breaker)
+	if c := g.coalescers.GetCoalescer(routeID); c != nil {
+		chain = chain.Use(coalesceMW(c))
 	}
 
 	// 12. circuitBreakerMW — Allow + Done (Steps 7+11)
@@ -983,6 +992,11 @@ func (g *Gateway) GetMirrors() *mirror.MirrorByRoute {
 // GetGraphQLParsers returns the GraphQL parser manager.
 func (g *Gateway) GetGraphQLParsers() *graphql.GraphQLByRoute {
 	return g.graphqlParsers
+}
+
+// GetCoalescers returns the coalesce manager.
+func (g *Gateway) GetCoalescers() *coalesce.CoalesceByRoute {
+	return g.coalescers
 }
 
 // GetLoadBalancerInfo returns per-route load balancer algorithm and stats.

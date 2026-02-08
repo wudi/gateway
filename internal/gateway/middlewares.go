@@ -11,6 +11,7 @@ import (
 
 	"github.com/example/gateway/internal/cache"
 	"github.com/example/gateway/internal/circuitbreaker"
+	"github.com/example/gateway/internal/coalesce"
 	"github.com/example/gateway/internal/config"
 	"github.com/example/gateway/internal/errors"
 	"github.com/example/gateway/internal/loadbalancer"
@@ -216,6 +217,19 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 			}
 
 			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// 9.5. coalesceMW deduplicates concurrent identical requests via singleflight.
+func coalesceMW(c *coalesce.Coalescer) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !c.ShouldCoalesce(r) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			c.ServeCoalesced(w, r, next)
 		})
 	}
 }

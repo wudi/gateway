@@ -51,6 +51,66 @@ routes:
 
 Only `query` operations are cached — `mutation` and `subscription` operations always bypass the cache.
 
+## Request Coalescing (Singleflight)
+
+When many clients request the same uncached resource simultaneously (cache stampede / thundering herd), the gateway can deduplicate these requests using request coalescing. When N identical in-flight requests arrive concurrently, only **one** goes to the backend. The other N-1 wait and share the same response.
+
+Enable coalescing on a route:
+
+```yaml
+routes:
+  - id: "api"
+    path: "/api/products"
+    path_prefix: true
+    backends:
+      - url: "http://backend:9000"
+    cache:
+      enabled: true
+      ttl: 5m
+      max_size: 1000
+    coalesce:
+      enabled: true
+      timeout: 5s                            # max wait for coalesced requests (default 30s)
+      key_headers: ["Accept", "Authorization"]  # headers included in coalesce key
+      methods: ["GET", "HEAD"]               # eligible methods (default GET+HEAD)
+```
+
+### How It Works
+
+1. A cache MISS falls through to the coalescing layer
+2. The first request for a given key proceeds to the backend
+3. Subsequent identical requests wait for the first to complete
+4. All waiters receive the same response (and the response is cached for future requests)
+5. Coalesced responses include an `X-Coalesced: true` header
+
+### Timeout Behavior
+
+If the primary request takes longer than `coalesce.timeout`, waiting requests fall through and call the backend independently. This prevents unbounded waiting when backends are slow.
+
+### Coalesce Key
+
+The coalesce key is a SHA-256 hash of: HTTP method + path + query string + configured key headers. When [GraphQL analysis](graphql.md) is enabled, the operation name and variables hash are also included. Use `key_headers` to differentiate requests that need different responses (e.g., `Authorization` for user-specific data).
+
+### Pipeline Position
+
+Coalescing sits between the cache and the circuit breaker:
+
+```
+... → cacheMW → coalesceMW → circuitBreakerMW → ... → proxy
+```
+
+A cache HIT returns immediately (coalescing never fires). A cache MISS enters coalescing, which deduplicates the backend call. After the coalesced response completes, the cache stores it for future requests.
+
+### GraphQL Routes
+
+For GraphQL routes, add `POST` to the coalesce methods:
+
+```yaml
+    coalesce:
+      enabled: true
+      methods: ["GET", "POST"]
+```
+
 ## Cache Position in the Pipeline
 
 The cache check happens before the circuit breaker. A cache hit never touches the backend or the circuit breaker, so cached routes remain responsive even when backends are failing.
@@ -65,5 +125,9 @@ The cache check happens before the circuit breaker. A cache hit never touches th
 | `cache.max_body_size` | int64 | Max response body size to cache (bytes) |
 | `cache.methods` | []string | HTTP methods to cache (e.g., `["GET"]`) |
 | `cache.key_headers` | []string | Extra headers to include in cache key |
+| `coalesce.enabled` | bool | Enable request coalescing |
+| `coalesce.timeout` | duration | Max wait for coalesced requests (default 30s) |
+| `coalesce.key_headers` | []string | Headers included in coalesce key |
+| `coalesce.methods` | []string | Eligible HTTP methods (default `["GET", "HEAD"]`) |
 
 See [Configuration Reference](configuration-reference.md#routes) for all fields.

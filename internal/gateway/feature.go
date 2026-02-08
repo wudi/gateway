@@ -3,6 +3,7 @@ package gateway
 import (
 	"github.com/example/gateway/internal/cache"
 	"github.com/example/gateway/internal/circuitbreaker"
+	"github.com/example/gateway/internal/coalesce"
 	"github.com/example/gateway/internal/config"
 	"github.com/example/gateway/internal/graphql"
 	"github.com/example/gateway/internal/middleware/compression"
@@ -233,3 +234,16 @@ func (f *graphqlFeature) Setup(routeID string, cfg config.RouteConfig) error {
 }
 func (f *graphqlFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *graphqlFeature) AdminStats() any     { return f.m.Stats() }
+
+// coalesceFeature wraps CoalesceByRoute.
+type coalesceFeature struct{ m *coalesce.CoalesceByRoute }
+
+func (f *coalesceFeature) Name() string { return "coalesce" }
+func (f *coalesceFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.Coalesce.Enabled {
+		f.m.AddRoute(routeID, cfg.Coalesce)
+	}
+	return nil
+}
+func (f *coalesceFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *coalesceFeature) AdminStats() any     { return f.m.Stats() }

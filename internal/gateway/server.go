@@ -441,6 +441,9 @@ func (s *Server) adminHandler() http.Handler {
 	// GraphQL stats
 	mux.HandleFunc("/graphql", s.handleGraphQL)
 
+	// Coalesce stats
+	mux.HandleFunc("/coalesce", s.handleCoalesce)
+
 	// Aggregated dashboard
 	mux.HandleFunc("/dashboard", s.handleDashboard)
 
@@ -865,6 +868,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["waf"] = wafStats
 	}
 
+	// Coalesce
+	if coalesceStats := s.gateway.GetCoalescers().Stats(); len(coalesceStats) > 0 {
+		dashboard["coalesce"] = coalesceStats
+	}
+
 	// Tracing
 	if tracer := s.gateway.GetTracer(); tracer != nil {
 		dashboard["tracing"] = tracer.Status()
@@ -901,6 +909,13 @@ func (s *Server) handleWAF(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGraphQL(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	stats := s.gateway.GetGraphQLParsers().Stats()
+	json.NewEncoder(w).Encode(stats)
+}
+
+// handleCoalesce handles coalesce stats requests
+func (s *Server) handleCoalesce(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	stats := s.gateway.GetCoalescers().Stats()
 	json.NewEncoder(w).Encode(stats)
 }
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/example/gateway/internal/cache"
 	"github.com/example/gateway/internal/circuitbreaker"
+	"github.com/example/gateway/internal/coalesce"
 	"github.com/example/gateway/internal/config"
 	"github.com/example/gateway/internal/loadbalancer"
 	"github.com/example/gateway/internal/logging"
@@ -68,6 +69,7 @@ type gatewayState struct {
 	faultInjectors    *trafficshape.FaultInjectionByRoute
 	wafHandlers       *waf.WAFByRoute
 	graphqlParsers    *graphql.GraphQLByRoute
+	coalescers        *coalesce.CoalesceByRoute
 	translators       *protocol.TranslatorByRoute
 	rateLimiters      *ratelimit.RateLimitByRoute
 	grpcHandlers      map[string]*grpcproxy.Handler
@@ -102,6 +104,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		faultInjectors:    trafficshape.NewFaultInjectionByRoute(),
 		wafHandlers:       waf.NewWAFByRoute(),
 		graphqlParsers:    graphql.NewGraphQLByRoute(),
+		coalescers:        coalesce.NewCoalesceByRoute(),
 		translators:       protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
 		grpcHandlers:      make(map[string]*grpcproxy.Handler),
@@ -128,6 +131,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		&faultInjectionFeature{m: s.faultInjectors, global: &cfg.TrafficShaping.FaultInjection},
 		&wafFeature{s.wafHandlers},
 		&graphqlFeature{s.graphqlParsers},
+		&coalesceFeature{s.coalescers},
 	}
 
 	// Initialize global IP filter
@@ -369,6 +373,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldGrpcHandlers := g.grpcHandlers
 	oldTranslators := g.translators
 	oldGraphqlParsers := g.graphqlParsers
+	oldCoalescers := g.coalescers
 
 	// Install new state
 	g.ipFilters = s.ipFilters
@@ -391,6 +396,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.grpcHandlers = s.grpcHandlers
 	g.translators = s.translators
 	g.graphqlParsers = s.graphqlParsers
+	g.coalescers = s.coalescers
 
 	handler := g.buildRouteHandler(routeID, cfg, route, rp)
 
@@ -415,6 +421,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.grpcHandlers = oldGrpcHandlers
 	g.translators = oldTranslators
 	g.graphqlParsers = oldGraphqlParsers
+	g.coalescers = oldCoalescers
 
 	return handler
 }
@@ -467,6 +474,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.faultInjectors = newState.faultInjectors
 	g.wafHandlers = newState.wafHandlers
 	g.graphqlParsers = newState.graphqlParsers
+	g.coalescers = newState.coalescers
 	g.translators = newState.translators
 	g.rateLimiters = newState.rateLimiters
 	g.grpcHandlers = newState.grpcHandlers
