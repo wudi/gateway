@@ -25,6 +25,29 @@ routes:
       per_ip: true     # per-IP limits (false = global per-route)
 ```
 
+### Local Rate Limiting — Sliding Window
+
+Uses a sliding window counter algorithm that interpolates between two adjacent fixed-time windows. This provides near-perfect accuracy with O(1) memory per key, preventing the boundary burst issue of token buckets (where a client can use all tokens at the end of one window and all tokens at the start of the next, effectively doubling the rate).
+
+Choose sliding window over token bucket when strict rate enforcement is more important than burst tolerance.
+
+```yaml
+routes:
+  - id: "api"
+    path: "/api"
+    path_prefix: true
+    backends:
+      - url: "http://backend:9000"
+    rate_limit:
+      enabled: true
+      rate: 100        # requests per period
+      period: 1m
+      algorithm: "sliding_window"   # strict rate enforcement
+      per_ip: true
+```
+
+The `algorithm` field accepts `"token_bucket"` (default) or `"sliding_window"`. When omitted, the token bucket algorithm is used.
+
 ### Distributed Rate Limiting
 
 Uses Redis sliding window for shared state across multiple gateway instances:
@@ -171,6 +194,7 @@ Abort is evaluated first — if a request is aborted, the delay is skipped. Both
 | Field | Type | Description |
 |-------|------|-------------|
 | `rate_limit.mode` | string | `local` (default) or `distributed` |
+| `rate_limit.algorithm` | string | `token_bucket` (default) or `sliding_window` |
 | `rate_limit.per_ip` | bool | Per-IP or per-route limiting |
 | `traffic_shaping.throttle.rate` | int | Tokens per second |
 | `traffic_shaping.throttle.max_wait` | duration | Max queue time before 503 |

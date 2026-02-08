@@ -413,6 +413,13 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 				Burst:  routeCfg.RateLimit.Burst,
 				PerIP:  routeCfg.RateLimit.PerIP,
 			})
+		} else if routeCfg.RateLimit.Algorithm == "sliding_window" {
+			g.rateLimiters.AddRouteSlidingWindow(routeCfg.ID, ratelimit.Config{
+				Rate:   routeCfg.RateLimit.Rate,
+				Period: routeCfg.RateLimit.Period,
+				Burst:  routeCfg.RateLimit.Burst,
+				PerIP:  routeCfg.RateLimit.PerIP,
+			})
 		} else {
 			g.rateLimiters.AddRoute(routeCfg.ID, ratelimit.Config{
 				Rate:   routeCfg.RateLimit.Rate,

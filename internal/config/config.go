@@ -539,12 +539,13 @@ type RouteAuthConfig struct {
 
 // RateLimitConfig defines rate limiting settings
 type RateLimitConfig struct {
-	Enabled bool          `yaml:"enabled"`
-	Rate    int           `yaml:"rate"`
-	Period  time.Duration `yaml:"period"`
-	Burst   int           `yaml:"burst"`
-	PerIP   bool          `yaml:"per_ip"`
-	Mode    string        `yaml:"mode"` // "local" (default) or "distributed"
+	Enabled   bool          `yaml:"enabled"`
+	Rate      int           `yaml:"rate"`
+	Period    time.Duration `yaml:"period"`
+	Burst     int           `yaml:"burst"`
+	PerIP     bool          `yaml:"per_ip"`
+	Mode      string        `yaml:"mode"`      // "local" (default) or "distributed"
+	Algorithm string        `yaml:"algorithm"` // "token_bucket" (default) or "sliding_window"
 }
 
 // RedisConfig defines Redis connection settings for distributed features.

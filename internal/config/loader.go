@@ -215,6 +215,19 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate rate limit algorithm
+	for _, route := range cfg.Routes {
+		switch route.RateLimit.Algorithm {
+		case "", "token_bucket", "sliding_window":
+			// valid
+		default:
+			return fmt.Errorf("route %s: invalid rate_limit.algorithm %q (must be \"token_bucket\" or \"sliding_window\")", route.ID, route.RateLimit.Algorithm)
+		}
+		if route.RateLimit.Algorithm == "sliding_window" && route.RateLimit.Mode == "distributed" {
+			return fmt.Errorf("route %s: algorithm \"sliding_window\" is incompatible with mode \"distributed\" (distributed already uses a sliding window)", route.ID)
+		}
+	}
+
 	// Validate global rules
 	if err := l.validateRules(cfg.Rules.Request, "request"); err != nil {
 		return fmt.Errorf("global rules: %w", err)

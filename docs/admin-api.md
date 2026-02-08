@@ -99,7 +99,7 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /adaptive-concurrency` | Adaptive concurrency limiter stats (limit, in-flight, EWMA, rejections) |
 | `GET /mirrors` | Mirror metrics (counts, latencies, comparisons) |
 | `GET /traffic-splits` | Traffic split distribution per route |
-| `GET /rate-limits` | Rate limiter mode per route (local/distributed) |
+| `GET /rate-limits` | Rate limiter mode and algorithm per route |
 | `GET /tracing` | Tracing/OTEL status |
 | `GET /waf` | WAF statistics (blocks, detections) |
 | `GET /graphql` | GraphQL parser statistics (depth/complexity checks) |
@@ -123,7 +123,7 @@ curl http://localhost:8081/circuit-breakers
 # Check cache hit rates
 curl http://localhost:8081/cache
 
-# Check rate limiter modes
+# Check rate limiter modes and algorithms
 curl http://localhost:8081/rate-limits
 ```
 

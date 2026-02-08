@@ -194,16 +194,18 @@ type RateLimitMiddleware interface {
 
 // RateLimitByRoute creates a map of rate limiters per route
 type RateLimitByRoute struct {
-	limiters    map[string]*Limiter
-	distributed map[string]*RedisLimiter
-	mu          sync.RWMutex
+	limiters      map[string]*Limiter
+	distributed   map[string]*RedisLimiter
+	slidingWindow map[string]*SlidingWindowLimiter
+	mu            sync.RWMutex
 }
 
 // NewRateLimitByRoute creates a new route-based rate limiter
 func NewRateLimitByRoute() *RateLimitByRoute {
 	return &RateLimitByRoute{
-		limiters:    make(map[string]*Limiter),
-		distributed: make(map[string]*RedisLimiter),
+		limiters:      make(map[string]*Limiter),
+		distributed:   make(map[string]*RedisLimiter),
+		slidingWindow: make(map[string]*SlidingWindowLimiter),
 	}
 }
 
@@ -221,20 +223,45 @@ func (rl *RateLimitByRoute) AddRouteDistributed(routeID string, cfg RedisLimiter
 	rl.distributed[routeID] = NewRedisLimiter(cfg)
 }
 
+// AddRouteSlidingWindow adds a sliding window rate limiter for a specific route.
+func (rl *RateLimitByRoute) AddRouteSlidingWindow(routeID string, cfg Config) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	rl.slidingWindow[routeID] = NewSlidingWindowLimiter(cfg)
+}
+
 // RouteIDs returns all route IDs with rate limiters.
 func (rl *RateLimitByRoute) RouteIDs() []string {
 	rl.mu.RLock()
 	defer rl.mu.RUnlock()
-	ids := make([]string, 0, len(rl.limiters)+len(rl.distributed))
+	seen := make(map[string]bool)
+	var ids []string
 	for id := range rl.limiters {
-		ids = append(ids, id)
+		if !seen[id] {
+			ids = append(ids, id)
+			seen[id] = true
+		}
 	}
 	for id := range rl.distributed {
-		if _, ok := rl.limiters[id]; !ok {
+		if !seen[id] {
 			ids = append(ids, id)
+			seen[id] = true
+		}
+	}
+	for id := range rl.slidingWindow {
+		if !seen[id] {
+			ids = append(ids, id)
+			seen[id] = true
 		}
 	}
 	return ids
+}
+
+// GetSlidingWindowLimiter returns the sliding window rate limiter for a route.
+func (rl *RateLimitByRoute) GetSlidingWindowLimiter(routeID string) *SlidingWindowLimiter {
+	rl.mu.RLock()
+	defer rl.mu.RUnlock()
+	return rl.slidingWindow[routeID]
 }
 
 // GetLimiter returns the local rate limiter for a route
@@ -251,12 +278,15 @@ func (rl *RateLimitByRoute) GetDistributedLimiter(routeID string) *RedisLimiter 
 	return rl.distributed[routeID]
 }
 
-// GetMiddleware returns the appropriate middleware for a route (distributed or local).
+// GetMiddleware returns the appropriate middleware for a route (distributed > sliding_window > token_bucket).
 func (rl *RateLimitByRoute) GetMiddleware(routeID string) middleware.Middleware {
 	rl.mu.RLock()
 	defer rl.mu.RUnlock()
 	if dl, ok := rl.distributed[routeID]; ok {
 		return dl.Middleware()
+	}
+	if sw, ok := rl.slidingWindow[routeID]; ok {
+		return sw.Middleware()
 	}
 	if l, ok := rl.limiters[routeID]; ok {
 		return l.Middleware()

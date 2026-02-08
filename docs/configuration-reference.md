@@ -165,9 +165,10 @@ routes:
       burst: int              # token bucket burst
       per_ip: bool            # per-IP or per-route
       mode: string            # "local" (default) or "distributed"
+      algorithm: string       # "token_bucket" (default) or "sliding_window"
 ```
 
-**Validation:** Distributed mode requires top-level `redis.address`.
+**Validation:** Distributed mode requires top-level `redis.address`. Algorithm `"sliding_window"` is incompatible with mode `"distributed"` (distributed already uses a sliding window via Redis).
 
 ### Retry Policy
 

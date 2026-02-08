@@ -804,14 +804,20 @@ func (s *Server) handleTrafficSplits(w http.ResponseWriter, r *http.Request) {
 // handleRateLimits handles rate limiter status requests
 func (s *Server) handleRateLimits(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	routeIDs := s.gateway.GetRateLimiters().RouteIDs()
+	rl := s.gateway.GetRateLimiters()
+	routeIDs := rl.RouteIDs()
 	result := make(map[string]interface{})
 	for _, id := range routeIDs {
-		info := map[string]interface{}{
-			"mode": "local",
-		}
-		if dl := s.gateway.GetRateLimiters().GetDistributedLimiter(id); dl != nil {
+		info := map[string]interface{}{}
+		if dl := rl.GetDistributedLimiter(id); dl != nil {
 			info["mode"] = "distributed"
+			info["algorithm"] = "sliding_window"
+		} else if sw := rl.GetSlidingWindowLimiter(id); sw != nil {
+			info["mode"] = "local"
+			info["algorithm"] = "sliding_window"
+		} else {
+			info["mode"] = "local"
+			info["algorithm"] = "token_bucket"
 		}
 		result[id] = info
 	}
