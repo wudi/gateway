@@ -21,6 +21,7 @@ import (
 	"github.com/example/gateway/internal/middleware/cors"
 	"github.com/example/gateway/internal/middleware/ipfilter"
 	"github.com/example/gateway/internal/middleware/ratelimit"
+	"github.com/example/gateway/internal/middleware/errorpages"
 	openapivalidation "github.com/example/gateway/internal/middleware/openapi"
 	"github.com/example/gateway/internal/middleware/timeout"
 	"github.com/example/gateway/internal/middleware/validation"
@@ -84,6 +85,7 @@ type gatewayState struct {
 	accessLogConfigs     *accesslog.AccessLogByRoute
 	openapiValidators    *openapivalidation.OpenAPIByRoute
 	timeoutConfigs       *timeout.TimeoutByRoute
+	errorPages           *errorpages.ErrorPagesByRoute
 	translators          *protocol.TranslatorByRoute
 	rateLimiters      *ratelimit.RateLimitByRoute
 	grpcHandlers      map[string]*grpcproxy.Handler
@@ -126,6 +128,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		accessLogConfigs:   accesslog.NewAccessLogByRoute(),
 		openapiValidators: openapivalidation.NewOpenAPIByRoute(),
 		timeoutConfigs:    timeout.NewTimeoutByRoute(),
+		errorPages:        errorpages.NewErrorPagesByRoute(),
 		translators:        protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
 		grpcHandlers:      make(map[string]*grpcproxy.Handler),
@@ -160,6 +163,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		&accessLogFeature{s.accessLogConfigs},
 		&openapiFeature{s.openapiValidators},
 		&timeoutFeature{s.timeoutConfigs},
+		&errorPagesFeature{m: s.errorPages, global: &cfg.ErrorPages},
 	}
 
 	// Wire webhook callbacks on new state's managers
@@ -476,6 +480,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldAccessLogConfigs := g.accessLogConfigs
 	oldOpenAPIValidators := g.openapiValidators
 	oldTimeoutConfigs := g.timeoutConfigs
+	oldErrorPages := g.errorPages
 
 	// Install new state
 	g.ipFilters = s.ipFilters
@@ -506,6 +511,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.accessLogConfigs = s.accessLogConfigs
 	g.openapiValidators = s.openapiValidators
 	g.timeoutConfigs = s.timeoutConfigs
+	g.errorPages = s.errorPages
 
 	handler := g.buildRouteHandler(routeID, cfg, route, rp)
 
@@ -538,6 +544,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.accessLogConfigs = oldAccessLogConfigs
 	g.openapiValidators = oldOpenAPIValidators
 	g.timeoutConfigs = oldTimeoutConfigs
+	g.errorPages = oldErrorPages
 
 	return handler
 }
@@ -606,6 +613,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.accessLogConfigs = newState.accessLogConfigs
 	g.openapiValidators = newState.openapiValidators
 	g.timeoutConfigs = newState.timeoutConfigs
+	g.errorPages = newState.errorPages
 	g.translators = newState.translators
 	g.rateLimiters = newState.rateLimiters
 	g.grpcHandlers = newState.grpcHandlers

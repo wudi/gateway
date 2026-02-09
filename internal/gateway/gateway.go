@@ -23,6 +23,7 @@ import (
 	"github.com/example/gateway/internal/middleware/auth"
 	"github.com/example/gateway/internal/middleware/compression"
 	"github.com/example/gateway/internal/middleware/accesslog"
+	"github.com/example/gateway/internal/middleware/errorpages"
 	"github.com/example/gateway/internal/middleware/extauth"
 	"github.com/example/gateway/internal/middleware/cors"
 	"github.com/example/gateway/internal/middleware/mtls"
@@ -103,6 +104,7 @@ type Gateway struct {
 	accessLogConfigs       *accesslog.AccessLogByRoute
 	openapiValidators      *openapivalidation.OpenAPIByRoute
 	timeoutConfigs         *timeout.TimeoutByRoute
+	errorPages             *errorpages.ErrorPagesByRoute
 	webhookDispatcher      *webhook.Dispatcher
 
 	features []Feature
@@ -171,6 +173,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		accessLogConfigs:   accesslog.NewAccessLogByRoute(),
 		openapiValidators: openapivalidation.NewOpenAPIByRoute(),
 		timeoutConfigs:    timeout.NewTimeoutByRoute(),
+		errorPages:        errorpages.NewErrorPagesByRoute(),
 		routeProxies:      make(map[string]*proxy.RouteProxy),
 		routeHandlers:    make(map[string]http.Handler),
 		watchCancels:     make(map[string]context.CancelFunc),
@@ -205,6 +208,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&accessLogFeature{g.accessLogConfigs},
 		&openapiFeature{g.openapiValidators},
 		&timeoutFeature{g.timeoutConfigs},
+		&errorPagesFeature{m: g.errorPages, global: &cfg.ErrorPages},
 	}
 
 	// Initialize global IP filter
@@ -678,6 +682,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 
 	// 4. varContextMW — set RouteID + PathParams (Step 2)
 	chain = chain.Use(varContextMW(routeID))
+
+	// 4.1. errorPagesMW — custom error page rendering
+	if ep := g.errorPages.GetErrorPages(routeID); ep != nil {
+		chain = chain.Use(errorPagesMW(ep))
+	}
 
 	// 4.25. accessLogMW — store per-route config + optional body capture
 	if alCfg := g.accessLogConfigs.GetConfig(routeID); alCfg != nil {
@@ -1293,6 +1302,11 @@ func (g *Gateway) GetOpenAPIValidators() *openapivalidation.OpenAPIByRoute {
 // GetTimeoutConfigs returns the timeout config manager.
 func (g *Gateway) GetTimeoutConfigs() *timeout.TimeoutByRoute {
 	return g.timeoutConfigs
+}
+
+// GetErrorPages returns the error pages manager.
+func (g *Gateway) GetErrorPages() *errorpages.ErrorPagesByRoute {
+	return g.errorPages
 }
 
 // GetWebhookDispatcher returns the webhook dispatcher (may be nil).

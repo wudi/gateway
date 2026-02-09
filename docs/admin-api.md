@@ -113,6 +113,7 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /openapi` | OpenAPI validation stats per route (spec, operation, request/response validation, metrics) |
 | `GET /timeouts` | Per-route timeout policy config and metrics (request/backend/idle/header timeouts, timeout counts) |
 | `GET /upstreams` | Named upstream pool definitions (backends, LB algorithm, health check config) |
+| `GET /error-pages` | Custom error page configuration per route (configured pages, render metrics) |
 
 ### Example: Querying Feature Endpoints
 
@@ -247,6 +248,28 @@ curl -X DELETE http://localhost:8081/admin/keys \
 **Response:**
 ```json
 {"status": "deleted"}
+```
+
+## Error Pages
+
+### GET `/error-pages`
+
+Returns custom error page configuration and render metrics per route.
+
+```bash
+curl http://localhost:8081/error-pages
+```
+
+**Response:**
+```json
+{
+  "my-api": {
+    "pages": ["404", "5xx", "default"],
+    "metrics": {
+      "total_rendered": 15
+    }
+  }
+}
 ```
 
 ## Webhooks

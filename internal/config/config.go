@@ -44,6 +44,7 @@ type Config struct {
 	OpenAPI        OpenAPIConfig        `yaml:"openapi"`         // OpenAPI spec-based validation and route generation
 	Webhooks       WebhooksConfig       `yaml:"webhooks"`        // Event webhook notifications
 	HealthCheck    HealthCheckConfig    `yaml:"health_check"`    // Global health check settings
+	ErrorPages     ErrorPagesConfig     `yaml:"error_pages"`     // Global custom error pages
 }
 
 // ListenerConfig defines a listener configuration
@@ -258,6 +259,7 @@ type RouteConfig struct {
 	Versioning     VersioningConfig     `yaml:"versioning"`      // API versioning
 	AccessLog      AccessLogConfig      `yaml:"access_log"`      // Per-route access log overrides
 	OpenAPI        OpenAPIRouteConfig   `yaml:"openapi"`         // OpenAPI spec-based validation
+	ErrorPages     ErrorPagesConfig     `yaml:"error_pages"`     // Per-route custom error pages
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -889,6 +891,27 @@ type HealthCheckConfig struct {
 	HealthyAfter   int           `yaml:"healthy_after"`    // default 2
 	UnhealthyAfter int           `yaml:"unhealthy_after"`  // default 3
 	ExpectedStatus []string      `yaml:"expected_status"`  // e.g. ["200", "2xx", "200-299"]; default 200-399
+}
+
+// ErrorPagesConfig defines custom error page settings.
+type ErrorPagesConfig struct {
+	Enabled bool                      `yaml:"enabled"`
+	Pages   map[string]ErrorPageEntry `yaml:"pages"` // keys: "404", "4xx", "5xx", "default"
+}
+
+// IsActive returns true if error pages are configured and enabled.
+func (c ErrorPagesConfig) IsActive() bool {
+	return c.Enabled && len(c.Pages) > 0
+}
+
+// ErrorPageEntry defines templates for a single error page.
+type ErrorPageEntry struct {
+	HTML     string `yaml:"html"`
+	HTMLFile string `yaml:"html_file"`
+	JSON     string `yaml:"json"`
+	JSONFile string `yaml:"json_file"`
+	XML      string `yaml:"xml"`
+	XMLFile  string `yaml:"xml_file"`
 }
 
 // DefaultConfig returns a configuration with sensible defaults

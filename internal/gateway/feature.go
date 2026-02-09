@@ -12,6 +12,7 @@ import (
 	"github.com/example/gateway/internal/middleware/accesslog"
 	"github.com/example/gateway/internal/middleware/extauth"
 	"github.com/example/gateway/internal/middleware/ipfilter"
+	"github.com/example/gateway/internal/middleware/errorpages"
 	"github.com/example/gateway/internal/middleware/openapi"
 	"github.com/example/gateway/internal/middleware/timeout"
 	"github.com/example/gateway/internal/middleware/validation"
@@ -353,3 +354,19 @@ func (f *timeoutFeature) Setup(routeID string, cfg config.RouteConfig) error {
 }
 func (f *timeoutFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *timeoutFeature) AdminStats() any     { return f.m.Stats() }
+
+// errorPagesFeature wraps ErrorPagesByRoute.
+type errorPagesFeature struct {
+	m      *errorpages.ErrorPagesByRoute
+	global *config.ErrorPagesConfig
+}
+
+func (f *errorPagesFeature) Name() string { return "error_pages" }
+func (f *errorPagesFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if f.global.IsActive() || cfg.ErrorPages.IsActive() {
+		return f.m.AddRoute(routeID, *f.global, cfg.ErrorPages)
+	}
+	return nil
+}
+func (f *errorPagesFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *errorPagesFeature) AdminStats() any     { return f.m.Stats() }

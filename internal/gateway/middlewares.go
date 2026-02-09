@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/example/gateway/internal/cache"
 	"github.com/example/gateway/internal/middleware/accesslog"
+	"github.com/example/gateway/internal/middleware/errorpages"
 	"github.com/example/gateway/internal/middleware/extauth"
 	"github.com/example/gateway/internal/middleware/timeout"
 	"github.com/example/gateway/internal/middleware/versioning"
@@ -500,6 +502,68 @@ func varContextMW(routeID string) middleware.Middleware {
 			ctx := context.WithValue(r.Context(), variables.RequestContextKey{}, varCtx)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
+	}
+}
+
+// errorPagesMW intercepts error responses and renders custom error pages.
+func errorPagesMW(ep *errorpages.CompiledErrorPages) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			epw := &errorPageWriter{
+				ResponseWriter: w,
+				ep:             ep,
+				r:              r,
+			}
+			next.ServeHTTP(epw, r)
+		})
+	}
+}
+
+// errorPageWriter intercepts WriteHeader to render custom error pages for error status codes.
+type errorPageWriter struct {
+	http.ResponseWriter
+	ep          *errorpages.CompiledErrorPages
+	r           *http.Request
+	intercepted bool
+	wroteHeader bool
+}
+
+func (w *errorPageWriter) WriteHeader(code int) {
+	if w.wroteHeader {
+		return
+	}
+	w.wroteHeader = true
+
+	if code >= 400 && w.ep.ShouldIntercept(code) {
+		w.intercepted = true
+		varCtx := variables.GetFromRequest(w.r)
+		body, contentType := w.ep.Render(code, w.r, varCtx)
+
+		// Clear any existing content headers before writing custom error page
+		w.ResponseWriter.Header().Del("Content-Encoding")
+		w.ResponseWriter.Header().Set("Content-Type", contentType)
+		w.ResponseWriter.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		w.ResponseWriter.WriteHeader(code)
+		w.ResponseWriter.Write([]byte(body))
+		return
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *errorPageWriter) Write(b []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	if w.intercepted {
+		// Silently discard — custom body already written
+		return len(b), nil
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *errorPageWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
 	}
 }
 

@@ -464,6 +464,9 @@ func (s *Server) adminHandler() http.Handler {
 	// Timeout policies
 	mux.HandleFunc("/timeouts", s.handleTimeouts)
 
+	// Error pages
+	mux.HandleFunc("/error-pages", s.handleErrorPages)
+
 	// Webhooks
 	mux.HandleFunc("/webhooks", s.handleWebhooks)
 
@@ -974,6 +977,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["timeouts"] = timeoutStats
 	}
 
+	// Error pages
+	if epStats := s.gateway.GetErrorPages().Stats(); len(epStats) > 0 {
+		dashboard["error_pages"] = epStats
+	}
+
 	// Webhooks
 	if d := s.gateway.GetWebhookDispatcher(); d != nil {
 		dashboard["webhooks"] = d.Stats()
@@ -1096,6 +1104,12 @@ func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTimeouts(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.gateway.GetTimeoutConfigs().Stats())
+}
+
+// handleErrorPages handles error pages stats requests.
+func (s *Server) handleErrorPages(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetErrorPages().Stats())
 }
 
 // handleWebhooks handles webhook dispatcher stats requests.

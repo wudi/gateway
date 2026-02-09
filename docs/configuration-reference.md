@@ -673,6 +673,40 @@ See [Canary Deployments](canary-deployments.md) for full documentation.
 
 ---
 
+### Error Pages
+
+```yaml
+    error_pages:
+      enabled: bool
+      pages:
+        "404":                        # exact status code
+          json: string                # inline Go template
+          json_file: string           # path to template file
+          html: string
+          html_file: string
+          xml: string
+          xml_file: string
+        "5xx":                        # class pattern (5xx = 500-599)
+          json: '{"error":"server error","code":{{.StatusCode}}}'
+        "default":                    # fallback for unmatched codes
+          html: '<h1>{{.StatusCode}} {{.StatusText}}</h1>'
+          json: '{"error":"{{.StatusText}}"}'
+```
+
+Also available at the top level (`error_pages:`) for global defaults. Per-route keys override global keys; unmatched global keys are inherited.
+
+**Template variables:** `{{.StatusCode}}`, `{{.StatusText}}`, `{{.ErrorMessage}}`, `{{.RequestID}}`, `{{.RequestMethod}}`, `{{.RequestPath}}`, `{{.Host}}`, `{{.Timestamp}}`, `{{.RouteID}}`
+
+**Content negotiation:** Format selected from the `Accept` header (`text/html` → html, `application/json` → json, `application/xml` / `text/xml` → xml). Defaults to JSON. Falls back to best available format.
+
+**Fallback chain:** exact status code → class pattern (e.g. `4xx`) → `default` → pass through.
+
+**Validation:** Keys must be exact status codes (100-599), class patterns (`1xx`-`5xx`), or `"default"`. Inline and file are mutually exclusive per format. At least one format required per entry. Templates must parse. File paths must exist.
+
+See [Error Pages](error-pages.md) for full documentation.
+
+---
+
 ## TCP Routes
 
 ```yaml
@@ -897,6 +931,27 @@ webhooks:
 - `retry.max_backoff` must be >= `retry.backoff` when both are set
 
 See [Webhooks](webhooks.md) for event types and payload format.
+
+---
+
+## Error Pages (global)
+
+```yaml
+error_pages:
+  enabled: bool
+  pages:
+    "404":
+      json: '{"error":"not found","code":{{.StatusCode}}}'
+      html: '<h1>{{.StatusCode}} {{.StatusText}}</h1>'
+    "5xx":
+      json: '{"error":"server error"}'
+    "default":
+      json: '{"error":"{{.StatusText}}"}'
+```
+
+Global error pages provide defaults for all routes. Per-route `error_pages` override global entries by key.
+
+See [Error Pages](error-pages.md) for template variables, content negotiation, and fallback chain.
 
 ---
 

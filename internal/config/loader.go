@@ -804,6 +804,16 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate error pages
+	if err := l.validateErrorPages("global", cfg.ErrorPages); err != nil {
+		return err
+	}
+	for _, route := range cfg.Routes {
+		if err := l.validateErrorPages(fmt.Sprintf("route %s", route.ID), route.ErrorPages); err != nil {
+			return err
+		}
+	}
+
 	// Validate webhooks
 	if cfg.Webhooks.Enabled {
 		if len(cfg.Webhooks.Endpoints) == 0 {
@@ -1356,6 +1366,72 @@ func openAPIRouteID(method, path, operationID string) string {
 // openAPIConvertPath converts OpenAPI path params {id} to gateway path params :id.
 func openAPIConvertPath(path string) string {
 	return pathParamRegex.ReplaceAllString(path, ":$1")
+}
+
+// validateErrorPages validates an ErrorPagesConfig for a given scope.
+func (l *Loader) validateErrorPages(scope string, cfg ErrorPagesConfig) error {
+	if !cfg.IsActive() {
+		return nil
+	}
+	validKeyPattern := regexp.MustCompile(`^(\d{3}|[1-5]xx|default)$`)
+	for key, entry := range cfg.Pages {
+		if !validKeyPattern.MatchString(key) {
+			return fmt.Errorf("%s: error_pages key %q is invalid (must be a status code, Nxx class, or \"default\")", scope, key)
+		}
+		// Validate exact status codes are in range
+		if len(key) == 3 && key != "def" {
+			if code, err := strconv.Atoi(key); err == nil {
+				if code < 100 || code > 599 {
+					return fmt.Errorf("%s: error_pages key %q: status code must be between 100 and 599", scope, key)
+				}
+			}
+		}
+		// Inline and file are mutually exclusive per format
+		if entry.HTML != "" && entry.HTMLFile != "" {
+			return fmt.Errorf("%s: error_pages[%s]: html and html_file are mutually exclusive", scope, key)
+		}
+		if entry.JSON != "" && entry.JSONFile != "" {
+			return fmt.Errorf("%s: error_pages[%s]: json and json_file are mutually exclusive", scope, key)
+		}
+		if entry.XML != "" && entry.XMLFile != "" {
+			return fmt.Errorf("%s: error_pages[%s]: xml and xml_file are mutually exclusive", scope, key)
+		}
+		// At least one format required
+		if entry.HTML == "" && entry.HTMLFile == "" &&
+			entry.JSON == "" && entry.JSONFile == "" &&
+			entry.XML == "" && entry.XMLFile == "" {
+			return fmt.Errorf("%s: error_pages[%s]: at least one format (html, json, or xml) is required", scope, key)
+		}
+		// Validate inline templates parse
+		for _, tpl := range []struct {
+			name, content string
+		}{
+			{"html", entry.HTML},
+			{"json", entry.JSON},
+			{"xml", entry.XML},
+		} {
+			if tpl.content != "" {
+				if _, err := template.New("").Parse(tpl.content); err != nil {
+					return fmt.Errorf("%s: error_pages[%s].%s: invalid template: %w", scope, key, tpl.name, err)
+				}
+			}
+		}
+		// Validate file paths exist
+		for _, fp := range []struct {
+			name, path string
+		}{
+			{"html_file", entry.HTMLFile},
+			{"json_file", entry.JSONFile},
+			{"xml_file", entry.XMLFile},
+		} {
+			if fp.path != "" {
+				if _, err := os.Stat(fp.path); err != nil {
+					return fmt.Errorf("%s: error_pages[%s].%s: %w", scope, key, fp.name, err)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // LoadFromEnv loads configuration from environment variables
