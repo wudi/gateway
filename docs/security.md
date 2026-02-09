@@ -1,6 +1,6 @@
 # Security
 
-The gateway provides IP filtering, CORS handling, a web application firewall (WAF), request body size limits, replay prevention, and custom DNS resolution for defense-in-depth security.
+The gateway provides IP filtering, CORS handling, a web application firewall (WAF), request body size limits, replay prevention, CSRF protection, and custom DNS resolution for defense-in-depth security.
 
 ## IP Filtering
 
@@ -141,6 +141,22 @@ nonce:
 The nonce is read from the header first; if absent and `query_param` is set, the query parameter is checked as a fallback. Duplicate requests receive `409 Conflict`. Missing nonces receive `400 Bad Request` when `required: true`. Optional timestamp validation via `timestamp_header` and `max_age` rejects stale requests.
 
 See [Replay Prevention](replay-prevention.md) for full documentation including distributed mode, per-client scope, and timestamp validation.
+
+## CSRF Protection
+
+Prevent cross-site request forgery attacks using the double-submit cookie pattern with HMAC-signed tokens. State-changing requests must include a matching token in both a cookie and request header.
+
+```yaml
+csrf:
+  enabled: true
+  secret: "${CSRF_SECRET}"
+  cookie_secure: true
+  inject_token: true
+  allowed_origins:
+    - "https://app.example.com"
+```
+
+Optional Origin/Referer validation and shadow mode for gradual rollout. See [CSRF Protection](csrf.md) for full documentation.
 
 ## Key Config Fields
 

@@ -861,6 +861,16 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate CSRF config (global)
+	if err := l.validateCSRFConfig("global", cfg.CSRF); err != nil {
+		return err
+	}
+	for _, route := range cfg.Routes {
+		if err := l.validateCSRFConfig(fmt.Sprintf("route %s", route.ID), route.CSRF); err != nil {
+			return err
+		}
+	}
+
 	// Validate webhooks
 	if cfg.Webhooks.Enabled {
 		if len(cfg.Webhooks.Endpoints) == 0 {
@@ -1510,6 +1520,34 @@ func (l *Loader) validateNonceConfig(scope string, cfg NonceConfig, redisAddr st
 	}
 	if cfg.Mode == "distributed" && redisAddr == "" {
 		return fmt.Errorf("%s: nonce.mode \"distributed\" requires redis.address to be configured", scope)
+	}
+	return nil
+}
+
+// validateCSRFConfig validates a CSRF config for a given scope.
+func (l *Loader) validateCSRFConfig(scope string, cfg CSRFConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	if cfg.Secret == "" {
+		return fmt.Errorf("%s: csrf.secret is required when csrf is enabled", scope)
+	}
+	switch strings.ToLower(cfg.CookieSameSite) {
+	case "", "strict", "lax", "none":
+		// valid
+	default:
+		return fmt.Errorf("%s: csrf.cookie_samesite must be \"strict\", \"lax\", or \"none\"", scope)
+	}
+	if strings.ToLower(cfg.CookieSameSite) == "none" && !cfg.CookieSecure {
+		return fmt.Errorf("%s: csrf.cookie_secure must be true when cookie_samesite is \"none\"", scope)
+	}
+	if cfg.TokenTTL < 0 {
+		return fmt.Errorf("%s: csrf.token_ttl must be >= 0", scope)
+	}
+	for _, p := range cfg.AllowedOriginPatterns {
+		if _, err := regexp.Compile(p); err != nil {
+			return fmt.Errorf("%s: csrf.allowed_origin_patterns: invalid regex %q: %w", scope, p, err)
+		}
 	}
 	return nil
 }

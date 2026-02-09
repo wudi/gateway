@@ -302,6 +302,37 @@ curl http://localhost:8081/nonces
 }
 ```
 
+## CSRF Protection
+
+### GET `/csrf`
+
+Returns per-route CSRF protection status and metrics.
+
+```bash
+curl http://localhost:8081/csrf
+```
+
+**Response:**
+```json
+{
+  "web-app": {
+    "cookie_name": "_csrf",
+    "header_name": "X-CSRF-Token",
+    "token_ttl": "1h0m0s",
+    "shadow_mode": false,
+    "inject_token": true,
+    "total_requests": 5000,
+    "token_generated": 2000,
+    "validation_success": 2900,
+    "validation_failed": 100,
+    "origin_check_failed": 5,
+    "missing_token": 80,
+    "expired_token": 10,
+    "invalid_signature": 5
+  }
+}
+```
+
 ## Outlier Detection
 
 ### GET `/outlier-detection`

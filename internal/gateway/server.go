@@ -470,6 +470,9 @@ func (s *Server) adminHandler() http.Handler {
 	// Nonces (replay prevention)
 	mux.HandleFunc("/nonces", s.handleNonces)
 
+	// CSRF protection
+	mux.HandleFunc("/csrf", s.handleCSRF)
+
 	// Outlier detection
 	mux.HandleFunc("/outlier-detection", s.handleOutlierDetection)
 
@@ -993,6 +996,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["nonces"] = nonceStats
 	}
 
+	// CSRF protection
+	if csrfStats := s.gateway.GetCSRFProtectors().Stats(); len(csrfStats) > 0 {
+		dashboard["csrf"] = csrfStats
+	}
+
 	// Outlier detection
 	if odStats := s.gateway.GetOutlierDetectors().Stats(); len(odStats) > 0 {
 		dashboard["outlier_detection"] = odStats
@@ -1126,6 +1134,12 @@ func (s *Server) handleTimeouts(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleNonces(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.gateway.GetNonceCheckers().Stats())
+}
+
+// handleCSRF handles CSRF protection stats requests.
+func (s *Server) handleCSRF(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetCSRFProtectors().Stats())
 }
 
 // handleErrorPages handles error pages stats requests.

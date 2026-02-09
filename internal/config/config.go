@@ -46,6 +46,7 @@ type Config struct {
 	HealthCheck    HealthCheckConfig    `yaml:"health_check"`    // Global health check settings
 	ErrorPages     ErrorPagesConfig     `yaml:"error_pages"`     // Global custom error pages
 	Nonce          NonceConfig          `yaml:"nonce"`           // Global nonce replay prevention
+	CSRF           CSRFConfig           `yaml:"csrf"`            // Global CSRF protection
 }
 
 // ListenerConfig defines a listener configuration
@@ -262,6 +263,7 @@ type RouteConfig struct {
 	OpenAPI        OpenAPIRouteConfig   `yaml:"openapi"`         // OpenAPI spec-based validation
 	ErrorPages     ErrorPagesConfig     `yaml:"error_pages"`     // Per-route custom error pages
 	Nonce             NonceConfig             `yaml:"nonce"`              // Per-route nonce replay prevention
+	CSRF              CSRFConfig              `yaml:"csrf"`               // Per-route CSRF protection
 	OutlierDetection OutlierDetectionConfig  `yaml:"outlier_detection"`  // Per-route outlier detection
 }
 
@@ -928,6 +930,26 @@ type NonceConfig struct {
 	Required        bool          `yaml:"required"`         // default true — reject if header missing
 	TimestampHeader string        `yaml:"timestamp_header"` // optional, e.g. "X-Timestamp"
 	MaxAge          time.Duration `yaml:"max_age"`          // max request age (requires timestamp_header)
+}
+
+// CSRFConfig defines CSRF protection settings using double-submit cookie pattern.
+type CSRFConfig struct {
+	Enabled               bool          `yaml:"enabled"`
+	CookieName            string        `yaml:"cookie_name"`             // default "_csrf"
+	HeaderName            string        `yaml:"header_name"`             // default "X-CSRF-Token"
+	Secret                string        `yaml:"secret"`                  // HMAC key (required when enabled)
+	TokenTTL              time.Duration `yaml:"token_ttl"`               // default 1h
+	SafeMethods           []string      `yaml:"safe_methods"`            // default GET,HEAD,OPTIONS,TRACE
+	AllowedOrigins        []string      `yaml:"allowed_origins"`         // exact origin matches
+	AllowedOriginPatterns []string      `yaml:"allowed_origin_patterns"` // regex patterns
+	CookiePath            string        `yaml:"cookie_path"`             // default "/"
+	CookieDomain          string        `yaml:"cookie_domain"`
+	CookieSecure          bool          `yaml:"cookie_secure"`           // default true (set explicitly in YAML)
+	CookieSameSite        string        `yaml:"cookie_samesite"`         // strict/lax/none, default "lax"
+	CookieHTTPOnly        bool          `yaml:"cookie_http_only"`        // default false (JS must read cookie)
+	InjectToken           bool          `yaml:"inject_token"`            // default true (set explicitly in YAML)
+	ShadowMode            bool          `yaml:"shadow_mode"`             // log but don't reject
+	ExemptPaths           []string      `yaml:"exempt_paths"`            // glob patterns
 }
 
 // OutlierDetectionConfig defines passive per-backend outlier detection settings.

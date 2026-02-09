@@ -22,6 +22,7 @@ import (
 	"github.com/example/gateway/internal/middleware/cors"
 	"github.com/example/gateway/internal/middleware/ipfilter"
 	"github.com/example/gateway/internal/middleware/ratelimit"
+	"github.com/example/gateway/internal/middleware/csrf"
 	"github.com/example/gateway/internal/middleware/errorpages"
 	"github.com/example/gateway/internal/middleware/nonce"
 	openapivalidation "github.com/example/gateway/internal/middleware/openapi"
@@ -89,6 +90,7 @@ type gatewayState struct {
 	timeoutConfigs       *timeout.TimeoutByRoute
 	errorPages           *errorpages.ErrorPagesByRoute
 	nonceCheckers        *nonce.NonceByRoute
+	csrfProtectors       *csrf.CSRFByRoute
 	outlierDetectors     *outlier.DetectorByRoute
 	translators          *protocol.TranslatorByRoute
 	rateLimiters      *ratelimit.RateLimitByRoute
@@ -134,6 +136,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		timeoutConfigs:    timeout.NewTimeoutByRoute(),
 		errorPages:        errorpages.NewErrorPagesByRoute(),
 		nonceCheckers:     nonce.NewNonceByRoute(),
+		csrfProtectors:    csrf.NewCSRFByRoute(),
 		outlierDetectors:  outlier.NewDetectorByRoute(),
 		translators:        protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
@@ -171,6 +174,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		&timeoutFeature{s.timeoutConfigs},
 		&errorPagesFeature{m: s.errorPages, global: &cfg.ErrorPages},
 		&nonceFeature{m: s.nonceCheckers, global: &cfg.Nonce, redis: g.redisClient},
+		&csrfFeature{m: s.csrfProtectors, global: &cfg.CSRF},
 		&outlierDetectionFeature{s.outlierDetectors},
 	}
 
@@ -648,6 +652,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.timeoutConfigs = newState.timeoutConfigs
 	g.errorPages = newState.errorPages
 	g.nonceCheckers = newState.nonceCheckers
+	g.csrfProtectors = newState.csrfProtectors
 	g.outlierDetectors = newState.outlierDetectors
 	g.translators = newState.translators
 	g.rateLimiters = newState.rateLimiters

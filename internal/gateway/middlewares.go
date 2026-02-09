@@ -12,6 +12,7 @@ import (
 
 	"github.com/example/gateway/internal/cache"
 	"github.com/example/gateway/internal/middleware/accesslog"
+	"github.com/example/gateway/internal/middleware/csrf"
 	"github.com/example/gateway/internal/middleware/errorpages"
 	"github.com/example/gateway/internal/middleware/extauth"
 	"github.com/example/gateway/internal/middleware/nonce"
@@ -130,6 +131,20 @@ func nonceMW(nc *nonce.NonceChecker) middleware.Middleware {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(statusCode)
 				fmt.Fprintf(w, `{"error":"%s"}`, msg)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// 3.8. csrfMW validates CSRF double-submit cookie tokens.
+func csrfMW(cp *csrf.CompiledCSRF) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			allowed, statusCode, msg := cp.Check(w, r)
+			if !allowed {
+				http.Error(w, msg, statusCode)
 				return
 			}
 			next.ServeHTTP(w, r)

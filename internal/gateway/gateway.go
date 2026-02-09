@@ -24,6 +24,7 @@ import (
 	"github.com/example/gateway/internal/middleware/auth"
 	"github.com/example/gateway/internal/middleware/compression"
 	"github.com/example/gateway/internal/middleware/accesslog"
+	"github.com/example/gateway/internal/middleware/csrf"
 	"github.com/example/gateway/internal/middleware/errorpages"
 	"github.com/example/gateway/internal/middleware/extauth"
 	"github.com/example/gateway/internal/middleware/nonce"
@@ -108,6 +109,7 @@ type Gateway struct {
 	timeoutConfigs         *timeout.TimeoutByRoute
 	errorPages             *errorpages.ErrorPagesByRoute
 	nonceCheckers          *nonce.NonceByRoute
+	csrfProtectors         *csrf.CSRFByRoute
 	outlierDetectors       *outlier.DetectorByRoute
 	webhookDispatcher      *webhook.Dispatcher
 
@@ -179,6 +181,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		timeoutConfigs:    timeout.NewTimeoutByRoute(),
 		errorPages:        errorpages.NewErrorPagesByRoute(),
 		nonceCheckers:     nonce.NewNonceByRoute(),
+		csrfProtectors:    csrf.NewCSRFByRoute(),
 		outlierDetectors:  outlier.NewDetectorByRoute(),
 		routeProxies:      make(map[string]*proxy.RouteProxy),
 		routeHandlers:    make(map[string]http.Handler),
@@ -216,6 +219,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&timeoutFeature{g.timeoutConfigs},
 		&errorPagesFeature{m: g.errorPages, global: &cfg.ErrorPages},
 		&nonceFeature{m: g.nonceCheckers, global: &cfg.Nonce, redis: g.redisClient},
+		&csrfFeature{m: g.csrfProtectors, global: &cfg.CSRF},
 		&outlierDetectionFeature{g.outlierDetectors},
 	}
 
@@ -753,6 +757,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 	// 6.3 nonceMW — replay prevention (after auth, needs Identity for per_client scope)
 	if nc := g.nonceCheckers.GetChecker(routeID); nc != nil {
 		chain = chain.Use(nonceMW(nc))
+	}
+
+	// 6.35 csrfMW — CSRF protection (after nonce, before priority)
+	if cp := g.csrfProtectors.GetProtector(routeID); cp != nil {
+		chain = chain.Use(csrfMW(cp))
 	}
 
 	// 6.5 priorityMW — admission control (after auth, needs Identity)
@@ -1355,6 +1364,11 @@ func (g *Gateway) GetErrorPages() *errorpages.ErrorPagesByRoute {
 // GetNonceCheckers returns the nonce checker manager.
 func (g *Gateway) GetNonceCheckers() *nonce.NonceByRoute {
 	return g.nonceCheckers
+}
+
+// GetCSRFProtectors returns the CSRF protection manager.
+func (g *Gateway) GetCSRFProtectors() *csrf.CSRFByRoute {
+	return g.csrfProtectors
 }
 
 // GetOutlierDetectors returns the outlier detection manager.

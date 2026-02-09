@@ -14,6 +14,7 @@ import (
 	"github.com/example/gateway/internal/middleware/extauth"
 	"github.com/example/gateway/internal/middleware/ipfilter"
 	"github.com/example/gateway/internal/middleware/errorpages"
+	"github.com/example/gateway/internal/middleware/csrf"
 	"github.com/example/gateway/internal/middleware/nonce"
 	"github.com/redis/go-redis/v9"
 	"github.com/example/gateway/internal/middleware/openapi"
@@ -394,6 +395,26 @@ func (f *nonceFeature) Setup(routeID string, cfg config.RouteConfig) error {
 }
 func (f *nonceFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *nonceFeature) AdminStats() any     { return f.m.Stats() }
+
+// csrfFeature wraps CSRFByRoute.
+type csrfFeature struct {
+	m      *csrf.CSRFByRoute
+	global *config.CSRFConfig
+}
+
+func (f *csrfFeature) Name() string { return "csrf" }
+func (f *csrfFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.CSRF.Enabled {
+		merged := csrf.MergeCSRFConfig(cfg.CSRF, *f.global)
+		return f.m.AddRoute(routeID, merged)
+	}
+	if f.global.Enabled {
+		return f.m.AddRoute(routeID, *f.global)
+	}
+	return nil
+}
+func (f *csrfFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *csrfFeature) AdminStats() any    { return f.m.Stats() }
 
 // outlierDetectionFeature wraps DetectorByRoute.
 // Setup is a no-op because the detector needs the Balancer reference, which is only

@@ -1019,6 +1019,62 @@ See [Replay Prevention](replay-prevention.md) for storage modes, scoping, and ti
 
 ---
 
+## CSRF Protection
+
+### Per-Route
+
+```yaml
+    csrf:
+      enabled: bool
+      cookie_name: string             # cookie name (default "_csrf")
+      header_name: string             # header name (default "X-CSRF-Token")
+      secret: string                  # HMAC signing key (required when enabled)
+      token_ttl: duration             # token lifetime (default 1h)
+      safe_methods: [string]          # methods that skip validation (default GET,HEAD,OPTIONS,TRACE)
+      allowed_origins: [string]       # exact origin matches
+      allowed_origin_patterns: [string] # regex origin patterns
+      cookie_path: string             # cookie path (default "/")
+      cookie_domain: string           # cookie domain
+      cookie_secure: bool             # Secure flag
+      cookie_samesite: string         # strict/lax/none (default "lax")
+      cookie_http_only: bool          # HttpOnly flag (default false)
+      inject_token: bool              # set token cookie on safe methods
+      shadow_mode: bool               # log but don't reject
+      exempt_paths: [string]          # glob patterns that skip CSRF checks
+```
+
+Per-route CSRF config is merged with the global `csrf:` block. Per-route fields override global fields.
+
+### Global
+
+```yaml
+csrf:
+  enabled: bool
+  cookie_name: string
+  header_name: string
+  secret: string
+  token_ttl: duration
+  safe_methods: [string]
+  allowed_origins: [string]
+  allowed_origin_patterns: [string]
+  cookie_path: string
+  cookie_domain: string
+  cookie_secure: bool
+  cookie_samesite: string
+  cookie_http_only: bool
+  inject_token: bool
+  shadow_mode: bool
+  exempt_paths: [string]
+```
+
+Global CSRF config provides defaults for all routes. Per-route `csrf` fields override global fields.
+
+**Validation:** `secret` required when enabled. `cookie_samesite` must be `strict`, `lax`, or `none`. `cookie_samesite: "none"` requires `cookie_secure: true`. `token_ttl` must be >= 0. `allowed_origin_patterns` must be valid regex.
+
+See [CSRF Protection](csrf.md) for token lifecycle, client integration, and security considerations.
+
+---
+
 ## Health Check
 
 ```yaml
