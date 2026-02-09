@@ -1,19 +1,27 @@
-version: '3.8'
-
 services:
   gateway:
-    build: .
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-dev}
+        BUILD_TIME: ${BUILD_TIME:-}
+    image: ghcr.io/wudi/gateway:${VERSION:-dev}
     ports:
-      - "8080:8080"  # Main gateway
-      - "8081:8081"  # Admin API
-      - "8082:8082"  # Registry API
+      - "8080:8080"
+      - "8081:8081"
+      - "8082:8082"
     environment:
       - JWT_SECRET=your-secret-key-here
     volumes:
       - ./configs:/app/configs:ro
+      - certs:/app/certs:ro
+      - specs:/app/specs:ro
+      - geoip:/app/geoip:ro
     depends_on:
-      - backend1
-      - backend2
+      backend1:
+        condition: service_healthy
+      backend2:
+        condition: service_healthy
     networks:
       - gateway-network
 
@@ -24,6 +32,11 @@ services:
       - ./test/nginx/backend1.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
       - gateway-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   backend2:
     image: nginx:alpine
@@ -31,17 +44,87 @@ services:
       - ./test/nginx/backend2.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
       - gateway-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
-  # Optional: Consul for service discovery testing
+  # Redis for distributed rate limiting and caching
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - gateway-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    profiles:
+      - redis
+
+  # Consul for service discovery
   consul:
-    image: consul:1.15
+    image: hashicorp/consul:1.17
     ports:
       - "8500:8500"
     command: agent -dev -client=0.0.0.0
     networks:
       - gateway-network
+    healthcheck:
+      test: ["CMD", "consul", "members"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     profiles:
       - consul
+
+  # etcd for service discovery
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.17
+    ports:
+      - "2379:2379"
+    environment:
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd:2379
+      ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+    networks:
+      - gateway-network
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    profiles:
+      - etcd
+
+  # OpenTelemetry Collector for tracing
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.115.0
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "13133:13133" # Health check
+    volumes:
+      - ./configs/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    networks:
+      - gateway-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:13133/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    profiles:
+      - otel
+
+volumes:
+  certs:
+  specs:
+  geoip:
+  redis-data:
 
 networks:
   gateway-network:

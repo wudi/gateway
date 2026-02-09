@@ -1,0 +1,29 @@
+# Version control
+.git
+.gitignore
+
+# Build artifacts
+build/
+gateway
+
+# Documentation (not needed in image)
+docs/
+
+# Test fixtures
+test/nginx/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Coverage artifacts
+coverage.out
+coverage.html
+
+# Docker files (prevent recursive context)
+Dockerfile
+docker-compose.yaml
+.dockerignore

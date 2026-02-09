@@ -2,7 +2,7 @@
 
 ## Installation
 
-Build from source (requires Go 1.21+):
+Build from source (requires Go 1.25+):
 
 ```bash
 go build -o gateway ./cmd/gateway/
@@ -13,6 +13,46 @@ Set version and build time at compile:
 ```bash
 go build -ldflags "-X main.version=1.0.0 -X main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   -o gateway ./cmd/gateway/
+```
+
+## Docker
+
+Build and run with Docker:
+
+```bash
+make docker-build
+make docker-run
+```
+
+Start the full stack (gateway + mock backends) with Compose:
+
+```bash
+make compose-up
+```
+
+Enable infrastructure services using profiles:
+
+```bash
+# Start with Redis (for distributed rate limiting / cache)
+make compose-up-redis
+
+# Start with OpenTelemetry collector (for tracing)
+make compose-up-otel
+
+# Start with all infrastructure
+make compose-up-all
+```
+
+Build multi-architecture images (`linux/amd64` + `linux/arm64`) and push to a registry:
+
+```bash
+make docker-buildx
+```
+
+Stop everything:
+
+```bash
+make compose-down
 ```
 
 ## CLI Flags

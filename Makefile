@@ -1,4 +1,7 @@
-.PHONY: all build run test clean deps lint fmt vet
+.PHONY: all build run test clean deps lint fmt vet \
+	docker-build docker-buildx docker-buildx-local docker-push docker-run \
+	compose-up compose-down compose-logs \
+	compose-up-redis compose-up-otel compose-up-consul compose-up-etcd compose-up-all
 
 # Build variables
 BINARY_NAME=gateway
@@ -6,6 +9,13 @@ BUILD_DIR=build
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME)"
+
+# Docker variables
+IMAGE_REGISTRY?=ghcr.io
+IMAGE_REPO?=wudi
+IMAGE_NAME?=$(IMAGE_REGISTRY)/$(IMAGE_REPO)/$(BINARY_NAME)
+IMAGE_TAG?=$(VERSION)
+PLATFORMS?=linux/amd64,linux/arm64
 
 # Go commands
 GOCMD=go
@@ -109,13 +119,69 @@ clean:
 	rm -rf $(BUILD_DIR)
 	rm -f coverage.out coverage.html
 
-# Docker build
+# Docker build (single-arch, local)
 docker-build:
-	docker build -t $(BINARY_NAME):$(VERSION) .
+	docker build \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg BUILD_TIME=$(BUILD_TIME) \
+		-t $(IMAGE_NAME):$(IMAGE_TAG) \
+		-t $(IMAGE_NAME):latest .
 
-# Docker run
+# Docker buildx (multi-arch, push to registry)
+docker-buildx:
+	docker buildx build \
+		--platform $(PLATFORMS) \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg BUILD_TIME=$(BUILD_TIME) \
+		-t $(IMAGE_NAME):$(IMAGE_TAG) \
+		-t $(IMAGE_NAME):latest \
+		--push .
+
+# Docker buildx (single-arch, load locally)
+docker-buildx-local:
+	docker buildx build \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg BUILD_TIME=$(BUILD_TIME) \
+		-t $(IMAGE_NAME):$(IMAGE_TAG) \
+		-t $(IMAGE_NAME):latest \
+		--load .
+
+# Push pre-built image
+docker-push:
+	docker push $(IMAGE_NAME):$(IMAGE_TAG)
+	docker push $(IMAGE_NAME):latest
+
+# Docker run with config mount
 docker-run:
-	docker run -p 8080:8080 -p 8081:8081 -p 8082:8082 $(BINARY_NAME):$(VERSION)
+	docker run -p 8080:8080 -p 8081:8081 -p 8082:8082 \
+		-v $(CURDIR)/configs:/app/configs:ro \
+		$(IMAGE_NAME):$(IMAGE_TAG)
+
+# Compose targets
+compose-up:
+	VERSION=$(VERSION) BUILD_TIME=$(BUILD_TIME) docker compose up -d --build
+
+compose-down:
+	docker compose --profile redis --profile otel --profile consul --profile etcd down
+
+compose-logs:
+	docker compose logs -f
+
+compose-up-redis:
+	VERSION=$(VERSION) BUILD_TIME=$(BUILD_TIME) docker compose --profile redis up -d --build
+
+compose-up-otel:
+	VERSION=$(VERSION) BUILD_TIME=$(BUILD_TIME) docker compose --profile otel up -d --build
+
+compose-up-consul:
+	VERSION=$(VERSION) BUILD_TIME=$(BUILD_TIME) docker compose --profile consul up -d --build
+
+compose-up-etcd:
+	VERSION=$(VERSION) BUILD_TIME=$(BUILD_TIME) docker compose --profile etcd up -d --build
+
+compose-up-all:
+	VERSION=$(VERSION) BUILD_TIME=$(BUILD_TIME) docker compose \
+		--profile redis --profile otel --profile consul --profile etcd up -d --build
 
 # Start a mock backend server for testing
 mock-backend:
@@ -125,20 +191,31 @@ mock-backend:
 # Help
 help:
 	@echo "Available targets:"
-	@echo "  all           - Install deps and build"
-	@echo "  build         - Build the binary"
-	@echo "  build-all     - Build for all platforms"
-	@echo "  run           - Build and run the gateway"
-	@echo "  dev           - Run with hot reload (requires air)"
-	@echo "  test          - Run tests"
-	@echo "  test-coverage - Run tests with coverage report"
-	@echo "  deps          - Install dependencies"
-	@echo "  deps-update   - Update dependencies"
-	@echo "  fmt           - Format code"
-	@echo "  vet           - Run go vet"
-	@echo "  lint          - Run linter"
-	@echo "  validate      - Validate configuration"
-	@echo "  clean         - Clean build artifacts"
-	@echo "  docker-build  - Build Docker image"
-	@echo "  docker-run    - Run Docker container"
-	@echo "  help          - Show this help"
+	@echo "  all              - Install deps and build"
+	@echo "  build            - Build the binary"
+	@echo "  build-all        - Build for all platforms"
+	@echo "  run              - Build and run the gateway"
+	@echo "  dev              - Run with hot reload (requires air)"
+	@echo "  test             - Run tests"
+	@echo "  test-coverage    - Run tests with coverage report"
+	@echo "  deps             - Install dependencies"
+	@echo "  deps-update      - Update dependencies"
+	@echo "  fmt              - Format code"
+	@echo "  vet              - Run go vet"
+	@echo "  lint             - Run linter"
+	@echo "  validate         - Validate configuration"
+	@echo "  clean            - Clean build artifacts"
+	@echo "  docker-build     - Build Docker image (local)"
+	@echo "  docker-buildx    - Build multi-arch image and push to registry"
+	@echo "  docker-buildx-local - Build with buildx and load locally"
+	@echo "  docker-push      - Push image to registry"
+	@echo "  docker-run       - Run Docker container"
+	@echo "  compose-up       - Start gateway + backends"
+	@echo "  compose-down     - Stop all services (all profiles)"
+	@echo "  compose-logs     - Follow compose logs"
+	@echo "  compose-up-redis - Start with Redis"
+	@echo "  compose-up-otel  - Start with OTEL collector"
+	@echo "  compose-up-consul - Start with Consul"
+	@echo "  compose-up-etcd  - Start with etcd"
+	@echo "  compose-up-all   - Start with all infrastructure"
+	@echo "  help             - Show this help"
