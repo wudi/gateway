@@ -10,11 +10,20 @@ import (
 	"sync"
 	"time"
 
+	"github.com/redis/go-redis/v9"
+
 	"github.com/example/gateway/internal/config"
 	"github.com/example/gateway/internal/graphql"
 )
 
-// Handler manages caching for a single route
+// Entry represents a cached response.
+type Entry struct {
+	StatusCode int
+	Headers    http.Header
+	Body       []byte
+}
+
+// Handler manages caching for a single route.
 type Handler struct {
 	cache       *Cache
 	ttl         time.Duration
@@ -23,8 +32,8 @@ type Handler struct {
 	methods     map[string]bool
 }
 
-// NewHandler creates a new cache handler for a route
-func NewHandler(cfg config.CacheConfig) *Handler {
+// NewHandler creates a new cache handler for a route with the given store backend.
+func NewHandler(cfg config.CacheConfig, store Store) *Handler {
 	methods := cfg.Methods
 	if len(methods) == 0 {
 		methods = []string{"GET"}
@@ -45,13 +54,8 @@ func NewHandler(cfg config.CacheConfig) *Handler {
 		maxBodySize = 1 << 20 // 1MB
 	}
 
-	maxSize := cfg.MaxSize
-	if maxSize <= 0 {
-		maxSize = 1000
-	}
-
 	return &Handler{
-		cache:       NewCache(maxSize, ttl),
+		cache:       New(store),
 		ttl:         ttl,
 		maxBodySize: maxBodySize,
 		keyHeaders:  cfg.KeyHeaders,
@@ -59,7 +63,7 @@ func NewHandler(cfg config.CacheConfig) *Handler {
 	}
 }
 
-// BuildKey constructs a cache key from the request
+// BuildKey constructs a cache key from the request.
 func (h *Handler) BuildKey(r *http.Request, keyHeaders []string) string {
 	var b strings.Builder
 	b.WriteString(r.Method)
@@ -100,7 +104,7 @@ func (h *Handler) BuildKey(r *http.Request, keyHeaders []string) string {
 	return fmt.Sprintf("%x", hash)
 }
 
-// ShouldCache checks if the request is cacheable
+// ShouldCache checks if the request is cacheable.
 func (h *Handler) ShouldCache(r *http.Request) bool {
 	if !h.methods[r.Method] {
 		// Allow POST caching for GraphQL query operations
@@ -122,7 +126,7 @@ cacheControlCheck:
 	return true
 }
 
-// ShouldStore checks if the response should be stored in cache
+// ShouldStore checks if the response should be stored in cache.
 func (h *Handler) ShouldStore(statusCode int, headers http.Header, bodySize int64) bool {
 	// Only cache successful responses
 	if statusCode < 200 || statusCode >= 300 {
@@ -143,36 +147,36 @@ func (h *Handler) ShouldStore(statusCode int, headers http.Header, bodySize int6
 	return true
 }
 
-// Get retrieves a cached response
+// Get retrieves a cached response.
 func (h *Handler) Get(r *http.Request) (*Entry, bool) {
 	key := h.BuildKey(r, h.keyHeaders)
 	return h.cache.Get(key)
 }
 
-// Store stores a response in the cache
+// Store stores a response in the cache.
 func (h *Handler) Store(r *http.Request, entry *Entry) {
 	key := h.BuildKey(r, h.keyHeaders)
 	h.cache.Set(key, entry)
 }
 
-// InvalidateByPath invalidates cache entries matching the request path prefix
+// InvalidateByPath invalidates cache entries matching the request path prefix.
 func (h *Handler) InvalidateByPath(path string) {
 	// Use hash prefix won't work well here, so purge for mutation requests
 	// This is a simplification; in production you'd want more granular invalidation
 	h.cache.DeleteByPrefix(path)
 }
 
-// Stats returns cache statistics
+// Stats returns cache statistics.
 func (h *Handler) Stats() CacheStats {
 	return h.cache.Stats()
 }
 
-// Purge clears all cache entries
+// Purge clears all cache entries.
 func (h *Handler) Purge() {
 	h.cache.Purge()
 }
 
-// IsMutatingMethod returns true if the HTTP method may mutate resources
+// IsMutatingMethod returns true if the HTTP method may mutate resources.
 func IsMutatingMethod(method string) bool {
 	switch method {
 	case "POST", "PUT", "PATCH", "DELETE":
@@ -181,7 +185,7 @@ func IsMutatingMethod(method string) bool {
 	return false
 }
 
-// CachingResponseWriter wraps http.ResponseWriter to capture the response for caching
+// CachingResponseWriter wraps http.ResponseWriter to capture the response for caching.
 type CachingResponseWriter struct {
 	http.ResponseWriter
 	statusCode  int
@@ -189,7 +193,7 @@ type CachingResponseWriter struct {
 	wroteHeader bool
 }
 
-// NewCachingResponseWriter creates a new caching response writer
+// NewCachingResponseWriter creates a new caching response writer.
 func NewCachingResponseWriter(w http.ResponseWriter) *CachingResponseWriter {
 	return &CachingResponseWriter{
 		ResponseWriter: w,
@@ -197,7 +201,7 @@ func NewCachingResponseWriter(w http.ResponseWriter) *CachingResponseWriter {
 	}
 }
 
-// WriteHeader captures the status code and writes it to the underlying writer
+// WriteHeader captures the status code and writes it to the underlying writer.
 func (crw *CachingResponseWriter) WriteHeader(code int) {
 	if !crw.wroteHeader {
 		crw.statusCode = code
@@ -211,27 +215,27 @@ func (crw *CachingResponseWriter) StatusCode() int {
 	return crw.statusCode
 }
 
-// Write captures the body and writes it to the underlying writer
+// Write captures the body and writes it to the underlying writer.
 func (crw *CachingResponseWriter) Write(b []byte) (int, error) {
 	crw.Body.Write(b)
 	return crw.ResponseWriter.Write(b)
 }
 
-// Flush implements http.Flusher
+// Flush implements http.Flusher.
 func (crw *CachingResponseWriter) Flush() {
 	if flusher, ok := crw.ResponseWriter.(http.Flusher); ok {
 		flusher.Flush()
 	}
 }
 
-// Hijack implements http.Hijacker for WebSocket support
+// Hijack implements http.Hijacker for WebSocket support.
 func (crw *CachingResponseWriter) Hijack() (c interface{}, brw interface{}, err error) {
 	// This does not actually implement Hijack properly since we're buffering
 	// WebSocket connections should bypass the cache layer
 	return nil, nil, fmt.Errorf("hijack not supported on caching response writer")
 }
 
-// WriteCachedResponse writes a cached entry to the response writer
+// WriteCachedResponse writes a cached entry to the response writer.
 func WriteCachedResponse(w http.ResponseWriter, entry *Entry) {
 	// Copy headers
 	for key, values := range entry.Headers {
@@ -244,27 +248,54 @@ func WriteCachedResponse(w http.ResponseWriter, entry *Entry) {
 	w.Write(entry.Body)
 }
 
-// CacheByRoute manages cache handlers per route
+// CacheByRoute manages cache handlers per route.
 type CacheByRoute struct {
-	handlers map[string]*Handler
-	mu       sync.RWMutex
+	handlers    map[string]*Handler
+	redisClient *redis.Client
+	mu          sync.RWMutex
 }
 
-// NewCacheByRoute creates a new route-based cache manager
-func NewCacheByRoute() *CacheByRoute {
+// NewCacheByRoute creates a new route-based cache manager.
+// Pass a non-nil redisClient to enable distributed caching for routes with mode "distributed".
+func NewCacheByRoute(redisClient *redis.Client) *CacheByRoute {
 	return &CacheByRoute{
-		handlers: make(map[string]*Handler),
+		handlers:    make(map[string]*Handler),
+		redisClient: redisClient,
 	}
 }
 
-// AddRoute adds a cache handler for a route
+// SetRedisClient sets the Redis client for distributed caching.
+func (cbr *CacheByRoute) SetRedisClient(client *redis.Client) {
+	cbr.mu.Lock()
+	defer cbr.mu.Unlock()
+	cbr.redisClient = client
+}
+
+// AddRoute adds a cache handler for a route.
 func (cbr *CacheByRoute) AddRoute(routeID string, cfg config.CacheConfig) {
 	cbr.mu.Lock()
 	defer cbr.mu.Unlock()
-	cbr.handlers[routeID] = NewHandler(cfg)
+
+	ttl := cfg.TTL
+	if ttl <= 0 {
+		ttl = 60 * time.Second
+	}
+
+	var store Store
+	if cfg.Mode == "distributed" && cbr.redisClient != nil {
+		store = NewRedisStore(cbr.redisClient, "gw:cache:"+routeID+":", ttl)
+	} else {
+		maxSize := cfg.MaxSize
+		if maxSize <= 0 {
+			maxSize = 1000
+		}
+		store = NewMemoryStore(maxSize, ttl)
+	}
+
+	cbr.handlers[routeID] = NewHandler(cfg, store)
 }
 
-// GetHandler returns the cache handler for a route
+// GetHandler returns the cache handler for a route.
 func (cbr *CacheByRoute) GetHandler(routeID string) *Handler {
 	cbr.mu.RLock()
 	defer cbr.mu.RUnlock()
@@ -282,7 +313,7 @@ func (cbr *CacheByRoute) RouteIDs() []string {
 	return ids
 }
 
-// Stats returns cache statistics for all routes
+// Stats returns cache statistics for all routes.
 func (cbr *CacheByRoute) Stats() map[string]CacheStats {
 	cbr.mu.RLock()
 	defer cbr.mu.RUnlock()

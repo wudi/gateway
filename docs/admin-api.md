@@ -91,7 +91,7 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /registry` | Configured registry type |
 | `GET /backends` | Backend health status with latency and last check time |
 | `GET /circuit-breakers` | Circuit breaker state per route (closed/open/half-open) |
-| `GET /cache` | Cache statistics (hits, misses, size, evictions) |
+| `GET /cache` | Cache statistics (hits, misses, size, evictions). For distributed mode, size is Redis key count; hits/misses are local per-instance counters. |
 | `GET /retries` | Retry metrics per route (attempts, budget exhaustion, hedged requests) |
 | `GET /rules` | Rules engine status (global + per-route rules and metrics) |
 | `GET /protocol-translators` | gRPC translator statistics |

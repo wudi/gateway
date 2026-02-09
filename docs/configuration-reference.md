@@ -216,8 +216,9 @@ routes:
 ```yaml
     cache:
       enabled: bool
+      mode: string              # "local" (default) or "distributed" (Redis-backed)
       ttl: duration             # > 0
-      max_size: int             # > 0 (max entries)
+      max_size: int             # > 0 (max entries, local mode only)
       max_body_size: int64      # max response body to cache
       methods: [string]         # e.g., ["GET"]
       key_headers: [string]     # extra headers in cache key

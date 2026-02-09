@@ -102,7 +102,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		routeHandlers:     make(map[string]http.Handler),
 		watchCancels:      make(map[string]context.CancelFunc),
 		circuitBreakers:   circuitbreaker.NewBreakerByRoute(),
-		caches:            cache.NewCacheByRoute(),
+		caches:            cache.NewCacheByRoute(g.redisClient),
 		ipFilters:         ipfilter.NewIPFilterByRoute(),
 		corsHandlers:      cors.NewCORSByRoute(),
 		compressors:       compression.NewCompressorByRoute(),

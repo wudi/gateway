@@ -142,7 +142,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		rateLimiters:     ratelimit.NewRateLimitByRoute(),
 		resolver:         variables.NewResolver(),
 		circuitBreakers:  circuitbreaker.NewBreakerByRoute(),
-		caches:           cache.NewCacheByRoute(),
+		caches:           cache.NewCacheByRoute(nil),
 		wsProxy:          websocket.NewProxy(config.WebSocketConfig{}),
 		ipFilters:        ipfilter.NewIPFilterByRoute(),
 		corsHandlers:     cors.NewCORSByRoute(),
@@ -237,6 +237,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 			PoolSize:    cfg.Redis.PoolSize,
 			DialTimeout: cfg.Redis.DialTimeout,
 		})
+		g.caches.SetRedisClient(g.redisClient)
 	}
 
 	// Initialize health checker

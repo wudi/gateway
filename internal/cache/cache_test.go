@@ -7,7 +7,7 @@ import (
 )
 
 func TestCacheGetSet(t *testing.T) {
-	c := NewCache(10, 1*time.Minute)
+	c := New(NewMemoryStore(10, 1*time.Minute))
 
 	entry := &Entry{
 		StatusCode: 200,
@@ -30,7 +30,7 @@ func TestCacheGetSet(t *testing.T) {
 }
 
 func TestCacheMiss(t *testing.T) {
-	c := NewCache(10, 1*time.Minute)
+	c := New(NewMemoryStore(10, 1*time.Minute))
 
 	_, ok := c.Get("nonexistent")
 	if ok {
@@ -39,7 +39,7 @@ func TestCacheMiss(t *testing.T) {
 }
 
 func TestCacheExpiry(t *testing.T) {
-	c := NewCache(10, 10*time.Millisecond)
+	c := New(NewMemoryStore(10, 10*time.Millisecond))
 
 	entry := &Entry{
 		StatusCode: 200,
@@ -57,7 +57,7 @@ func TestCacheExpiry(t *testing.T) {
 }
 
 func TestCacheLRUEviction(t *testing.T) {
-	c := NewCache(3, 1*time.Minute)
+	c := New(NewMemoryStore(3, 1*time.Minute))
 
 	for i := 0; i < 3; i++ {
 		c.Set(string(rune('a'+i)), &Entry{
@@ -84,7 +84,7 @@ func TestCacheLRUEviction(t *testing.T) {
 }
 
 func TestCacheLRUAccessOrder(t *testing.T) {
-	c := NewCache(3, 1*time.Minute)
+	c := New(NewMemoryStore(3, 1*time.Minute))
 
 	for i := 0; i < 3; i++ {
 		c.Set(string(rune('a'+i)), &Entry{
@@ -114,7 +114,7 @@ func TestCacheLRUAccessOrder(t *testing.T) {
 }
 
 func TestCacheDelete(t *testing.T) {
-	c := NewCache(10, 1*time.Minute)
+	c := New(NewMemoryStore(10, 1*time.Minute))
 
 	c.Set("key1", &Entry{
 		StatusCode: 200,
@@ -130,7 +130,7 @@ func TestCacheDelete(t *testing.T) {
 }
 
 func TestCachePurge(t *testing.T) {
-	c := NewCache(10, 1*time.Minute)
+	c := New(NewMemoryStore(10, 1*time.Minute))
 
 	for i := 0; i < 5; i++ {
 		c.Set(string(rune('a'+i)), &Entry{
@@ -148,7 +148,7 @@ func TestCachePurge(t *testing.T) {
 }
 
 func TestCacheStats(t *testing.T) {
-	c := NewCache(10, 1*time.Minute)
+	c := New(NewMemoryStore(10, 1*time.Minute))
 
 	c.Set("key1", &Entry{
 		StatusCode: 200,
@@ -171,7 +171,7 @@ func TestCacheStats(t *testing.T) {
 }
 
 func TestCacheUpdateExisting(t *testing.T) {
-	c := NewCache(10, 1*time.Minute)
+	c := New(NewMemoryStore(10, 1*time.Minute))
 
 	c.Set("key1", &Entry{
 		StatusCode: 200,

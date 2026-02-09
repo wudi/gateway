@@ -1368,3 +1368,116 @@ routes:
 		})
 	}
 }
+
+func TestLoaderValidateCacheMode(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+	}{
+		{
+			name: "valid local mode",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    cache:
+      enabled: true
+      mode: "local"
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid distributed mode with redis",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+redis:
+  address: "localhost:6379"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    cache:
+      enabled: true
+      mode: "distributed"
+`,
+			wantErr: false,
+		},
+		{
+			name: "invalid cache mode",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    cache:
+      enabled: true
+      mode: "invalid"
+`,
+			wantErr: true,
+		},
+		{
+			name: "distributed mode without redis",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    cache:
+      enabled: true
+      mode: "distributed"
+`,
+			wantErr: true,
+		},
+		{
+			name: "empty mode defaults to local",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    cache:
+      enabled: true
+`,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}

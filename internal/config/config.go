@@ -312,6 +312,7 @@ type CacheConfig struct {
 	MaxBodySize int64         `yaml:"max_body_size"`
 	KeyHeaders  []string      `yaml:"key_headers"`
 	Methods     []string      `yaml:"methods"`
+	Mode        string        `yaml:"mode"` // "local" (default) or "distributed" (Redis-backed)
 }
 
 // WebSocketConfig defines WebSocket proxy settings

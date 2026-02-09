@@ -490,6 +490,12 @@ func (l *Loader) validate(cfg *Config) error {
 			if route.Cache.MaxSize != 0 && route.Cache.MaxSize < 1 {
 				return fmt.Errorf("route %s: cache max_size must be > 0", route.ID)
 			}
+			if route.Cache.Mode != "" && route.Cache.Mode != "local" && route.Cache.Mode != "distributed" {
+				return fmt.Errorf("route %s: cache mode must be \"local\" or \"distributed\"", route.ID)
+			}
+			if route.Cache.Mode == "distributed" && cfg.Redis.Address == "" {
+				return fmt.Errorf("route %s: distributed cache requires redis.address to be configured", route.ID)
+			}
 		}
 
 		// Validate websocket

@@ -4,21 +4,34 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/example/gateway/internal/config"
 )
 
+func newTestHandler(cfg config.CacheConfig) *Handler {
+	maxSize := cfg.MaxSize
+	if maxSize <= 0 {
+		maxSize = 1000
+	}
+	ttl := cfg.TTL
+	if ttl <= 0 {
+		ttl = 60 * time.Second
+	}
+	return NewHandler(cfg, NewMemoryStore(maxSize, ttl))
+}
+
 func TestHandlerShouldCache(t *testing.T) {
-	h := NewHandler(config.CacheConfig{
+	h := newTestHandler(config.CacheConfig{
 		Enabled: true,
 		Methods: []string{"GET"},
 	})
 
 	tests := []struct {
-		name   string
-		method string
+		name    string
+		method  string
 		headers map[string]string
-		want   bool
+		want    bool
 	}{
 		{"GET request", "GET", nil, true},
 		{"POST request", "POST", nil, false},
@@ -42,7 +55,7 @@ func TestHandlerShouldCache(t *testing.T) {
 }
 
 func TestHandlerShouldStore(t *testing.T) {
-	h := NewHandler(config.CacheConfig{
+	h := newTestHandler(config.CacheConfig{
 		Enabled:     true,
 		MaxBodySize: 1024,
 	})
@@ -73,7 +86,7 @@ func TestHandlerShouldStore(t *testing.T) {
 }
 
 func TestHandlerBuildKey(t *testing.T) {
-	h := NewHandler(config.CacheConfig{Enabled: true})
+	h := newTestHandler(config.CacheConfig{Enabled: true})
 
 	req1 := httptest.NewRequest("GET", "/api/users", nil)
 	req2 := httptest.NewRequest("GET", "/api/users", nil)
@@ -97,7 +110,7 @@ func TestHandlerBuildKey(t *testing.T) {
 }
 
 func TestHandlerBuildKeyWithHeaders(t *testing.T) {
-	h := NewHandler(config.CacheConfig{
+	h := newTestHandler(config.CacheConfig{
 		Enabled:    true,
 		KeyHeaders: []string{"Accept", "Authorization"},
 	})
@@ -117,7 +130,7 @@ func TestHandlerBuildKeyWithHeaders(t *testing.T) {
 }
 
 func TestHandlerGetAndStore(t *testing.T) {
-	h := NewHandler(config.CacheConfig{
+	h := newTestHandler(config.CacheConfig{
 		Enabled: true,
 		MaxSize: 100,
 	})
@@ -214,7 +227,7 @@ func TestIsMutatingMethod(t *testing.T) {
 }
 
 func TestCacheByRoute(t *testing.T) {
-	cbr := NewCacheByRoute()
+	cbr := NewCacheByRoute(nil)
 
 	cbr.AddRoute("route1", config.CacheConfig{
 		Enabled: true,
@@ -243,5 +256,32 @@ func TestCacheByRoute(t *testing.T) {
 	stats := cbr.Stats()
 	if len(stats) != 2 {
 		t.Errorf("expected 2 route stats, got %d", len(stats))
+	}
+}
+
+func TestCacheByRouteDistributedFallback(t *testing.T) {
+	// When no Redis client is configured, distributed mode falls back to local
+	cbr := NewCacheByRoute(nil)
+
+	cbr.AddRoute("route1", config.CacheConfig{
+		Enabled: true,
+		MaxSize: 100,
+		Mode:    "distributed",
+	})
+
+	h := cbr.GetHandler("route1")
+	if h == nil {
+		t.Fatal("expected handler for route1 even with distributed mode and no redis")
+	}
+
+	// Should work as a regular local cache
+	req := httptest.NewRequest("GET", "/test", nil)
+	h.Store(req, &Entry{StatusCode: 200, Body: []byte("ok")})
+	got, ok := h.Get(req)
+	if !ok {
+		t.Fatal("expected cache hit")
+	}
+	if got.StatusCode != 200 {
+		t.Errorf("expected 200, got %d", got.StatusCode)
 	}
 }

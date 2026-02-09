@@ -1,6 +1,6 @@
 # Caching
 
-The gateway provides an in-memory LRU response cache with per-route configuration. Cached responses bypass the backend entirely, reducing latency and load.
+The gateway provides per-route response caching with two storage backends: in-memory LRU (default) and Redis for distributed multi-instance deployments. Cached responses bypass the backend entirely, reducing latency and load.
 
 ## Response Caching
 
@@ -111,6 +111,50 @@ For GraphQL routes, add `POST` to the coalesce methods:
       methods: ["GET", "POST"]
 ```
 
+## Distributed Caching (Redis)
+
+In multi-instance deployments, each gateway instance maintains its own in-memory cache by default, leading to duplicate backend requests and inconsistent cache state. Enable distributed caching to share cached responses across all instances via Redis:
+
+```yaml
+redis:
+  address: "localhost:6379"
+  pool_size: 10
+
+routes:
+  - id: "api"
+    path: "/api/products"
+    backends:
+      - url: "http://backend:9000"
+    cache:
+      enabled: true
+      mode: "distributed"      # use Redis backend (default: "local")
+      ttl: 5m
+      max_body_size: 65536
+      methods: ["GET"]
+      key_headers: ["Accept"]
+```
+
+### How It Works
+
+- **`mode: "local"`** (default): In-memory LRU cache per instance. Fast, no external dependency, but not shared.
+- **`mode: "distributed"`**: Redis-backed cache shared across all gateway instances. Requires `redis.address` to be configured.
+
+Redis keys use the prefix `gw:cache:{routeID}:` followed by the cache key hash. TTL is enforced by Redis key expiration.
+
+### Fail-Open Behavior
+
+Redis errors (timeouts, connection failures) are treated as cache misses — the request proceeds to the backend normally. A warning is logged but requests are never blocked by Redis unavailability. Each Redis operation has a 100ms timeout to prevent latency cascading.
+
+### Admin API
+
+The `GET /cache` endpoint shows per-route statistics. For distributed mode, `size` reflects the number of keys in Redis for that route's prefix. `hits` and `misses` are counted locally per instance. `max_size` and `evictions` are 0 for distributed mode (Redis manages eviction via TTL).
+
+### Notes
+
+- `max_size` is ignored for distributed mode (Redis manages memory via TTL expiration).
+- The gateway reuses the shared Redis client configured under `redis:` (same as distributed rate limiting).
+- Responses are serialized using `encoding/gob`.
+
 ## Cache Position in the Pipeline
 
 The cache check happens before the circuit breaker. A cache hit never touches the backend or the circuit breaker, so cached routes remain responsive even when backends are failing.
@@ -120,8 +164,9 @@ The cache check happens before the circuit breaker. A cache hit never touches th
 | Field | Type | Description |
 |-------|------|-------------|
 | `cache.enabled` | bool | Enable response caching |
+| `cache.mode` | string | `"local"` (default) or `"distributed"` (Redis-backed) |
 | `cache.ttl` | duration | Time-to-live per entry |
-| `cache.max_size` | int | Max entries (LRU eviction) |
+| `cache.max_size` | int | Max entries (LRU eviction, local mode only) |
 | `cache.max_body_size` | int64 | Max response body size to cache (bytes) |
 | `cache.methods` | []string | HTTP methods to cache (e.g., `["GET"]`) |
 | `cache.key_headers` | []string | Extra headers to include in cache key |

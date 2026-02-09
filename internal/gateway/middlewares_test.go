@@ -283,7 +283,7 @@ func TestCacheMW_MissThenHit(t *testing.T) {
 		MaxSize:     100,
 		MaxBodySize: 1 << 20,
 		Methods:     []string{"GET"},
-	})
+	}, cache.NewMemoryStore(100, 5*time.Second))
 	mc := metrics.NewCollector()
 
 	backendCalls := 0
@@ -332,7 +332,7 @@ func TestCacheMW_SkipNonCacheable(t *testing.T) {
 	h := cache.NewHandler(config.CacheConfig{
 		Enabled: true,
 		Methods: []string{"GET"},
-	})
+	}, cache.NewMemoryStore(1000, 60*time.Second))
 	mc := metrics.NewCollector()
 
 	mw := cacheMW(h, mc, "test-route")
