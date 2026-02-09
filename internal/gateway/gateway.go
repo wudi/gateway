@@ -431,10 +431,7 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 			})
 
 			// Add to health checker
-			g.healthChecker.AddBackend(health.Backend{
-				URL:        b.URL,
-				HealthPath: "/health",
-			})
+			g.healthChecker.AddBackend(mergeHealthCheckConfig(b.URL, g.config.HealthCheck, b.HealthCheck))
 		}
 	}
 
@@ -450,7 +447,7 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 					weight = 1
 				}
 				vBacks = append(vBacks, &loadbalancer.Backend{URL: b.URL, Weight: weight, Healthy: true})
-				g.healthChecker.AddBackend(health.Backend{URL: b.URL, HealthPath: "/health"})
+				g.healthChecker.AddBackend(mergeHealthCheckConfig(b.URL, g.config.HealthCheck, b.HealthCheck))
 			}
 			versionBackends[ver] = vBacks
 		}
@@ -751,6 +748,58 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 	}
 
 	return chain.Handler(innermost)
+}
+
+// mergeHealthCheckConfig builds a health.Backend from global and per-backend config.
+func mergeHealthCheckConfig(backendURL string, global config.HealthCheckConfig, perBackend *config.HealthCheckConfig) health.Backend {
+	b := health.Backend{URL: backendURL}
+
+	// Start from global
+	b.HealthPath = global.Path
+	b.Method = global.Method
+	b.Interval = global.Interval
+	b.Timeout = global.Timeout
+	b.HealthyAfter = global.HealthyAfter
+	b.UnhealthyAfter = global.UnhealthyAfter
+
+	// Parse global expected status
+	for _, s := range global.ExpectedStatus {
+		if r, err := health.ParseStatusRange(s); err == nil {
+			b.ExpectedStatus = append(b.ExpectedStatus, r)
+		}
+	}
+
+	// Override with per-backend values where non-zero/non-empty
+	if perBackend != nil {
+		if perBackend.Path != "" {
+			b.HealthPath = perBackend.Path
+		}
+		if perBackend.Method != "" {
+			b.Method = perBackend.Method
+		}
+		if perBackend.Interval > 0 {
+			b.Interval = perBackend.Interval
+		}
+		if perBackend.Timeout > 0 {
+			b.Timeout = perBackend.Timeout
+		}
+		if perBackend.HealthyAfter > 0 {
+			b.HealthyAfter = perBackend.HealthyAfter
+		}
+		if perBackend.UnhealthyAfter > 0 {
+			b.UnhealthyAfter = perBackend.UnhealthyAfter
+		}
+		if len(perBackend.ExpectedStatus) > 0 {
+			b.ExpectedStatus = nil
+			for _, s := range perBackend.ExpectedStatus {
+				if r, err := health.ParseStatusRange(s); err == nil {
+					b.ExpectedStatus = append(b.ExpectedStatus, r)
+				}
+			}
+		}
+	}
+
+	return b
 }
 
 // watchService watches for service changes from registry

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -28,12 +30,57 @@ type CheckResult struct {
 
 // Backend represents a backend to check
 type Backend struct {
-	URL           string
-	HealthPath    string
-	Timeout       time.Duration
-	Interval      time.Duration
-	HealthyAfter  int // consecutive successes needed to be healthy
+	URL            string
+	HealthPath     string
+	Method         string        // HTTP method, default "GET"
+	Timeout        time.Duration
+	Interval       time.Duration
+	HealthyAfter   int // consecutive successes needed to be healthy
 	UnhealthyAfter int // consecutive failures needed to be unhealthy
+	ExpectedStatus []StatusRange // parsed ranges, default [{200, 399}]
+}
+
+// StatusRange represents a range of HTTP status codes.
+type StatusRange struct {
+	Lo, Hi int
+}
+
+// ParseStatusRange parses a status range string like "200", "2xx", "200-299".
+func ParseStatusRange(s string) (StatusRange, error) {
+	s = strings.TrimSpace(s)
+	// Pattern: Nxx (e.g. "4xx", "5xx")
+	if len(s) == 3 && s[1] == 'x' && s[2] == 'x' {
+		base := int(s[0]-'0') * 100
+		if base < 100 || base > 500 {
+			return StatusRange{}, fmt.Errorf("invalid status range %q", s)
+		}
+		return StatusRange{base, base + 99}, nil
+	}
+	// Pattern: N-M (e.g. "200-299")
+	if parts := strings.SplitN(s, "-", 2); len(parts) == 2 {
+		lo, err1 := strconv.Atoi(parts[0])
+		hi, err2 := strconv.Atoi(parts[1])
+		if err1 != nil || err2 != nil || lo < 100 || hi > 599 || lo > hi {
+			return StatusRange{}, fmt.Errorf("invalid status range %q", s)
+		}
+		return StatusRange{lo, hi}, nil
+	}
+	// Pattern: single code (e.g. "200")
+	code, err := strconv.Atoi(s)
+	if err != nil || code < 100 || code > 599 {
+		return StatusRange{}, fmt.Errorf("invalid status code %q", s)
+	}
+	return StatusRange{code, code}, nil
+}
+
+// matchStatus checks if a status code falls within any of the given ranges.
+func matchStatus(code int, ranges []StatusRange) bool {
+	for _, r := range ranges {
+		if code >= r.Lo && code <= r.Hi {
+			return true
+		}
+	}
+	return false
 }
 
 // Checker performs health checks on backends
@@ -114,6 +161,12 @@ func (c *Checker) AddBackend(b Backend) {
 	if b.Interval == 0 {
 		b.Interval = c.defaultInterval
 	}
+	if b.Method == "" {
+		b.Method = "GET"
+	}
+	if len(b.ExpectedStatus) == 0 {
+		b.ExpectedStatus = []StatusRange{{200, 399}}
+	}
 	if b.HealthyAfter == 0 {
 		b.HealthyAfter = 2
 	}
@@ -137,6 +190,68 @@ func (c *Checker) RemoveBackend(url string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.backends, url)
+}
+
+// UpdateBackend adds or replaces a backend's health check configuration.
+// If the backend already exists with identical config, this is a no-op.
+// If config changed, the backend is removed and re-added (restarts the check loop).
+func (c *Checker) UpdateBackend(b Backend) {
+	// Apply defaults so comparison works correctly
+	applyBackendDefaults(&b, c.defaultTimeout, c.defaultInterval)
+
+	c.mu.RLock()
+	existing, exists := c.backends[b.URL]
+	c.mu.RUnlock()
+
+	if exists && backendsEqual(existing.backend, b) {
+		return
+	}
+
+	if exists {
+		c.RemoveBackend(b.URL)
+	}
+	c.AddBackend(b)
+}
+
+func applyBackendDefaults(b *Backend, defaultTimeout, defaultInterval time.Duration) {
+	if b.HealthPath == "" {
+		b.HealthPath = "/health"
+	}
+	if b.Timeout == 0 {
+		b.Timeout = defaultTimeout
+	}
+	if b.Interval == 0 {
+		b.Interval = defaultInterval
+	}
+	if b.Method == "" {
+		b.Method = "GET"
+	}
+	if len(b.ExpectedStatus) == 0 {
+		b.ExpectedStatus = []StatusRange{{200, 399}}
+	}
+	if b.HealthyAfter == 0 {
+		b.HealthyAfter = 2
+	}
+	if b.UnhealthyAfter == 0 {
+		b.UnhealthyAfter = 3
+	}
+}
+
+func backendsEqual(a, b Backend) bool {
+	if a.HealthPath != b.HealthPath || a.Method != b.Method ||
+		a.Timeout != b.Timeout || a.Interval != b.Interval ||
+		a.HealthyAfter != b.HealthyAfter || a.UnhealthyAfter != b.UnhealthyAfter {
+		return false
+	}
+	if len(a.ExpectedStatus) != len(b.ExpectedStatus) {
+		return false
+	}
+	for i := range a.ExpectedStatus {
+		if a.ExpectedStatus[i] != b.ExpectedStatus[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // GetStatus returns the health status of a backend
@@ -166,6 +281,16 @@ func (c *Checker) GetAllStatus() map[string]CheckResult {
 		}
 	}
 	return results
+}
+
+// GetBackendConfig returns the health check configuration for a backend.
+func (c *Checker) GetBackendConfig(url string) (Backend, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if state, ok := c.backends[url]; ok {
+		return state.backend, true
+	}
+	return Backend{}, false
 }
 
 // IsHealthy returns true if the backend is healthy
@@ -226,7 +351,7 @@ func (c *Checker) check(url string) {
 	ctx, cancel := context.WithTimeout(c.ctx, backend.Timeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", checkURL, nil)
+	req, err := http.NewRequestWithContext(ctx, backend.Method, checkURL, nil)
 	if err != nil {
 		c.updateStatus(url, false, time.Since(start), err)
 		return
@@ -241,8 +366,8 @@ func (c *Checker) check(url string) {
 	}
 	defer resp.Body.Close()
 
-	// Consider 2xx and 3xx as healthy
-	healthy := resp.StatusCode >= 200 && resp.StatusCode < 400
+	// Check against expected status ranges
+	healthy := matchStatus(resp.StatusCode, backend.ExpectedStatus)
 	var checkErr error
 	if !healthy {
 		checkErr = fmt.Errorf("unhealthy status code: %d", resp.StatusCode)

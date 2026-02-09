@@ -269,6 +269,9 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 				Weight:  weight,
 				Healthy: true,
 			})
+
+			// Register backend with health checker
+			g.healthChecker.UpdateBackend(mergeHealthCheckConfig(b.URL, s.config.HealthCheck, b.HealthCheck))
 		}
 	}
 
@@ -283,6 +286,7 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 					weight = 1
 				}
 				vBacks = append(vBacks, &loadbalancer.Backend{URL: b.URL, Weight: weight, Healthy: true})
+				g.healthChecker.UpdateBackend(mergeHealthCheckConfig(b.URL, s.config.HealthCheck, b.HealthCheck))
 			}
 			versionBackends[ver] = vBacks
 		}
@@ -605,6 +609,31 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	oldAdaptiveLimiters.StopAll()
 	if oldJWT != nil {
 		oldJWT.Close()
+	}
+
+	// Reconcile health checker: remove backends no longer present
+	newBackendURLs := make(map[string]bool)
+	for _, routeCfg := range newCfg.Routes {
+		for _, b := range routeCfg.Backends {
+			newBackendURLs[b.URL] = true
+		}
+		for _, split := range routeCfg.TrafficSplit {
+			for _, b := range split.Backends {
+				newBackendURLs[b.URL] = true
+			}
+		}
+		if routeCfg.Versioning.Enabled {
+			for _, vcfg := range routeCfg.Versioning.Versions {
+				for _, b := range vcfg.Backends {
+					newBackendURLs[b.URL] = true
+				}
+			}
+		}
+	}
+	for url := range g.healthChecker.GetAllStatus() {
+		if !newBackendURLs[url] {
+			g.healthChecker.RemoveBackend(url)
+		}
 	}
 
 	// Update webhook endpoints and emit success event

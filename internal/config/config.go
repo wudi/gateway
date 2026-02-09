@@ -33,6 +33,7 @@ type Config struct {
 	DNSResolver    DNSResolverConfig    `yaml:"dns_resolver"`    // Custom DNS resolver for backends
 	OpenAPI        OpenAPIConfig        `yaml:"openapi"`         // OpenAPI spec-based validation and route generation
 	Webhooks       WebhooksConfig       `yaml:"webhooks"`        // Event webhook notifications
+	HealthCheck    HealthCheckConfig    `yaml:"health_check"`    // Global health check settings
 }
 
 // ListenerConfig defines a listener configuration
@@ -646,8 +647,9 @@ type QueryMatchConfig struct {
 
 // BackendConfig defines a static backend
 type BackendConfig struct {
-	URL    string `yaml:"url"`
-	Weight int    `yaml:"weight"`
+	URL         string             `yaml:"url"`
+	Weight      int                `yaml:"weight"`
+	HealthCheck *HealthCheckConfig `yaml:"health_check"` // nil = inherit global
 }
 
 // ServiceConfig defines service discovery settings for a route
@@ -862,6 +864,17 @@ type WebhookRetryConfig struct {
 	MaxRetries int           `yaml:"max_retries"`
 	Backoff    time.Duration `yaml:"backoff"`
 	MaxBackoff time.Duration `yaml:"max_backoff"`
+}
+
+// HealthCheckConfig defines backend health check settings.
+type HealthCheckConfig struct {
+	Path           string        `yaml:"path"`             // default "/health"
+	Method         string        `yaml:"method"`           // default "GET"
+	Interval       time.Duration `yaml:"interval"`         // default 10s
+	Timeout        time.Duration `yaml:"timeout"`          // default 5s
+	HealthyAfter   int           `yaml:"healthy_after"`    // default 2
+	UnhealthyAfter int           `yaml:"unhealthy_after"`  // default 3
+	ExpectedStatus []string      `yaml:"expected_status"`  // e.g. ["200", "2xx", "200-299"]; default 200-399
 }
 
 // DefaultConfig returns a configuration with sensible defaults

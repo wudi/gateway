@@ -676,6 +676,42 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate global health check config
+	if err := l.validateHealthCheck("global", cfg.HealthCheck); err != nil {
+		return err
+	}
+
+	// Validate per-backend health check configs
+	for _, route := range cfg.Routes {
+		for i, b := range route.Backends {
+			if b.HealthCheck != nil {
+				if err := l.validateHealthCheck(fmt.Sprintf("route %s backend %d", route.ID, i), *b.HealthCheck); err != nil {
+					return err
+				}
+			}
+		}
+		for _, split := range route.TrafficSplit {
+			for i, b := range split.Backends {
+				if b.HealthCheck != nil {
+					if err := l.validateHealthCheck(fmt.Sprintf("route %s traffic_split %s backend %d", route.ID, split.Name, i), *b.HealthCheck); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		if route.Versioning.Enabled {
+			for ver, vcfg := range route.Versioning.Versions {
+				for i, b := range vcfg.Backends {
+					if b.HealthCheck != nil {
+						if err := l.validateHealthCheck(fmt.Sprintf("route %s version %s backend %d", route.ID, ver, i), *b.HealthCheck); err != nil {
+							return err
+						}
+					}
+				}
+			}
+		}
+	}
+
 	// Validate webhooks
 	if cfg.Webhooks.Enabled {
 		if len(cfg.Webhooks.Endpoints) == 0 {
@@ -797,6 +833,35 @@ func parseStatusRange(s string) ([2]int, error) {
 		return [2]int{}, fmt.Errorf("invalid status code %q", s)
 	}
 	return [2]int{code, code}, nil
+}
+
+// validateHealthCheck validates a health check configuration.
+func (l *Loader) validateHealthCheck(scope string, cfg HealthCheckConfig) error {
+	validMethods := map[string]bool{"GET": true, "HEAD": true, "OPTIONS": true, "POST": true}
+	if cfg.Method != "" && !validMethods[cfg.Method] {
+		return fmt.Errorf("%s: health_check.method must be GET, HEAD, OPTIONS, or POST", scope)
+	}
+	if cfg.Interval < 0 {
+		return fmt.Errorf("%s: health_check.interval must be >= 0", scope)
+	}
+	if cfg.Timeout < 0 {
+		return fmt.Errorf("%s: health_check.timeout must be >= 0", scope)
+	}
+	if cfg.Timeout > 0 && cfg.Interval > 0 && cfg.Timeout > cfg.Interval {
+		return fmt.Errorf("%s: health_check.timeout must be <= health_check.interval", scope)
+	}
+	if cfg.HealthyAfter < 0 {
+		return fmt.Errorf("%s: health_check.healthy_after must be >= 0", scope)
+	}
+	if cfg.UnhealthyAfter < 0 {
+		return fmt.Errorf("%s: health_check.unhealthy_after must be >= 0", scope)
+	}
+	for _, s := range cfg.ExpectedStatus {
+		if _, err := parseStatusRange(s); err != nil {
+			return fmt.Errorf("%s: health_check.expected_status: %w", scope, err)
+		}
+	}
+	return nil
 }
 
 // validateBodyTransform validates body transform config for a given route and phase.

@@ -119,6 +119,62 @@ When both `timeout_policy.backend` and `retry_policy` are configured, each retry
 - `backend` must be <= `request` when both are set
 - `header_timeout` must be <= `backend` (or `request` if no backend) when both are set
 
+## Health Checks
+
+Backend health checks run in the background to detect unhealthy backends and remove them from load balancing. By default, checks send `GET /health` every 10s and consider 200-399 as healthy. Configure globally or per-backend:
+
+### Global Settings
+
+```yaml
+health_check:
+  path: "/status"
+  method: "HEAD"
+  interval: 15s
+  timeout: 5s
+  healthy_after: 3
+  unhealthy_after: 2
+  expected_status: ["2xx"]
+```
+
+### Per-Backend Override
+
+Per-backend settings override the global config. Unset fields inherit from the global config:
+
+```yaml
+routes:
+  - id: "api"
+    path: "/api"
+    path_prefix: true
+    backends:
+      - url: "http://backend-a:9000"
+        health_check:
+          path: "/healthz"
+          expected_status: ["200"]
+      - url: "http://backend-b:9000"
+        health_check:
+          method: "POST"
+          path: "/health"
+          timeout: 2s
+```
+
+### Health Check Fields
+
+- **`path`** — URL path appended to the backend URL (default `/health`)
+- **`method`** — HTTP method: GET, HEAD, OPTIONS, or POST (default `GET`)
+- **`interval`** — Time between checks (default `10s`)
+- **`timeout`** — Per-check timeout, must be <= interval (default `5s`)
+- **`healthy_after`** — Consecutive successes needed to mark backend healthy (default `2`)
+- **`unhealthy_after`** — Consecutive failures needed to mark backend unhealthy (default `3`)
+- **`expected_status`** — Status codes/ranges considered healthy (default `200-399`). Accepts patterns: `"200"` (exact), `"2xx"` (class), `"200-299"` (range)
+
+### Validation
+
+- `method` must be GET, HEAD, OPTIONS, or POST
+- `interval` and `timeout` must be >= 0
+- `timeout` must be <= `interval` when both are set
+- `healthy_after` and `unhealthy_after` must be >= 0
+- `expected_status` entries must be valid status patterns
+
 ## Key Config Fields
 
 | Field | Type | Description |

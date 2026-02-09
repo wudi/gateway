@@ -1735,3 +1735,116 @@ webhooks:
 		})
 	}
 }
+
+func TestLoaderValidateHealthCheck(t *testing.T) {
+	base := `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: "test"
+    path: "/test"
+    backends:
+      - url: "http://localhost:9000"
+`
+
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+	}{
+		{
+			name: "valid global health check",
+			yaml: base + `
+health_check:
+  path: "/status"
+  method: "HEAD"
+  interval: 15s
+  timeout: 5s
+  healthy_after: 3
+  unhealthy_after: 2
+  expected_status: ["2xx"]
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid per-backend health check",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: "test"
+    path: "/test"
+    backends:
+      - url: "http://localhost:9000"
+        health_check:
+          path: "/healthz"
+          method: "GET"
+          expected_status: ["200"]
+`,
+			wantErr: false,
+		},
+		{
+			name: "invalid method",
+			yaml: base + `
+health_check:
+  method: "PATCH"
+`,
+			wantErr: true,
+		},
+		{
+			name: "timeout greater than interval",
+			yaml: base + `
+health_check:
+  timeout: 15s
+  interval: 5s
+`,
+			wantErr: true,
+		},
+		{
+			name: "invalid expected_status pattern",
+			yaml: base + `
+health_check:
+  expected_status: ["abc"]
+`,
+			wantErr: true,
+		},
+		{
+			name: "negative interval",
+			yaml: base + `
+health_check:
+  interval: -1s
+`,
+			wantErr: true,
+		},
+		{
+			name:    "valid empty config",
+			yaml:    base,
+			wantErr: false,
+		},
+		{
+			name: "valid multiple status ranges",
+			yaml: base + `
+health_check:
+  expected_status: ["200", "2xx", "300-399"]
+`,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}

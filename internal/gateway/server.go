@@ -668,14 +668,26 @@ func (s *Server) handleRegistry(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleBackends(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	results := s.gateway.GetHealthChecker().GetAllStatus()
+	checker := s.gateway.GetHealthChecker()
+	results := checker.GetAllStatus()
+
+	type backendCheckConfig struct {
+		Method         string   `json:"method"`
+		Path           string   `json:"path"`
+		Interval       string   `json:"interval"`
+		Timeout        string   `json:"timeout"`
+		HealthyAfter   int      `json:"healthy_after"`
+		UnhealthyAfter int      `json:"unhealthy_after"`
+		ExpectedStatus []string `json:"expected_status"`
+	}
 
 	type backendStatus struct {
-		URL       string `json:"url"`
-		Status    string `json:"status"`
-		Latency   string `json:"latency,omitempty"`
-		LastCheck string `json:"last_check,omitempty"`
-		Error     string `json:"error,omitempty"`
+		URL       string             `json:"url"`
+		Status    string             `json:"status"`
+		Latency   string             `json:"latency,omitempty"`
+		LastCheck string             `json:"last_check,omitempty"`
+		Error     string             `json:"error,omitempty"`
+		Config    backendCheckConfig `json:"config"`
 	}
 
 	backends := make([]backendStatus, 0, len(results))
@@ -688,6 +700,21 @@ func (s *Server) handleBackends(w http.ResponseWriter, r *http.Request) {
 		}
 		if result.Error != nil {
 			bs.Error = result.Error.Error()
+		}
+		if bcfg, ok := checker.GetBackendConfig(result.URL); ok {
+			bs.Config.Method = bcfg.Method
+			bs.Config.Path = bcfg.HealthPath
+			bs.Config.Interval = bcfg.Interval.String()
+			bs.Config.Timeout = bcfg.Timeout.String()
+			bs.Config.HealthyAfter = bcfg.HealthyAfter
+			bs.Config.UnhealthyAfter = bcfg.UnhealthyAfter
+			for _, sr := range bcfg.ExpectedStatus {
+				if sr.Lo == sr.Hi {
+					bs.Config.ExpectedStatus = append(bs.Config.ExpectedStatus, fmt.Sprintf("%d", sr.Lo))
+				} else {
+					bs.Config.ExpectedStatus = append(bs.Config.ExpectedStatus, fmt.Sprintf("%d-%d", sr.Lo, sr.Hi))
+				}
+			}
 		}
 		backends = append(backends, bs)
 	}

@@ -136,6 +136,14 @@ routes:
     backends:
       - url: string           # required, backend URL
         weight: int           # load balancer weight (0-100)
+        health_check:         # per-backend override (nil = inherit global)
+          path: string
+          method: string
+          interval: duration
+          timeout: duration
+          healthy_after: int
+          unhealthy_after: int
+          expected_status: [string]
     service:
       name: string            # service discovery name
       tags: [string]          # service tags filter
@@ -839,3 +847,26 @@ webhooks:
 - `retry.max_backoff` must be >= `retry.backoff` when both are set
 
 See [Webhooks](webhooks.md) for event types and payload format.
+
+---
+
+## Health Check
+
+```yaml
+health_check:
+  path: string              # health check path (default "/health")
+  method: string            # HTTP method: GET, HEAD, OPTIONS, POST (default "GET")
+  interval: duration        # check interval (default 10s)
+  timeout: duration         # per-check timeout (default 5s)
+  healthy_after: int        # consecutive successes to mark healthy (default 2)
+  unhealthy_after: int      # consecutive failures to mark unhealthy (default 3)
+  expected_status: [string] # status patterns considered healthy (default ["200-399"])
+```
+
+Status patterns: `"200"` (exact code), `"2xx"` (class), `"200-299"` (range).
+
+Per-backend overrides can be set on each `backends[].health_check` entry. Unset fields inherit from the global config.
+
+**Validation:** `method` must be GET, HEAD, OPTIONS, or POST. `timeout` must be <= `interval` when both > 0. All durations >= 0. `healthy_after` and `unhealthy_after` >= 0. Status patterns must be valid.
+
+See [Resilience](resilience.md#health-checks) for full documentation.
