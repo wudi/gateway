@@ -728,6 +728,26 @@ Per-route nonce config is merged with the global `nonce:` block. Per-route field
 
 See [Replay Prevention](replay-prevention.md) for full documentation.
 
+### Outlier Detection
+
+```yaml
+    outlier_detection:
+      enabled: bool              # enable per-backend outlier detection (default false)
+      interval: duration         # detection evaluation frequency (default 10s)
+      window: duration           # sliding window for metrics (default 30s)
+      min_requests: int          # minimum samples before evaluation (default 10)
+      error_rate_threshold: float # absolute error rate threshold, 0.0-1.0 (default 0.5)
+      error_rate_multiplier: float # multiplier vs median error rate (default 2.0)
+      latency_multiplier: float  # p99 multiplier vs median p99 (default 3.0)
+      base_ejection_duration: duration # initial ejection duration (default 30s)
+      max_ejection_duration: duration  # max ejection duration (default 5m)
+      max_ejection_percent: float # max % of backends to eject, 0-100 (default 50)
+```
+
+**Validation:** `interval`, `window`, `base_ejection_duration`, `max_ejection_duration` must be >= 0. `error_rate_threshold` must be 0.0-1.0. `error_rate_multiplier`, `latency_multiplier` must be >= 0. `max_ejection_percent` must be 0-100. `max_ejection_duration` must be >= `base_ejection_duration` when both are > 0.
+
+See [Resilience](resilience.md#outlier-detection) for full documentation.
+
 ---
 
 ## TCP Routes

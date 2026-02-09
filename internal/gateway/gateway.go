@@ -18,6 +18,7 @@ import (
 	"github.com/example/gateway/internal/graphql"
 	"github.com/example/gateway/internal/health"
 	"github.com/example/gateway/internal/loadbalancer"
+	"github.com/example/gateway/internal/loadbalancer/outlier"
 	"github.com/example/gateway/internal/metrics"
 	"github.com/example/gateway/internal/middleware"
 	"github.com/example/gateway/internal/middleware/auth"
@@ -107,6 +108,7 @@ type Gateway struct {
 	timeoutConfigs         *timeout.TimeoutByRoute
 	errorPages             *errorpages.ErrorPagesByRoute
 	nonceCheckers          *nonce.NonceByRoute
+	outlierDetectors       *outlier.DetectorByRoute
 	webhookDispatcher      *webhook.Dispatcher
 
 	features []Feature
@@ -177,6 +179,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		timeoutConfigs:    timeout.NewTimeoutByRoute(),
 		errorPages:        errorpages.NewErrorPagesByRoute(),
 		nonceCheckers:     nonce.NewNonceByRoute(),
+		outlierDetectors:  outlier.NewDetectorByRoute(),
 		routeProxies:      make(map[string]*proxy.RouteProxy),
 		routeHandlers:    make(map[string]http.Handler),
 		watchCancels:     make(map[string]context.CancelFunc),
@@ -213,6 +216,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&timeoutFeature{g.timeoutConfigs},
 		&errorPagesFeature{m: g.errorPages, global: &cfg.ErrorPages},
 		&nonceFeature{m: g.nonceCheckers, global: &cfg.Nonce, redis: g.redisClient},
+		&outlierDetectionFeature{g.outlierDetectors},
 	}
 
 	// Initialize global IP filter
@@ -269,6 +273,20 @@ func New(cfg *config.Config) (*Gateway, error) {
 		g.canaryControllers.SetOnEvent(func(routeID, eventType string, data map[string]interface{}) {
 			g.webhookDispatcher.Emit(webhook.NewEvent(webhook.EventType(eventType), routeID, data))
 		})
+
+		// Wire outlier detection callbacks
+		g.outlierDetectors.SetCallbacks(
+			func(routeID, backend, reason string) {
+				g.webhookDispatcher.Emit(webhook.NewEvent(webhook.OutlierEjected, routeID, map[string]interface{}{
+					"backend": backend, "reason": reason,
+				}))
+			},
+			func(routeID, backend string) {
+				g.webhookDispatcher.Emit(webhook.NewEvent(webhook.OutlierRecovered, routeID, map[string]interface{}{
+					"backend": backend,
+				}))
+			},
+		)
 	}
 
 	// Initialize health checker
@@ -637,6 +655,11 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 		}
 	}
 
+	// Set up outlier detection (needs Balancer, only available after route proxy creation)
+	if routeCfg.OutlierDetection.Enabled {
+		g.outlierDetectors.AddRoute(routeCfg.ID, routeCfg.OutlierDetection, g.routeProxies[routeCfg.ID].GetBalancer())
+	}
+
 	// Build the per-route middleware pipeline handler
 	handler := g.buildRouteHandler(routeCfg.ID, routeCfg, route, g.routeProxies[routeCfg.ID])
 	g.mu.Lock()
@@ -803,6 +826,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 	isGRPC := cfg.GRPC.Enabled
 	if cb := g.circuitBreakers.GetBreaker(routeID); cb != nil {
 		chain = chain.Use(circuitBreakerMW(cb, isGRPC))
+	}
+
+	// 12.25. outlierDetectionMW — per-backend passive metrics
+	if det := g.outlierDetectors.GetDetector(routeID); det != nil {
+		chain = chain.Use(outlierDetectionMW(det))
 	}
 
 	// 12.5. adaptiveConcurrencyMW — AIMD concurrency limiting
@@ -1155,6 +1183,9 @@ func (g *Gateway) Close() error {
 	// Stop adaptive concurrency limiters
 	g.adaptiveLimiters.StopAll()
 
+	// Stop outlier detectors
+	g.outlierDetectors.StopAll()
+
 	// Close nonce checkers
 	g.nonceCheckers.CloseAll()
 
@@ -1324,6 +1355,11 @@ func (g *Gateway) GetErrorPages() *errorpages.ErrorPagesByRoute {
 // GetNonceCheckers returns the nonce checker manager.
 func (g *Gateway) GetNonceCheckers() *nonce.NonceByRoute {
 	return g.nonceCheckers
+}
+
+// GetOutlierDetectors returns the outlier detection manager.
+func (g *Gateway) GetOutlierDetectors() *outlier.DetectorByRoute {
+	return g.outlierDetectors
 }
 
 // GetWebhookDispatcher returns the webhook dispatcher (may be nil).

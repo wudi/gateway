@@ -50,6 +50,8 @@ webhooks:
 | `canary.rolled_back` | Canary rolled back (includes reason) |
 | `canary.step_advanced` | Canary advanced to next weight step |
 | `canary.completed` | Canary completed all steps |
+| `outlier.ejected` | Backend ejected by outlier detection (includes backend URL and reason) |
+| `outlier.recovered` | Backend recovered from outlier ejection |
 | `config.reload_success` | Configuration reload succeeded |
 | `config.reload_failure` | Configuration reload failed (includes error) |
 

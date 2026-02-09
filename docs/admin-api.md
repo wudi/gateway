@@ -302,6 +302,51 @@ curl http://localhost:8081/nonces
 }
 ```
 
+## Outlier Detection
+
+### GET `/outlier-detection`
+
+Returns per-route outlier detection status including per-backend stats, ejected backends, and aggregate counters.
+
+```bash
+curl http://localhost:8081/outlier-detection
+```
+
+**Response:**
+```json
+{
+  "api": {
+    "route_id": "api",
+    "backend_stats": {
+      "http://backend-1:8080": {
+        "total_requests": 150,
+        "total_errors": 2,
+        "error_rate": 0.013,
+        "p50": "5ms",
+        "p99": "45ms"
+      },
+      "http://backend-2:8080": {
+        "total_requests": 148,
+        "total_errors": 75,
+        "error_rate": 0.507,
+        "p50": "120ms",
+        "p99": "500ms"
+      }
+    },
+    "ejected_backends": {
+      "http://backend-2:8080": {
+        "ejected_at": "2025-01-15T10:30:00Z",
+        "duration": "30s",
+        "count": 1,
+        "reason": "error_rate"
+      }
+    },
+    "total_ejections": 3,
+    "total_recoveries": 2
+  }
+}
+```
+
 ## Webhooks
 
 ### GET `/webhooks`

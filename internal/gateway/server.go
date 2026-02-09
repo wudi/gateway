@@ -470,6 +470,9 @@ func (s *Server) adminHandler() http.Handler {
 	// Nonces (replay prevention)
 	mux.HandleFunc("/nonces", s.handleNonces)
 
+	// Outlier detection
+	mux.HandleFunc("/outlier-detection", s.handleOutlierDetection)
+
 	// Webhooks
 	mux.HandleFunc("/webhooks", s.handleWebhooks)
 
@@ -990,6 +993,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["nonces"] = nonceStats
 	}
 
+	// Outlier detection
+	if odStats := s.gateway.GetOutlierDetectors().Stats(); len(odStats) > 0 {
+		dashboard["outlier_detection"] = odStats
+	}
+
 	// Webhooks
 	if d := s.gateway.GetWebhookDispatcher(); d != nil {
 		dashboard["webhooks"] = d.Stats()
@@ -1124,6 +1132,12 @@ func (s *Server) handleNonces(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleErrorPages(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.gateway.GetErrorPages().Stats())
+}
+
+// handleOutlierDetection handles outlier detection stats requests.
+func (s *Server) handleOutlierDetection(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetOutlierDetectors().Stats())
 }
 
 // handleWebhooks handles webhook dispatcher stats requests.

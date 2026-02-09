@@ -21,6 +21,8 @@ const (
 	CanaryCompleted           EventType = "canary.completed"
 	ConfigReloadSuccess       EventType = "config.reload_success"
 	ConfigReloadFailure       EventType = "config.reload_failure"
+	OutlierEjected            EventType = "outlier.ejected"
+	OutlierRecovered          EventType = "outlier.recovered"
 )
 
 // Event represents a webhook event payload.

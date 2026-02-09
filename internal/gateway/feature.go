@@ -3,6 +3,7 @@ package gateway
 import (
 	"github.com/example/gateway/internal/cache"
 	"github.com/example/gateway/internal/canary"
+	"github.com/example/gateway/internal/loadbalancer/outlier"
 	"github.com/example/gateway/internal/circuitbreaker"
 	"github.com/example/gateway/internal/coalesce"
 	"github.com/example/gateway/internal/config"
@@ -393,3 +394,13 @@ func (f *nonceFeature) Setup(routeID string, cfg config.RouteConfig) error {
 }
 func (f *nonceFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *nonceFeature) AdminStats() any     { return f.m.Stats() }
+
+// outlierDetectionFeature wraps DetectorByRoute.
+// Setup is a no-op because the detector needs the Balancer reference, which is only
+// available after route proxy creation. Actual setup happens in addRoute().
+type outlierDetectionFeature struct{ m *outlier.DetectorByRoute }
+
+func (f *outlierDetectionFeature) Name() string                                    { return "outlier_detection" }
+func (f *outlierDetectionFeature) Setup(routeID string, cfg config.RouteConfig) error { return nil }
+func (f *outlierDetectionFeature) RouteIDs() []string                              { return f.m.RouteIDs() }
+func (f *outlierDetectionFeature) AdminStats() any                                 { return f.m.Stats() }

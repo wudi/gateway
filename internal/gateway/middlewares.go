@@ -27,6 +27,7 @@ import (
 	"github.com/example/gateway/internal/middleware"
 	"github.com/example/gateway/internal/middleware/compression"
 	"github.com/example/gateway/internal/middleware/cors"
+	"github.com/example/gateway/internal/loadbalancer/outlier"
 	"github.com/example/gateway/internal/middleware/ipfilter"
 	"github.com/example/gateway/internal/middleware/ratelimit"
 	"github.com/example/gateway/internal/middleware/transform"
@@ -868,6 +869,23 @@ func (w *validatingResponseWriter) flush() {
 	}
 	w.ResponseWriter.WriteHeader(w.statusCode)
 	w.ResponseWriter.Write(w.buf.Bytes())
+}
+
+// outlierDetectionMW records per-backend request outcomes for outlier detection.
+func outlierDetectionMW(det *outlier.Detector) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r)
+			varCtx := variables.GetFromRequest(r)
+			if varCtx.UpstreamAddr != "" {
+				status := varCtx.UpstreamStatus
+				if status == 0 {
+					status = 502 // connection error
+				}
+				det.Record(varCtx.UpstreamAddr, status, varCtx.UpstreamResponseTime)
+			}
+		})
+	}
 }
 
 // routeMatchKey is the context key for storing the route match.

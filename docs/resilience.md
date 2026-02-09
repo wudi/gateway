@@ -175,6 +175,55 @@ routes:
 - `healthy_after` and `unhealthy_after` must be >= 0
 - `expected_status` entries must be valid status patterns
 
+## Outlier Detection
+
+Outlier detection passively observes per-backend request outcomes (error rate, p99 latency) from real traffic and temporarily ejects backends that are statistical outliers compared to their peers — without affecting healthy backends.
+
+Unlike the circuit breaker (which trips on route-wide consecutive failures) or health checks (which probe connectivity), outlier detection uses real production traffic metrics to identify individual misbehaving backends.
+
+```yaml
+routes:
+  - id: api
+    path: /api
+    path_prefix: true
+    backends:
+      - url: http://backend-1:8080
+      - url: http://backend-2:8080
+      - url: http://backend-3:8080
+    outlier_detection:
+      enabled: true
+      interval: 10s              # detection evaluation frequency
+      window: 30s                # sliding window for metrics
+      min_requests: 10           # minimum samples before evaluation
+      error_rate_threshold: 0.5  # absolute error rate threshold (0.0-1.0)
+      error_rate_multiplier: 2.0 # must exceed this * median error rate
+      latency_multiplier: 3.0    # p99 must exceed this * median p99
+      base_ejection_duration: 30s
+      max_ejection_duration: 5m
+      max_ejection_percent: 50   # never eject more than 50% of backends
+```
+
+### How It Works
+
+1. **Observe** — Every proxied request records the backend URL, HTTP status code, and response latency into a per-backend sliding window.
+2. **Evaluate** — At each `interval`, the detector collects stats snapshots for all backends with at least `min_requests` samples, computes the median error rate and median p99 latency across all backends, and identifies outliers.
+3. **Eject** — A backend is ejected (marked unhealthy) if its error rate exceeds both `error_rate_threshold` and `error_rate_multiplier * median`, or if its p99 latency exceeds `latency_multiplier * median_p99`. At most `max_ejection_percent` of backends can be ejected at once.
+4. **Recover** — After the ejection duration expires, the backend is marked healthy again. Repeated ejections use exponential back-off: `count * base_ejection_duration`, capped at `max_ejection_duration`.
+
+### Comparison with Circuit Breaker and Health Checks
+
+| Feature | Scope | Signal | Effect |
+|---------|-------|--------|--------|
+| Circuit Breaker | Route-wide | Consecutive 5xx failures | Blocks entire route |
+| Health Checks | Per-backend | Active HTTP probes | Removes from LB |
+| Outlier Detection | Per-backend | Real traffic error rate + latency | Temporarily ejects from LB |
+
+### Webhook Events
+
+When webhooks are enabled, outlier detection emits:
+- `outlier.ejected` — backend ejected with `{backend, reason}` data
+- `outlier.recovered` — backend recovered with `{backend}` data
+
 ## Key Config Fields
 
 | Field | Type | Description |
@@ -190,5 +239,9 @@ routes:
 | `timeout_policy.backend` | duration | Per-backend-call timeout |
 | `timeout_policy.header_timeout` | duration | Response header timeout |
 | `timeout_policy.idle` | duration | Streaming idle timeout |
+| `outlier_detection.enabled` | bool | Enable per-backend outlier detection |
+| `outlier_detection.interval` | duration | Detection evaluation frequency (default 10s) |
+| `outlier_detection.error_rate_threshold` | float | Absolute error rate threshold (0.0-1.0) |
+| `outlier_detection.max_ejection_percent` | float | Max % of backends to eject (0-100) |
 
 See [Configuration Reference](configuration-reference.md#routes) for all fields.

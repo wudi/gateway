@@ -13,6 +13,7 @@ import (
 	"github.com/example/gateway/internal/coalesce"
 	"github.com/example/gateway/internal/config"
 	"github.com/example/gateway/internal/loadbalancer"
+	"github.com/example/gateway/internal/loadbalancer/outlier"
 	"github.com/example/gateway/internal/logging"
 	"github.com/example/gateway/internal/middleware/auth"
 	"github.com/example/gateway/internal/middleware/compression"
@@ -88,6 +89,7 @@ type gatewayState struct {
 	timeoutConfigs       *timeout.TimeoutByRoute
 	errorPages           *errorpages.ErrorPagesByRoute
 	nonceCheckers        *nonce.NonceByRoute
+	outlierDetectors     *outlier.DetectorByRoute
 	translators          *protocol.TranslatorByRoute
 	rateLimiters      *ratelimit.RateLimitByRoute
 	grpcHandlers      map[string]*grpcproxy.Handler
@@ -132,6 +134,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		timeoutConfigs:    timeout.NewTimeoutByRoute(),
 		errorPages:        errorpages.NewErrorPagesByRoute(),
 		nonceCheckers:     nonce.NewNonceByRoute(),
+		outlierDetectors:  outlier.NewDetectorByRoute(),
 		translators:        protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
 		grpcHandlers:      make(map[string]*grpcproxy.Handler),
@@ -168,6 +171,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		&timeoutFeature{s.timeoutConfigs},
 		&errorPagesFeature{m: s.errorPages, global: &cfg.ErrorPages},
 		&nonceFeature{m: s.nonceCheckers, global: &cfg.Nonce, redis: g.redisClient},
+		&outlierDetectionFeature{s.outlierDetectors},
 	}
 
 	// Wire webhook callbacks on new state's managers
@@ -180,6 +184,18 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		s.canaryControllers.SetOnEvent(func(routeID, eventType string, data map[string]interface{}) {
 			g.webhookDispatcher.Emit(webhook.NewEvent(webhook.EventType(eventType), routeID, data))
 		})
+		s.outlierDetectors.SetCallbacks(
+			func(routeID, backend, reason string) {
+				g.webhookDispatcher.Emit(webhook.NewEvent(webhook.OutlierEjected, routeID, map[string]interface{}{
+					"backend": backend, "reason": reason,
+				}))
+			},
+			func(routeID, backend string) {
+				g.webhookDispatcher.Emit(webhook.NewEvent(webhook.OutlierRecovered, routeID, map[string]interface{}{
+					"backend": backend,
+				}))
+			},
+		)
 	}
 
 	// Initialize global IP filter
@@ -390,6 +406,11 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 		}
 	}
 
+	// Outlier detection setup (needs Balancer)
+	if routeCfg.OutlierDetection.Enabled {
+		s.outlierDetectors.AddRoute(routeCfg.ID, routeCfg.OutlierDetection, s.routeProxies[routeCfg.ID].GetBalancer())
+	}
+
 	// Build middleware pipeline - we need a temporary gateway-like context
 	handler := g.buildRouteHandlerForState(s, routeCfg.ID, routeCfg, route, s.routeProxies[routeCfg.ID])
 	s.routeHandlers[routeCfg.ID] = handler
@@ -486,6 +507,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldTimeoutConfigs := g.timeoutConfigs
 	oldErrorPages := g.errorPages
 	oldNonceCheckers := g.nonceCheckers
+	oldOutlierDetectors := g.outlierDetectors
 
 	// Install new state
 	g.ipFilters = s.ipFilters
@@ -518,6 +540,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.timeoutConfigs = s.timeoutConfigs
 	g.errorPages = s.errorPages
 	g.nonceCheckers = s.nonceCheckers
+	g.outlierDetectors = s.outlierDetectors
 
 	handler := g.buildRouteHandler(routeID, cfg, route, rp)
 
@@ -552,6 +575,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.timeoutConfigs = oldTimeoutConfigs
 	g.errorPages = oldErrorPages
 	g.nonceCheckers = oldNonceCheckers
+	g.outlierDetectors = oldOutlierDetectors
 
 	return handler
 }
@@ -587,6 +611,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	oldAdaptiveLimiters := g.adaptiveLimiters
 	oldExtAuths := g.extAuths
 	oldNonceCheckers := g.nonceCheckers
+	oldOutlierDetectors := g.outlierDetectors
 
 	// Swap all state under write lock
 	g.mu.Lock()
@@ -623,6 +648,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.timeoutConfigs = newState.timeoutConfigs
 	g.errorPages = newState.errorPages
 	g.nonceCheckers = newState.nonceCheckers
+	g.outlierDetectors = newState.outlierDetectors
 	g.translators = newState.translators
 	g.rateLimiters = newState.rateLimiters
 	g.grpcHandlers = newState.grpcHandlers
@@ -640,6 +666,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	oldCanaryControllers.StopAll()
 	oldAdaptiveLimiters.StopAll()
 	oldNonceCheckers.CloseAll()
+	oldOutlierDetectors.StopAll()
 	if oldJWT != nil {
 		oldJWT.Close()
 	}

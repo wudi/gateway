@@ -261,7 +261,8 @@ type RouteConfig struct {
 	AccessLog      AccessLogConfig      `yaml:"access_log"`      // Per-route access log overrides
 	OpenAPI        OpenAPIRouteConfig   `yaml:"openapi"`         // OpenAPI spec-based validation
 	ErrorPages     ErrorPagesConfig     `yaml:"error_pages"`     // Per-route custom error pages
-	Nonce          NonceConfig          `yaml:"nonce"`           // Per-route nonce replay prevention
+	Nonce             NonceConfig             `yaml:"nonce"`              // Per-route nonce replay prevention
+	OutlierDetection OutlierDetectionConfig  `yaml:"outlier_detection"`  // Per-route outlier detection
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -927,6 +928,20 @@ type NonceConfig struct {
 	Required        bool          `yaml:"required"`         // default true — reject if header missing
 	TimestampHeader string        `yaml:"timestamp_header"` // optional, e.g. "X-Timestamp"
 	MaxAge          time.Duration `yaml:"max_age"`          // max request age (requires timestamp_header)
+}
+
+// OutlierDetectionConfig defines passive per-backend outlier detection settings.
+type OutlierDetectionConfig struct {
+	Enabled              bool          `yaml:"enabled"`
+	Interval             time.Duration `yaml:"interval"`               // default 10s
+	Window               time.Duration `yaml:"window"`                 // default 30s
+	MinRequests          int           `yaml:"min_requests"`           // default 10
+	ErrorRateThreshold   float64       `yaml:"error_rate_threshold"`   // 0.0-1.0, default 0.5
+	ErrorRateMultiplier  float64       `yaml:"error_rate_multiplier"`  // vs median, default 2.0
+	LatencyMultiplier    float64       `yaml:"latency_multiplier"`     // p99 vs median p99, default 3.0
+	BaseEjectionDuration time.Duration `yaml:"base_ejection_duration"` // default 30s
+	MaxEjectionDuration  time.Duration `yaml:"max_ejection_duration"`  // default 5m
+	MaxEjectionPercent   float64       `yaml:"max_ejection_percent"`   // 0-100, default 50
 }
 
 // DefaultConfig returns a configuration with sensible defaults

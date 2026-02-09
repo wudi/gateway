@@ -824,6 +824,43 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate outlier detection per route
+	for _, route := range cfg.Routes {
+		if route.OutlierDetection.Enabled {
+			od := route.OutlierDetection
+			if od.Interval < 0 {
+				return fmt.Errorf("route %s: outlier_detection.interval must be >= 0", route.ID)
+			}
+			if od.Window < 0 {
+				return fmt.Errorf("route %s: outlier_detection.window must be >= 0", route.ID)
+			}
+			if od.MinRequests < 0 {
+				return fmt.Errorf("route %s: outlier_detection.min_requests must be >= 0", route.ID)
+			}
+			if od.ErrorRateThreshold < 0 || od.ErrorRateThreshold > 1 {
+				return fmt.Errorf("route %s: outlier_detection.error_rate_threshold must be between 0.0 and 1.0", route.ID)
+			}
+			if od.ErrorRateMultiplier < 0 {
+				return fmt.Errorf("route %s: outlier_detection.error_rate_multiplier must be >= 0", route.ID)
+			}
+			if od.LatencyMultiplier < 0 {
+				return fmt.Errorf("route %s: outlier_detection.latency_multiplier must be >= 0", route.ID)
+			}
+			if od.BaseEjectionDuration < 0 {
+				return fmt.Errorf("route %s: outlier_detection.base_ejection_duration must be >= 0", route.ID)
+			}
+			if od.MaxEjectionDuration < 0 {
+				return fmt.Errorf("route %s: outlier_detection.max_ejection_duration must be >= 0", route.ID)
+			}
+			if od.MaxEjectionDuration > 0 && od.BaseEjectionDuration > 0 && od.MaxEjectionDuration < od.BaseEjectionDuration {
+				return fmt.Errorf("route %s: outlier_detection.max_ejection_duration must be >= base_ejection_duration", route.ID)
+			}
+			if od.MaxEjectionPercent < 0 || od.MaxEjectionPercent > 100 {
+				return fmt.Errorf("route %s: outlier_detection.max_ejection_percent must be between 0 and 100", route.ID)
+			}
+		}
+	}
+
 	// Validate webhooks
 	if cfg.Webhooks.Enabled {
 		if len(cfg.Webhooks.Endpoints) == 0 {
@@ -835,6 +872,7 @@ func (l *Loader) validate(cfg *Config) error {
 			"circuit_breaker.": true,
 			"canary.":          true,
 			"config.":          true,
+			"outlier.":         true,
 		}
 		for i, ep := range cfg.Webhooks.Endpoints {
 			if ep.ID == "" {
