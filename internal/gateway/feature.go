@@ -9,6 +9,7 @@ import (
 	"github.com/example/gateway/internal/graphql"
 	"github.com/example/gateway/internal/middleware/compression"
 	"github.com/example/gateway/internal/middleware/cors"
+	"github.com/example/gateway/internal/middleware/accesslog"
 	"github.com/example/gateway/internal/middleware/extauth"
 	"github.com/example/gateway/internal/middleware/ipfilter"
 	"github.com/example/gateway/internal/middleware/validation"
@@ -306,3 +307,21 @@ func (f *versioningFeature) Setup(routeID string, cfg config.RouteConfig) error 
 }
 func (f *versioningFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *versioningFeature) AdminStats() any     { return f.m.Stats() }
+
+// accessLogFeature wraps AccessLogByRoute.
+type accessLogFeature struct{ m *accesslog.AccessLogByRoute }
+
+func (f *accessLogFeature) Name() string { return "access_log" }
+func (f *accessLogFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	al := cfg.AccessLog
+	if al.Enabled != nil || al.Format != "" ||
+		len(al.HeadersInclude) > 0 || len(al.HeadersExclude) > 0 ||
+		al.Body.Enabled ||
+		al.Conditions.SampleRate > 0 || len(al.Conditions.StatusCodes) > 0 ||
+		len(al.Conditions.Methods) > 0 {
+		return f.m.AddRoute(routeID, al)
+	}
+	return nil
+}
+func (f *accessLogFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *accessLogFeature) AdminStats() any     { return f.m.Stats() }

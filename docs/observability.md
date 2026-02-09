@@ -99,6 +99,76 @@ curl -v http://localhost:8080/api/test 2>&1 | grep X-Request-ID
 curl -H "X-Request-ID: my-trace-id" http://localhost:8080/api/test
 ```
 
+## Enhanced Access Logging
+
+Per-route access log overrides allow fine-grained control over what is logged for each route. The global logging middleware remains the single log emission point — per-route settings configure _what_ to capture and _when_ to log.
+
+### Per-Route Overrides
+
+```yaml
+routes:
+  - id: payments
+    path: /api/payments
+    backends:
+      - url: http://payments:8080
+    access_log:
+      enabled: true
+      format: '$remote_addr $request_method $request_uri $status $response_time'
+      headers_include:
+        - Content-Type
+        - X-Request-Id
+        - Authorization
+      sensitive_headers:
+        - X-Internal-Token
+      body:
+        enabled: true
+        max_size: 4096
+        content_types: ["application/json"]
+        request: true
+        response: true
+      conditions:
+        status_codes: ["4xx", "5xx"]
+        methods: ["POST", "PUT", "DELETE"]
+        sample_rate: 0.1
+```
+
+### Disabling Logging for a Route
+
+```yaml
+routes:
+  - id: health-check
+    path: /health
+    backends:
+      - url: http://app:8080
+    access_log:
+      enabled: false
+```
+
+### Header Logging with Masking
+
+Headers listed in `sensitive_headers` are logged as `***`. The following headers are always masked by default: `Authorization`, `Cookie`, `Set-Cookie`, `X-API-Key`. User-configured sensitive headers are merged with these defaults.
+
+Use `headers_include` to log only specific headers, or `headers_exclude` to log all headers except some. These two options are mutually exclusive.
+
+### Body Capture
+
+When `body.enabled` is true, request and/or response bodies are captured (up to `max_size` bytes) and included in the log output. Body capture is pass-through — writes are never buffered or delayed.
+
+The `content_types` filter limits capture to specific MIME types (e.g., only capture JSON bodies, not binary uploads).
+
+### Conditional Logging
+
+- **`status_codes`**: Only log responses matching these patterns. Supports single codes (`"200"`), ranges (`"200-299"`), and class patterns (`"4xx"`, `"5xx"`).
+- **`methods`**: Only log requests with these HTTP methods.
+- **`sample_rate`**: Log a random sample of requests (0.0-1.0, where 0 means log all).
+
+### Admin API
+
+```bash
+# View per-route access log configs
+curl http://localhost:8081/access-log
+```
+
 ## Key Config Fields
 
 | Field | Type | Description |

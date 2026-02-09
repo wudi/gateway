@@ -242,6 +242,7 @@ type RouteConfig struct {
 	Canary         CanaryConfig         `yaml:"canary"`          // Canary deployment with automated rollback
 	ExtAuth        ExtAuthConfig        `yaml:"ext_auth"`        // External auth service
 	Versioning     VersioningConfig     `yaml:"versioning"`      // API versioning
+	AccessLog      AccessLogConfig      `yaml:"access_log"`      // Per-route access log overrides
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -528,6 +529,33 @@ type VersionBackendConfig struct {
 	Backends   []BackendConfig `yaml:"backends"`
 	Deprecated bool            `yaml:"deprecated"` // adds Deprecation: true header
 	Sunset     string          `yaml:"sunset"`     // adds Sunset header (YYYY-MM-DD)
+}
+
+// AccessLogConfig defines per-route access log settings.
+type AccessLogConfig struct {
+	Enabled          *bool                `yaml:"enabled"`           // nil=inherit global, false=disable
+	Format           string               `yaml:"format"`            // override global format
+	HeadersInclude   []string             `yaml:"headers_include"`   // headers to log
+	HeadersExclude   []string             `yaml:"headers_exclude"`   // headers to exclude
+	SensitiveHeaders []string             `yaml:"sensitive_headers"` // headers to mask
+	Body             AccessLogBodyConfig  `yaml:"body"`
+	Conditions       AccessLogConditions  `yaml:"conditions"`
+}
+
+// AccessLogBodyConfig defines body capture settings for access logging.
+type AccessLogBodyConfig struct {
+	Enabled      bool     `yaml:"enabled"`
+	MaxSize      int      `yaml:"max_size"`       // default 4096
+	ContentTypes []string `yaml:"content_types"`  // e.g. ["application/json"]
+	Request      bool     `yaml:"request"`        // capture request body
+	Response     bool     `yaml:"response"`       // capture response body
+}
+
+// AccessLogConditions defines conditions for when to emit access logs.
+type AccessLogConditions struct {
+	StatusCodes []string `yaml:"status_codes"` // "4xx", "5xx", "200", "200-299"
+	Methods     []string `yaml:"methods"`      // "POST", "DELETE"
+	SampleRate  float64  `yaml:"sample_rate"`  // 0.0-1.0 (0 = log all)
 }
 
 // BodyTransformConfig defines request/response body transformation settings (Feature 13)

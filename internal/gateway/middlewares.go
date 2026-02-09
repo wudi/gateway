@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/example/gateway/internal/cache"
+	"github.com/example/gateway/internal/middleware/accesslog"
 	"github.com/example/gateway/internal/middleware/extauth"
 	"github.com/example/gateway/internal/middleware/versioning"
 	"github.com/example/gateway/internal/canary"
@@ -592,6 +594,49 @@ func versioningMW(v *versioning.Versioner) middleware.Middleware {
 			varCtx.APIVersion = version
 			v.StripVersionPrefix(r, version)
 			v.InjectDeprecationHeaders(w, version)
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// accessLogMW stores the per-route access log config on the variable context and
+// optionally captures request/response bodies for the global logging middleware.
+func accessLogMW(cfg *accesslog.CompiledAccessLog) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			varCtx := variables.GetFromRequest(r)
+			varCtx.AccessLogConfig = cfg
+
+			// Capture request body if configured
+			if cfg.Body.Enabled && cfg.Body.Request {
+				if cfg.ShouldCaptureBody(r.Header.Get("Content-Type")) {
+					body, err := io.ReadAll(io.LimitReader(r.Body, int64(cfg.Body.MaxSize)+1))
+					if err == nil {
+						truncated := len(body) > cfg.Body.MaxSize
+						if truncated {
+							body = body[:cfg.Body.MaxSize]
+						}
+						varCtx.Custom["_al_req_body"] = string(body)
+						// Replay body
+						r.Body = io.NopCloser(io.MultiReader(
+							strings.NewReader(string(body)),
+							r.Body,
+						))
+					}
+				}
+			}
+
+			// Capture response body if configured
+			if cfg.Body.Enabled && cfg.Body.Response {
+				bcw := accesslog.NewBodyCapturingWriter(w, cfg.Body.MaxSize)
+				next.ServeHTTP(bcw, r)
+				// Check content type after proxy wrote response
+				if cfg.ShouldCaptureBody(bcw.Header().Get("Content-Type")) {
+					varCtx.Custom["_al_resp_body"] = bcw.CapturedBody()
+				}
+				return
+			}
+
 			next.ServeHTTP(w, r)
 		})
 	}

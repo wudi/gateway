@@ -109,6 +109,7 @@ All feature endpoints return JSON with per-route status and metrics.
 | `POST /canary/{route}/{action}` | Control canary (start, pause, resume, promote, rollback) |
 | `GET /ext-auth` | External auth metrics (total, allowed, denied, errors, cache hits, latencies) |
 | `GET /versioning` | API versioning stats per route (source, default version, per-version request counts, deprecation info) |
+| `GET /access-log` | Per-route access log config status (enabled, format, body capture, conditions) |
 
 ### Example: Querying Feature Endpoints
 

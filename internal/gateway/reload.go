@@ -16,6 +16,7 @@ import (
 	"github.com/example/gateway/internal/logging"
 	"github.com/example/gateway/internal/middleware/auth"
 	"github.com/example/gateway/internal/middleware/compression"
+	"github.com/example/gateway/internal/middleware/accesslog"
 	"github.com/example/gateway/internal/middleware/extauth"
 	"github.com/example/gateway/internal/middleware/cors"
 	"github.com/example/gateway/internal/middleware/ipfilter"
@@ -77,6 +78,7 @@ type gatewayState struct {
 	adaptiveLimiters     *trafficshape.AdaptiveConcurrencyByRoute
 	extAuths             *extauth.ExtAuthByRoute
 	versioners           *versioning.VersioningByRoute
+	accessLogConfigs     *accesslog.AccessLogByRoute
 	translators          *protocol.TranslatorByRoute
 	rateLimiters      *ratelimit.RateLimitByRoute
 	grpcHandlers      map[string]*grpcproxy.Handler
@@ -116,6 +118,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		adaptiveLimiters:   trafficshape.NewAdaptiveConcurrencyByRoute(),
 		extAuths:           extauth.NewExtAuthByRoute(),
 		versioners:         versioning.NewVersioningByRoute(),
+		accessLogConfigs:   accesslog.NewAccessLogByRoute(),
 		translators:        protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
 		grpcHandlers:      make(map[string]*grpcproxy.Handler),
@@ -147,6 +150,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		&canaryFeature{s.canaryControllers},
 		&extAuthFeature{s.extAuths},
 		&versioningFeature{s.versioners},
+		&accessLogFeature{s.accessLogConfigs},
 	}
 
 	// Initialize global IP filter
@@ -424,6 +428,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldAdaptiveLimiters := g.adaptiveLimiters
 	oldExtAuths := g.extAuths
 	oldVersioners := g.versioners
+	oldAccessLogConfigs := g.accessLogConfigs
 
 	// Install new state
 	g.ipFilters = s.ipFilters
@@ -451,6 +456,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.adaptiveLimiters = s.adaptiveLimiters
 	g.extAuths = s.extAuths
 	g.versioners = s.versioners
+	g.accessLogConfigs = s.accessLogConfigs
 
 	handler := g.buildRouteHandler(routeID, cfg, route, rp)
 
@@ -480,6 +486,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.adaptiveLimiters = oldAdaptiveLimiters
 	g.extAuths = oldExtAuths
 	g.versioners = oldVersioners
+	g.accessLogConfigs = oldAccessLogConfigs
 
 	return handler
 }
@@ -540,6 +547,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.adaptiveLimiters = newState.adaptiveLimiters
 	g.extAuths = newState.extAuths
 	g.versioners = newState.versioners
+	g.accessLogConfigs = newState.accessLogConfigs
 	g.translators = newState.translators
 	g.rateLimiters = newState.rateLimiters
 	g.grpcHandlers = newState.grpcHandlers

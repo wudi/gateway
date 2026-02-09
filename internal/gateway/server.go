@@ -455,6 +455,9 @@ func (s *Server) adminHandler() http.Handler {
 	// Versioning stats
 	mux.HandleFunc("/versioning", s.handleVersioning)
 
+	// Access log configs
+	mux.HandleFunc("/access-log", s.handleAccessLog)
+
 	// Canary deployments
 	mux.HandleFunc("/canary", s.handleCanary)
 	mux.HandleFunc("/canary/", s.handleCanaryAction)
@@ -917,6 +920,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["versioning"] = versioningStats
 	}
 
+	// Access log
+	if alStats := s.gateway.GetAccessLogConfigs().Stats(); len(alStats) > 0 {
+		dashboard["access_log"] = alStats
+	}
+
 	// Tracing
 	if tracer := s.gateway.GetTracer(); tracer != nil {
 		dashboard["tracing"] = tracer.Status()
@@ -1011,6 +1019,12 @@ func (s *Server) handleExtAuth(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleVersioning(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.gateway.GetVersioners().Stats())
+}
+
+// handleAccessLog handles access log config status requests.
+func (s *Server) handleAccessLog(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetAccessLogConfigs().Stats())
 }
 
 // handleCanary lists all canary deployments with status.

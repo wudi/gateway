@@ -22,6 +22,7 @@ import (
 	"github.com/example/gateway/internal/middleware"
 	"github.com/example/gateway/internal/middleware/auth"
 	"github.com/example/gateway/internal/middleware/compression"
+	"github.com/example/gateway/internal/middleware/accesslog"
 	"github.com/example/gateway/internal/middleware/extauth"
 	"github.com/example/gateway/internal/middleware/cors"
 	"github.com/example/gateway/internal/middleware/mtls"
@@ -96,6 +97,7 @@ type Gateway struct {
 	adaptiveLimiters       *trafficshape.AdaptiveConcurrencyByRoute
 	extAuths               *extauth.ExtAuthByRoute
 	versioners             *versioning.VersioningByRoute
+	accessLogConfigs       *accesslog.AccessLogByRoute
 
 	features []Feature
 
@@ -160,6 +162,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		adaptiveLimiters:   trafficshape.NewAdaptiveConcurrencyByRoute(),
 		extAuths:           extauth.NewExtAuthByRoute(),
 		versioners:         versioning.NewVersioningByRoute(),
+		accessLogConfigs:   accesslog.NewAccessLogByRoute(),
 		routeProxies:      make(map[string]*proxy.RouteProxy),
 		routeHandlers:    make(map[string]http.Handler),
 		watchCancels:     make(map[string]context.CancelFunc),
@@ -191,6 +194,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&canaryFeature{g.canaryControllers},
 		&extAuthFeature{g.extAuths},
 		&versioningFeature{g.versioners},
+		&accessLogFeature{g.accessLogConfigs},
 	}
 
 	// Initialize global IP filter
@@ -530,6 +534,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 
 	// 4. varContextMW — set RouteID + PathParams (Step 2)
 	chain = chain.Use(varContextMW(routeID))
+
+	// 4.25. accessLogMW — store per-route config + optional body capture
+	if alCfg := g.accessLogConfigs.GetConfig(routeID); alCfg != nil {
+		chain = chain.Use(accessLogMW(alCfg))
+	}
 
 	// 4.5. versioningMW — detect version, strip prefix, deprecation headers
 	if ver := g.versioners.GetVersioner(routeID); ver != nil {
@@ -1048,6 +1057,11 @@ func (g *Gateway) GetExtAuths() *extauth.ExtAuthByRoute {
 // GetVersioners returns the versioning manager.
 func (g *Gateway) GetVersioners() *versioning.VersioningByRoute {
 	return g.versioners
+}
+
+// GetAccessLogConfigs returns the access log config manager.
+func (g *Gateway) GetAccessLogConfigs() *accesslog.AccessLogByRoute {
+	return g.accessLogConfigs
 }
 
 // GetLoadBalancerInfo returns per-route load balancer algorithm and stats.

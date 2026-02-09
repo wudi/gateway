@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/example/gateway/internal/logging"
+	"github.com/example/gateway/internal/middleware/accesslog"
 	"github.com/example/gateway/internal/variables"
 	"go.uber.org/zap"
 )
@@ -92,6 +93,28 @@ func LoggingWithConfig(cfg LoggingConfig) Middleware {
 			varCtx.BodyBytesSent = lrw.bytes
 			varCtx.ResponseTime = duration
 
+			// Per-route access log overrides
+			var alCfg *accesslog.CompiledAccessLog
+			if varCtx.AccessLogConfig != nil {
+				alCfg, _ = varCtx.AccessLogConfig.(*accesslog.CompiledAccessLog)
+			}
+
+			// Check if logging is disabled for this route
+			if alCfg != nil && alCfg.Enabled != nil && !*alCfg.Enabled {
+				return
+			}
+
+			// Check conditional logging (status codes, methods, sampling)
+			if alCfg != nil && !alCfg.ShouldLog(lrw.status, r.Method) {
+				return
+			}
+
+			// Determine format (per-route or global)
+			format := cfg.Format
+			if alCfg != nil && alCfg.Format != "" {
+				format = alCfg.Format
+			}
+
 			if cfg.JSON {
 				fields := []zap.Field{
 					zap.String("request_id", varCtx.RequestID),
@@ -117,10 +140,31 @@ func LoggingWithConfig(cfg LoggingConfig) Middleware {
 				if ua := r.UserAgent(); ua != "" {
 					fields = append(fields, zap.String("user_agent", ua))
 				}
+
+				// Per-route header capture
+				if alCfg != nil && alCfg.HasHeaderCapture() {
+					reqHeaders := alCfg.CaptureRequestHeaders(r)
+					if len(reqHeaders) > 0 {
+						fields = append(fields, zap.Any("request_headers", reqHeaders))
+					}
+					respHeaders := alCfg.CaptureResponseHeaders(lrw.Header())
+					if len(respHeaders) > 0 {
+						fields = append(fields, zap.Any("response_headers", respHeaders))
+					}
+				}
+
+				// Per-route body capture
+				if reqBody, ok := varCtx.Custom["_al_req_body"]; ok && reqBody != "" {
+					fields = append(fields, zap.String("request_body", reqBody))
+				}
+				if respBody, ok := varCtx.Custom["_al_resp_body"]; ok && respBody != "" {
+					fields = append(fields, zap.String("response_body", respBody))
+				}
+
 				logging.Info("HTTP request", fields...)
 			} else {
 				// Use format string with variable interpolation
-				logLine := resolver.Resolve(cfg.Format, varCtx)
+				logLine := resolver.Resolve(format, varCtx)
 				logging.Info(logLine)
 			}
 		})

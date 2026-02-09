@@ -296,6 +296,9 @@ type Context struct {
 	// API versioning
 	APIVersion string
 
+	// Access log config (interface{} to avoid import cycle)
+	AccessLogConfig interface{}
+
 	// Custom values
 	Custom map[string]string
 }
@@ -328,6 +331,7 @@ func (c *Context) Clone() *Context {
 		ServerPort:           c.ServerPort,
 		TrafficGroup:         c.TrafficGroup,
 		APIVersion:           c.APIVersion,
+		AccessLogConfig:      c.AccessLogConfig,
 		Custom:               make(map[string]string),
 	}
 

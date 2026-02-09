@@ -564,6 +564,33 @@ See [Canary Deployments](canary-deployments.md) for full documentation.
 
 ---
 
+### Access Log
+
+```yaml
+    access_log:
+      enabled: bool              # nil=inherit global, false=disable route logging
+      format: string             # override global log format
+      headers_include: [string]  # headers to log (mutually exclusive with headers_exclude)
+      headers_exclude: [string]  # headers to exclude from logging
+      sensitive_headers: [string] # additional headers to mask (merged with defaults)
+      body:
+        enabled: bool            # default false
+        max_size: int            # max bytes to capture (default 4096)
+        content_types: [string]  # MIME types to capture (empty = all)
+        request: bool            # capture request body
+        response: bool           # capture response body
+      conditions:
+        status_codes: [string]   # "4xx", "5xx", "200", "200-299"
+        methods: [string]        # "POST", "DELETE"
+        sample_rate: float       # 0.0-1.0 (0 = log all)
+```
+
+**Defaults:** Sensitive headers always masked: `Authorization`, `Cookie`, `Set-Cookie`, `X-API-Key`. Body `max_size` defaults to 4096.
+
+**Validation:** `headers_include` and `headers_exclude` are mutually exclusive. `sample_rate` must be 0.0-1.0. `status_codes` must be valid patterns. `methods` must be valid HTTP methods. `body.max_size` must be >= 0 when body enabled.
+
+---
+
 ## TCP Routes
 
 ```yaml

@@ -6,12 +6,19 @@ import (
 	"net"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"text/template"
 	"time"
 
 	"github.com/goccy/go-yaml"
 )
+
+// validHTTPMethods contains all valid HTTP method names.
+var validHTTPMethods = map[string]bool{
+	"GET": true, "HEAD": true, "POST": true, "PUT": true,
+	"DELETE": true, "PATCH": true, "OPTIONS": true,
+}
 
 // Loader handles configuration loading and parsing
 type Loader struct {
@@ -352,10 +359,6 @@ func (l *Loader) validate(cfg *Config) error {
 	}
 
 	// Validate coalesce config
-	validHTTPMethods := map[string]bool{
-		"GET": true, "HEAD": true, "POST": true, "PUT": true,
-		"DELETE": true, "PATCH": true, "OPTIONS": true,
-	}
 	for _, route := range cfg.Routes {
 		if route.Coalesce.Enabled {
 			if route.Coalesce.Timeout < 0 {
@@ -602,9 +605,66 @@ func (l *Loader) validate(cfg *Config) error {
 		if err := l.validateBodyTransform(route.ID, "response", route.Transform.Response.Body); err != nil {
 			return err
 		}
+
+		// Validate access log config
+		if err := l.validateAccessLog(route.ID, route.AccessLog); err != nil {
+			return err
+		}
 	}
 
 	return nil
+}
+
+// validateAccessLog validates access log config for a given route.
+func (l *Loader) validateAccessLog(routeID string, cfg AccessLogConfig) error {
+	if len(cfg.HeadersInclude) > 0 && len(cfg.HeadersExclude) > 0 {
+		return fmt.Errorf("route %s: access_log headers_include and headers_exclude are mutually exclusive", routeID)
+	}
+	if cfg.Conditions.SampleRate < 0 || cfg.Conditions.SampleRate > 1.0 {
+		return fmt.Errorf("route %s: access_log conditions.sample_rate must be between 0.0 and 1.0", routeID)
+	}
+	for _, sc := range cfg.Conditions.StatusCodes {
+		if _, err := parseStatusRange(sc); err != nil {
+			return fmt.Errorf("route %s: access_log conditions.status_codes: %w", routeID, err)
+		}
+	}
+	for _, m := range cfg.Conditions.Methods {
+		if !validHTTPMethods[m] {
+			return fmt.Errorf("route %s: access_log conditions.methods contains invalid HTTP method: %s", routeID, m)
+		}
+	}
+	if cfg.Body.Enabled && cfg.Body.MaxSize < 0 {
+		return fmt.Errorf("route %s: access_log body.max_size must be >= 0", routeID)
+	}
+	return nil
+}
+
+// parseStatusRange validates a status range string like "4xx", "200", "200-299".
+func parseStatusRange(s string) ([2]int, error) {
+	s = strings.TrimSpace(s)
+	// Pattern: Nxx (e.g. "4xx", "5xx")
+	if len(s) == 3 && s[1] == 'x' && s[2] == 'x' {
+		base := int(s[0]-'0') * 100
+		if base < 100 || base > 500 {
+			return [2]int{}, fmt.Errorf("invalid status range %q", s)
+		}
+		return [2]int{base, base + 99}, nil
+	}
+	// Pattern: N-M (e.g. "200-299")
+	if parts := strings.SplitN(s, "-", 2); len(parts) == 2 {
+		lo, err1 := strconv.Atoi(parts[0])
+		hi, err2 := strconv.Atoi(parts[1])
+		if err1 != nil || err2 != nil || lo < 100 || hi > 599 || lo > hi {
+			return [2]int{}, fmt.Errorf("invalid status range %q", s)
+		}
+		return [2]int{lo, hi}, nil
+	}
+	// Pattern: single code (e.g. "200")
+	code, err := strconv.Atoi(s)
+	if err != nil || code < 100 || code > 599 {
+		return [2]int{}, fmt.Errorf("invalid status code %q", s)
+	}
+	return [2]int{code, code}, nil
 }
 
 // validateBodyTransform validates body transform config for a given route and phase.
