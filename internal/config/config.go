@@ -47,6 +47,7 @@ type Config struct {
 	ErrorPages     ErrorPagesConfig     `yaml:"error_pages"`     // Global custom error pages
 	Nonce          NonceConfig          `yaml:"nonce"`           // Global nonce replay prevention
 	CSRF           CSRFConfig           `yaml:"csrf"`            // Global CSRF protection
+	Geo            GeoConfig            `yaml:"geo"`             // Global geo filtering
 }
 
 // ListenerConfig defines a listener configuration
@@ -265,6 +266,7 @@ type RouteConfig struct {
 	Nonce             NonceConfig             `yaml:"nonce"`              // Per-route nonce replay prevention
 	CSRF              CSRFConfig              `yaml:"csrf"`               // Per-route CSRF protection
 	OutlierDetection OutlierDetectionConfig  `yaml:"outlier_detection"`  // Per-route outlier detection
+	Geo              GeoConfig               `yaml:"geo"`                // Per-route geo filtering
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -964,6 +966,19 @@ type OutlierDetectionConfig struct {
 	BaseEjectionDuration time.Duration `yaml:"base_ejection_duration"` // default 30s
 	MaxEjectionDuration  time.Duration `yaml:"max_ejection_duration"`  // default 5m
 	MaxEjectionPercent   float64       `yaml:"max_ejection_percent"`   // 0-100, default 50
+}
+
+// GeoConfig defines geolocation filtering settings.
+type GeoConfig struct {
+	Enabled        bool     `yaml:"enabled"`
+	Database       string   `yaml:"database"`        // global only: path to .mmdb or .ipdb
+	InjectHeaders  bool     `yaml:"inject_headers"`  // inject X-Geo-Country / X-Geo-City headers
+	AllowCountries []string `yaml:"allow_countries"` // ISO 3166-1 alpha-2
+	DenyCountries  []string `yaml:"deny_countries"`
+	AllowCities    []string `yaml:"allow_cities"`
+	DenyCities     []string `yaml:"deny_cities"`
+	Order          string   `yaml:"order"`           // "allow_first" or "deny_first" (default)
+	ShadowMode     bool     `yaml:"shadow_mode"`     // log but don't reject
 }
 
 // DefaultConfig returns a configuration with sensible defaults

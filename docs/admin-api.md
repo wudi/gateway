@@ -378,6 +378,37 @@ curl http://localhost:8081/outlier-detection
 }
 ```
 
+## Geo Filtering
+
+### GET `/geo`
+
+Returns per-route geo filtering status including configured allow/deny lists and metrics.
+
+```bash
+curl http://localhost:8081/geo
+```
+
+**Response:**
+```json
+{
+  "api": {
+    "route_id": "api",
+    "enabled": true,
+    "allow_countries": ["US", "CA"],
+    "deny_countries": [],
+    "order": "deny_first",
+    "shadow_mode": false,
+    "inject_headers": true,
+    "metrics": {
+      "total_requests": 500,
+      "allowed": 480,
+      "denied": 15,
+      "lookup_errors": 5
+    }
+  }
+}
+```
+
 ## Webhooks
 
 ### GET `/webhooks`

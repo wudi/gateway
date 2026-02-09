@@ -13,8 +13,10 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/consul/api v1.33.2
 	github.com/hashicorp/golang-lru/v2 v2.0.7
+	github.com/ipipdotnet/ipdb-go v1.3.3
 	github.com/julienschmidt/httprouter v1.3.0
 	github.com/lestrrat-go/jwx/v2 v2.1.6
+	github.com/oschwald/maxminddb-golang/v2 v2.1.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/redis/go-redis/v9 v9.17.3
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2

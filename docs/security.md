@@ -1,6 +1,6 @@
 # Security
 
-The gateway provides IP filtering, CORS handling, a web application firewall (WAF), request body size limits, replay prevention, CSRF protection, and custom DNS resolution for defense-in-depth security.
+The gateway provides IP filtering, geo filtering, CORS handling, a web application firewall (WAF), request body size limits, replay prevention, CSRF protection, and custom DNS resolution for defense-in-depth security.
 
 ## IP Filtering
 
@@ -31,6 +31,67 @@ routes:
 ```
 
 Denied requests receive `403 Forbidden`.
+
+## Geo Filtering
+
+Block or allow requests based on the client's geographic location using MaxMind (`.mmdb`) or IPIP (`.ipdb`) databases. Geo filtering can be configured globally and per route — both are evaluated (global first, then per-route). The middleware also injects `X-Geo-Country` and `X-Geo-City` headers for downstream services.
+
+```yaml
+# Global geo config
+geo:
+  enabled: true
+  database: "/etc/gateway/GeoLite2-City.mmdb"
+  inject_headers: true       # inject X-Geo-Country / X-Geo-City
+  deny_countries:
+    - "CN"
+    - "RU"
+  order: "deny_first"        # "deny_first" (default) or "allow_first"
+
+# Per-route override
+routes:
+  - id: "api"
+    path: "/api"
+    path_prefix: true
+    backends:
+      - url: "http://backend:9000"
+    geo:
+      enabled: true
+      allow_countries:
+        - "US"
+        - "CA"
+        - "GB"
+      order: "deny_first"
+```
+
+### Allow/Deny Logic
+
+The `order` field controls evaluation order:
+
+- **deny_first** (default): Check deny rules first — if matched, deny. Then check allow rules — if allow lists are non-empty and not matched, deny. Otherwise allow.
+- **allow_first**: Check allow rules first — if allow lists are non-empty and matched, allow. Then check deny rules — if matched, deny. Otherwise allow.
+
+Country codes must be ISO 3166-1 alpha-2 (e.g. `US`, `DE`, `CN`). City names are case-insensitive.
+
+### Shadow Mode
+
+Use `shadow_mode: true` to log geo decisions without rejecting traffic — useful for testing rules before enforcement:
+
+```yaml
+geo:
+  enabled: true
+  database: "/etc/gateway/GeoLite2-City.mmdb"
+  deny_countries: ["CN"]
+  shadow_mode: true
+```
+
+### Supported Databases
+
+| Format | Extension | Library |
+|--------|-----------|---------|
+| MaxMind GeoIP2/GeoLite2 | `.mmdb` | `oschwald/maxminddb-golang/v2` |
+| IPIP | `.ipdb` | `ipipdotnet/ipdb-go` |
+
+Denied requests receive `451 Unavailable For Legal Reasons` with a JSON body.
 
 ## CORS
 
@@ -166,6 +227,15 @@ Optional Origin/Referer validation and shadow mode for gradual rollout. See [CSR
 | `ip_filter.allow` | []string | Allowed CIDR blocks |
 | `ip_filter.deny` | []string | Denied CIDR blocks |
 | `ip_filter.order` | string | `allow_first` (default) or `deny_first` |
+| `geo.enabled` | bool | Enable geo filtering |
+| `geo.database` | string | Path to `.mmdb` or `.ipdb` file (global only) |
+| `geo.inject_headers` | bool | Inject `X-Geo-Country`/`X-Geo-City` headers |
+| `geo.allow_countries` | []string | Allowed country codes (ISO 3166-1 alpha-2) |
+| `geo.deny_countries` | []string | Denied country codes |
+| `geo.allow_cities` | []string | Allowed city names (case-insensitive) |
+| `geo.deny_cities` | []string | Denied city names |
+| `geo.order` | string | `deny_first` (default) or `allow_first` |
+| `geo.shadow_mode` | bool | Log but don't reject |
 | `cors.allow_origin_patterns` | []string | Regex origin patterns |
 | `cors.allow_private_network` | bool | Private network access header |
 | `waf.mode` | string | `block` or `detect` |

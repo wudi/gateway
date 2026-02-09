@@ -459,6 +459,22 @@ See [Canary Deployments](canary-deployments.md) for full documentation.
       order: string           # "allow_first" (default) or "deny_first"
 ```
 
+### Geo Filtering (per-route)
+
+```yaml
+    geo:
+      enabled: bool
+      inject_headers: bool      # override global
+      allow_countries: [string] # replaces global list
+      deny_countries: [string]
+      allow_cities: [string]
+      deny_cities: [string]
+      order: string             # "deny_first" (default) or "allow_first"
+      shadow_mode: bool
+```
+
+Note: The `database` field is only valid at the global level. Per-route geo config inherits the global provider.
+
 ### Mirror
 
 ```yaml
@@ -803,6 +819,21 @@ waf:
   xss: bool
 ```
 
+### Geo Filtering (global)
+
+```yaml
+geo:
+  enabled: bool             # enable geo filtering
+  database: string          # path to .mmdb or .ipdb file (required when enabled)
+  inject_headers: bool      # inject X-Geo-Country / X-Geo-City headers
+  allow_countries: [string] # ISO 3166-1 alpha-2 codes (e.g., "US", "DE")
+  deny_countries: [string]
+  allow_cities: [string]    # case-insensitive city names
+  deny_cities: [string]
+  order: string             # "deny_first" (default) or "allow_first"
+  shadow_mode: bool         # log but don't reject
+```
+
 ### DNS Resolver
 
 ```yaml
@@ -820,6 +851,8 @@ rules:
   request: [RuleConfig]     # same structure as per-route rules
   response: [RuleConfig]
 ```
+
+**Geo fields:** When `geo.enabled: true` is configured, the `geo.country`, `geo.country_name`, and `geo.city` fields are available in rule expressions (e.g., `geo.country in ["US", "CA"]`). See [Rules Engine](rules-engine.md) for details.
 
 ---
 

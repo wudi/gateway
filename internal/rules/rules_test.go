@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/middleware/geo"
 	"github.com/wudi/gateway/internal/variables"
 )
 
@@ -854,5 +855,169 @@ func TestRulesResponseWriter_FlushSendsBufferedBody(t *testing.T) {
 	}
 	if rec.Body.String() != "not found" {
 		t.Errorf("expected body 'not found', got %s", rec.Body.String())
+	}
+}
+
+// --- Geo fields tests ---
+
+func TestGeoFieldsFromContext(t *testing.T) {
+	r := httptest.NewRequest("GET", "http://localhost/", nil)
+	ctx := geo.WithGeoResult(r.Context(), &geo.GeoResult{
+		CountryCode: "US",
+		CountryName: "United States",
+		City:        "New York",
+	})
+	r = r.WithContext(ctx)
+
+	env := NewRequestEnv(r, nil)
+
+	if env.Geo.Country != "US" {
+		t.Errorf("expected geo.country US, got %q", env.Geo.Country)
+	}
+	if env.Geo.CountryName != "United States" {
+		t.Errorf("expected geo.country_name United States, got %q", env.Geo.CountryName)
+	}
+	if env.Geo.City != "New York" {
+		t.Errorf("expected geo.city New York, got %q", env.Geo.City)
+	}
+}
+
+func TestGeoFieldsNilContext(t *testing.T) {
+	r := httptest.NewRequest("GET", "http://localhost/", nil)
+	env := NewRequestEnv(r, nil)
+
+	if env.Geo.Country != "" {
+		t.Errorf("expected empty geo.country, got %q", env.Geo.Country)
+	}
+	if env.Geo.CountryName != "" {
+		t.Errorf("expected empty geo.country_name, got %q", env.Geo.CountryName)
+	}
+	if env.Geo.City != "" {
+		t.Errorf("expected empty geo.city, got %q", env.Geo.City)
+	}
+}
+
+func TestGeoExpressionCompileAndEvaluate(t *testing.T) {
+	cfg := config.RuleConfig{
+		ID:         "block-country",
+		Expression: `geo.country == "US"`,
+		Action:     "block",
+		StatusCode: 451,
+	}
+
+	rule, err := CompileRequestRule(cfg)
+	if err != nil {
+		t.Fatalf("compile error: %v", err)
+	}
+
+	// Request with US geo result → match
+	r := httptest.NewRequest("GET", "http://localhost/", nil)
+	ctx := geo.WithGeoResult(r.Context(), &geo.GeoResult{
+		CountryCode: "US",
+		CountryName: "United States",
+		City:        "New York",
+	})
+	r = r.WithContext(ctx)
+	env := NewRequestEnv(r, nil)
+	matched, err := rule.Evaluate(env)
+	if err != nil {
+		t.Fatalf("evaluate error: %v", err)
+	}
+	if !matched {
+		t.Error("expected rule to match US geo result")
+	}
+
+	// Request with DE geo result → no match
+	r = httptest.NewRequest("GET", "http://localhost/", nil)
+	ctx = geo.WithGeoResult(r.Context(), &geo.GeoResult{
+		CountryCode: "DE",
+		CountryName: "Germany",
+		City:        "Berlin",
+	})
+	r = r.WithContext(ctx)
+	env = NewRequestEnv(r, nil)
+	matched, err = rule.Evaluate(env)
+	if err != nil {
+		t.Fatalf("evaluate error: %v", err)
+	}
+	if matched {
+		t.Error("expected rule NOT to match DE geo result")
+	}
+
+	// Request without geo result → no match (empty string != "US")
+	r = httptest.NewRequest("GET", "http://localhost/", nil)
+	env = NewRequestEnv(r, nil)
+	matched, err = rule.Evaluate(env)
+	if err != nil {
+		t.Fatalf("evaluate error: %v", err)
+	}
+	if matched {
+		t.Error("expected rule NOT to match request without geo result")
+	}
+}
+
+func TestGeoExpressionInList(t *testing.T) {
+	cfg := config.RuleConfig{
+		ID:         "block-countries",
+		Expression: `geo.country in ["CN", "RU", "IR"]`,
+		Action:     "block",
+		StatusCode: 451,
+	}
+
+	rule, err := CompileRequestRule(cfg)
+	if err != nil {
+		t.Fatalf("compile error: %v", err)
+	}
+
+	// CN → match
+	r := httptest.NewRequest("GET", "http://localhost/", nil)
+	ctx := geo.WithGeoResult(r.Context(), &geo.GeoResult{CountryCode: "CN"})
+	r = r.WithContext(ctx)
+	env := NewRequestEnv(r, nil)
+	matched, err := rule.Evaluate(env)
+	if err != nil {
+		t.Fatalf("evaluate error: %v", err)
+	}
+	if !matched {
+		t.Error("expected rule to match CN")
+	}
+
+	// US → no match
+	r = httptest.NewRequest("GET", "http://localhost/", nil)
+	ctx = geo.WithGeoResult(r.Context(), &geo.GeoResult{CountryCode: "US"})
+	r = r.WithContext(ctx)
+	env = NewRequestEnv(r, nil)
+	matched, err = rule.Evaluate(env)
+	if err != nil {
+		t.Fatalf("evaluate error: %v", err)
+	}
+	if matched {
+		t.Error("expected rule NOT to match US")
+	}
+}
+
+func TestGeoExpressionCity(t *testing.T) {
+	cfg := config.RuleConfig{
+		ID:         "block-city",
+		Expression: `geo.city == "Beijing"`,
+		Action:     "block",
+		StatusCode: 451,
+	}
+
+	rule, err := CompileRequestRule(cfg)
+	if err != nil {
+		t.Fatalf("compile error: %v", err)
+	}
+
+	r := httptest.NewRequest("GET", "http://localhost/", nil)
+	ctx := geo.WithGeoResult(r.Context(), &geo.GeoResult{City: "Beijing"})
+	r = r.WithContext(ctx)
+	env := NewRequestEnv(r, nil)
+	matched, err := rule.Evaluate(env)
+	if err != nil {
+		t.Fatalf("evaluate error: %v", err)
+	}
+	if !matched {
+		t.Error("expected rule to match Beijing")
 	}
 }

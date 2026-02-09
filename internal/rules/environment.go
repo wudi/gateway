@@ -4,14 +4,23 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/wudi/gateway/internal/middleware/geo"
 	"github.com/wudi/gateway/internal/variables"
 )
+
+// GeoEnv provides geolocation fields populated by the geo middleware.
+type GeoEnv struct {
+	Country     string `expr:"country"`      // ISO 3166-1 alpha-2 code
+	CountryName string `expr:"country_name"` // full country name
+	City        string `expr:"city"`
+}
 
 // RequestEnv is the expression environment for request-phase rules.
 // Field names use Cloudflare-style dot notation via expr struct tags.
 type RequestEnv struct {
 	HTTP  HTTPEnv  `expr:"http"`
 	IP    IPEnv    `expr:"ip"`
+	Geo   GeoEnv   `expr:"geo"`
 	Route RouteEnv `expr:"route"`
 	Auth  AuthEnv  `expr:"auth"`
 }
@@ -110,6 +119,16 @@ func NewRequestEnv(r *http.Request, varCtx *variables.Context) RequestEnv {
 		claims = make(map[string]any)
 	}
 
+	// Geo fields (populated by geoMW via request context)
+	var geoEnv GeoEnv
+	if result := geo.GeoResultFromContext(r.Context()); result != nil {
+		geoEnv = GeoEnv{
+			Country:     result.CountryCode,
+			CountryName: result.CountryName,
+			City:        result.City,
+		}
+	}
+
 	// Route fields
 	var routeID string
 	var pathParams map[string]string
@@ -141,6 +160,7 @@ func NewRequestEnv(r *http.Request, varCtx *variables.Context) RequestEnv {
 		IP: IPEnv{
 			Src: variables.ExtractClientIP(r),
 		},
+		Geo: geoEnv,
 		Route: RouteEnv{
 			ID:     routeID,
 			Params: pathParams,

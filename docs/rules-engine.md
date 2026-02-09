@@ -17,6 +17,9 @@ http.request.method == "POST" && ip.src == "10.0.0.1"
 http.request.uri.path matches "^/api/v[0-9]+"
 http.request.headers["Authorization"] != ""
 auth.type == "jwt" && auth.claims["role"] == "admin"
+geo.country == "US" || geo.country == "CA"
+geo.country in ["US", "GB", "DE"] && auth.type == "jwt"
+geo.city != "Beijing"
 http.response.code >= 500
 ```
 
@@ -39,6 +42,9 @@ http.response.code >= 500
 | `ip.src` | string | Client IP address |
 | `route.id` | string | Matched route ID |
 | `route.params` | map | Path parameters |
+| `geo.country` | string | ISO 3166-1 alpha-2 country code (requires geo enabled) |
+| `geo.country_name` | string | Country name in English |
+| `geo.city` | string | City name |
 | `auth.client_id` | string | Authenticated client ID |
 | `auth.type` | string | Auth method (jwt, api_key) |
 | `auth.claims` | map | JWT claims |
@@ -88,6 +94,18 @@ rules:
       action: "rewrite"
       rewrite:
         path: "/new/$1"
+
+    - id: "block-restricted-countries"
+      expression: 'geo.country in ["CN", "RU", "IR"]'
+      action: "block"
+      status_code: 451
+
+    - id: "rate-limit-header-by-country"
+      expression: 'geo.country != "US"'
+      action: "set_headers"
+      headers:
+        set:
+          X-Rate-Tier: "international"
 
     - id: "log-slow"
       expression: 'http.request.body_size > 1048576'

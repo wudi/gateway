@@ -15,6 +15,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/csrf"
 	"github.com/wudi/gateway/internal/middleware/errorpages"
 	"github.com/wudi/gateway/internal/middleware/extauth"
+	"github.com/wudi/gateway/internal/middleware/geo"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	"github.com/wudi/gateway/internal/middleware/nonce"
 	"github.com/wudi/gateway/internal/middleware/openapi"
@@ -429,3 +430,27 @@ func (f *outlierDetectionFeature) Name() string                                 
 func (f *outlierDetectionFeature) Setup(routeID string, cfg config.RouteConfig) error { return nil }
 func (f *outlierDetectionFeature) RouteIDs() []string                                 { return f.m.RouteIDs() }
 func (f *outlierDetectionFeature) AdminStats() any                                    { return f.m.Stats() }
+
+// geoFeature wraps GeoByRoute.
+type geoFeature struct {
+	m        *geo.GeoByRoute
+	global   *config.GeoConfig
+	provider geo.Provider
+}
+
+func (f *geoFeature) Name() string { return "geo" }
+func (f *geoFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if f.provider == nil {
+		return nil
+	}
+	if cfg.Geo.Enabled {
+		merged := geo.MergeGeoConfig(cfg.Geo, *f.global)
+		return f.m.AddRoute(routeID, merged, f.provider)
+	}
+	if f.global.Enabled {
+		return f.m.AddRoute(routeID, *f.global, f.provider)
+	}
+	return nil
+}
+func (f *geoFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *geoFeature) AdminStats() any    { return f.m.Stats() }

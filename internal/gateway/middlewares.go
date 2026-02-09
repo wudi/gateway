@@ -26,6 +26,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/csrf"
 	"github.com/wudi/gateway/internal/middleware/errorpages"
 	"github.com/wudi/gateway/internal/middleware/extauth"
+	"github.com/wudi/gateway/internal/middleware/geo"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	"github.com/wudi/gateway/internal/middleware/nonce"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
@@ -55,6 +56,29 @@ func ipFilterMW(global *ipfilter.Filter, route *ipfilter.Filter) middleware.Midd
 			if route != nil && !route.Check(r) {
 				ipfilter.RejectRequest(w)
 				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// 1.5 geoMW checks global then per-route geo filters; rejects with 451.
+func geoMW(global *geo.CompiledGeo, route *geo.CompiledGeo) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if global != nil {
+				var allowed bool
+				r, allowed = global.Handle(w, r)
+				if !allowed {
+					return
+				}
+			}
+			if route != nil {
+				var allowed bool
+				r, allowed = route.Handle(w, r)
+				if !allowed {
+					return
+				}
 			}
 			next.ServeHTTP(w, r)
 		})

@@ -871,6 +871,28 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate geo config (global)
+	if cfg.Geo.Enabled {
+		if cfg.Geo.Database == "" {
+			return fmt.Errorf("geo: database path is required when geo is enabled")
+		}
+		dbLower := strings.ToLower(cfg.Geo.Database)
+		if !strings.HasSuffix(dbLower, ".mmdb") && !strings.HasSuffix(dbLower, ".ipdb") {
+			return fmt.Errorf("geo: database must be a .mmdb or .ipdb file")
+		}
+		if _, err := os.Stat(cfg.Geo.Database); os.IsNotExist(err) {
+			return fmt.Errorf("geo: database file does not exist: %s", cfg.Geo.Database)
+		}
+	}
+	if err := l.validateGeoConfig("global", cfg.Geo); err != nil {
+		return err
+	}
+	for _, route := range cfg.Routes {
+		if err := l.validateGeoConfig(fmt.Sprintf("route %s", route.ID), route.Geo); err != nil {
+			return err
+		}
+	}
+
 	// Validate webhooks
 	if cfg.Webhooks.Enabled {
 		if len(cfg.Webhooks.Endpoints) == 0 {
@@ -1548,6 +1570,17 @@ func (l *Loader) validateCSRFConfig(scope string, cfg CSRFConfig) error {
 		if _, err := regexp.Compile(p); err != nil {
 			return fmt.Errorf("%s: csrf.allowed_origin_patterns: invalid regex %q: %w", scope, p, err)
 		}
+	}
+	return nil
+}
+
+// validateGeoConfig validates a geo config for a given scope.
+func (l *Loader) validateGeoConfig(scope string, cfg GeoConfig) error {
+	switch cfg.Order {
+	case "", "allow_first", "deny_first":
+		// valid
+	default:
+		return fmt.Errorf("%s: geo.order must be \"allow_first\" or \"deny_first\"", scope)
 	}
 	return nil
 }

@@ -476,6 +476,9 @@ func (s *Server) adminHandler() http.Handler {
 	// Outlier detection
 	mux.HandleFunc("/outlier-detection", s.handleOutlierDetection)
 
+	// Geo filtering
+	mux.HandleFunc("/geo", s.handleGeo)
+
 	// Webhooks
 	mux.HandleFunc("/webhooks", s.handleWebhooks)
 
@@ -1152,6 +1155,12 @@ func (s *Server) handleErrorPages(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleOutlierDetection(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.gateway.GetOutlierDetectors().Stats())
+}
+
+// handleGeo handles geo filtering stats requests.
+func (s *Server) handleGeo(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetGeoFilters().Stats())
 }
 
 // handleWebhooks handles webhook dispatcher stats requests.

@@ -29,6 +29,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/csrf"
 	"github.com/wudi/gateway/internal/middleware/errorpages"
 	"github.com/wudi/gateway/internal/middleware/extauth"
+	"github.com/wudi/gateway/internal/middleware/geo"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	"github.com/wudi/gateway/internal/middleware/mtls"
 	"github.com/wudi/gateway/internal/middleware/nonce"
@@ -111,6 +112,9 @@ type Gateway struct {
 	nonceCheckers     *nonce.NonceByRoute
 	csrfProtectors    *csrf.CSRFByRoute
 	outlierDetectors  *outlier.DetectorByRoute
+	geoFilters        *geo.GeoByRoute
+	geoProvider       geo.Provider
+	globalGeo         *geo.CompiledGeo
 	webhookDispatcher *webhook.Dispatcher
 
 	features []Feature
@@ -183,6 +187,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		nonceCheckers:     nonce.NewNonceByRoute(),
 		csrfProtectors:    csrf.NewCSRFByRoute(),
 		outlierDetectors:  outlier.NewDetectorByRoute(),
+		geoFilters:        geo.NewGeoByRoute(),
 		routeProxies:      make(map[string]*proxy.RouteProxy),
 		routeHandlers:     make(map[string]http.Handler),
 		watchCancels:      make(map[string]context.CancelFunc),
@@ -221,6 +226,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&nonceFeature{m: g.nonceCheckers, global: &cfg.Nonce, redis: g.redisClient},
 		&csrfFeature{m: g.csrfProtectors, global: &cfg.CSRF},
 		&outlierDetectionFeature{g.outlierDetectors},
+		&geoFeature{m: g.geoFilters, global: &cfg.Geo, provider: g.geoProvider},
 	}
 
 	// Initialize global IP filter
@@ -229,6 +235,19 @@ func New(cfg *config.Config) (*Gateway, error) {
 		g.globalIPFilter, err = ipfilter.New(cfg.IPFilter)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize global IP filter: %w", err)
+		}
+	}
+
+	// Initialize geo provider and global geo filter
+	if cfg.Geo.Enabled && cfg.Geo.Database != "" {
+		var err error
+		g.geoProvider, err = geo.NewProvider(cfg.Geo.Database)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize geo provider: %w", err)
+		}
+		g.globalGeo, err = geo.New("_global", cfg.Geo, g.geoProvider)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize global geo filter: %w", err)
 		}
 	}
 
@@ -704,6 +723,12 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 	routeIPFilter := g.ipFilters.GetFilter(routeID)
 	if g.globalIPFilter != nil || routeIPFilter != nil {
 		chain = chain.Use(ipFilterMW(g.globalIPFilter, routeIPFilter))
+	}
+
+	// 2.5. geoMW — geo filtering (after IP filter, before CORS)
+	routeGeo := g.geoFilters.GetGeo(routeID)
+	if g.globalGeo != nil || routeGeo != nil {
+		chain = chain.Use(geoMW(g.globalGeo, routeGeo))
 	}
 
 	// 3. corsMW — preflight + headers (Step 1.5)
@@ -1200,6 +1225,11 @@ func (g *Gateway) Close() error {
 	// Close ext auth clients
 	g.extAuths.CloseAll()
 
+	// Close geo provider
+	if g.geoProvider != nil {
+		g.geoProvider.Close()
+	}
+
 	// Close protocol translators
 	g.translators.Close()
 
@@ -1373,6 +1403,11 @@ func (g *Gateway) GetCSRFProtectors() *csrf.CSRFByRoute {
 // GetOutlierDetectors returns the outlier detection manager.
 func (g *Gateway) GetOutlierDetectors() *outlier.DetectorByRoute {
 	return g.outlierDetectors
+}
+
+// GetGeoFilters returns the geo filter manager.
+func (g *Gateway) GetGeoFilters() *geo.GeoByRoute {
+	return g.geoFilters
 }
 
 // GetWebhookDispatcher returns the webhook dispatcher (may be nil).
