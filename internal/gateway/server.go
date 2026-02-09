@@ -467,6 +467,9 @@ func (s *Server) adminHandler() http.Handler {
 	// Webhooks
 	mux.HandleFunc("/webhooks", s.handleWebhooks)
 
+	// Upstreams
+	mux.HandleFunc("/upstreams", s.handleUpstreams)
+
 	// Canary deployments
 	mux.HandleFunc("/canary", s.handleCanary)
 	mux.HandleFunc("/canary/", s.handleCanaryAction)
@@ -976,6 +979,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["webhooks"] = d.Stats()
 	}
 
+	// Upstreams
+	if upstreams := s.gateway.GetUpstreams(); len(upstreams) > 0 {
+		dashboard["upstreams"] = upstreams
+	}
+
 	// Tracing
 	if tracer := s.gateway.GetTracer(); tracer != nil {
 		dashboard["tracing"] = tracer.Status()
@@ -1099,6 +1107,16 @@ func (s *Server) handleWebhooks(w http.ResponseWriter, r *http.Request) {
 	} else {
 		json.NewEncoder(w).Encode(map[string]interface{}{"enabled": false})
 	}
+}
+
+// handleUpstreams returns configured upstream pools.
+func (s *Server) handleUpstreams(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	upstreams := s.gateway.GetUpstreams()
+	if upstreams == nil {
+		upstreams = make(map[string]config.UpstreamConfig)
+	}
+	json.NewEncoder(w).Encode(upstreams)
 }
 
 // handleCanary lists all canary deployments with status.

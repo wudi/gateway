@@ -112,6 +112,7 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /access-log` | Per-route access log config status (enabled, format, body capture, conditions) |
 | `GET /openapi` | OpenAPI validation stats per route (spec, operation, request/response validation, metrics) |
 | `GET /timeouts` | Per-route timeout policy config and metrics (request/backend/idle/header timeouts, timeout counts) |
+| `GET /upstreams` | Named upstream pool definitions (backends, LB algorithm, health check config) |
 
 ### Example: Querying Feature Endpoints
 
@@ -136,7 +137,7 @@ curl http://localhost:8081/rate-limits
 
 ### GET `/dashboard`
 
-Aggregated view of all feature statistics in a single response. Includes uptime, circuit breakers, cache, retries, traffic splits, WAF, tracing, and TCP/UDP route stats.
+Aggregated view of all feature statistics in a single response. Includes uptime, circuit breakers, cache, retries, traffic splits, upstreams, WAF, tracing, and TCP/UDP route stats.
 
 ```bash
 curl http://localhost:8081/dashboard

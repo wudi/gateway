@@ -471,6 +471,245 @@ func TestGatewayNoCacheOnNonCachedRoute(t *testing.T) {
 	}
 }
 
+func TestGatewayUpstreamResolution(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"backend": "upstream-pool"})
+	}))
+	defer backend.Close()
+
+	cfg := &config.Config{
+		Registry: config.RegistryConfig{
+			Type: "memory",
+		},
+		Upstreams: map[string]config.UpstreamConfig{
+			"my-pool": {
+				Backends: []config.BackendConfig{{URL: backend.URL}},
+			},
+		},
+		Routes: []config.RouteConfig{
+			{
+				ID:       "upstream-route",
+				Path:     "/api",
+				Upstream: "my-pool",
+			},
+		},
+	}
+
+	gw, err := New(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create gateway: %v", err)
+	}
+	defer gw.Close()
+
+	ts := httptest.NewServer(gw.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api")
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected 200, got %d", resp.StatusCode)
+	}
+
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result["backend"] != "upstream-pool" {
+		t.Errorf("Expected response from upstream backend, got %v", result)
+	}
+}
+
+func TestGatewayUpstreamSharedByTwoRoutes(t *testing.T) {
+	var route1Count, route2Count atomic.Int32
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("shared-backend"))
+	}))
+	defer backend.Close()
+
+	cfg := &config.Config{
+		Registry: config.RegistryConfig{
+			Type: "memory",
+		},
+		Upstreams: map[string]config.UpstreamConfig{
+			"shared-pool": {
+				Backends: []config.BackendConfig{{URL: backend.URL}},
+			},
+		},
+		Routes: []config.RouteConfig{
+			{
+				ID:       "route-a",
+				Path:     "/route-a",
+				Upstream: "shared-pool",
+			},
+			{
+				ID:       "route-b",
+				Path:     "/route-b",
+				Upstream: "shared-pool",
+			},
+		},
+	}
+
+	gw, err := New(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create gateway: %v", err)
+	}
+	defer gw.Close()
+
+	ts := httptest.NewServer(gw.Handler())
+	defer ts.Close()
+
+	// Hit route A
+	resp, err := http.Get(ts.URL + "/route-a")
+	if err != nil {
+		t.Fatalf("Request to route-a failed: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("route-a: expected 200, got %d", resp.StatusCode)
+	}
+	if string(body) == "shared-backend" {
+		route1Count.Add(1)
+	}
+
+	// Hit route B
+	resp, err = http.Get(ts.URL + "/route-b")
+	if err != nil {
+		t.Fatalf("Request to route-b failed: %v", err)
+	}
+	body, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("route-b: expected 200, got %d", resp.StatusCode)
+	}
+	if string(body) == "shared-backend" {
+		route2Count.Add(1)
+	}
+
+	// Both routes should have hit the shared backend
+	if route1Count.Load() != 1 || route2Count.Load() != 1 {
+		t.Errorf("Both routes should reach shared backend: route-a=%d, route-b=%d",
+			route1Count.Load(), route2Count.Load())
+	}
+}
+
+func TestGatewayUpstreamWithLBInheritance(t *testing.T) {
+	backend1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend1.Close()
+	backend2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend2.Close()
+
+	cfg := &config.Config{
+		Registry: config.RegistryConfig{
+			Type: "memory",
+		},
+		Upstreams: map[string]config.UpstreamConfig{
+			"lb-pool": {
+				Backends:     []config.BackendConfig{{URL: backend1.URL}, {URL: backend2.URL}},
+				LoadBalancer: "least_conn",
+			},
+		},
+		Routes: []config.RouteConfig{
+			{
+				ID:       "inherits-lb",
+				Path:     "/inherits",
+				Upstream: "lb-pool",
+				// No LoadBalancer set — should inherit from upstream
+			},
+			{
+				ID:           "overrides-lb",
+				Path:         "/overrides",
+				Upstream:     "lb-pool",
+				LoadBalancer: "round_robin",
+			},
+		},
+	}
+
+	gw, err := New(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create gateway: %v", err)
+	}
+	defer gw.Close()
+
+	ts := httptest.NewServer(gw.Handler())
+	defer ts.Close()
+
+	// Both routes should work
+	for _, path := range []string{"/inherits", "/overrides"} {
+		resp, err := http.Get(ts.URL + path)
+		if err != nil {
+			t.Fatalf("Request to %s failed: %v", path, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("%s: expected 200, got %d", path, resp.StatusCode)
+		}
+	}
+}
+
+func TestGatewayGetUpstreams(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	cfg := &config.Config{
+		Registry: config.RegistryConfig{
+			Type: "memory",
+		},
+		Upstreams: map[string]config.UpstreamConfig{
+			"pool-1": {
+				Backends: []config.BackendConfig{{URL: backend.URL}},
+			},
+			"pool-2": {
+				Backends:     []config.BackendConfig{{URL: backend.URL}},
+				LoadBalancer: "least_conn",
+			},
+		},
+		Routes: []config.RouteConfig{
+			{
+				ID:       "test",
+				Path:     "/test",
+				Upstream: "pool-1",
+			},
+		},
+	}
+
+	gw, err := New(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create gateway: %v", err)
+	}
+	defer gw.Close()
+
+	upstreams := gw.GetUpstreams()
+	if len(upstreams) != 2 {
+		t.Fatalf("Expected 2 upstreams, got %d", len(upstreams))
+	}
+
+	if _, ok := upstreams["pool-1"]; !ok {
+		t.Error("Expected pool-1 in upstreams")
+	}
+	if _, ok := upstreams["pool-2"]; !ok {
+		t.Error("Expected pool-2 in upstreams")
+	}
+	if upstreams["pool-2"].LoadBalancer != "least_conn" {
+		t.Errorf("Expected pool-2 LB=least_conn, got %s", upstreams["pool-2"].LoadBalancer)
+	}
+}
+
 func TestGatewayNewFeatureGetters(t *testing.T) {
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

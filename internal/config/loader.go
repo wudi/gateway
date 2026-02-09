@@ -154,9 +154,19 @@ func (l *Loader) validate(cfg *Config) error {
 			return fmt.Errorf("route %s: path is required", route.ID)
 		}
 
-		// Must have either backends, service discovery, or versioning
-		if len(route.Backends) == 0 && route.Service.Name == "" && !route.Versioning.Enabled {
-			return fmt.Errorf("route %s: must have either backends or service name", route.ID)
+		// Must have either backends, service discovery, versioning, or upstream ref
+		if len(route.Backends) == 0 && route.Service.Name == "" && !route.Versioning.Enabled && route.Upstream == "" {
+			return fmt.Errorf("route %s: must have either backends, service name, or upstream", route.ID)
+		}
+
+		// Mutual exclusion: upstream vs inline backends/service
+		if route.Upstream != "" {
+			if len(route.Backends) > 0 {
+				return fmt.Errorf("route %s: upstream and backends are mutually exclusive", route.ID)
+			}
+			if route.Service.Name != "" {
+				return fmt.Errorf("route %s: upstream and service are mutually exclusive", route.ID)
+			}
 		}
 
 		// Validate match config
@@ -594,8 +604,8 @@ func (l *Loader) validate(cfg *Config) error {
 				return fmt.Errorf("route %s: versioning.default_version %q must exist in versions", route.ID, route.Versioning.DefaultVersion)
 			}
 			for ver, vcfg := range route.Versioning.Versions {
-				if len(vcfg.Backends) == 0 {
-					return fmt.Errorf("route %s: versioning.versions[%s] must have at least one backend", route.ID, ver)
+				if len(vcfg.Backends) == 0 && vcfg.Upstream == "" {
+					return fmt.Errorf("route %s: versioning.versions[%s] must have at least one backend or upstream", route.ID, ver)
 				}
 				if vcfg.Sunset != "" {
 					if _, err := time.Parse("2006-01-02", vcfg.Sunset); err != nil {
@@ -708,6 +718,88 @@ func (l *Loader) validate(cfg *Config) error {
 						}
 					}
 				}
+			}
+		}
+	}
+
+	// Validate upstreams
+	if len(cfg.Upstreams) > 0 {
+		validLBs := map[string]bool{
+			"":                    true,
+			"round_robin":         true,
+			"least_conn":          true,
+			"consistent_hash":     true,
+			"least_response_time": true,
+		}
+		for name, us := range cfg.Upstreams {
+			if len(us.Backends) == 0 && us.Service.Name == "" {
+				return fmt.Errorf("upstream %s: must have either backends or service name", name)
+			}
+			if len(us.Backends) > 0 && us.Service.Name != "" {
+				return fmt.Errorf("upstream %s: backends and service are mutually exclusive", name)
+			}
+			if !validLBs[us.LoadBalancer] {
+				return fmt.Errorf("upstream %s: load_balancer must be round_robin, least_conn, consistent_hash, or least_response_time", name)
+			}
+			if us.LoadBalancer == "consistent_hash" {
+				validKeys := map[string]bool{"header": true, "cookie": true, "path": true, "ip": true}
+				if !validKeys[us.ConsistentHash.Key] {
+					return fmt.Errorf("upstream %s: consistent_hash.key must be header, cookie, path, or ip", name)
+				}
+				if (us.ConsistentHash.Key == "header" || us.ConsistentHash.Key == "cookie") && us.ConsistentHash.HeaderName == "" {
+					return fmt.Errorf("upstream %s: consistent_hash.header_name is required for header/cookie key mode", name)
+				}
+			}
+			if us.HealthCheck != nil {
+				if err := l.validateHealthCheck(fmt.Sprintf("upstream %s", name), *us.HealthCheck); err != nil {
+					return err
+				}
+			}
+			for i, b := range us.Backends {
+				if b.HealthCheck != nil {
+					if err := l.validateHealthCheck(fmt.Sprintf("upstream %s backend %d", name, i), *b.HealthCheck); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+
+	// Validate upstream references
+	for _, route := range cfg.Routes {
+		if route.Upstream != "" {
+			if _, ok := cfg.Upstreams[route.Upstream]; !ok {
+				return fmt.Errorf("route %s: references unknown upstream %q", route.ID, route.Upstream)
+			}
+		}
+		for _, split := range route.TrafficSplit {
+			if split.Upstream != "" {
+				if _, ok := cfg.Upstreams[split.Upstream]; !ok {
+					return fmt.Errorf("route %s: traffic_split %s: references unknown upstream %q", route.ID, split.Name, split.Upstream)
+				}
+				if len(split.Backends) > 0 {
+					return fmt.Errorf("route %s: traffic_split %s: upstream and backends are mutually exclusive", route.ID, split.Name)
+				}
+			}
+		}
+		if route.Versioning.Enabled {
+			for ver, vcfg := range route.Versioning.Versions {
+				if vcfg.Upstream != "" {
+					if _, ok := cfg.Upstreams[vcfg.Upstream]; !ok {
+						return fmt.Errorf("route %s: versioning.versions[%s]: references unknown upstream %q", route.ID, ver, vcfg.Upstream)
+					}
+					if len(vcfg.Backends) > 0 {
+						return fmt.Errorf("route %s: versioning.versions[%s]: upstream and backends are mutually exclusive", route.ID, ver)
+					}
+				}
+			}
+		}
+		if route.Mirror.Enabled && route.Mirror.Upstream != "" {
+			if _, ok := cfg.Upstreams[route.Mirror.Upstream]; !ok {
+				return fmt.Errorf("route %s: mirror: references unknown upstream %q", route.ID, route.Mirror.Upstream)
+			}
+			if len(route.Mirror.Backends) > 0 {
+				return fmt.Errorf("route %s: mirror: upstream and backends are mutually exclusive", route.ID)
 			}
 		}
 	}

@@ -2313,3 +2313,63 @@ func TestAdminAPIRouteMatchInfo(t *testing.T) {
 		t.Errorf("Expected 1 query matcher, got %d", len(route.MatchCfg.Query))
 	}
 }
+
+func TestUpstreamSharedPoolIntegration(t *testing.T) {
+	var hitCount atomic.Int32
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		hitCount.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"path":    r.URL.Path,
+			"backend": "shared",
+		})
+	}))
+	defer backend.Close()
+
+	cfg := baseConfig()
+	cfg.Upstreams = map[string]config.UpstreamConfig{
+		"api-pool": {
+			Backends: []config.BackendConfig{{URL: backend.URL}},
+		},
+	}
+	cfg.Routes = []config.RouteConfig{
+		{
+			ID:       "users",
+			Path:     "/users",
+			Upstream: "api-pool",
+		},
+		{
+			ID:       "orders",
+			Path:     "/orders",
+			Upstream: "api-pool",
+		},
+	}
+
+	_, ts := newTestGateway(t, cfg)
+
+	// Both routes should work via the shared upstream
+	for _, path := range []string{"/users", "/orders"} {
+		resp, err := http.Get(ts.URL + path)
+		if err != nil {
+			t.Fatalf("Request to %s failed: %v", path, err)
+		}
+		var result map[string]string
+		json.NewDecoder(resp.Body).Decode(&result)
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("%s: expected 200, got %d", path, resp.StatusCode)
+		}
+		if result["backend"] != "shared" {
+			t.Errorf("%s: expected backend=shared, got %v", path, result)
+		}
+	}
+
+	if hitCount.Load() != 2 {
+		t.Errorf("Expected 2 backend hits (one per route), got %d", hitCount.Load())
+	}
+}

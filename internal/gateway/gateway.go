@@ -379,8 +379,96 @@ func (g *Gateway) initRoutes() error {
 	return nil
 }
 
+// resolveUpstreamRefs resolves upstream references in a route config by populating
+// inline backends from named upstreams. The returned config is a copy with all
+// upstream refs resolved to their backend lists. LB settings are also inherited
+// from the upstream when the route doesn't specify them.
+func resolveUpstreamRefs(cfg *config.Config, routeCfg config.RouteConfig) config.RouteConfig {
+	if cfg.Upstreams == nil {
+		return routeCfg
+	}
+
+	// Resolve route-level upstream
+	if routeCfg.Upstream != "" {
+		if us, ok := cfg.Upstreams[routeCfg.Upstream]; ok {
+			routeCfg.Backends = us.Backends
+			routeCfg.Service = us.Service
+			if routeCfg.LoadBalancer == "" {
+				routeCfg.LoadBalancer = us.LoadBalancer
+			}
+			if routeCfg.ConsistentHash == (config.ConsistentHashConfig{}) {
+				routeCfg.ConsistentHash = us.ConsistentHash
+			}
+		}
+	}
+
+	// Resolve traffic split upstream refs
+	for i, split := range routeCfg.TrafficSplit {
+		if split.Upstream != "" {
+			if us, ok := cfg.Upstreams[split.Upstream]; ok {
+				routeCfg.TrafficSplit[i].Backends = us.Backends
+			}
+		}
+	}
+
+	// Resolve versioning upstream refs
+	if routeCfg.Versioning.Enabled {
+		for ver, vcfg := range routeCfg.Versioning.Versions {
+			if vcfg.Upstream != "" {
+				if us, ok := cfg.Upstreams[vcfg.Upstream]; ok {
+					vcfg.Backends = us.Backends
+					routeCfg.Versioning.Versions[ver] = vcfg
+				}
+			}
+		}
+	}
+
+	// Resolve mirror upstream ref
+	if routeCfg.Mirror.Enabled && routeCfg.Mirror.Upstream != "" {
+		if us, ok := cfg.Upstreams[routeCfg.Mirror.Upstream]; ok {
+			routeCfg.Mirror.Backends = us.Backends
+		}
+	}
+
+	return routeCfg
+}
+
+// upstreamHealthCheck returns the upstream-level health check config for a backend URL,
+// merging global → upstream → per-backend configs.
+func upstreamHealthCheck(backendURL string, global config.HealthCheckConfig, upstream *config.HealthCheckConfig, perBackend *config.HealthCheckConfig) health.Backend {
+	// Start from global, then apply upstream-level overrides, then per-backend
+	merged := global
+	if upstream != nil {
+		if upstream.Path != "" {
+			merged.Path = upstream.Path
+		}
+		if upstream.Method != "" {
+			merged.Method = upstream.Method
+		}
+		if upstream.Interval > 0 {
+			merged.Interval = upstream.Interval
+		}
+		if upstream.Timeout > 0 {
+			merged.Timeout = upstream.Timeout
+		}
+		if upstream.HealthyAfter > 0 {
+			merged.HealthyAfter = upstream.HealthyAfter
+		}
+		if upstream.UnhealthyAfter > 0 {
+			merged.UnhealthyAfter = upstream.UnhealthyAfter
+		}
+		if len(upstream.ExpectedStatus) > 0 {
+			merged.ExpectedStatus = upstream.ExpectedStatus
+		}
+	}
+	return mergeHealthCheckConfig(backendURL, merged, perBackend)
+}
+
 // addRoute adds a single route
 func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
+	// Resolve upstream references into inline backends/service/LB settings
+	routeCfg = resolveUpstreamRefs(g.config, routeCfg)
+
 	// Add route to router
 	if err := g.router.AddRoute(routeCfg); err != nil {
 		return err
@@ -419,6 +507,12 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 		g.watchService(routeCfg.ID, routeCfg.Service.Name, routeCfg.Service.Tags)
 	} else {
 		// Use static backends
+		var usHC *config.HealthCheckConfig
+		if routeCfg.Upstream != "" {
+			if us, ok := g.config.Upstreams[routeCfg.Upstream]; ok {
+				usHC = us.HealthCheck
+			}
+		}
 		for _, b := range routeCfg.Backends {
 			weight := b.Weight
 			if weight == 0 {
@@ -430,8 +524,8 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 				Healthy: true,
 			})
 
-			// Add to health checker
-			g.healthChecker.AddBackend(mergeHealthCheckConfig(b.URL, g.config.HealthCheck, b.HealthCheck))
+			// Add to health checker (upstream health check sits between global and per-backend)
+			g.healthChecker.AddBackend(upstreamHealthCheck(b.URL, g.config.HealthCheck, usHC, b.HealthCheck))
 		}
 	}
 
@@ -441,13 +535,19 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 		versionBackends := make(map[string][]*loadbalancer.Backend)
 		for ver, vcfg := range routeCfg.Versioning.Versions {
 			var vBacks []*loadbalancer.Backend
+			var verUSHC *config.HealthCheckConfig
+			if vcfg.Upstream != "" {
+				if us, ok := g.config.Upstreams[vcfg.Upstream]; ok {
+					verUSHC = us.HealthCheck
+				}
+			}
 			for _, b := range vcfg.Backends {
 				weight := b.Weight
 				if weight == 0 {
 					weight = 1
 				}
 				vBacks = append(vBacks, &loadbalancer.Backend{URL: b.URL, Weight: weight, Healthy: true})
-				g.healthChecker.AddBackend(mergeHealthCheckConfig(b.URL, g.config.HealthCheck, b.HealthCheck))
+				g.healthChecker.AddBackend(upstreamHealthCheck(b.URL, g.config.HealthCheck, verUSHC, b.HealthCheck))
 			}
 			versionBackends[ver] = vBacks
 		}
@@ -1198,6 +1298,13 @@ func (g *Gateway) GetTimeoutConfigs() *timeout.TimeoutByRoute {
 // GetWebhookDispatcher returns the webhook dispatcher (may be nil).
 func (g *Gateway) GetWebhookDispatcher() *webhook.Dispatcher {
 	return g.webhookDispatcher
+}
+
+// GetUpstreams returns the configured upstream map.
+func (g *Gateway) GetUpstreams() map[string]config.UpstreamConfig {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.config.Upstreams
 }
 
 // GetLoadBalancerInfo returns per-route load balancer algorithm and stats.

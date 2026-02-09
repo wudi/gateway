@@ -14,14 +14,24 @@ const (
 	ProtocolUDP  Protocol = "udp"
 )
 
+// UpstreamConfig defines a named backend pool that can be referenced by multiple routes.
+type UpstreamConfig struct {
+	Backends       []BackendConfig      `yaml:"backends"`
+	Service        ServiceConfig        `yaml:"service"`
+	LoadBalancer   string               `yaml:"load_balancer"`
+	ConsistentHash ConsistentHashConfig `yaml:"consistent_hash"`
+	HealthCheck    *HealthCheckConfig   `yaml:"health_check"`
+}
+
 // Config represents the complete gateway configuration
 type Config struct {
-	Listeners      []ListenerConfig     `yaml:"listeners"`
-	Registry       RegistryConfig       `yaml:"registry"`
-	Authentication AuthenticationConfig `yaml:"authentication"`
-	Routes         []RouteConfig        `yaml:"routes"`
-	TCPRoutes      []TCPRouteConfig     `yaml:"tcp_routes"`      // TCP L4 routes
-	UDPRoutes      []UDPRouteConfig     `yaml:"udp_routes"`      // UDP L4 routes
+	Listeners      []ListenerConfig              `yaml:"listeners"`
+	Registry       RegistryConfig                `yaml:"registry"`
+	Authentication AuthenticationConfig          `yaml:"authentication"`
+	Upstreams      map[string]UpstreamConfig     `yaml:"upstreams"`
+	Routes         []RouteConfig                 `yaml:"routes"`
+	TCPRoutes      []TCPRouteConfig              `yaml:"tcp_routes"`      // TCP L4 routes
+	UDPRoutes      []UDPRouteConfig              `yaml:"udp_routes"`      // UDP L4 routes
 	Logging        LoggingConfig        `yaml:"logging"`
 	Admin          AdminConfig          `yaml:"admin"`
 	Tracing        TracingConfig        `yaml:"tracing"`         // Feature 9: Distributed tracing
@@ -214,6 +224,7 @@ type RouteConfig struct {
 	Match          MatchConfig          `yaml:"match"`
 	Backends       []BackendConfig      `yaml:"backends"`
 	Service        ServiceConfig        `yaml:"service"`
+	Upstream       string               `yaml:"upstream"` // reference to named upstream in Config.Upstreams
 	Auth           RouteAuthConfig      `yaml:"auth"`
 	RateLimit      RateLimitConfig      `yaml:"rate_limit"`
 	Transform      TransformConfig      `yaml:"transform"`
@@ -372,9 +383,10 @@ type MetricsConfig struct {
 
 // TrafficSplitConfig defines canary/weighted traffic split settings (Feature 6)
 type TrafficSplitConfig struct {
-	Name         string          `yaml:"name"`
-	Weight       int             `yaml:"weight"`        // percentage 0-100
-	Backends     []BackendConfig `yaml:"backends"`
+	Name         string            `yaml:"name"`
+	Weight       int               `yaml:"weight"`        // percentage 0-100
+	Backends     []BackendConfig   `yaml:"backends"`
+	Upstream     string            `yaml:"upstream"`      // reference to named upstream (alternative to inline backends)
 	MatchHeaders map[string]string `yaml:"match_headers"` // header-based override
 }
 
@@ -403,6 +415,7 @@ type TracingConfig struct {
 type MirrorConfig struct {
 	Enabled    bool                   `yaml:"enabled"`
 	Backends   []BackendConfig        `yaml:"backends"`
+	Upstream   string                 `yaml:"upstream"`   // reference to named upstream (alternative to inline backends)
 	Percentage int                    `yaml:"percentage"` // 0-100
 	Conditions MirrorConditionsConfig `yaml:"conditions"`
 	Compare    MirrorCompareConfig    `yaml:"compare"`
@@ -542,6 +555,7 @@ type VersioningConfig struct {
 // VersionBackendConfig defines backends and metadata for a specific API version.
 type VersionBackendConfig struct {
 	Backends   []BackendConfig `yaml:"backends"`
+	Upstream   string          `yaml:"upstream"`   // reference to named upstream (alternative to inline backends)
 	Deprecated bool            `yaml:"deprecated"` // adds Deprecation: true header
 	Sunset     string          `yaml:"sunset"`     // adds Sunset header (YYYY-MM-DD)
 }

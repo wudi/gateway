@@ -226,6 +226,9 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 // addRouteForState adds a single route into the given gatewayState, using the Gateway's
 // shared infrastructure (proxy, healthChecker, registry, redisClient).
 func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig) error {
+	// Resolve upstream references into inline backends/service/LB settings
+	routeCfg = resolveUpstreamRefs(s.config, routeCfg)
+
 	if err := s.router.AddRoute(routeCfg); err != nil {
 		return err
 	}
@@ -259,6 +262,12 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 		s.watchCancels[routeCfg.ID] = cancel
 		go g.watchServiceForState(s, watchCtx, routeCfg.ID, routeCfg.Service.Name, routeCfg.Service.Tags)
 	} else {
+		var usHC *config.HealthCheckConfig
+		if routeCfg.Upstream != "" {
+			if us, ok := s.config.Upstreams[routeCfg.Upstream]; ok {
+				usHC = us.HealthCheck
+			}
+		}
 		for _, b := range routeCfg.Backends {
 			weight := b.Weight
 			if weight == 0 {
@@ -271,7 +280,7 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 			})
 
 			// Register backend with health checker
-			g.healthChecker.UpdateBackend(mergeHealthCheckConfig(b.URL, s.config.HealthCheck, b.HealthCheck))
+			g.healthChecker.UpdateBackend(upstreamHealthCheck(b.URL, s.config.HealthCheck, usHC, b.HealthCheck))
 		}
 	}
 
@@ -280,13 +289,19 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 		versionBackends := make(map[string][]*loadbalancer.Backend)
 		for ver, vcfg := range routeCfg.Versioning.Versions {
 			var vBacks []*loadbalancer.Backend
+			var verUSHC *config.HealthCheckConfig
+			if vcfg.Upstream != "" {
+				if us, ok := s.config.Upstreams[vcfg.Upstream]; ok {
+					verUSHC = us.HealthCheck
+				}
+			}
 			for _, b := range vcfg.Backends {
 				weight := b.Weight
 				if weight == 0 {
 					weight = 1
 				}
 				vBacks = append(vBacks, &loadbalancer.Backend{URL: b.URL, Weight: weight, Healthy: true})
-				g.healthChecker.UpdateBackend(mergeHealthCheckConfig(b.URL, s.config.HealthCheck, b.HealthCheck))
+				g.healthChecker.UpdateBackend(upstreamHealthCheck(b.URL, s.config.HealthCheck, verUSHC, b.HealthCheck))
 			}
 			versionBackends[ver] = vBacks
 		}
@@ -613,20 +628,33 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 
 	// Reconcile health checker: remove backends no longer present
 	newBackendURLs := make(map[string]bool)
-	for _, routeCfg := range newCfg.Routes {
-		for _, b := range routeCfg.Backends {
+	// Collect backend URLs from upstreams
+	for _, us := range newCfg.Upstreams {
+		for _, b := range us.Backends {
 			newBackendURLs[b.URL] = true
 		}
-		for _, split := range routeCfg.TrafficSplit {
+	}
+	for _, routeCfg := range newCfg.Routes {
+		// Resolve upstream refs to find effective backends
+		resolved := resolveUpstreamRefs(newCfg, routeCfg)
+		for _, b := range resolved.Backends {
+			newBackendURLs[b.URL] = true
+		}
+		for _, split := range resolved.TrafficSplit {
 			for _, b := range split.Backends {
 				newBackendURLs[b.URL] = true
 			}
 		}
-		if routeCfg.Versioning.Enabled {
-			for _, vcfg := range routeCfg.Versioning.Versions {
+		if resolved.Versioning.Enabled {
+			for _, vcfg := range resolved.Versioning.Versions {
 				for _, b := range vcfg.Backends {
 					newBackendURLs[b.URL] = true
 				}
+			}
+		}
+		if resolved.Mirror.Enabled {
+			for _, b := range resolved.Mirror.Backends {
+				newBackendURLs[b.URL] = true
 			}
 		}
 	}

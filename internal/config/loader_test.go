@@ -1848,3 +1848,411 @@ health_check:
 		})
 	}
 }
+
+func TestLoaderValidateUpstreams(t *testing.T) {
+	base := `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+`
+
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+	}{
+		{
+			name: "valid upstream with backends",
+			yaml: base + `
+upstreams:
+  api-pool:
+    backends:
+      - url: http://localhost:9000
+      - url: http://localhost:9001
+routes:
+  - id: test
+    path: /test
+    upstream: api-pool
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid upstream with service",
+			yaml: base + `
+upstreams:
+  svc-pool:
+    service:
+      name: my-service
+routes:
+  - id: test
+    path: /test
+    upstream: svc-pool
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid upstream with LB algorithm",
+			yaml: base + `
+upstreams:
+  api-pool:
+    backends:
+      - url: http://localhost:9000
+    load_balancer: least_conn
+routes:
+  - id: test
+    path: /test
+    upstream: api-pool
+`,
+			wantErr: false,
+		},
+		{
+			name: "upstream missing backends and service",
+			yaml: base + `
+upstreams:
+  empty-pool: {}
+routes:
+  - id: test
+    path: /test
+    upstream: empty-pool
+`,
+			wantErr: true,
+		},
+		{
+			name: "upstream with both backends and service",
+			yaml: base + `
+upstreams:
+  both:
+    backends:
+      - url: http://localhost:9000
+    service:
+      name: my-service
+routes:
+  - id: test
+    path: /test
+    upstream: both
+`,
+			wantErr: true,
+		},
+		{
+			name: "upstream with invalid LB",
+			yaml: base + `
+upstreams:
+  api-pool:
+    backends:
+      - url: http://localhost:9000
+    load_balancer: random
+routes:
+  - id: test
+    path: /test
+    upstream: api-pool
+`,
+			wantErr: true,
+		},
+		{
+			name: "upstream with consistent_hash missing key",
+			yaml: base + `
+upstreams:
+  api-pool:
+    backends:
+      - url: http://localhost:9000
+    load_balancer: consistent_hash
+routes:
+  - id: test
+    path: /test
+    upstream: api-pool
+`,
+			wantErr: true,
+		},
+		{
+			name: "upstream with valid consistent_hash",
+			yaml: base + `
+upstreams:
+  api-pool:
+    backends:
+      - url: http://localhost:9000
+    load_balancer: consistent_hash
+    consistent_hash:
+      key: ip
+routes:
+  - id: test
+    path: /test
+    upstream: api-pool
+`,
+			wantErr: false,
+		},
+		{
+			name: "upstream with invalid health check",
+			yaml: base + `
+upstreams:
+  api-pool:
+    backends:
+      - url: http://localhost:9000
+    health_check:
+      method: PATCH
+routes:
+  - id: test
+    path: /test
+    upstream: api-pool
+`,
+			wantErr: true,
+		},
+		{
+			name: "route references unknown upstream",
+			yaml: base + `
+routes:
+  - id: test
+    path: /test
+    upstream: nonexistent
+`,
+			wantErr: true,
+		},
+		{
+			name: "route with upstream and backends is error",
+			yaml: base + `
+upstreams:
+  api-pool:
+    backends:
+      - url: http://localhost:9000
+routes:
+  - id: test
+    path: /test
+    upstream: api-pool
+    backends:
+      - url: http://localhost:9001
+`,
+			wantErr: true,
+		},
+		{
+			name: "route with upstream and service is error",
+			yaml: base + `
+upstreams:
+  api-pool:
+    backends:
+      - url: http://localhost:9000
+routes:
+  - id: test
+    path: /test
+    upstream: api-pool
+    service:
+      name: my-service
+`,
+			wantErr: true,
+		},
+		{
+			name: "traffic_split with upstream ref",
+			yaml: base + `
+upstreams:
+  group-a:
+    backends:
+      - url: http://localhost:9000
+  group-b:
+    backends:
+      - url: http://localhost:9001
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:8000
+    traffic_split:
+      - name: a
+        weight: 50
+        upstream: group-a
+      - name: b
+        weight: 50
+        upstream: group-b
+`,
+			wantErr: false,
+		},
+		{
+			name: "traffic_split with unknown upstream",
+			yaml: base + `
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:8000
+    traffic_split:
+      - name: a
+        weight: 50
+        upstream: nonexistent
+      - name: b
+        weight: 50
+        backends:
+          - url: http://localhost:9001
+`,
+			wantErr: true,
+		},
+		{
+			name: "traffic_split with upstream and backends is error",
+			yaml: base + `
+upstreams:
+  group-a:
+    backends:
+      - url: http://localhost:9000
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:8000
+    traffic_split:
+      - name: a
+        weight: 50
+        upstream: group-a
+        backends:
+          - url: http://localhost:9999
+      - name: b
+        weight: 50
+        backends:
+          - url: http://localhost:9001
+`,
+			wantErr: true,
+		},
+		{
+			name: "versioning with upstream ref",
+			yaml: base + `
+upstreams:
+  v1-pool:
+    backends:
+      - url: http://localhost:9000
+  v2-pool:
+    backends:
+      - url: http://localhost:9001
+routes:
+  - id: test
+    path: /api
+    versioning:
+      enabled: true
+      source: header
+      default_version: "v1"
+      versions:
+        v1:
+          upstream: v1-pool
+        v2:
+          upstream: v2-pool
+`,
+			wantErr: false,
+		},
+		{
+			name: "versioning with unknown upstream",
+			yaml: base + `
+routes:
+  - id: test
+    path: /api
+    versioning:
+      enabled: true
+      source: header
+      default_version: "v1"
+      versions:
+        v1:
+          upstream: nonexistent
+`,
+			wantErr: true,
+		},
+		{
+			name: "versioning with upstream and backends is error",
+			yaml: base + `
+upstreams:
+  v1-pool:
+    backends:
+      - url: http://localhost:9000
+routes:
+  - id: test
+    path: /api
+    versioning:
+      enabled: true
+      source: header
+      default_version: "v1"
+      versions:
+        v1:
+          upstream: v1-pool
+          backends:
+            - url: http://localhost:9999
+`,
+			wantErr: true,
+		},
+		{
+			name: "mirror with upstream ref",
+			yaml: base + `
+upstreams:
+  mirror-pool:
+    backends:
+      - url: http://localhost:9100
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    mirror:
+      enabled: true
+      upstream: mirror-pool
+`,
+			wantErr: false,
+		},
+		{
+			name: "mirror with unknown upstream",
+			yaml: base + `
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    mirror:
+      enabled: true
+      upstream: nonexistent
+`,
+			wantErr: true,
+		},
+		{
+			name: "mirror with upstream and backends is error",
+			yaml: base + `
+upstreams:
+  mirror-pool:
+    backends:
+      - url: http://localhost:9100
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    mirror:
+      enabled: true
+      upstream: mirror-pool
+      backends:
+        - url: http://localhost:9200
+`,
+			wantErr: true,
+		},
+		{
+			name: "two routes sharing same upstream",
+			yaml: base + `
+upstreams:
+  shared:
+    backends:
+      - url: http://localhost:9000
+      - url: http://localhost:9001
+routes:
+  - id: route-a
+    path: /a
+    upstream: shared
+  - id: route-b
+    path: /b
+    upstream: shared
+`,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}

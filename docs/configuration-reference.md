@@ -113,6 +113,55 @@ authentication:
 
 ---
 
+## Upstreams
+
+Named backend pools that can be shared across multiple routes. Instead of duplicating backend lists on each route, define them once as an upstream and reference by name.
+
+```yaml
+upstreams:
+  my-api-pool:
+    backends:
+      - url: "http://api-1:9000"
+        weight: 2
+      - url: "http://api-2:9000"
+        weight: 1
+    load_balancer: string     # "round_robin", "least_conn", "consistent_hash", "least_response_time"
+    consistent_hash:
+      key: string             # "header", "cookie", "path", "ip"
+      header_name: string
+      replicas: int
+    health_check:             # upstream-level health check (overrides global, overridden by per-backend)
+      path: string
+      method: string
+      interval: duration
+      timeout: duration
+      healthy_after: int
+      unhealthy_after: int
+      expected_status: [string]
+
+  my-service-pool:
+    service:
+      name: "users-service"   # service discovery name
+      tags: ["production"]
+```
+
+**Validation:** Each upstream must have either `backends` or `service.name`, not both. If `load_balancer` is `consistent_hash`, `consistent_hash.key` is required.
+
+Routes reference upstreams with the `upstream` field:
+
+```yaml
+routes:
+  - id: "users"
+    path: "/users"
+    upstream: "my-api-pool"    # references the named upstream above
+```
+
+A route cannot have both `upstream` and `backends` (or `service`). The `upstream` field is also supported on `traffic_split` groups, `versioning.versions` entries, and `mirror` config.
+
+Health check config merges in three levels: global defaults → upstream-level overrides → per-backend overrides.
+
+---
+
 ## Routes
 
 ```yaml
@@ -147,6 +196,7 @@ routes:
     service:
       name: string            # service discovery name
       tags: [string]          # service tags filter
+    upstream: string           # named upstream reference (alternative to backends/service)
     auth:
       required: bool
       methods: [string]       # "jwt", "api_key", "oauth"
@@ -161,7 +211,7 @@ routes:
       replicas: int           # virtual nodes (default 150)
 ```
 
-**Validation:** Each route requires `path` and either `backends` or `service.name`. Header/query matchers require exactly one of `value`, `present`, or `regex`.
+**Validation:** Each route requires `path` and one of `backends`, `service.name`, or `upstream`. A route cannot have both `upstream` and `backends` (or `service`). Header/query matchers require exactly one of `value`, `present`, or `regex`.
 
 ### Rate Limiting
 

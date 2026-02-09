@@ -121,10 +121,10 @@ udp_routes:
 
 ## Backends
 
-Each route sends traffic to one or more backends. Backends can be defined statically or resolved through [service discovery](service-discovery.md).
+Each route sends traffic to one or more backends. Backends can be defined inline on the route, resolved through [service discovery](service-discovery.md), or referenced from a named upstream.
 
 ```yaml
-# Static backends with weights
+# Static backends with weights (inline)
 backends:
   - url: "http://backend-1:9000"
     weight: 2
@@ -135,9 +135,43 @@ backends:
 service:
   name: "users-service"
   tags: ["production"]
+
+# Or via a named upstream (see below)
+upstream: "my-api-pool"
 ```
 
 Backend health is checked automatically. Unhealthy backends are removed from rotation until they recover. See [Load Balancing](load-balancing.md) for algorithm options.
+
+## Upstreams
+
+Upstreams are named backend pools that can be shared across multiple routes. When several routes use the same set of backends, define them once as an upstream instead of duplicating the backend list.
+
+```yaml
+upstreams:
+  api-pool:
+    backends:
+      - url: "http://api-1:9000"
+      - url: "http://api-2:9000"
+    load_balancer: "least_conn"
+    health_check:
+      path: "/healthz"
+      interval: 15s
+
+routes:
+  - id: "users"
+    path: "/users"
+    upstream: "api-pool"
+
+  - id: "orders"
+    path: "/orders"
+    upstream: "api-pool"
+```
+
+An upstream can define `backends` (static) or `service` (discovery), a load balancer algorithm, consistent hash config, and health check overrides. Routes reference upstreams by name via the `upstream` field. A route cannot have both `upstream` and `backends` (or `service`).
+
+The `upstream` field is also supported on traffic split groups, versioning version entries, and mirror config, allowing shared pools in those contexts too.
+
+Health check config merges in three levels: global defaults → upstream-level overrides → per-backend overrides.
 
 ## Request Processing Pipeline
 
