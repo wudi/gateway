@@ -3,7 +3,7 @@ package timeout
 import (
 	"sync"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 // TimeoutStatus describes the timeout configuration and metrics for a route.

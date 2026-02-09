@@ -3,9 +3,9 @@ package rules
 import (
 	"net/http"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/logging"
-	"github.com/example/gateway/internal/variables"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/logging"
+	"github.com/wudi/gateway/internal/variables"
 	"go.uber.org/zap"
 )
 

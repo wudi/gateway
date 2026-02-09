@@ -3,7 +3,7 @@ package csrf
 import (
 	"sync"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 // CSRFByRoute manages per-route CSRF protectors.

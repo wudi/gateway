@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 // HTTPListener wraps an HTTP server as a Listener

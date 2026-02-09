@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/gateway/internal/config"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/wudi/gateway/internal/config"
 )
 
 func TestJWTAuth(t *testing.T) {
@@ -66,7 +66,7 @@ func TestJWTAuthInvalidToken(t *testing.T) {
 	auth, _ := NewJWTAuth(cfg)
 
 	tests := []struct {
-		name      string
+		name       string
 		authHeader string
 	}{
 		{

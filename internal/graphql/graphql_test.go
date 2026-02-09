@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 func makeGQLRequest(query string) *http.Request {
@@ -136,7 +136,7 @@ func TestComplexityCalculation(t *testing.T) {
 		expected int
 	}{
 		{`{ user }`, 1},
-		{`{ user { name email } }`, 3}, // user(1) + name(1) + email(1)
+		{`{ user { name email } }`, 3},          // user(1) + name(1) + email(1)
 		{`{ user { name } post { title } }`, 4}, // user(1) + name(1) + post(1) + title(1)
 	}
 

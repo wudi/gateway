@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 func TestParseStatusRange(t *testing.T) {

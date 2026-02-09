@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"sync/atomic"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/loadbalancer"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/loadbalancer"
 )
 
 // Translator translates HTTP requests to a backend protocol.

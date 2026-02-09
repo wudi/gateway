@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 // HedgingExecutor sends speculative duplicate requests to reduce tail latency.

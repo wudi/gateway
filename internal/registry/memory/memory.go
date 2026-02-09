@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/example/gateway/internal/registry"
 	"github.com/google/uuid"
+	"github.com/wudi/gateway/internal/registry"
 )
 
 // Registry implements an in-memory service registry with REST API

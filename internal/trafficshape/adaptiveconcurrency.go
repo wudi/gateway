@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 const (
@@ -25,10 +25,10 @@ type AdaptiveLimiter struct {
 	currentLimit atomic.Int64
 	inflight     atomic.Int64
 
-	mu             sync.Mutex
-	ewmaLatency    float64 // nanoseconds
-	minLatency     float64 // nanoseconds
-	sampleCount    int64
+	mu              sync.Mutex
+	ewmaLatency     float64 // nanoseconds
+	minLatency      float64 // nanoseconds
+	sampleCount     int64
 	ewmaInitialized bool
 
 	totalRequests atomic.Int64

@@ -9,35 +9,35 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/logging"
-	"github.com/example/gateway/internal/proxy/tcp"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/logging"
+	"github.com/wudi/gateway/internal/proxy/tcp"
 	"go.uber.org/zap"
 )
 
 // TCPListener handles TCP connections
 type TCPListener struct {
-	id            string
-	address       string
-	listener      net.Listener
-	proxy         *tcp.Proxy
-	tlsCfg        *tls.Config
-	sniRouting    bool
-	idleTimeout   time.Duration
-	activeConns   int64
-	connWg        sync.WaitGroup
-	closeCh       chan struct{}
-	closeOnce     sync.Once
+	id          string
+	address     string
+	listener    net.Listener
+	proxy       *tcp.Proxy
+	tlsCfg      *tls.Config
+	sniRouting  bool
+	idleTimeout time.Duration
+	activeConns int64
+	connWg      sync.WaitGroup
+	closeCh     chan struct{}
+	closeOnce   sync.Once
 }
 
 // TCPListenerConfig holds configuration for creating a TCP listener
 type TCPListenerConfig struct {
-	ID           string
-	Address      string
-	Proxy        *tcp.Proxy
-	TLS          config.TLSConfig
-	SNIRouting   bool
-	IdleTimeout  time.Duration
+	ID          string
+	Address     string
+	Proxy       *tcp.Proxy
+	TLS         config.TLSConfig
+	SNIRouting  bool
+	IdleTimeout time.Duration
 }
 
 // NewTCPListener creates a new TCP listener

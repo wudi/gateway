@@ -9,10 +9,10 @@ import (
 	"net/http"
 	"sync/atomic"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/middleware"
 	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/vektah/gqlparser/v2/parser"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/middleware"
 	"golang.org/x/time/rate"
 )
 
@@ -39,15 +39,15 @@ type Parser struct {
 	operationLimiter map[string]*rate.Limiter
 
 	// Atomic metrics
-	requestsTotal       atomic.Int64
-	queriesTotal        atomic.Int64
-	mutationsTotal      atomic.Int64
-	subscriptionsTotal  atomic.Int64
-	depthRejected       atomic.Int64
-	complexityRejected  atomic.Int64
+	requestsTotal        atomic.Int64
+	queriesTotal         atomic.Int64
+	mutationsTotal       atomic.Int64
+	subscriptionsTotal   atomic.Int64
+	depthRejected        atomic.Int64
+	complexityRejected   atomic.Int64
 	introspectionBlocked atomic.Int64
-	rateLimited         atomic.Int64
-	parseErrors         atomic.Int64
+	rateLimited          atomic.Int64
+	parseErrors          atomic.Int64
 }
 
 // New creates a new GraphQL parser with the given config.

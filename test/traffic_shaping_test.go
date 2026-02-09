@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 package test
@@ -13,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 func TestThrottleIntegration(t *testing.T) {

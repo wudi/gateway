@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 func testConfig(url string, events []string) config.WebhooksConfig {

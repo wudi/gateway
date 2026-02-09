@@ -9,11 +9,11 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/errors"
-	"github.com/example/gateway/internal/middleware"
-	"github.com/example/gateway/internal/variables"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/errors"
+	"github.com/wudi/gateway/internal/middleware"
+	"github.com/wudi/gateway/internal/variables"
 )
 
 // JWTAuth provides JWT authentication

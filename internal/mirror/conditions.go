@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 // Conditions determines whether a request should be mirrored.

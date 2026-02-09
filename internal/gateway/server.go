@@ -12,11 +12,11 @@ import (
 
 	"strings"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/listener"
-	"github.com/example/gateway/internal/logging"
-	"github.com/example/gateway/internal/proxy/tcp"
-	"github.com/example/gateway/internal/proxy/udp"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/listener"
+	"github.com/wudi/gateway/internal/logging"
+	"github.com/wudi/gateway/internal/proxy/tcp"
+	"github.com/wudi/gateway/internal/proxy/udp"
 	"go.uber.org/zap"
 )
 

@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/example/gateway/internal/variables"
+	"github.com/wudi/gateway/internal/variables"
 )
 
 // RequestEnv is the expression environment for request-phase rules.

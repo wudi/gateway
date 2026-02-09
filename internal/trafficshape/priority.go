@@ -7,8 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/variables"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/variables"
 )
 
 // PriorityAdmitter implements priority-based admission control with a shared concurrency semaphore.

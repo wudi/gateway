@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/example/gateway/internal/errors"
-	"github.com/example/gateway/internal/middleware"
+	"github.com/wudi/gateway/internal/errors"
+	"github.com/wudi/gateway/internal/middleware"
 )
 
 // window tracks counts for two adjacent fixed windows.

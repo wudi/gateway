@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/example/gateway/internal/logging"
 	"github.com/redis/go-redis/v9"
+	"github.com/wudi/gateway/internal/logging"
 	"go.uber.org/zap"
 )
 

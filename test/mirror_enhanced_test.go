@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 package test
@@ -12,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 func TestMirrorConditionsIntegration(t *testing.T) {
@@ -37,8 +38,8 @@ func TestMirrorConditionsIntegration(t *testing.T) {
 	cfg := baseConfig()
 	cfg.Routes = []config.RouteConfig{
 		{
-			ID:   "mirror-cond",
-			Path: "/api",
+			ID:         "mirror-cond",
+			Path:       "/api",
 			PathPrefix: true,
 			Backends: []config.BackendConfig{
 				{URL: primaryBackend.URL},

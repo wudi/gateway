@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/example/gateway/internal/errors"
-	"github.com/example/gateway/internal/logging"
-	"github.com/example/gateway/internal/middleware"
 	"github.com/redis/go-redis/v9"
+	"github.com/wudi/gateway/internal/errors"
+	"github.com/wudi/gateway/internal/logging"
+	"github.com/wudi/gateway/internal/middleware"
 	"go.uber.org/zap"
 )
 

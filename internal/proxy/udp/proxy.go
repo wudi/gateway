@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/loadbalancer"
-	"github.com/example/gateway/internal/logging"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/loadbalancer"
+	"github.com/wudi/gateway/internal/logging"
 	"go.uber.org/zap"
 )
 

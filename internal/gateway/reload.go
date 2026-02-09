@@ -7,41 +7,41 @@ import (
 	"sort"
 	"time"
 
-	"github.com/example/gateway/internal/cache"
-	"github.com/example/gateway/internal/canary"
-	"github.com/example/gateway/internal/circuitbreaker"
-	"github.com/example/gateway/internal/coalesce"
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/loadbalancer"
-	"github.com/example/gateway/internal/loadbalancer/outlier"
-	"github.com/example/gateway/internal/logging"
-	"github.com/example/gateway/internal/middleware/auth"
-	"github.com/example/gateway/internal/middleware/compression"
-	"github.com/example/gateway/internal/middleware/accesslog"
-	"github.com/example/gateway/internal/middleware/extauth"
-	"github.com/example/gateway/internal/middleware/cors"
-	"github.com/example/gateway/internal/middleware/ipfilter"
-	"github.com/example/gateway/internal/middleware/ratelimit"
-	"github.com/example/gateway/internal/middleware/csrf"
-	"github.com/example/gateway/internal/middleware/errorpages"
-	"github.com/example/gateway/internal/middleware/nonce"
-	openapivalidation "github.com/example/gateway/internal/middleware/openapi"
-	"github.com/example/gateway/internal/middleware/timeout"
-	"github.com/example/gateway/internal/middleware/validation"
-	"github.com/example/gateway/internal/middleware/versioning"
-	"github.com/example/gateway/internal/middleware/waf"
-	"github.com/example/gateway/internal/graphql"
-	"github.com/example/gateway/internal/mirror"
-	"github.com/example/gateway/internal/proxy"
-	grpcproxy "github.com/example/gateway/internal/proxy/grpc"
-	"github.com/example/gateway/internal/proxy/protocol"
-	"github.com/example/gateway/internal/registry"
-	"github.com/example/gateway/internal/router"
-	"github.com/example/gateway/internal/rules"
-	"github.com/example/gateway/internal/trafficshape"
-	"github.com/example/gateway/internal/variables"
-	"github.com/example/gateway/internal/webhook"
-	"github.com/example/gateway/internal/websocket"
+	"github.com/wudi/gateway/internal/cache"
+	"github.com/wudi/gateway/internal/canary"
+	"github.com/wudi/gateway/internal/circuitbreaker"
+	"github.com/wudi/gateway/internal/coalesce"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/graphql"
+	"github.com/wudi/gateway/internal/loadbalancer"
+	"github.com/wudi/gateway/internal/loadbalancer/outlier"
+	"github.com/wudi/gateway/internal/logging"
+	"github.com/wudi/gateway/internal/middleware/accesslog"
+	"github.com/wudi/gateway/internal/middleware/auth"
+	"github.com/wudi/gateway/internal/middleware/compression"
+	"github.com/wudi/gateway/internal/middleware/cors"
+	"github.com/wudi/gateway/internal/middleware/csrf"
+	"github.com/wudi/gateway/internal/middleware/errorpages"
+	"github.com/wudi/gateway/internal/middleware/extauth"
+	"github.com/wudi/gateway/internal/middleware/ipfilter"
+	"github.com/wudi/gateway/internal/middleware/nonce"
+	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
+	"github.com/wudi/gateway/internal/middleware/ratelimit"
+	"github.com/wudi/gateway/internal/middleware/timeout"
+	"github.com/wudi/gateway/internal/middleware/validation"
+	"github.com/wudi/gateway/internal/middleware/versioning"
+	"github.com/wudi/gateway/internal/middleware/waf"
+	"github.com/wudi/gateway/internal/mirror"
+	"github.com/wudi/gateway/internal/proxy"
+	grpcproxy "github.com/wudi/gateway/internal/proxy/grpc"
+	"github.com/wudi/gateway/internal/proxy/protocol"
+	"github.com/wudi/gateway/internal/registry"
+	"github.com/wudi/gateway/internal/router"
+	"github.com/wudi/gateway/internal/rules"
+	"github.com/wudi/gateway/internal/trafficshape"
+	"github.com/wudi/gateway/internal/variables"
+	"github.com/wudi/gateway/internal/webhook"
+	"github.com/wudi/gateway/internal/websocket"
 	"go.uber.org/zap"
 )
 
@@ -80,19 +80,19 @@ type gatewayState struct {
 	faultInjectors    *trafficshape.FaultInjectionByRoute
 	wafHandlers       *waf.WAFByRoute
 	graphqlParsers    *graphql.GraphQLByRoute
-	coalescers           *coalesce.CoalesceByRoute
-	canaryControllers    *canary.CanaryByRoute
-	adaptiveLimiters     *trafficshape.AdaptiveConcurrencyByRoute
-	extAuths             *extauth.ExtAuthByRoute
-	versioners           *versioning.VersioningByRoute
-	accessLogConfigs     *accesslog.AccessLogByRoute
-	openapiValidators    *openapivalidation.OpenAPIByRoute
-	timeoutConfigs       *timeout.TimeoutByRoute
-	errorPages           *errorpages.ErrorPagesByRoute
-	nonceCheckers        *nonce.NonceByRoute
-	csrfProtectors       *csrf.CSRFByRoute
-	outlierDetectors     *outlier.DetectorByRoute
-	translators          *protocol.TranslatorByRoute
+	coalescers        *coalesce.CoalesceByRoute
+	canaryControllers *canary.CanaryByRoute
+	adaptiveLimiters  *trafficshape.AdaptiveConcurrencyByRoute
+	extAuths          *extauth.ExtAuthByRoute
+	versioners        *versioning.VersioningByRoute
+	accessLogConfigs  *accesslog.AccessLogByRoute
+	openapiValidators *openapivalidation.OpenAPIByRoute
+	timeoutConfigs    *timeout.TimeoutByRoute
+	errorPages        *errorpages.ErrorPagesByRoute
+	nonceCheckers     *nonce.NonceByRoute
+	csrfProtectors    *csrf.CSRFByRoute
+	outlierDetectors  *outlier.DetectorByRoute
+	translators       *protocol.TranslatorByRoute
 	rateLimiters      *ratelimit.RateLimitByRoute
 	grpcHandlers      map[string]*grpcproxy.Handler
 
@@ -126,19 +126,19 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		faultInjectors:    trafficshape.NewFaultInjectionByRoute(),
 		wafHandlers:       waf.NewWAFByRoute(),
 		graphqlParsers:    graphql.NewGraphQLByRoute(),
-		coalescers:         coalesce.NewCoalesceByRoute(),
-		canaryControllers:  canary.NewCanaryByRoute(),
-		adaptiveLimiters:   trafficshape.NewAdaptiveConcurrencyByRoute(),
-		extAuths:           extauth.NewExtAuthByRoute(),
-		versioners:         versioning.NewVersioningByRoute(),
-		accessLogConfigs:   accesslog.NewAccessLogByRoute(),
+		coalescers:        coalesce.NewCoalesceByRoute(),
+		canaryControllers: canary.NewCanaryByRoute(),
+		adaptiveLimiters:  trafficshape.NewAdaptiveConcurrencyByRoute(),
+		extAuths:          extauth.NewExtAuthByRoute(),
+		versioners:        versioning.NewVersioningByRoute(),
+		accessLogConfigs:  accesslog.NewAccessLogByRoute(),
 		openapiValidators: openapivalidation.NewOpenAPIByRoute(),
 		timeoutConfigs:    timeout.NewTimeoutByRoute(),
 		errorPages:        errorpages.NewErrorPagesByRoute(),
 		nonceCheckers:     nonce.NewNonceByRoute(),
 		csrfProtectors:    csrf.NewCSRFByRoute(),
 		outlierDetectors:  outlier.NewDetectorByRoute(),
-		translators:        protocol.NewTranslatorByRoute(),
+		translators:       protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
 		grpcHandlers:      make(map[string]*grpcproxy.Handler),
 	}

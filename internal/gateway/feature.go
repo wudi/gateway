@@ -1,30 +1,30 @@
 package gateway
 
 import (
-	"github.com/example/gateway/internal/cache"
-	"github.com/example/gateway/internal/canary"
-	"github.com/example/gateway/internal/loadbalancer/outlier"
-	"github.com/example/gateway/internal/circuitbreaker"
-	"github.com/example/gateway/internal/coalesce"
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/graphql"
-	"github.com/example/gateway/internal/middleware/compression"
-	"github.com/example/gateway/internal/middleware/cors"
-	"github.com/example/gateway/internal/middleware/accesslog"
-	"github.com/example/gateway/internal/middleware/extauth"
-	"github.com/example/gateway/internal/middleware/ipfilter"
-	"github.com/example/gateway/internal/middleware/errorpages"
-	"github.com/example/gateway/internal/middleware/csrf"
-	"github.com/example/gateway/internal/middleware/nonce"
 	"github.com/redis/go-redis/v9"
-	"github.com/example/gateway/internal/middleware/openapi"
-	"github.com/example/gateway/internal/middleware/timeout"
-	"github.com/example/gateway/internal/middleware/validation"
-	"github.com/example/gateway/internal/middleware/versioning"
-	"github.com/example/gateway/internal/middleware/waf"
-	"github.com/example/gateway/internal/mirror"
-	"github.com/example/gateway/internal/rules"
-	"github.com/example/gateway/internal/trafficshape"
+	"github.com/wudi/gateway/internal/cache"
+	"github.com/wudi/gateway/internal/canary"
+	"github.com/wudi/gateway/internal/circuitbreaker"
+	"github.com/wudi/gateway/internal/coalesce"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/graphql"
+	"github.com/wudi/gateway/internal/loadbalancer/outlier"
+	"github.com/wudi/gateway/internal/middleware/accesslog"
+	"github.com/wudi/gateway/internal/middleware/compression"
+	"github.com/wudi/gateway/internal/middleware/cors"
+	"github.com/wudi/gateway/internal/middleware/csrf"
+	"github.com/wudi/gateway/internal/middleware/errorpages"
+	"github.com/wudi/gateway/internal/middleware/extauth"
+	"github.com/wudi/gateway/internal/middleware/ipfilter"
+	"github.com/wudi/gateway/internal/middleware/nonce"
+	"github.com/wudi/gateway/internal/middleware/openapi"
+	"github.com/wudi/gateway/internal/middleware/timeout"
+	"github.com/wudi/gateway/internal/middleware/validation"
+	"github.com/wudi/gateway/internal/middleware/versioning"
+	"github.com/wudi/gateway/internal/middleware/waf"
+	"github.com/wudi/gateway/internal/mirror"
+	"github.com/wudi/gateway/internal/rules"
+	"github.com/wudi/gateway/internal/trafficshape"
 )
 
 // Feature is a per-route capability that can be set up generically.
@@ -66,7 +66,9 @@ func (f *corsFeature) Setup(routeID string, cfg config.RouteConfig) error {
 func (f *corsFeature) RouteIDs() []string { return f.m.RouteIDs() }
 
 // circuitBreakerFeature wraps BreakerByRoute.
-type circuitBreakerFeature struct{ m *circuitbreaker.BreakerByRoute }
+type circuitBreakerFeature struct {
+	m *circuitbreaker.BreakerByRoute
+}
 
 func (f *circuitBreakerFeature) Name() string { return "circuit_breaker" }
 func (f *circuitBreakerFeature) Setup(routeID string, cfg config.RouteConfig) error {
@@ -76,7 +78,7 @@ func (f *circuitBreakerFeature) Setup(routeID string, cfg config.RouteConfig) er
 	return nil
 }
 func (f *circuitBreakerFeature) RouteIDs() []string { return f.m.RouteIDs() }
-func (f *circuitBreakerFeature) AdminStats() any     { return f.m.Snapshots() }
+func (f *circuitBreakerFeature) AdminStats() any    { return f.m.Snapshots() }
 
 // cacheFeature wraps CacheByRoute.
 type cacheFeature struct{ m *cache.CacheByRoute }
@@ -89,10 +91,12 @@ func (f *cacheFeature) Setup(routeID string, cfg config.RouteConfig) error {
 	return nil
 }
 func (f *cacheFeature) RouteIDs() []string { return f.m.RouteIDs() }
-func (f *cacheFeature) AdminStats() any     { return f.m.Stats() }
+func (f *cacheFeature) AdminStats() any    { return f.m.Stats() }
 
 // compressionFeature wraps CompressorByRoute.
-type compressionFeature struct{ m *compression.CompressorByRoute }
+type compressionFeature struct {
+	m *compression.CompressorByRoute
+}
 
 func (f *compressionFeature) Name() string { return "compression" }
 func (f *compressionFeature) Setup(routeID string, cfg config.RouteConfig) error {
@@ -126,7 +130,7 @@ func (f *mirrorFeature) Setup(routeID string, cfg config.RouteConfig) error {
 	return nil
 }
 func (f *mirrorFeature) RouteIDs() []string { return f.m.RouteIDs() }
-func (f *mirrorFeature) AdminStats() any     { return f.m.Stats() }
+func (f *mirrorFeature) AdminStats() any    { return f.m.Stats() }
 
 // rulesFeature wraps RulesByRoute.
 type rulesFeature struct{ m *rules.RulesByRoute }
@@ -139,7 +143,7 @@ func (f *rulesFeature) Setup(routeID string, cfg config.RouteConfig) error {
 	return nil
 }
 func (f *rulesFeature) RouteIDs() []string { return f.m.RouteIDs() }
-func (f *rulesFeature) AdminStats() any     { return f.m.Stats() }
+func (f *rulesFeature) AdminStats() any    { return f.m.Stats() }
 
 // throttleFeature wraps ThrottleByRoute.
 type throttleFeature struct {
@@ -159,7 +163,7 @@ func (f *throttleFeature) Setup(routeID string, cfg config.RouteConfig) error {
 	return nil
 }
 func (f *throttleFeature) RouteIDs() []string { return f.m.RouteIDs() }
-func (f *throttleFeature) AdminStats() any     { return f.m.Stats() }
+func (f *throttleFeature) AdminStats() any    { return f.m.Stats() }
 
 // bandwidthFeature wraps BandwidthByRoute.
 type bandwidthFeature struct {
@@ -179,7 +183,7 @@ func (f *bandwidthFeature) Setup(routeID string, cfg config.RouteConfig) error {
 	return nil
 }
 func (f *bandwidthFeature) RouteIDs() []string { return f.m.RouteIDs() }
-func (f *bandwidthFeature) AdminStats() any     { return f.m.Stats() }
+func (f *bandwidthFeature) AdminStats() any    { return f.m.Stats() }
 
 // priorityFeature wraps PriorityByRoute.
 type priorityFeature struct {
@@ -218,7 +222,7 @@ func (f *faultInjectionFeature) Setup(routeID string, cfg config.RouteConfig) er
 	return nil
 }
 func (f *faultInjectionFeature) RouteIDs() []string { return f.m.RouteIDs() }
-func (f *faultInjectionFeature) AdminStats() any     { return f.m.Stats() }
+func (f *faultInjectionFeature) AdminStats() any    { return f.m.Stats() }
 
 // wafFeature wraps WAFByRoute.
 type wafFeature struct{ m *waf.WAFByRoute }
@@ -231,7 +235,7 @@ func (f *wafFeature) Setup(routeID string, cfg config.RouteConfig) error {
 	return nil
 }
 func (f *wafFeature) RouteIDs() []string { return f.m.RouteIDs() }
-func (f *wafFeature) AdminStats() any     { return f.m.Stats() }
+func (f *wafFeature) AdminStats() any    { return f.m.Stats() }
 
 // graphqlFeature wraps GraphQLByRoute.
 type graphqlFeature struct{ m *graphql.GraphQLByRoute }
@@ -244,7 +248,7 @@ func (f *graphqlFeature) Setup(routeID string, cfg config.RouteConfig) error {
 	return nil
 }
 func (f *graphqlFeature) RouteIDs() []string { return f.m.RouteIDs() }
-func (f *graphqlFeature) AdminStats() any     { return f.m.Stats() }
+func (f *graphqlFeature) AdminStats() any    { return f.m.Stats() }
 
 // coalesceFeature wraps CoalesceByRoute.
 type coalesceFeature struct{ m *coalesce.CoalesceByRoute }
@@ -257,7 +261,7 @@ func (f *coalesceFeature) Setup(routeID string, cfg config.RouteConfig) error {
 	return nil
 }
 func (f *coalesceFeature) RouteIDs() []string { return f.m.RouteIDs() }
-func (f *coalesceFeature) AdminStats() any     { return f.m.Stats() }
+func (f *coalesceFeature) AdminStats() any    { return f.m.Stats() }
 
 // adaptiveConcurrencyFeature wraps AdaptiveConcurrencyByRoute.
 type adaptiveConcurrencyFeature struct {
@@ -277,17 +281,17 @@ func (f *adaptiveConcurrencyFeature) Setup(routeID string, cfg config.RouteConfi
 	return nil
 }
 func (f *adaptiveConcurrencyFeature) RouteIDs() []string { return f.m.RouteIDs() }
-func (f *adaptiveConcurrencyFeature) AdminStats() any     { return f.m.Stats() }
+func (f *adaptiveConcurrencyFeature) AdminStats() any    { return f.m.Stats() }
 
 // canaryFeature wraps CanaryByRoute.
 // Setup is a no-op because canary needs the WeightedBalancer reference which is
 // only available after the route proxy is created. Actual setup happens in addRoute().
 type canaryFeature struct{ m *canary.CanaryByRoute }
 
-func (f *canaryFeature) Name() string                                    { return "canary" }
+func (f *canaryFeature) Name() string                                       { return "canary" }
 func (f *canaryFeature) Setup(routeID string, cfg config.RouteConfig) error { return nil }
-func (f *canaryFeature) RouteIDs() []string                              { return f.m.RouteIDs() }
-func (f *canaryFeature) AdminStats() any                                 { return f.m.Stats() }
+func (f *canaryFeature) RouteIDs() []string                                 { return f.m.RouteIDs() }
+func (f *canaryFeature) AdminStats() any                                    { return f.m.Stats() }
 
 // extAuthFeature wraps ExtAuthByRoute.
 type extAuthFeature struct{ m *extauth.ExtAuthByRoute }
@@ -313,7 +317,7 @@ func (f *versioningFeature) Setup(routeID string, cfg config.RouteConfig) error 
 	return nil
 }
 func (f *versioningFeature) RouteIDs() []string { return f.m.RouteIDs() }
-func (f *versioningFeature) AdminStats() any     { return f.m.Stats() }
+func (f *versioningFeature) AdminStats() any    { return f.m.Stats() }
 
 // accessLogFeature wraps AccessLogByRoute.
 type accessLogFeature struct{ m *accesslog.AccessLogByRoute }
@@ -331,7 +335,7 @@ func (f *accessLogFeature) Setup(routeID string, cfg config.RouteConfig) error {
 	return nil
 }
 func (f *accessLogFeature) RouteIDs() []string { return f.m.RouteIDs() }
-func (f *accessLogFeature) AdminStats() any     { return f.m.Stats() }
+func (f *accessLogFeature) AdminStats() any    { return f.m.Stats() }
 
 // openapiFeature wraps OpenAPIByRoute.
 type openapiFeature struct{ m *openapi.OpenAPIByRoute }
@@ -344,7 +348,7 @@ func (f *openapiFeature) Setup(routeID string, cfg config.RouteConfig) error {
 	return nil
 }
 func (f *openapiFeature) RouteIDs() []string { return f.m.RouteIDs() }
-func (f *openapiFeature) AdminStats() any     { return f.m.Stats() }
+func (f *openapiFeature) AdminStats() any    { return f.m.Stats() }
 
 // timeoutFeature wraps TimeoutByRoute.
 type timeoutFeature struct{ m *timeout.TimeoutByRoute }
@@ -357,7 +361,7 @@ func (f *timeoutFeature) Setup(routeID string, cfg config.RouteConfig) error {
 	return nil
 }
 func (f *timeoutFeature) RouteIDs() []string { return f.m.RouteIDs() }
-func (f *timeoutFeature) AdminStats() any     { return f.m.Stats() }
+func (f *timeoutFeature) AdminStats() any    { return f.m.Stats() }
 
 // errorPagesFeature wraps ErrorPagesByRoute.
 type errorPagesFeature struct {
@@ -373,7 +377,7 @@ func (f *errorPagesFeature) Setup(routeID string, cfg config.RouteConfig) error 
 	return nil
 }
 func (f *errorPagesFeature) RouteIDs() []string { return f.m.RouteIDs() }
-func (f *errorPagesFeature) AdminStats() any     { return f.m.Stats() }
+func (f *errorPagesFeature) AdminStats() any    { return f.m.Stats() }
 
 // nonceFeature wraps NonceByRoute.
 type nonceFeature struct {
@@ -394,7 +398,7 @@ func (f *nonceFeature) Setup(routeID string, cfg config.RouteConfig) error {
 	return nil
 }
 func (f *nonceFeature) RouteIDs() []string { return f.m.RouteIDs() }
-func (f *nonceFeature) AdminStats() any     { return f.m.Stats() }
+func (f *nonceFeature) AdminStats() any    { return f.m.Stats() }
 
 // csrfFeature wraps CSRFByRoute.
 type csrfFeature struct {
@@ -421,7 +425,7 @@ func (f *csrfFeature) AdminStats() any    { return f.m.Stats() }
 // available after route proxy creation. Actual setup happens in addRoute().
 type outlierDetectionFeature struct{ m *outlier.DetectorByRoute }
 
-func (f *outlierDetectionFeature) Name() string                                    { return "outlier_detection" }
+func (f *outlierDetectionFeature) Name() string                                       { return "outlier_detection" }
 func (f *outlierDetectionFeature) Setup(routeID string, cfg config.RouteConfig) error { return nil }
-func (f *outlierDetectionFeature) RouteIDs() []string                              { return f.m.RouteIDs() }
-func (f *outlierDetectionFeature) AdminStats() any                                 { return f.m.Stats() }
+func (f *outlierDetectionFeature) RouteIDs() []string                                 { return f.m.RouteIDs() }
+func (f *outlierDetectionFeature) AdminStats() any                                    { return f.m.Stats() }

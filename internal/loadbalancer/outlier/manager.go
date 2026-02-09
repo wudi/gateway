@@ -3,8 +3,8 @@ package outlier
 import (
 	"sync"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/loadbalancer"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/loadbalancer"
 )
 
 // DetectorByRoute manages per-route outlier detectors.

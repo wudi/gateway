@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/example/gateway/internal/variables"
+	"github.com/wudi/gateway/internal/variables"
 )
 
 func TestVersionedBalancer_Next(t *testing.T) {

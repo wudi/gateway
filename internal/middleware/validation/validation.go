@@ -10,9 +10,9 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/errors"
 	"github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/errors"
 )
 
 // ValidationMetrics tracks validation counters.
@@ -27,9 +27,9 @@ type ValidationMetrics struct {
 func (m *ValidationMetrics) Snapshot() map[string]int64 {
 	return map[string]int64{
 		"requests_validated":  m.RequestsValidated.Load(),
-		"requests_failed":    m.RequestsFailed.Load(),
+		"requests_failed":     m.RequestsFailed.Load(),
 		"responses_validated": m.ResponsesValidated.Load(),
-		"responses_failed":   m.ResponsesFailed.Load(),
+		"responses_failed":    m.ResponsesFailed.Load(),
 	}
 }
 

@@ -3,7 +3,7 @@ package graphql
 import (
 	"sync"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 // GraphQLByRoute manages per-route GraphQL parsers.

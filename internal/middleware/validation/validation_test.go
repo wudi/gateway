@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 func TestValidatorRequiredFields(t *testing.T) {
@@ -252,7 +252,7 @@ func TestValidatorEnum(t *testing.T) {
 func TestValidatorResponseBody(t *testing.T) {
 	v, err := New(config.ValidationConfig{
 		Enabled: true,
-		Schema: `{"type": "object"}`,
+		Schema:  `{"type": "object"}`,
 		ResponseSchema: `{
 			"type": "object",
 			"required": ["id"],

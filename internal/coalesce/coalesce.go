@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/graphql"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/graphql"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -26,10 +26,10 @@ type Response struct {
 
 // Stats holds coalescing metrics.
 type Stats struct {
-	GroupsCreated    int64 `json:"groups_created"`
+	GroupsCreated     int64 `json:"groups_created"`
 	RequestsCoalesced int64 `json:"requests_coalesced"`
-	Timeouts         int64 `json:"timeouts"`
-	InFlight         int64 `json:"in_flight"`
+	Timeouts          int64 `json:"timeouts"`
+	InFlight          int64 `json:"in_flight"`
 }
 
 // Coalescer deduplicates concurrent identical requests using singleflight.
@@ -39,10 +39,10 @@ type Coalescer struct {
 	methods    map[string]bool
 	keyHeaders []string
 
-	groupsCreated    atomic.Int64
+	groupsCreated     atomic.Int64
 	requestsCoalesced atomic.Int64
-	timeouts         atomic.Int64
-	inFlight         atomic.Int64
+	timeouts          atomic.Int64
+	inFlight          atomic.Int64
 }
 
 // New creates a Coalescer from config.
@@ -139,10 +139,10 @@ func (c *Coalescer) Execute(ctx context.Context, key string, fn func() (*Respons
 // Stats returns a snapshot of coalescing metrics.
 func (c *Coalescer) Stats() Stats {
 	return Stats{
-		GroupsCreated:    c.groupsCreated.Load(),
+		GroupsCreated:     c.groupsCreated.Load(),
 		RequestsCoalesced: c.requestsCoalesced.Load(),
-		Timeouts:         c.timeouts.Load(),
-		InFlight:         c.inFlight.Load(),
+		Timeouts:          c.timeouts.Load(),
+		InFlight:          c.inFlight.Load(),
 	}
 }
 

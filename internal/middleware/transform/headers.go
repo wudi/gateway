@@ -3,9 +3,9 @@ package transform
 import (
 	"net/http"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/middleware"
-	"github.com/example/gateway/internal/variables"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/middleware"
+	"github.com/wudi/gateway/internal/variables"
 )
 
 // HeaderTransformer transforms request/response headers

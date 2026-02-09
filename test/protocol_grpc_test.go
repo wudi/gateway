@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/gateway"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/gateway"
 
 	// Register the grpc translator
-	_ "github.com/example/gateway/internal/proxy/protocol/grpc"
+	_ "github.com/wudi/gateway/internal/proxy/protocol/grpc"
 )
 
 func TestProtocolTranslatorConfig(t *testing.T) {
@@ -219,8 +219,8 @@ func TestProtocolTranslatorFixedMethod(t *testing.T) {
 			Type: "memory",
 		},
 		Routes: []config.RouteConfig{{
-			ID:       "grpc-fixed-method",
-			Path:     "/demo",
+			ID:   "grpc-fixed-method",
+			Path: "/demo",
 			Backends: []config.BackendConfig{{
 				URL: "grpc://localhost:50054",
 			}},

@@ -10,7 +10,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
-	"github.com/example/gateway/internal/logging"
+	"github.com/wudi/gateway/internal/logging"
 )
 
 // RedisStore is a Redis-backed cache store implementing Store.

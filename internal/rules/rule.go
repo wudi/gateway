@@ -3,9 +3,9 @@ package rules
 import (
 	"fmt"
 
-	"github.com/example/gateway/internal/config"
 	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/vm"
+	"github.com/wudi/gateway/internal/config"
 )
 
 // CompiledRule is a pre-compiled expression rule ready for evaluation.
@@ -19,7 +19,7 @@ type CompiledRule struct {
 
 // Action defines what happens when a rule matches.
 type Action struct {
-	Type        string                      // block, custom_response, redirect, set_headers, rewrite, group, log
+	Type        string // block, custom_response, redirect, set_headers, rewrite, group, log
 	StatusCode  int
 	Body        string
 	RedirectURL string

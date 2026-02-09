@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 package test
@@ -9,7 +10,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 func TestExtAuthIntegration_Allow(t *testing.T) {

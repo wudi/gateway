@@ -116,13 +116,24 @@ routes:
     path: "/api/public"
     path_prefix: true
     backends:
-      - url: "http://localhost:9003"
+      - url: "https://httpbin.org/anything"
     auth:
       required: false
     rate_limit:
       rate: 200
       period: 1m
       per_ip: true
+    rules:
+      request: 
+        - id: "block-bad-bots"
+          expression: |
+            http.request.headers["User-Agent"] contains 'curl/8.7.2'
+          action: "block"
+      response:
+        - id: "log-slow-requests"
+          expression: |
+            http.response.response_time > 2
+          action: "log"
 
   - id: "health"
     path: "/health"

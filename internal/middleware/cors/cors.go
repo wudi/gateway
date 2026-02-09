@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 // Handler manages CORS for a route

@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 func TestConsistentHashSameKeySameBackend(t *testing.T) {

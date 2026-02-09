@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 package test
@@ -10,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 func TestStickyCookieSessionIntegration(t *testing.T) {

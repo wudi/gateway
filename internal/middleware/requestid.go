@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/example/gateway/internal/variables"
 	"github.com/google/uuid"
+	"github.com/wudi/gateway/internal/variables"
 )
 
 // RequestIDConfig configures the request ID middleware

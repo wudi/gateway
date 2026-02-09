@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/gateway"
-	"github.com/example/gateway/internal/logging"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/gateway"
+	"github.com/wudi/gateway/internal/logging"
 	"go.uber.org/zap"
 
 	// Protocol translators (auto-register)
-	_ "github.com/example/gateway/internal/proxy/protocol/grpc"
+	_ "github.com/wudi/gateway/internal/proxy/protocol/grpc"
 )
 
 var (

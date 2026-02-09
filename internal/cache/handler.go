@@ -12,8 +12,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/graphql"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/graphql"
 )
 
 // Entry represents a cached response.

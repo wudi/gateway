@@ -6,9 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/loadbalancer"
-	"github.com/example/gateway/internal/router"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/loadbalancer"
+	"github.com/wudi/gateway/internal/router"
 )
 
 func TestProxy(t *testing.T) {

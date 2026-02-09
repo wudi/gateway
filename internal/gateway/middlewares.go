@@ -10,38 +10,38 @@ import (
 	"strings"
 	"time"
 
-	"github.com/example/gateway/internal/cache"
-	"github.com/example/gateway/internal/middleware/accesslog"
-	"github.com/example/gateway/internal/middleware/csrf"
-	"github.com/example/gateway/internal/middleware/errorpages"
-	"github.com/example/gateway/internal/middleware/extauth"
-	"github.com/example/gateway/internal/middleware/nonce"
-	"github.com/example/gateway/internal/middleware/timeout"
-	"github.com/example/gateway/internal/middleware/versioning"
-	"github.com/example/gateway/internal/canary"
-	"github.com/example/gateway/internal/circuitbreaker"
-	"github.com/example/gateway/internal/coalesce"
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/errors"
-	"github.com/example/gateway/internal/loadbalancer"
-	"github.com/example/gateway/internal/metrics"
-	"github.com/example/gateway/internal/middleware"
-	"github.com/example/gateway/internal/middleware/compression"
-	"github.com/example/gateway/internal/middleware/cors"
-	"github.com/example/gateway/internal/loadbalancer/outlier"
-	"github.com/example/gateway/internal/middleware/ipfilter"
-	"github.com/example/gateway/internal/middleware/ratelimit"
-	"github.com/example/gateway/internal/middleware/transform"
-	"github.com/example/gateway/internal/middleware/waf"
-	openapivalidation "github.com/example/gateway/internal/middleware/openapi"
-	"github.com/example/gateway/internal/middleware/validation"
-	"github.com/example/gateway/internal/mirror"
-	grpcproxy "github.com/example/gateway/internal/proxy/grpc"
-	"github.com/example/gateway/internal/router"
-	"github.com/example/gateway/internal/rules"
-	"github.com/example/gateway/internal/trafficshape"
-	"github.com/example/gateway/internal/variables"
-	"github.com/example/gateway/internal/websocket"
+	"github.com/wudi/gateway/internal/cache"
+	"github.com/wudi/gateway/internal/canary"
+	"github.com/wudi/gateway/internal/circuitbreaker"
+	"github.com/wudi/gateway/internal/coalesce"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/errors"
+	"github.com/wudi/gateway/internal/loadbalancer"
+	"github.com/wudi/gateway/internal/loadbalancer/outlier"
+	"github.com/wudi/gateway/internal/metrics"
+	"github.com/wudi/gateway/internal/middleware"
+	"github.com/wudi/gateway/internal/middleware/accesslog"
+	"github.com/wudi/gateway/internal/middleware/compression"
+	"github.com/wudi/gateway/internal/middleware/cors"
+	"github.com/wudi/gateway/internal/middleware/csrf"
+	"github.com/wudi/gateway/internal/middleware/errorpages"
+	"github.com/wudi/gateway/internal/middleware/extauth"
+	"github.com/wudi/gateway/internal/middleware/ipfilter"
+	"github.com/wudi/gateway/internal/middleware/nonce"
+	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
+	"github.com/wudi/gateway/internal/middleware/ratelimit"
+	"github.com/wudi/gateway/internal/middleware/timeout"
+	"github.com/wudi/gateway/internal/middleware/transform"
+	"github.com/wudi/gateway/internal/middleware/validation"
+	"github.com/wudi/gateway/internal/middleware/versioning"
+	"github.com/wudi/gateway/internal/middleware/waf"
+	"github.com/wudi/gateway/internal/mirror"
+	grpcproxy "github.com/wudi/gateway/internal/proxy/grpc"
+	"github.com/wudi/gateway/internal/router"
+	"github.com/wudi/gateway/internal/rules"
+	"github.com/wudi/gateway/internal/trafficshape"
+	"github.com/wudi/gateway/internal/variables"
+	"github.com/wudi/gateway/internal/websocket"
 )
 
 // 1. ipFilterMW checks global then per-route IP filters; rejects with 403.
@@ -511,7 +511,6 @@ func requestTransformMW(route *router.Route, grpcH *grpcproxy.Handler, reqBodyTr
 	}
 }
 
-
 // 16. metricsMW records request metrics (timing + status).
 func metricsMW(mc *metrics.Collector, routeID string) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
@@ -825,11 +824,11 @@ func responseValidationMW(v *validation.Validator, ov *openapivalidation.Compile
 // If the body exceeds maxSize, it switches to pass-through mode.
 type validatingResponseWriter struct {
 	http.ResponseWriter
-	maxSize    int
-	buf        bytes.Buffer
-	statusCode int
-	header     http.Header
-	overflowed bool
+	maxSize     int
+	buf         bytes.Buffer
+	statusCode  int
+	header      http.Header
+	overflowed  bool
 	wroteHeader bool
 }
 

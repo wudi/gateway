@@ -3,7 +3,7 @@ package versioning
 import (
 	"sync"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 // VersioningByRoute manages per-route versioners.

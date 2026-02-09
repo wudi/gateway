@@ -5,8 +5,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/example/gateway/internal/config"
 	"github.com/sony/gobreaker/v2"
+	"github.com/wudi/gateway/internal/config"
 )
 
 // Breaker wraps gobreaker.TwoStepCircuitBreaker with lifetime counters.

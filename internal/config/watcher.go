@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/example/gateway/internal/logging"
 	"github.com/fsnotify/fsnotify"
+	"github.com/wudi/gateway/internal/logging"
 	"go.uber.org/zap"
 )
 

@@ -6,55 +6,55 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/example/gateway/internal/logging"
+	"github.com/wudi/gateway/internal/logging"
 	"go.uber.org/zap"
 
-	"github.com/example/gateway/internal/cache"
-	"github.com/example/gateway/internal/canary"
-	"github.com/example/gateway/internal/circuitbreaker"
-	"github.com/example/gateway/internal/coalesce"
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/errors"
-	"github.com/example/gateway/internal/graphql"
-	"github.com/example/gateway/internal/health"
-	"github.com/example/gateway/internal/loadbalancer"
-	"github.com/example/gateway/internal/loadbalancer/outlier"
-	"github.com/example/gateway/internal/metrics"
-	"github.com/example/gateway/internal/middleware"
-	"github.com/example/gateway/internal/middleware/auth"
-	"github.com/example/gateway/internal/middleware/compression"
-	"github.com/example/gateway/internal/middleware/accesslog"
-	"github.com/example/gateway/internal/middleware/csrf"
-	"github.com/example/gateway/internal/middleware/errorpages"
-	"github.com/example/gateway/internal/middleware/extauth"
-	"github.com/example/gateway/internal/middleware/nonce"
-	"github.com/example/gateway/internal/middleware/cors"
-	"github.com/example/gateway/internal/middleware/mtls"
-	"github.com/example/gateway/internal/middleware/ipfilter"
-	"github.com/example/gateway/internal/middleware/ratelimit"
-	"github.com/example/gateway/internal/middleware/transform"
-	openapivalidation "github.com/example/gateway/internal/middleware/openapi"
-	"github.com/example/gateway/internal/middleware/validation"
-	"github.com/example/gateway/internal/middleware/timeout"
-	"github.com/example/gateway/internal/middleware/versioning"
-	"github.com/example/gateway/internal/middleware/waf"
-	"github.com/example/gateway/internal/mirror"
-	grpcproxy "github.com/example/gateway/internal/proxy/grpc"
-	"github.com/example/gateway/internal/proxy/protocol"
-	"github.com/example/gateway/internal/rules"
-	"github.com/example/gateway/internal/trafficshape"
-	"github.com/example/gateway/internal/proxy"
-	"github.com/example/gateway/internal/registry"
 	"github.com/redis/go-redis/v9"
-	"github.com/example/gateway/internal/registry/consul"
-	"github.com/example/gateway/internal/registry/etcd"
-	"github.com/example/gateway/internal/registry/memory"
-	"github.com/example/gateway/internal/retry"
-	"github.com/example/gateway/internal/router"
-	"github.com/example/gateway/internal/tracing"
-	"github.com/example/gateway/internal/variables"
-	"github.com/example/gateway/internal/webhook"
-	"github.com/example/gateway/internal/websocket"
+	"github.com/wudi/gateway/internal/cache"
+	"github.com/wudi/gateway/internal/canary"
+	"github.com/wudi/gateway/internal/circuitbreaker"
+	"github.com/wudi/gateway/internal/coalesce"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/errors"
+	"github.com/wudi/gateway/internal/graphql"
+	"github.com/wudi/gateway/internal/health"
+	"github.com/wudi/gateway/internal/loadbalancer"
+	"github.com/wudi/gateway/internal/loadbalancer/outlier"
+	"github.com/wudi/gateway/internal/metrics"
+	"github.com/wudi/gateway/internal/middleware"
+	"github.com/wudi/gateway/internal/middleware/accesslog"
+	"github.com/wudi/gateway/internal/middleware/auth"
+	"github.com/wudi/gateway/internal/middleware/compression"
+	"github.com/wudi/gateway/internal/middleware/cors"
+	"github.com/wudi/gateway/internal/middleware/csrf"
+	"github.com/wudi/gateway/internal/middleware/errorpages"
+	"github.com/wudi/gateway/internal/middleware/extauth"
+	"github.com/wudi/gateway/internal/middleware/ipfilter"
+	"github.com/wudi/gateway/internal/middleware/mtls"
+	"github.com/wudi/gateway/internal/middleware/nonce"
+	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
+	"github.com/wudi/gateway/internal/middleware/ratelimit"
+	"github.com/wudi/gateway/internal/middleware/timeout"
+	"github.com/wudi/gateway/internal/middleware/transform"
+	"github.com/wudi/gateway/internal/middleware/validation"
+	"github.com/wudi/gateway/internal/middleware/versioning"
+	"github.com/wudi/gateway/internal/middleware/waf"
+	"github.com/wudi/gateway/internal/mirror"
+	"github.com/wudi/gateway/internal/proxy"
+	grpcproxy "github.com/wudi/gateway/internal/proxy/grpc"
+	"github.com/wudi/gateway/internal/proxy/protocol"
+	"github.com/wudi/gateway/internal/registry"
+	"github.com/wudi/gateway/internal/registry/consul"
+	"github.com/wudi/gateway/internal/registry/etcd"
+	"github.com/wudi/gateway/internal/registry/memory"
+	"github.com/wudi/gateway/internal/retry"
+	"github.com/wudi/gateway/internal/router"
+	"github.com/wudi/gateway/internal/rules"
+	"github.com/wudi/gateway/internal/tracing"
+	"github.com/wudi/gateway/internal/trafficshape"
+	"github.com/wudi/gateway/internal/variables"
+	"github.com/wudi/gateway/internal/webhook"
+	"github.com/wudi/gateway/internal/websocket"
 )
 
 // Gateway is the main API gateway
@@ -76,14 +76,14 @@ type Gateway struct {
 	wsProxy         *websocket.Proxy
 
 	// Feature managers (Batch 1-3)
-	ipFilters      *ipfilter.IPFilterByRoute
-	globalIPFilter *ipfilter.Filter
-	corsHandlers   *cors.CORSByRoute
-	compressors    *compression.CompressorByRoute
+	ipFilters        *ipfilter.IPFilterByRoute
+	globalIPFilter   *ipfilter.Filter
+	corsHandlers     *cors.CORSByRoute
+	compressors      *compression.CompressorByRoute
 	metricsCollector *metrics.Collector
-	validators     *validation.ValidatorByRoute
-	mirrors        *mirror.MirrorByRoute
-	tracer         *tracing.Tracer
+	validators       *validation.ValidatorByRoute
+	mirrors          *mirror.MirrorByRoute
+	tracer           *tracing.Tracer
 
 	grpcHandlers map[string]*grpcproxy.Handler
 	translators  *protocol.TranslatorByRoute
@@ -99,19 +99,19 @@ type Gateway struct {
 	faultInjectors    *trafficshape.FaultInjectionByRoute
 	wafHandlers       *waf.WAFByRoute
 	graphqlParsers    *graphql.GraphQLByRoute
-	coalescers             *coalesce.CoalesceByRoute
-	canaryControllers      *canary.CanaryByRoute
-	adaptiveLimiters       *trafficshape.AdaptiveConcurrencyByRoute
-	extAuths               *extauth.ExtAuthByRoute
-	versioners             *versioning.VersioningByRoute
-	accessLogConfigs       *accesslog.AccessLogByRoute
-	openapiValidators      *openapivalidation.OpenAPIByRoute
-	timeoutConfigs         *timeout.TimeoutByRoute
-	errorPages             *errorpages.ErrorPagesByRoute
-	nonceCheckers          *nonce.NonceByRoute
-	csrfProtectors         *csrf.CSRFByRoute
-	outlierDetectors       *outlier.DetectorByRoute
-	webhookDispatcher      *webhook.Dispatcher
+	coalescers        *coalesce.CoalesceByRoute
+	canaryControllers *canary.CanaryByRoute
+	adaptiveLimiters  *trafficshape.AdaptiveConcurrencyByRoute
+	extAuths          *extauth.ExtAuthByRoute
+	versioners        *versioning.VersioningByRoute
+	accessLogConfigs  *accesslog.AccessLogByRoute
+	openapiValidators *openapivalidation.OpenAPIByRoute
+	timeoutConfigs    *timeout.TimeoutByRoute
+	errorPages        *errorpages.ErrorPagesByRoute
+	nonceCheckers     *nonce.NonceByRoute
+	csrfProtectors    *csrf.CSRFByRoute
+	outlierDetectors  *outlier.DetectorByRoute
+	webhookDispatcher *webhook.Dispatcher
 
 	features []Feature
 
@@ -149,20 +149,20 @@ func (sr *statusRecorder) Flush() {
 // New creates a new gateway
 func New(cfg *config.Config) (*Gateway, error) {
 	g := &Gateway{
-		config:           cfg,
-		router:           router.New(),
-		rateLimiters:     ratelimit.NewRateLimitByRoute(),
-		resolver:         variables.NewResolver(),
-		circuitBreakers:  circuitbreaker.NewBreakerByRoute(),
-		caches:           cache.NewCacheByRoute(nil),
-		wsProxy:          websocket.NewProxy(config.WebSocketConfig{}),
-		ipFilters:        ipfilter.NewIPFilterByRoute(),
-		corsHandlers:     cors.NewCORSByRoute(),
-		compressors:      compression.NewCompressorByRoute(),
-		metricsCollector: metrics.NewCollector(),
-		validators:       validation.NewValidatorByRoute(),
-		mirrors:          mirror.NewMirrorByRoute(),
-		grpcHandlers:     make(map[string]*grpcproxy.Handler),
+		config:            cfg,
+		router:            router.New(),
+		rateLimiters:      ratelimit.NewRateLimitByRoute(),
+		resolver:          variables.NewResolver(),
+		circuitBreakers:   circuitbreaker.NewBreakerByRoute(),
+		caches:            cache.NewCacheByRoute(nil),
+		wsProxy:           websocket.NewProxy(config.WebSocketConfig{}),
+		ipFilters:         ipfilter.NewIPFilterByRoute(),
+		corsHandlers:      cors.NewCORSByRoute(),
+		compressors:       compression.NewCompressorByRoute(),
+		metricsCollector:  metrics.NewCollector(),
+		validators:        validation.NewValidatorByRoute(),
+		mirrors:           mirror.NewMirrorByRoute(),
+		grpcHandlers:      make(map[string]*grpcproxy.Handler),
 		translators:       protocol.NewTranslatorByRoute(),
 		routeRules:        rules.NewRulesByRoute(),
 		throttlers:        trafficshape.NewThrottleByRoute(),
@@ -171,12 +171,12 @@ func New(cfg *config.Config) (*Gateway, error) {
 		faultInjectors:    trafficshape.NewFaultInjectionByRoute(),
 		wafHandlers:       waf.NewWAFByRoute(),
 		graphqlParsers:    graphql.NewGraphQLByRoute(),
-		coalescers:         coalesce.NewCoalesceByRoute(),
-		canaryControllers:  canary.NewCanaryByRoute(),
-		adaptiveLimiters:   trafficshape.NewAdaptiveConcurrencyByRoute(),
-		extAuths:           extauth.NewExtAuthByRoute(),
-		versioners:         versioning.NewVersioningByRoute(),
-		accessLogConfigs:   accesslog.NewAccessLogByRoute(),
+		coalescers:        coalesce.NewCoalesceByRoute(),
+		canaryControllers: canary.NewCanaryByRoute(),
+		adaptiveLimiters:  trafficshape.NewAdaptiveConcurrencyByRoute(),
+		extAuths:          extauth.NewExtAuthByRoute(),
+		versioners:        versioning.NewVersioningByRoute(),
+		accessLogConfigs:  accesslog.NewAccessLogByRoute(),
 		openapiValidators: openapivalidation.NewOpenAPIByRoute(),
 		timeoutConfigs:    timeout.NewTimeoutByRoute(),
 		errorPages:        errorpages.NewErrorPagesByRoute(),
@@ -184,8 +184,8 @@ func New(cfg *config.Config) (*Gateway, error) {
 		csrfProtectors:    csrf.NewCSRFByRoute(),
 		outlierDetectors:  outlier.NewDetectorByRoute(),
 		routeProxies:      make(map[string]*proxy.RouteProxy),
-		routeHandlers:    make(map[string]http.Handler),
-		watchCancels:     make(map[string]context.CancelFunc),
+		routeHandlers:     make(map[string]http.Handler),
+		watchCancels:      make(map[string]context.CancelFunc),
 	}
 
 	// Initialize shared priority admitter if global priority is enabled
@@ -1098,7 +1098,6 @@ func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
 
 	handler.ServeHTTP(w, r)
 }
-
 
 // authenticate handles authentication for a request
 func (g *Gateway) authenticate(w http.ResponseWriter, r *http.Request, methods []string) bool {

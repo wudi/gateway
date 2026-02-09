@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 // Compressor manages response compression for a route

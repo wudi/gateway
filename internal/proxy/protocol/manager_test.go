@@ -5,8 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/loadbalancer"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/loadbalancer"
 )
 
 func TestTranslatorByRoute(t *testing.T) {

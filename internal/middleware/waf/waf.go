@@ -9,9 +9,9 @@ import (
 
 	"github.com/corazawaf/coraza/v3"
 	"github.com/corazawaf/coraza/v3/types"
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/logging"
-	"github.com/example/gateway/internal/middleware"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/logging"
+	"github.com/wudi/gateway/internal/middleware"
 	"go.uber.org/zap"
 )
 

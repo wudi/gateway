@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 // restMapper handles REST-to-gRPC method mapping.

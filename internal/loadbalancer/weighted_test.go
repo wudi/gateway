@@ -3,7 +3,7 @@ package loadbalancer
 import (
 	"testing"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 func TestWeightedBalancerDistribution(t *testing.T) {

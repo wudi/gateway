@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/variables"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/variables"
 )
 
 func TestNew_NilWhenNotActive(t *testing.T) {

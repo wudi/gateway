@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 // ThrottleByRoute manages per-route throttlers.

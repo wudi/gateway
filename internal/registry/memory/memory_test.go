@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/gateway/internal/registry"
+	"github.com/wudi/gateway/internal/registry"
 )
 
 func TestMemoryRegistry(t *testing.T) {

@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/loadbalancer"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/loadbalancer"
 )
 
 // ejectionInfo tracks current ejection state for a backend.
@@ -20,10 +20,10 @@ type ejectionInfo struct {
 
 // DetectorSnapshot is a point-in-time view of a detector's state.
 type DetectorSnapshot struct {
-	RouteID        string                       `json:"route_id"`
-	BackendStats   map[string]StatsSnapshot     `json:"backend_stats"`
+	RouteID         string                      `json:"route_id"`
+	BackendStats    map[string]StatsSnapshot    `json:"backend_stats"`
 	EjectedBackends map[string]EjectionSnapshot `json:"ejected_backends"`
-	TotalEjections int64                        `json:"total_ejections"`
+	TotalEjections  int64                       `json:"total_ejections"`
 	TotalRecoveries int64                       `json:"total_recoveries"`
 }
 
@@ -41,9 +41,9 @@ type Detector struct {
 	cfg      config.OutlierDetectionConfig
 	balancer loadbalancer.Balancer
 
-	mu       sync.RWMutex
-	stats    map[string]*BackendStats
-	ejected  map[string]*ejectionInfo
+	mu      sync.RWMutex
+	stats   map[string]*BackendStats
+	ejected map[string]*ejectionInfo
 
 	totalEjections  atomic.Int64
 	totalRecoveries atomic.Int64

@@ -10,23 +10,23 @@ import (
 	"strings"
 	"time"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/errors"
-	"github.com/example/gateway/internal/health"
-	"github.com/example/gateway/internal/loadbalancer"
-	"github.com/example/gateway/internal/middleware/transform"
-	"github.com/example/gateway/internal/retry"
-	"github.com/example/gateway/internal/router"
-	"github.com/example/gateway/internal/variables"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/errors"
+	"github.com/wudi/gateway/internal/health"
+	"github.com/wudi/gateway/internal/loadbalancer"
+	"github.com/wudi/gateway/internal/middleware/transform"
+	"github.com/wudi/gateway/internal/retry"
+	"github.com/wudi/gateway/internal/router"
+	"github.com/wudi/gateway/internal/variables"
 )
 
 // Proxy handles proxying requests to backends
 type Proxy struct {
-	transport       *http.Transport
-	healthChecker   *health.Checker
-	resolver        *variables.Resolver
-	defaultTimeout  time.Duration
-	flushInterval   time.Duration
+	transport      *http.Transport
+	healthChecker  *health.Checker
+	resolver       *variables.Resolver
+	defaultTimeout time.Duration
+	flushInterval  time.Duration
 }
 
 // Config holds proxy configuration
@@ -228,7 +228,6 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 		p.copyBody(w, resp.Body)
 	})
 }
-
 
 // createProxyRequest creates the request to send to the backend
 func (p *Proxy) createProxyRequest(r *http.Request, target *url.URL, route *router.Route, varCtx *variables.Context) *http.Request {
@@ -477,8 +476,8 @@ func SimpleProxy(targetURL string) (http.Handler, error) {
 	balancer := loadbalancer.NewRoundRobin(backends)
 
 	route := &router.Route{
-		ID:   "simple",
-		Path: "/",
+		ID:        "simple",
+		Path:      "/",
 		Transform: config.TransformConfig{},
 	}
 

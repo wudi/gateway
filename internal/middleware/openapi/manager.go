@@ -4,18 +4,18 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/example/gateway/internal/config"
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/wudi/gateway/internal/config"
 )
 
 // OpenAPIStatus describes the validation state of a route.
 type OpenAPIStatus struct {
-	SpecFile         string         `json:"spec_file,omitempty"`
-	SpecID           string         `json:"spec_id,omitempty"`
-	OperationID      string         `json:"operation_id,omitempty"`
-	ValidateRequest  bool           `json:"validate_request"`
-	ValidateResponse bool           `json:"validate_response"`
-	LogOnly          bool           `json:"log_only"`
+	SpecFile         string           `json:"spec_file,omitempty"`
+	SpecID           string           `json:"spec_id,omitempty"`
+	OperationID      string           `json:"operation_id,omitempty"`
+	ValidateRequest  bool             `json:"validate_request"`
+	ValidateResponse bool             `json:"validate_response"`
+	LogOnly          bool             `json:"log_only"`
 	Metrics          map[string]int64 `json:"metrics"`
 }
 

@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/loadbalancer"
-	"github.com/example/gateway/internal/logging"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/loadbalancer"
+	"github.com/wudi/gateway/internal/logging"
 	"go.uber.org/zap"
 )
 
@@ -16,11 +16,11 @@ import (
 type CanaryState string
 
 const (
-	StatePending    CanaryState = "pending"
+	StatePending     CanaryState = "pending"
 	StateProgressing CanaryState = "progressing"
-	StatePaused     CanaryState = "paused"
-	StateCompleted  CanaryState = "completed"
-	StateRolledBack CanaryState = "rolled_back"
+	StatePaused      CanaryState = "paused"
+	StateCompleted   CanaryState = "completed"
+	StateRolledBack  CanaryState = "rolled_back"
 )
 
 // action represents an admin command sent to the background goroutine.

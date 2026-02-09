@@ -6,9 +6,9 @@ import (
 	"net"
 	"sync"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/logging"
-	"github.com/example/gateway/internal/proxy/udp"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/logging"
+	"github.com/wudi/gateway/internal/proxy/udp"
 	"go.uber.org/zap"
 )
 
@@ -27,10 +27,10 @@ type UDPListener struct {
 
 // UDPListenerConfig holds configuration for creating a UDP listener
 type UDPListenerConfig struct {
-	ID              string
-	Address         string
-	Proxy           *udp.Proxy
-	UDP             config.UDPListenerConfig
+	ID      string
+	Address string
+	Proxy   *udp.Proxy
+	UDP     config.UDPListenerConfig
 }
 
 // NewUDPListener creates a new UDP listener

@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 package test
@@ -15,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/gateway"
-	"github.com/example/gateway/internal/registry"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/gateway"
+	"github.com/wudi/gateway/internal/registry"
 )
 
 // --- Helpers ---
@@ -716,7 +717,7 @@ func TestIPFilterBeforeAuth(t *testing.T) {
 			},
 			IPFilter: config.IPFilterConfig{
 				Enabled: true,
-				Deny:    []string{"0.0.0.0/0"},   // Deny all IPv4
+				Deny:    []string{"0.0.0.0/0"}, // Deny all IPv4
 				Order:   "deny_first",
 			},
 		},
@@ -2195,9 +2196,9 @@ func TestRulesAdminEndpoint(t *testing.T) {
 		},
 		Response: []config.RuleConfig{
 			{
-				ID:     "strip-server",
+				ID:         "strip-server",
 				Expression: `true`,
-				Action: "set_headers",
+				Action:     "set_headers",
 				Headers: config.HeaderTransform{
 					Remove: []string{"Server"},
 				},

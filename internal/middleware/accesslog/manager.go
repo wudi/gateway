@@ -3,7 +3,7 @@ package accesslog
 import (
 	"sync"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 // AccessLogStatus represents the status of an access log config for admin API.

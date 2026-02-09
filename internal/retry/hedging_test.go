@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

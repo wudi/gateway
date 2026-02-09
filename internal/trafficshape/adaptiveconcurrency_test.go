@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 func TestAdaptiveLimiter_AllowRelease(t *testing.T) {
@@ -155,7 +155,7 @@ func TestAdaptiveLimiter_MultiplicativeDecrease(t *testing.T) {
 	al.currentLimit.Store(100)
 	al.mu.Lock()
 	al.ewmaLatency = float64(30 * time.Millisecond) // 30ms
-	al.minLatency = float64(10 * time.Millisecond)   // 10ms, gradient = 3.0 >= 2.0
+	al.minLatency = float64(10 * time.Millisecond)  // 10ms, gradient = 3.0 >= 2.0
 	al.sampleCount = 100
 	al.ewmaInitialized = true
 	al.mu.Unlock()

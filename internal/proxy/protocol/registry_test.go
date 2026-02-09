@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/loadbalancer"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/loadbalancer"
 )
 
 // mockTranslator implements Translator for testing.

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 // ErrorPagesByRoute manages per-route compiled error pages.

@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 package test
@@ -10,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/gateway"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/gateway"
 )
 
 func TestBodyTransformIntegration_SetAndDenyFields(t *testing.T) {

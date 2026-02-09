@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 // CompiledMatcher evaluates domain, header, and query match criteria for a route.

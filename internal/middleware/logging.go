@@ -6,9 +6,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/example/gateway/internal/logging"
-	"github.com/example/gateway/internal/middleware/accesslog"
-	"github.com/example/gateway/internal/variables"
+	"github.com/wudi/gateway/internal/logging"
+	"github.com/wudi/gateway/internal/middleware/accesslog"
+	"github.com/wudi/gateway/internal/variables"
 	"go.uber.org/zap"
 )
 

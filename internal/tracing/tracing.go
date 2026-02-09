@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/middleware"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/middleware"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"

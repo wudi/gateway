@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/gateway"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/gateway"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	rpb "google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
@@ -28,7 +28,7 @@ import (
 	"google.golang.org/protobuf/types/dynamicpb"
 
 	// Register the grpc translator
-	_ "github.com/example/gateway/internal/proxy/protocol/grpc"
+	_ "github.com/wudi/gateway/internal/proxy/protocol/grpc"
 )
 
 // testStreamServer is a simple gRPC server for streaming tests.

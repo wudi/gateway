@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/loadbalancer"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/loadbalancer"
 )
 
 func makeBalancer(groups map[string]int) *loadbalancer.WeightedBalancer {

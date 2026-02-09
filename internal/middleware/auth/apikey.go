@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/errors"
-	"github.com/example/gateway/internal/middleware"
-	"github.com/example/gateway/internal/variables"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/errors"
+	"github.com/wudi/gateway/internal/middleware"
+	"github.com/wudi/gateway/internal/variables"
 )
 
 // APIKeyAuth provides API key authentication

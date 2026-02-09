@@ -6,8 +6,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/example/gateway/internal/config"
 	"github.com/julienschmidt/httprouter"
+	"github.com/wudi/gateway/internal/config"
 )
 
 // Route represents a configured route
@@ -129,7 +129,7 @@ func newCaptureWriter() *captureWriter {
 	return &captureWriter{header: make(http.Header)}
 }
 
-func (cw *captureWriter) Header() http.Header      { return cw.header }
+func (cw *captureWriter) Header() http.Header       { return cw.header }
 func (cw *captureWriter) Write([]byte) (int, error) { return 0, nil }
 func (cw *captureWriter) WriteHeader(int)           {}
 
@@ -143,14 +143,14 @@ type prefixRoute struct {
 // Router handles path-based HTTP routing using httprouter for tier-1 path matching
 // and RouteGroup for tier-2 domain/header/query matching.
 type Router struct {
-	tree          *httprouter.Router
-	groups        map[string]*RouteGroup // normalized path → group (exact routes only)
-	prefixGroups  []*prefixRoute         // prefix routes checked as fallback
-	prefixByPath  map[string]*RouteGroup // normalized prefix path → group
-	allRoutes     []*Route
-	mu            sync.RWMutex
-	notFound      http.Handler
-	nextIdx       int
+	tree            *httprouter.Router
+	groups          map[string]*RouteGroup // normalized path → group (exact routes only)
+	prefixGroups    []*prefixRoute         // prefix routes checked as fallback
+	prefixByPath    map[string]*RouteGroup // normalized prefix path → group
+	allRoutes       []*Route
+	mu              sync.RWMutex
+	notFound        http.Handler
+	nextIdx         int
 	registeredPaths map[string]bool // tracks method+path combos registered with httprouter
 }
 

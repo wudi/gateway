@@ -9,8 +9,8 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/variables"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/variables"
 )
 
 // TemplateData is the data exposed to error page templates.
@@ -35,10 +35,10 @@ type compiledPage struct {
 
 // CompiledErrorPages holds pre-compiled error page templates for a route.
 type CompiledErrorPages struct {
-	exactPages map[int]*compiledPage // exact status code → page (e.g. 404)
-	classPages map[int]*compiledPage // class base → page (e.g. 400 for "4xx")
+	exactPages  map[int]*compiledPage // exact status code → page (e.g. 404)
+	classPages  map[int]*compiledPage // class base → page (e.g. 400 for "4xx")
 	defaultPage *compiledPage
-	metrics    *ErrorPagesMetrics
+	metrics     *ErrorPagesMetrics
 }
 
 // New merges global + per-route error page configs and compiles templates.

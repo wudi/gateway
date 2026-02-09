@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/gateway/internal/config"
-	"github.com/example/gateway/internal/gateway"
+	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/gateway"
 )
 
 func TestLeastConnIntegration(t *testing.T) {

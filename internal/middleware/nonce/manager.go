@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/example/gateway/internal/config"
 	"github.com/redis/go-redis/v9"
+	"github.com/wudi/gateway/internal/config"
 )
 
 // NonceByRoute manages per-route nonce checkers.

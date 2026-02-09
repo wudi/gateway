@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/example/gateway/internal/config"
+	"github.com/wudi/gateway/internal/config"
 )
 
 // DefaultSensitiveHeaders are always masked unless overridden.

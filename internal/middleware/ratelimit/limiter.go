@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/example/gateway/internal/errors"
-	"github.com/example/gateway/internal/middleware"
-	"github.com/example/gateway/internal/variables"
+	"github.com/wudi/gateway/internal/errors"
+	"github.com/wudi/gateway/internal/middleware"
+	"github.com/wudi/gateway/internal/variables"
 )
 
 // TokenBucket implements token bucket rate limiting
@@ -118,9 +118,9 @@ func (tb *TokenBucket) cleanup() {
 
 // Limiter provides rate limiting middleware
 type Limiter struct {
-	tb     *TokenBucket
-	perIP  bool
-	keyFn  func(*http.Request) string
+	tb    *TokenBucket
+	perIP bool
+	keyFn func(*http.Request) string
 }
 
 // NewLimiter creates a new rate limiter
