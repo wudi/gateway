@@ -87,7 +87,7 @@ All feature endpoints return JSON with per-route status and metrics.
 |----------|-------------|
 | `GET /stats` | Overall gateway statistics (route/backend/listener counts) |
 | `GET /listeners` | Active listeners with protocol and address |
-| `GET /routes` | All routes with matchers (path, methods, domains, headers, query) |
+| `GET /routes` | All routes with matchers (path, methods, domains, headers, query). Echo routes include `"echo": true`. |
 | `GET /registry` | Configured registry type |
 | `GET /backends` | Backend health status with latency, last check time, and health check config |
 | `GET /circuit-breakers` | Circuit breaker state per route (closed/open/half-open) |

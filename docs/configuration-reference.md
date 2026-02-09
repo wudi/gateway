@@ -209,9 +209,10 @@ routes:
       key: string             # "header", "cookie", "path", "ip"
       header_name: string     # required for header/cookie
       replicas: int           # virtual nodes (default 150)
+    echo: bool                # built-in echo handler, no backend needed (default false)
 ```
 
-**Validation:** Each route requires `path` and one of `backends`, `service.name`, or `upstream`. A route cannot have both `upstream` and `backends` (or `service`). Header/query matchers require exactly one of `value`, `present`, or `regex`.
+**Validation:** Each route requires `path` and one of `backends`, `service.name`, `upstream`, or `echo: true`. A route cannot have both `upstream` and `backends` (or `service`). When `echo: true`, the route cannot use `backends`, `service`, `upstream`, `versioning`, `protocol`, `websocket`, `circuit_breaker`, `cache`, `coalesce`, `outlier_detection`, `canary`, `retry_policy`, `traffic_split`, or `mirror`. Header/query matchers require exactly one of `value`, `present`, or `regex`.
 
 ### Rate Limiting
 

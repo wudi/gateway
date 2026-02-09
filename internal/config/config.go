@@ -267,6 +267,7 @@ type RouteConfig struct {
 	CSRF              CSRFConfig              `yaml:"csrf"`               // Per-route CSRF protection
 	OutlierDetection OutlierDetectionConfig  `yaml:"outlier_detection"`  // Per-route outlier detection
 	Geo              GeoConfig               `yaml:"geo"`                // Per-route geo filtering
+	Echo             bool                    `yaml:"echo"`               // Echo handler (no backend needed)
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.

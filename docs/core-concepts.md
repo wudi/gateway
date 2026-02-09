@@ -173,6 +173,21 @@ The `upstream` field is also supported on traffic split groups, versioning versi
 
 Health check config merges in three levels: global defaults → upstream-level overrides → per-backend overrides.
 
+## Echo Routes
+
+An echo route has no backend. The gateway itself acts as the origin and returns the incoming request details as JSON. This is useful for debugging, testing middleware chains, and verifying gateway behavior without spinning up a separate service.
+
+```yaml
+routes:
+  - id: "debug"
+    path: "/debug"
+    echo: true
+```
+
+The response includes the HTTP method, path, host, remote address, query parameters, headers, request body, a timestamp, and the route ID. The request body is capped at 1 MB.
+
+Echo routes still pass through the full middleware chain, so features like rate limiting, authentication, CORS, IP filtering, geo filtering, rules, WAF, compression, timeouts, and access logging all work normally. Features that require a real backend (circuit breaker, cache, websocket, mirroring, retries, traffic splits, canary, outlier detection, versioning) are not allowed and will fail config validation.
+
 ## Request Processing Pipeline
 
 Every HTTP request passes through the middleware chain in a fixed order. The chain is built once per route at startup (not per-request). Here is the processing order:

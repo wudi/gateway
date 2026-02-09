@@ -39,6 +39,7 @@ type Route struct {
 	Mirror         config.MirrorConfig
 	GRPC           config.GRPCConfig
 	MatchCfg       config.MatchConfig
+	Echo           bool
 
 	matcher   *CompiledMatcher
 	configIdx int // insertion order for tie-breaking
@@ -210,6 +211,7 @@ func (rt *Router) AddRoute(routeCfg config.RouteConfig) error {
 		Mirror:         routeCfg.Mirror,
 		GRPC:           routeCfg.GRPC,
 		MatchCfg:       routeCfg.Match,
+		Echo:           routeCfg.Echo,
 		configIdx:      rt.nextIdx,
 	}
 	rt.nextIdx++

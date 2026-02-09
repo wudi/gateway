@@ -528,93 +528,95 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 		return fmt.Errorf("route not found after adding: %s", routeCfg.ID)
 	}
 
-	// Set up backends
-	var backends []*loadbalancer.Backend
+	// Set up backends (skip for echo routes — no backend needed)
+	if !routeCfg.Echo {
+		var backends []*loadbalancer.Backend
 
-	// Check if using service discovery
-	if routeCfg.Service.Name != "" {
-		ctx := context.Background()
+		// Check if using service discovery
+		if routeCfg.Service.Name != "" {
+			ctx := context.Background()
 
-		// Discover initial backends
-		services, err := g.registry.DiscoverWithTags(ctx, routeCfg.Service.Name, routeCfg.Service.Tags)
-		if err != nil {
-			logging.Warn("Failed to discover service",
-				zap.String("service", routeCfg.Service.Name),
-				zap.Error(err),
-			)
-		}
-
-		for _, svc := range services {
-			backends = append(backends, &loadbalancer.Backend{
-				URL:     svc.URL(),
-				Weight:  1,
-				Healthy: svc.Health == registry.HealthPassing,
-			})
-		}
-
-		// Start watching for changes
-		g.watchService(routeCfg.ID, routeCfg.Service.Name, routeCfg.Service.Tags)
-	} else {
-		// Use static backends
-		var usHC *config.HealthCheckConfig
-		if routeCfg.Upstream != "" {
-			if us, ok := g.config.Upstreams[routeCfg.Upstream]; ok {
-				usHC = us.HealthCheck
+			// Discover initial backends
+			services, err := g.registry.DiscoverWithTags(ctx, routeCfg.Service.Name, routeCfg.Service.Tags)
+			if err != nil {
+				logging.Warn("Failed to discover service",
+					zap.String("service", routeCfg.Service.Name),
+					zap.Error(err),
+				)
 			}
-		}
-		for _, b := range routeCfg.Backends {
-			weight := b.Weight
-			if weight == 0 {
-				weight = 1
+
+			for _, svc := range services {
+				backends = append(backends, &loadbalancer.Backend{
+					URL:     svc.URL(),
+					Weight:  1,
+					Healthy: svc.Health == registry.HealthPassing,
+				})
 			}
-			backends = append(backends, &loadbalancer.Backend{
-				URL:     b.URL,
-				Weight:  weight,
-				Healthy: true,
-			})
 
-			// Add to health checker (upstream health check sits between global and per-backend)
-			g.healthChecker.AddBackend(upstreamHealthCheck(b.URL, g.config.HealthCheck, usHC, b.HealthCheck))
-		}
-	}
-
-	// Create route proxy with the appropriate balancer
-	g.mu.Lock()
-	if routeCfg.Versioning.Enabled {
-		versionBackends := make(map[string][]*loadbalancer.Backend)
-		for ver, vcfg := range routeCfg.Versioning.Versions {
-			var vBacks []*loadbalancer.Backend
-			var verUSHC *config.HealthCheckConfig
-			if vcfg.Upstream != "" {
-				if us, ok := g.config.Upstreams[vcfg.Upstream]; ok {
-					verUSHC = us.HealthCheck
+			// Start watching for changes
+			g.watchService(routeCfg.ID, routeCfg.Service.Name, routeCfg.Service.Tags)
+		} else {
+			// Use static backends
+			var usHC *config.HealthCheckConfig
+			if routeCfg.Upstream != "" {
+				if us, ok := g.config.Upstreams[routeCfg.Upstream]; ok {
+					usHC = us.HealthCheck
 				}
 			}
-			for _, b := range vcfg.Backends {
+			for _, b := range routeCfg.Backends {
 				weight := b.Weight
 				if weight == 0 {
 					weight = 1
 				}
-				vBacks = append(vBacks, &loadbalancer.Backend{URL: b.URL, Weight: weight, Healthy: true})
-				g.healthChecker.AddBackend(upstreamHealthCheck(b.URL, g.config.HealthCheck, verUSHC, b.HealthCheck))
+				backends = append(backends, &loadbalancer.Backend{
+					URL:     b.URL,
+					Weight:  weight,
+					Healthy: true,
+				})
+
+				// Add to health checker (upstream health check sits between global and per-backend)
+				g.healthChecker.AddBackend(upstreamHealthCheck(b.URL, g.config.HealthCheck, usHC, b.HealthCheck))
 			}
-			versionBackends[ver] = vBacks
 		}
-		vb := loadbalancer.NewVersionedBalancer(versionBackends, routeCfg.Versioning.DefaultVersion)
-		g.routeProxies[routeCfg.ID] = proxy.NewRouteProxyWithBalancer(g.proxy, route, vb)
-	} else if len(routeCfg.TrafficSplit) > 0 {
-		var wb *loadbalancer.WeightedBalancer
-		if routeCfg.Sticky.Enabled {
-			wb = loadbalancer.NewWeightedBalancerWithSticky(routeCfg.TrafficSplit, routeCfg.Sticky)
+
+		// Create route proxy with the appropriate balancer
+		g.mu.Lock()
+		if routeCfg.Versioning.Enabled {
+			versionBackends := make(map[string][]*loadbalancer.Backend)
+			for ver, vcfg := range routeCfg.Versioning.Versions {
+				var vBacks []*loadbalancer.Backend
+				var verUSHC *config.HealthCheckConfig
+				if vcfg.Upstream != "" {
+					if us, ok := g.config.Upstreams[vcfg.Upstream]; ok {
+						verUSHC = us.HealthCheck
+					}
+				}
+				for _, b := range vcfg.Backends {
+					weight := b.Weight
+					if weight == 0 {
+						weight = 1
+					}
+					vBacks = append(vBacks, &loadbalancer.Backend{URL: b.URL, Weight: weight, Healthy: true})
+					g.healthChecker.AddBackend(upstreamHealthCheck(b.URL, g.config.HealthCheck, verUSHC, b.HealthCheck))
+				}
+				versionBackends[ver] = vBacks
+			}
+			vb := loadbalancer.NewVersionedBalancer(versionBackends, routeCfg.Versioning.DefaultVersion)
+			g.routeProxies[routeCfg.ID] = proxy.NewRouteProxyWithBalancer(g.proxy, route, vb)
+		} else if len(routeCfg.TrafficSplit) > 0 {
+			var wb *loadbalancer.WeightedBalancer
+			if routeCfg.Sticky.Enabled {
+				wb = loadbalancer.NewWeightedBalancerWithSticky(routeCfg.TrafficSplit, routeCfg.Sticky)
+			} else {
+				wb = loadbalancer.NewWeightedBalancer(routeCfg.TrafficSplit)
+			}
+			g.routeProxies[routeCfg.ID] = proxy.NewRouteProxyWithBalancer(g.proxy, route, wb)
 		} else {
-			wb = loadbalancer.NewWeightedBalancer(routeCfg.TrafficSplit)
+			balancer := createBalancer(routeCfg, backends)
+			g.routeProxies[routeCfg.ID] = proxy.NewRouteProxyWithBalancer(g.proxy, route, balancer)
 		}
-		g.routeProxies[routeCfg.ID] = proxy.NewRouteProxyWithBalancer(g.proxy, route, wb)
-	} else {
-		balancer := createBalancer(routeCfg, backends)
-		g.routeProxies[routeCfg.ID] = proxy.NewRouteProxyWithBalancer(g.proxy, route, balancer)
+		g.mu.Unlock()
 	}
-	g.mu.Unlock()
 
 	// Set up rate limiting (unique setup signature, not in feature loop)
 	if routeCfg.RateLimit.Enabled || routeCfg.RateLimit.Rate > 0 {
@@ -649,8 +651,8 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 		g.grpcHandlers[routeCfg.ID] = grpcproxy.New(true)
 	}
 
-	// Set up protocol translator (replaces RouteProxy as innermost handler)
-	if routeCfg.Protocol.Type != "" {
+	// Set up protocol translator (replaces RouteProxy as innermost handler; blocked by echo validation)
+	if routeCfg.Protocol.Type != "" && g.routeProxies[routeCfg.ID] != nil {
 		balancer := g.routeProxies[routeCfg.ID].GetBalancer()
 		if err := g.translators.AddRoute(routeCfg.ID, routeCfg.Protocol, balancer); err != nil {
 			return fmt.Errorf("protocol translator: route %s: %w", routeCfg.ID, err)
@@ -665,7 +667,7 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 	}
 
 	// Override per-try timeout with backend timeout when configured
-	if routeCfg.TimeoutPolicy.Backend > 0 {
+	if routeCfg.TimeoutPolicy.Backend > 0 && g.routeProxies[routeCfg.ID] != nil {
 		g.routeProxies[routeCfg.ID].SetPerTryTimeout(routeCfg.TimeoutPolicy.Backend)
 	}
 
@@ -890,8 +892,10 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 	}
 
 	// 15.5 trafficGroupMW — inject A/B variant header + sticky cookie (after mirror, before transforms)
-	if wb, ok := rp.GetBalancer().(*loadbalancer.WeightedBalancer); ok && wb.HasStickyPolicy() {
-		chain = chain.Use(trafficGroupMW(wb.GetStickyPolicy()))
+	if rp != nil {
+		if wb, ok := rp.GetBalancer().(*loadbalancer.WeightedBalancer); ok && wb.HasStickyPolicy() {
+			chain = chain.Use(trafficGroupMW(wb.GetStickyPolicy()))
+		}
 	}
 
 	// Compile body transforms once
@@ -912,10 +916,14 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		chain = chain.Use(transform.ResponseBodyTransformMiddleware(respBodyTransform))
 	}
 
-	// Innermost handler: translator if configured, otherwise the proxy (Step 10)
-	var innermost http.Handler = rp
-	if translatorHandler := g.translators.GetHandler(routeID); translatorHandler != nil {
+	// Innermost handler: echo, translator, or proxy (Step 10)
+	var innermost http.Handler
+	if cfg.Echo {
+		innermost = proxy.NewEchoHandler(routeID)
+	} else if translatorHandler := g.translators.GetHandler(routeID); translatorHandler != nil {
 		innermost = translatorHandler
+	} else {
+		innermost = rp
 	}
 
 	// 17.5 responseValidationMW — validate raw backend response (closest to proxy)

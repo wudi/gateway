@@ -154,9 +154,49 @@ func (l *Loader) validate(cfg *Config) error {
 			return fmt.Errorf("route %s: path is required", route.ID)
 		}
 
-		// Must have either backends, service discovery, versioning, or upstream ref
-		if len(route.Backends) == 0 && route.Service.Name == "" && !route.Versioning.Enabled && route.Upstream == "" {
+		// Must have either backends, service discovery, versioning, upstream ref, or echo
+		if len(route.Backends) == 0 && route.Service.Name == "" && !route.Versioning.Enabled && route.Upstream == "" && !route.Echo {
 			return fmt.Errorf("route %s: must have either backends, service name, or upstream", route.ID)
+		}
+
+		// Echo is mutually exclusive with backend-related features
+		if route.Echo {
+			if len(route.Backends) > 0 || route.Service.Name != "" || route.Upstream != "" {
+				return fmt.Errorf("route %s: echo is mutually exclusive with backends, service, and upstream", route.ID)
+			}
+			if route.Versioning.Enabled {
+				return fmt.Errorf("route %s: echo is mutually exclusive with versioning", route.ID)
+			}
+			if route.Protocol.Type != "" {
+				return fmt.Errorf("route %s: echo is mutually exclusive with protocol", route.ID)
+			}
+			if route.WebSocket.Enabled {
+				return fmt.Errorf("route %s: echo is mutually exclusive with websocket", route.ID)
+			}
+			if route.CircuitBreaker.Enabled {
+				return fmt.Errorf("route %s: echo is mutually exclusive with circuit_breaker", route.ID)
+			}
+			if route.Cache.Enabled {
+				return fmt.Errorf("route %s: echo is mutually exclusive with cache", route.ID)
+			}
+			if route.Coalesce.Enabled {
+				return fmt.Errorf("route %s: echo is mutually exclusive with coalesce", route.ID)
+			}
+			if route.OutlierDetection.Enabled {
+				return fmt.Errorf("route %s: echo is mutually exclusive with outlier_detection", route.ID)
+			}
+			if route.Canary.Enabled {
+				return fmt.Errorf("route %s: echo is mutually exclusive with canary", route.ID)
+			}
+			if route.RetryPolicy.MaxRetries > 0 || route.RetryPolicy.Hedging.Enabled {
+				return fmt.Errorf("route %s: echo is mutually exclusive with retry_policy", route.ID)
+			}
+			if len(route.TrafficSplit) > 0 {
+				return fmt.Errorf("route %s: echo is mutually exclusive with traffic_split", route.ID)
+			}
+			if route.Mirror.Enabled {
+				return fmt.Errorf("route %s: echo is mutually exclusive with mirror", route.ID)
+			}
 		}
 
 		// Mutual exclusion: upstream vs inline backends/service

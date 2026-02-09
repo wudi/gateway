@@ -245,6 +245,68 @@ routes:
 `,
 			wantErr: true,
 		},
+		{
+			name: "valid echo route",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: echo-test
+    path: /echo
+    echo: true
+`,
+			wantErr: false,
+		},
+		{
+			name: "echo with backends",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: echo-test
+    path: /echo
+    echo: true
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: true,
+		},
+		{
+			name: "echo with websocket",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: echo-test
+    path: /echo
+    echo: true
+    websocket:
+      enabled: true
+`,
+			wantErr: true,
+		},
+		{
+			name: "echo with circuit_breaker",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: echo-test
+    path: /echo
+    echo: true
+    circuit_breaker:
+      enabled: true
+`,
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
