@@ -814,6 +814,16 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate nonce config (global)
+	if err := l.validateNonceConfig("global", cfg.Nonce, cfg.Redis.Address); err != nil {
+		return err
+	}
+	for _, route := range cfg.Routes {
+		if err := l.validateNonceConfig(fmt.Sprintf("route %s", route.ID), route.Nonce, cfg.Redis.Address); err != nil {
+			return err
+		}
+	}
+
 	// Validate webhooks
 	if cfg.Webhooks.Enabled {
 		if len(cfg.Webhooks.Endpoints) == 0 {
@@ -1430,6 +1440,38 @@ func (l *Loader) validateErrorPages(scope string, cfg ErrorPagesConfig) error {
 				}
 			}
 		}
+	}
+	return nil
+}
+
+// validateNonceConfig validates a nonce config for a given scope.
+func (l *Loader) validateNonceConfig(scope string, cfg NonceConfig, redisAddr string) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	switch cfg.Mode {
+	case "", "local", "distributed":
+		// valid
+	default:
+		return fmt.Errorf("%s: nonce.mode must be \"local\" or \"distributed\"", scope)
+	}
+	switch cfg.Scope {
+	case "", "global", "per_client":
+		// valid
+	default:
+		return fmt.Errorf("%s: nonce.scope must be \"global\" or \"per_client\"", scope)
+	}
+	if cfg.TTL < 0 {
+		return fmt.Errorf("%s: nonce.ttl must be >= 0", scope)
+	}
+	if cfg.MaxAge < 0 {
+		return fmt.Errorf("%s: nonce.max_age must be >= 0", scope)
+	}
+	if cfg.MaxAge > 0 && cfg.TimestampHeader == "" {
+		return fmt.Errorf("%s: nonce.max_age requires timestamp_header to be set", scope)
+	}
+	if cfg.Mode == "distributed" && redisAddr == "" {
+		return fmt.Errorf("%s: nonce.mode \"distributed\" requires redis.address to be configured", scope)
 	}
 	return nil
 }

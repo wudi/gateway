@@ -22,6 +22,7 @@ import (
 	"github.com/example/gateway/internal/middleware/ipfilter"
 	"github.com/example/gateway/internal/middleware/ratelimit"
 	"github.com/example/gateway/internal/middleware/errorpages"
+	"github.com/example/gateway/internal/middleware/nonce"
 	openapivalidation "github.com/example/gateway/internal/middleware/openapi"
 	"github.com/example/gateway/internal/middleware/timeout"
 	"github.com/example/gateway/internal/middleware/validation"
@@ -86,6 +87,7 @@ type gatewayState struct {
 	openapiValidators    *openapivalidation.OpenAPIByRoute
 	timeoutConfigs       *timeout.TimeoutByRoute
 	errorPages           *errorpages.ErrorPagesByRoute
+	nonceCheckers        *nonce.NonceByRoute
 	translators          *protocol.TranslatorByRoute
 	rateLimiters      *ratelimit.RateLimitByRoute
 	grpcHandlers      map[string]*grpcproxy.Handler
@@ -129,6 +131,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		openapiValidators: openapivalidation.NewOpenAPIByRoute(),
 		timeoutConfigs:    timeout.NewTimeoutByRoute(),
 		errorPages:        errorpages.NewErrorPagesByRoute(),
+		nonceCheckers:     nonce.NewNonceByRoute(),
 		translators:        protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
 		grpcHandlers:      make(map[string]*grpcproxy.Handler),
@@ -164,6 +167,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		&openapiFeature{s.openapiValidators},
 		&timeoutFeature{s.timeoutConfigs},
 		&errorPagesFeature{m: s.errorPages, global: &cfg.ErrorPages},
+		&nonceFeature{m: s.nonceCheckers, global: &cfg.Nonce, redis: g.redisClient},
 	}
 
 	// Wire webhook callbacks on new state's managers
@@ -481,6 +485,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldOpenAPIValidators := g.openapiValidators
 	oldTimeoutConfigs := g.timeoutConfigs
 	oldErrorPages := g.errorPages
+	oldNonceCheckers := g.nonceCheckers
 
 	// Install new state
 	g.ipFilters = s.ipFilters
@@ -512,6 +517,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.openapiValidators = s.openapiValidators
 	g.timeoutConfigs = s.timeoutConfigs
 	g.errorPages = s.errorPages
+	g.nonceCheckers = s.nonceCheckers
 
 	handler := g.buildRouteHandler(routeID, cfg, route, rp)
 
@@ -545,6 +551,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.openapiValidators = oldOpenAPIValidators
 	g.timeoutConfigs = oldTimeoutConfigs
 	g.errorPages = oldErrorPages
+	g.nonceCheckers = oldNonceCheckers
 
 	return handler
 }
@@ -579,6 +586,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	oldCanaryControllers := g.canaryControllers
 	oldAdaptiveLimiters := g.adaptiveLimiters
 	oldExtAuths := g.extAuths
+	oldNonceCheckers := g.nonceCheckers
 
 	// Swap all state under write lock
 	g.mu.Lock()
@@ -614,6 +622,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.openapiValidators = newState.openapiValidators
 	g.timeoutConfigs = newState.timeoutConfigs
 	g.errorPages = newState.errorPages
+	g.nonceCheckers = newState.nonceCheckers
 	g.translators = newState.translators
 	g.rateLimiters = newState.rateLimiters
 	g.grpcHandlers = newState.grpcHandlers
@@ -630,6 +639,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	oldExtAuths.CloseAll()
 	oldCanaryControllers.StopAll()
 	oldAdaptiveLimiters.StopAll()
+	oldNonceCheckers.CloseAll()
 	if oldJWT != nil {
 		oldJWT.Close()
 	}

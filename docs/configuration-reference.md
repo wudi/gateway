@@ -707,6 +707,29 @@ See [Error Pages](error-pages.md) for full documentation.
 
 ---
 
+### Nonce (Replay Prevention)
+
+```yaml
+    nonce:
+      enabled: bool
+      header: string           # nonce header name (default "X-Nonce")
+      query_param: string      # optional query parameter name (e.g. "nonce")
+      ttl: duration            # how long nonces are remembered (default 5m)
+      mode: string             # "local" (default) or "distributed"
+      scope: string            # "global" (default) or "per_client"
+      required: bool           # reject missing nonce (default true)
+      timestamp_header: string # optional timestamp header for age validation
+      max_age: duration        # max request age (requires timestamp_header)
+```
+
+Per-route nonce config is merged with the global `nonce:` block. Per-route fields override global fields.
+
+**Validation:** `mode` must be `local` or `distributed`. `scope` must be `global` or `per_client`. `ttl` and `max_age` must be >= 0. `max_age > 0` requires `timestamp_header`. `mode: "distributed"` requires `redis.address`.
+
+See [Replay Prevention](replay-prevention.md) for full documentation.
+
+---
+
 ## TCP Routes
 
 ```yaml
@@ -952,6 +975,27 @@ error_pages:
 Global error pages provide defaults for all routes. Per-route `error_pages` override global entries by key.
 
 See [Error Pages](error-pages.md) for template variables, content negotiation, and fallback chain.
+
+---
+
+## Nonce (global)
+
+```yaml
+nonce:
+  enabled: bool
+  header: string           # nonce header name (default "X-Nonce")
+  query_param: string      # optional query parameter name (e.g. "nonce")
+  ttl: duration            # how long nonces are remembered (default 5m)
+  mode: string             # "local" (default) or "distributed"
+  scope: string            # "global" (default) or "per_client"
+  required: bool           # reject missing nonce (default true)
+  timestamp_header: string # optional timestamp header for age validation
+  max_age: duration        # max request age (requires timestamp_header)
+```
+
+Global nonce config provides defaults for all routes. Per-route `nonce` fields override global fields.
+
+See [Replay Prevention](replay-prevention.md) for storage modes, scoping, and timestamp validation.
 
 ---
 

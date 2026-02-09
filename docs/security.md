@@ -1,6 +1,6 @@
 # Security
 
-The gateway provides IP filtering, CORS handling, a web application firewall (WAF), request body size limits, and custom DNS resolution for defense-in-depth security.
+The gateway provides IP filtering, CORS handling, a web application firewall (WAF), request body size limits, replay prevention, and custom DNS resolution for defense-in-depth security.
 
 ## IP Filtering
 
@@ -123,6 +123,25 @@ dns_resolver:
 
 All backend connections use the custom resolver when configured.
 
+## Replay Prevention
+
+Prevent request replay attacks using nonce-based deduplication. Clients include a unique value in the `X-Nonce` header (configurable), and the gateway rejects duplicate nonces within a TTL window.
+
+```yaml
+nonce:
+  enabled: true
+  header: "X-Nonce"
+  query_param: "nonce"   # optional: also check ?nonce=<value>
+  ttl: 5m
+  mode: "local"          # "local" or "distributed" (Redis)
+  scope: "global"        # "global" or "per_client"
+  required: true
+```
+
+The nonce is read from the header first; if absent and `query_param` is set, the query parameter is checked as a fallback. Duplicate requests receive `409 Conflict`. Missing nonces receive `400 Bad Request` when `required: true`. Optional timestamp validation via `timestamp_header` and `max_age` rejects stale requests.
+
+See [Replay Prevention](replay-prevention.md) for full documentation including distributed mode, per-client scope, and timestamp validation.
+
 ## Key Config Fields
 
 | Field | Type | Description |
@@ -138,5 +157,11 @@ All backend connections use the custom resolver when configured.
 | `waf.xss` | bool | Enable built-in XSS rules |
 | `max_body_size` | int64 | Max request body (bytes) |
 | `dns_resolver.nameservers` | []string | DNS servers (host:port) |
+| `nonce.enabled` | bool | Enable replay prevention |
+| `nonce.header` | string | Nonce header name (default `X-Nonce`) |
+| `nonce.ttl` | duration | Nonce TTL (default `5m`) |
+| `nonce.mode` | string | `local` (default) or `distributed` |
+| `nonce.scope` | string | `global` (default) or `per_client` |
+| `nonce.required` | bool | Reject missing nonce (default `true`) |
 
 See [Configuration Reference](configuration-reference.md#security) for all fields.

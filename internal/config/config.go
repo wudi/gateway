@@ -45,6 +45,7 @@ type Config struct {
 	Webhooks       WebhooksConfig       `yaml:"webhooks"`        // Event webhook notifications
 	HealthCheck    HealthCheckConfig    `yaml:"health_check"`    // Global health check settings
 	ErrorPages     ErrorPagesConfig     `yaml:"error_pages"`     // Global custom error pages
+	Nonce          NonceConfig          `yaml:"nonce"`           // Global nonce replay prevention
 }
 
 // ListenerConfig defines a listener configuration
@@ -260,6 +261,7 @@ type RouteConfig struct {
 	AccessLog      AccessLogConfig      `yaml:"access_log"`      // Per-route access log overrides
 	OpenAPI        OpenAPIRouteConfig   `yaml:"openapi"`         // OpenAPI spec-based validation
 	ErrorPages     ErrorPagesConfig     `yaml:"error_pages"`     // Per-route custom error pages
+	Nonce          NonceConfig          `yaml:"nonce"`           // Per-route nonce replay prevention
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -912,6 +914,19 @@ type ErrorPageEntry struct {
 	JSONFile string `yaml:"json_file"`
 	XML      string `yaml:"xml"`
 	XMLFile  string `yaml:"xml_file"`
+}
+
+// NonceConfig defines replay prevention nonce settings.
+type NonceConfig struct {
+	Enabled         bool          `yaml:"enabled"`
+	Header          string        `yaml:"header"`           // default "X-Nonce"
+	QueryParam      string        `yaml:"query_param"`      // optional query parameter name (e.g. "nonce")
+	TTL             time.Duration `yaml:"ttl"`              // default 5m
+	Mode            string        `yaml:"mode"`             // "local" (default) | "distributed"
+	Scope           string        `yaml:"scope"`            // "global" (default) | "per_client"
+	Required        bool          `yaml:"required"`         // default true — reject if header missing
+	TimestampHeader string        `yaml:"timestamp_header"` // optional, e.g. "X-Timestamp"
+	MaxAge          time.Duration `yaml:"max_age"`          // max request age (requires timestamp_header)
 }
 
 // DefaultConfig returns a configuration with sensible defaults

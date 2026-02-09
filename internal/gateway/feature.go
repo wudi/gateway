@@ -13,6 +13,8 @@ import (
 	"github.com/example/gateway/internal/middleware/extauth"
 	"github.com/example/gateway/internal/middleware/ipfilter"
 	"github.com/example/gateway/internal/middleware/errorpages"
+	"github.com/example/gateway/internal/middleware/nonce"
+	"github.com/redis/go-redis/v9"
 	"github.com/example/gateway/internal/middleware/openapi"
 	"github.com/example/gateway/internal/middleware/timeout"
 	"github.com/example/gateway/internal/middleware/validation"
@@ -370,3 +372,24 @@ func (f *errorPagesFeature) Setup(routeID string, cfg config.RouteConfig) error 
 }
 func (f *errorPagesFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *errorPagesFeature) AdminStats() any     { return f.m.Stats() }
+
+// nonceFeature wraps NonceByRoute.
+type nonceFeature struct {
+	m      *nonce.NonceByRoute
+	global *config.NonceConfig
+	redis  *redis.Client
+}
+
+func (f *nonceFeature) Name() string { return "nonce" }
+func (f *nonceFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.Nonce.Enabled {
+		merged := nonce.MergeNonceConfig(cfg.Nonce, *f.global)
+		return f.m.AddRoute(routeID, merged, f.redis)
+	}
+	if f.global.Enabled {
+		return f.m.AddRoute(routeID, *f.global, f.redis)
+	}
+	return nil
+}
+func (f *nonceFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *nonceFeature) AdminStats() any     { return f.m.Stats() }

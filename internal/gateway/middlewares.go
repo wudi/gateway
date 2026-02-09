@@ -14,6 +14,7 @@ import (
 	"github.com/example/gateway/internal/middleware/accesslog"
 	"github.com/example/gateway/internal/middleware/errorpages"
 	"github.com/example/gateway/internal/middleware/extauth"
+	"github.com/example/gateway/internal/middleware/nonce"
 	"github.com/example/gateway/internal/middleware/timeout"
 	"github.com/example/gateway/internal/middleware/versioning"
 	"github.com/example/gateway/internal/canary"
@@ -113,6 +114,22 @@ func extAuthMW(ea *extauth.ExtAuth) middleware.Middleware {
 			// Inject headers from auth service into upstream request
 			for k, v := range result.HeadersToInject {
 				r.Header.Set(k, v)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// 3.7. nonceMW checks nonce for replay prevention.
+func nonceMW(nc *nonce.NonceChecker) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			allowed, statusCode, msg := nc.Check(r)
+			if !allowed {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(statusCode)
+				fmt.Fprintf(w, `{"error":"%s"}`, msg)
+				return
 			}
 			next.ServeHTTP(w, r)
 		})

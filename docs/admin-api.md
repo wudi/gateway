@@ -272,6 +272,36 @@ curl http://localhost:8081/error-pages
 }
 ```
 
+## Nonces (Replay Prevention)
+
+### GET `/nonces`
+
+Returns nonce checker configuration and metrics per route.
+
+```bash
+curl http://localhost:8081/nonces
+```
+
+**Response:**
+```json
+{
+  "payments": {
+    "header": "X-Nonce",
+    "mode": "local",
+    "scope": "per_client",
+    "ttl": "5m0s",
+    "required": true,
+    "metrics": {
+      "total_checked": 1500,
+      "rejected": 3,
+      "missing_nonce": 12,
+      "stale_timestamp": 0,
+      "store_size": 847
+    }
+  }
+}
+```
+
 ## Webhooks
 
 ### GET `/webhooks`

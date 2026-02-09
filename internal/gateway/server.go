@@ -467,6 +467,9 @@ func (s *Server) adminHandler() http.Handler {
 	// Error pages
 	mux.HandleFunc("/error-pages", s.handleErrorPages)
 
+	// Nonces (replay prevention)
+	mux.HandleFunc("/nonces", s.handleNonces)
+
 	// Webhooks
 	mux.HandleFunc("/webhooks", s.handleWebhooks)
 
@@ -982,6 +985,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["error_pages"] = epStats
 	}
 
+	// Nonces (replay prevention)
+	if nonceStats := s.gateway.GetNonceCheckers().Stats(); len(nonceStats) > 0 {
+		dashboard["nonces"] = nonceStats
+	}
+
 	// Webhooks
 	if d := s.gateway.GetWebhookDispatcher(); d != nil {
 		dashboard["webhooks"] = d.Stats()
@@ -1104,6 +1112,12 @@ func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTimeouts(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.gateway.GetTimeoutConfigs().Stats())
+}
+
+// handleNonces handles nonce replay prevention stats requests.
+func (s *Server) handleNonces(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetNonceCheckers().Stats())
 }
 
 // handleErrorPages handles error pages stats requests.

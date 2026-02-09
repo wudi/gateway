@@ -25,6 +25,7 @@ import (
 	"github.com/example/gateway/internal/middleware/accesslog"
 	"github.com/example/gateway/internal/middleware/errorpages"
 	"github.com/example/gateway/internal/middleware/extauth"
+	"github.com/example/gateway/internal/middleware/nonce"
 	"github.com/example/gateway/internal/middleware/cors"
 	"github.com/example/gateway/internal/middleware/mtls"
 	"github.com/example/gateway/internal/middleware/ipfilter"
@@ -105,6 +106,7 @@ type Gateway struct {
 	openapiValidators      *openapivalidation.OpenAPIByRoute
 	timeoutConfigs         *timeout.TimeoutByRoute
 	errorPages             *errorpages.ErrorPagesByRoute
+	nonceCheckers          *nonce.NonceByRoute
 	webhookDispatcher      *webhook.Dispatcher
 
 	features []Feature
@@ -174,6 +176,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		openapiValidators: openapivalidation.NewOpenAPIByRoute(),
 		timeoutConfigs:    timeout.NewTimeoutByRoute(),
 		errorPages:        errorpages.NewErrorPagesByRoute(),
+		nonceCheckers:     nonce.NewNonceByRoute(),
 		routeProxies:      make(map[string]*proxy.RouteProxy),
 		routeHandlers:    make(map[string]http.Handler),
 		watchCancels:     make(map[string]context.CancelFunc),
@@ -209,6 +212,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&openapiFeature{g.openapiValidators},
 		&timeoutFeature{g.timeoutConfigs},
 		&errorPagesFeature{m: g.errorPages, global: &cfg.ErrorPages},
+		&nonceFeature{m: g.nonceCheckers, global: &cfg.Nonce, redis: g.redisClient},
 	}
 
 	// Initialize global IP filter
@@ -723,6 +727,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		chain = chain.Use(extAuthMW(ea))
 	}
 
+	// 6.3 nonceMW — replay prevention (after auth, needs Identity for per_client scope)
+	if nc := g.nonceCheckers.GetChecker(routeID); nc != nil {
+		chain = chain.Use(nonceMW(nc))
+	}
+
 	// 6.5 priorityMW — admission control (after auth, needs Identity)
 	if g.priorityAdmitter != nil {
 		if pcfg, ok := g.priorityConfigs.GetConfig(routeID); ok {
@@ -1146,6 +1155,9 @@ func (g *Gateway) Close() error {
 	// Stop adaptive concurrency limiters
 	g.adaptiveLimiters.StopAll()
 
+	// Close nonce checkers
+	g.nonceCheckers.CloseAll()
+
 	// Close ext auth clients
 	g.extAuths.CloseAll()
 
@@ -1307,6 +1319,11 @@ func (g *Gateway) GetTimeoutConfigs() *timeout.TimeoutByRoute {
 // GetErrorPages returns the error pages manager.
 func (g *Gateway) GetErrorPages() *errorpages.ErrorPagesByRoute {
 	return g.errorPages
+}
+
+// GetNonceCheckers returns the nonce checker manager.
+func (g *Gateway) GetNonceCheckers() *nonce.NonceByRoute {
+	return g.nonceCheckers
 }
 
 // GetWebhookDispatcher returns the webhook dispatcher (may be nil).
