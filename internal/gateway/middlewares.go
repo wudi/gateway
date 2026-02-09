@@ -24,6 +24,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/compression"
 	"github.com/wudi/gateway/internal/middleware/cors"
 	"github.com/wudi/gateway/internal/middleware/csrf"
+	"github.com/wudi/gateway/internal/middleware/idempotency"
 	"github.com/wudi/gateway/internal/middleware/errorpages"
 	"github.com/wudi/gateway/internal/middleware/extauth"
 	"github.com/wudi/gateway/internal/middleware/geo"
@@ -171,6 +172,42 @@ func csrfMW(cp *csrf.CompiledCSRF) middleware.Middleware {
 				http.Error(w, msg, statusCode)
 				return
 			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// 3.9. idempotencyMW checks idempotency keys and replays cached responses.
+func idempotencyMW(ci *idempotency.CompiledIdempotency) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			outcome := ci.Check(r)
+			switch outcome.Result {
+			case idempotency.ResultCached, idempotency.ResultWaited:
+				idempotency.ReplayResponse(w, outcome.Response)
+				return
+			case idempotency.ResultReject:
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				fmt.Fprintf(w, `{"error":"Idempotency-Key header is required for this request"}`)
+				return
+			case idempotency.ResultInvalid:
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Fprintf(w, `{"error":"Idempotency-Key is too long"}`)
+				return
+			}
+
+			// ResultProceed — wrap writer to capture response
+			if outcome.Key != "" {
+				cw := idempotency.NewCapturingWriter(w)
+				defer func() {
+					ci.RecordResponse(outcome.Key, cw.ToStoredResponse())
+				}()
+				next.ServeHTTP(cw, r)
+				return
+			}
+
 			next.ServeHTTP(w, r)
 		})
 	}

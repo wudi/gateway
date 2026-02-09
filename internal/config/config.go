@@ -48,6 +48,7 @@ type Config struct {
 	Nonce          NonceConfig          `yaml:"nonce"`           // Global nonce replay prevention
 	CSRF           CSRFConfig           `yaml:"csrf"`            // Global CSRF protection
 	Geo            GeoConfig            `yaml:"geo"`             // Global geo filtering
+	Idempotency    IdempotencyConfig    `yaml:"idempotency"`     // Global idempotency key support
 }
 
 // ListenerConfig defines a listener configuration
@@ -265,6 +266,7 @@ type RouteConfig struct {
 	ErrorPages     ErrorPagesConfig     `yaml:"error_pages"`     // Per-route custom error pages
 	Nonce             NonceConfig             `yaml:"nonce"`              // Per-route nonce replay prevention
 	CSRF              CSRFConfig              `yaml:"csrf"`               // Per-route CSRF protection
+	Idempotency       IdempotencyConfig       `yaml:"idempotency"`        // Per-route idempotency key support
 	OutlierDetection OutlierDetectionConfig  `yaml:"outlier_detection"`  // Per-route outlier detection
 	Geo              GeoConfig               `yaml:"geo"`                // Per-route geo filtering
 	Echo             bool                    `yaml:"echo"`               // Echo handler (no backend needed)
@@ -953,6 +955,19 @@ type CSRFConfig struct {
 	InjectToken           bool          `yaml:"inject_token"`            // default true (set explicitly in YAML)
 	ShadowMode            bool          `yaml:"shadow_mode"`             // log but don't reject
 	ExemptPaths           []string      `yaml:"exempt_paths"`            // glob patterns
+}
+
+// IdempotencyConfig defines idempotency key support for mutation requests.
+type IdempotencyConfig struct {
+	Enabled      bool          `yaml:"enabled"`
+	HeaderName   string        `yaml:"header_name"`    // default "Idempotency-Key"
+	TTL          time.Duration `yaml:"ttl"`            // default 24h
+	Methods      []string      `yaml:"methods"`        // default ["POST","PUT","PATCH"]
+	Enforce      bool          `yaml:"enforce"`        // reject mutations without key (422)
+	KeyScope     string        `yaml:"key_scope"`      // "global" (default) or "per_client"
+	Mode         string        `yaml:"mode"`           // "local" (default) or "distributed"
+	MaxKeyLength int           `yaml:"max_key_length"` // default 256
+	MaxBodySize  int64         `yaml:"max_body_size"`  // max response body to store, default 1MB
 }
 
 // OutlierDetectionConfig defines passive per-backend outlier detection settings.

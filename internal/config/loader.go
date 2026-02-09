@@ -933,6 +933,16 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate idempotency config (global + per-route)
+	if err := l.validateIdempotencyConfig("global", cfg.Idempotency, cfg.Redis.Address); err != nil {
+		return err
+	}
+	for _, route := range cfg.Routes {
+		if err := l.validateIdempotencyConfig(fmt.Sprintf("route %s", route.ID), route.Idempotency, cfg.Redis.Address); err != nil {
+			return err
+		}
+	}
+
 	// Validate webhooks
 	if cfg.Webhooks.Enabled {
 		if len(cfg.Webhooks.Endpoints) == 0 {
@@ -1621,6 +1631,43 @@ func (l *Loader) validateGeoConfig(scope string, cfg GeoConfig) error {
 		// valid
 	default:
 		return fmt.Errorf("%s: geo.order must be \"allow_first\" or \"deny_first\"", scope)
+	}
+	return nil
+}
+
+// validateIdempotencyConfig validates an idempotency config for a given scope.
+func (l *Loader) validateIdempotencyConfig(scope string, cfg IdempotencyConfig, redisAddr string) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	switch cfg.Mode {
+	case "", "local", "distributed":
+		// valid
+	default:
+		return fmt.Errorf("%s: idempotency.mode must be \"local\" or \"distributed\"", scope)
+	}
+	switch cfg.KeyScope {
+	case "", "global", "per_client":
+		// valid
+	default:
+		return fmt.Errorf("%s: idempotency.key_scope must be \"global\" or \"per_client\"", scope)
+	}
+	if cfg.TTL < 0 {
+		return fmt.Errorf("%s: idempotency.ttl must be >= 0", scope)
+	}
+	if cfg.MaxKeyLength < 0 {
+		return fmt.Errorf("%s: idempotency.max_key_length must be >= 0", scope)
+	}
+	if cfg.MaxBodySize < 0 {
+		return fmt.Errorf("%s: idempotency.max_body_size must be >= 0", scope)
+	}
+	for _, m := range cfg.Methods {
+		if !validHTTPMethods[m] {
+			return fmt.Errorf("%s: idempotency.methods contains invalid HTTP method: %s", scope, m)
+		}
+	}
+	if cfg.Mode == "distributed" && redisAddr == "" {
+		return fmt.Errorf("%s: idempotency.mode \"distributed\" requires redis.address to be configured", scope)
 	}
 	return nil
 }

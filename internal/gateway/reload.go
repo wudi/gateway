@@ -23,6 +23,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/csrf"
 	"github.com/wudi/gateway/internal/middleware/errorpages"
 	"github.com/wudi/gateway/internal/middleware/extauth"
+	"github.com/wudi/gateway/internal/middleware/idempotency"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	"github.com/wudi/gateway/internal/middleware/nonce"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
@@ -90,8 +91,9 @@ type gatewayState struct {
 	timeoutConfigs    *timeout.TimeoutByRoute
 	errorPages        *errorpages.ErrorPagesByRoute
 	nonceCheckers     *nonce.NonceByRoute
-	csrfProtectors    *csrf.CSRFByRoute
-	outlierDetectors  *outlier.DetectorByRoute
+	csrfProtectors      *csrf.CSRFByRoute
+	idempotencyHandlers *idempotency.IdempotencyByRoute
+	outlierDetectors    *outlier.DetectorByRoute
 	translators       *protocol.TranslatorByRoute
 	rateLimiters      *ratelimit.RateLimitByRoute
 	grpcHandlers      map[string]*grpcproxy.Handler
@@ -136,8 +138,9 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		timeoutConfigs:    timeout.NewTimeoutByRoute(),
 		errorPages:        errorpages.NewErrorPagesByRoute(),
 		nonceCheckers:     nonce.NewNonceByRoute(),
-		csrfProtectors:    csrf.NewCSRFByRoute(),
-		outlierDetectors:  outlier.NewDetectorByRoute(),
+		csrfProtectors:      csrf.NewCSRFByRoute(),
+		idempotencyHandlers: idempotency.NewIdempotencyByRoute(),
+		outlierDetectors:    outlier.NewDetectorByRoute(),
 		translators:       protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
 		grpcHandlers:      make(map[string]*grpcproxy.Handler),
@@ -175,6 +178,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		&errorPagesFeature{m: s.errorPages, global: &cfg.ErrorPages},
 		&nonceFeature{m: s.nonceCheckers, global: &cfg.Nonce, redis: g.redisClient},
 		&csrfFeature{m: s.csrfProtectors, global: &cfg.CSRF},
+		&idempotencyFeature{m: s.idempotencyHandlers, global: &cfg.Idempotency, redis: g.redisClient},
 		&outlierDetectionFeature{s.outlierDetectors},
 	}
 
@@ -512,6 +516,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldErrorPages := g.errorPages
 	oldNonceCheckers := g.nonceCheckers
 	oldOutlierDetectors := g.outlierDetectors
+	oldIdempotencyHandlers := g.idempotencyHandlers
 
 	// Install new state
 	g.ipFilters = s.ipFilters
@@ -545,6 +550,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.errorPages = s.errorPages
 	g.nonceCheckers = s.nonceCheckers
 	g.outlierDetectors = s.outlierDetectors
+	g.idempotencyHandlers = s.idempotencyHandlers
 
 	handler := g.buildRouteHandler(routeID, cfg, route, rp)
 
@@ -580,6 +586,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.errorPages = oldErrorPages
 	g.nonceCheckers = oldNonceCheckers
 	g.outlierDetectors = oldOutlierDetectors
+	g.idempotencyHandlers = oldIdempotencyHandlers
 
 	return handler
 }
@@ -616,6 +623,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	oldExtAuths := g.extAuths
 	oldNonceCheckers := g.nonceCheckers
 	oldOutlierDetectors := g.outlierDetectors
+	oldIdempotencyHandlers := g.idempotencyHandlers
 
 	// Swap all state under write lock
 	g.mu.Lock()
@@ -654,6 +662,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.nonceCheckers = newState.nonceCheckers
 	g.csrfProtectors = newState.csrfProtectors
 	g.outlierDetectors = newState.outlierDetectors
+	g.idempotencyHandlers = newState.idempotencyHandlers
 	g.translators = newState.translators
 	g.rateLimiters = newState.rateLimiters
 	g.grpcHandlers = newState.grpcHandlers
@@ -672,6 +681,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	oldAdaptiveLimiters.StopAll()
 	oldNonceCheckers.CloseAll()
 	oldOutlierDetectors.StopAll()
+	oldIdempotencyHandlers.CloseAll()
 	if oldJWT != nil {
 		oldJWT.Close()
 	}

@@ -479,6 +479,9 @@ func (s *Server) adminHandler() http.Handler {
 	// Geo filtering
 	mux.HandleFunc("/geo", s.handleGeo)
 
+	// Idempotency keys
+	mux.HandleFunc("/idempotency", s.handleIdempotency)
+
 	// Webhooks
 	mux.HandleFunc("/webhooks", s.handleWebhooks)
 
@@ -1011,6 +1014,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["outlier_detection"] = odStats
 	}
 
+	// Idempotency
+	if idemStats := s.gateway.GetIdempotencyHandlers().Stats(); len(idemStats) > 0 {
+		dashboard["idempotency"] = idemStats
+	}
+
 	// Webhooks
 	if d := s.gateway.GetWebhookDispatcher(); d != nil {
 		dashboard["webhooks"] = d.Stats()
@@ -1163,6 +1171,12 @@ func (s *Server) handleOutlierDetection(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleGeo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.gateway.GetGeoFilters().Stats())
+}
+
+// handleIdempotency handles idempotency key stats requests.
+func (s *Server) handleIdempotency(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetIdempotencyHandlers().Stats())
 }
 
 // handleWebhooks handles webhook dispatcher stats requests.

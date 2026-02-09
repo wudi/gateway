@@ -16,6 +16,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/errorpages"
 	"github.com/wudi/gateway/internal/middleware/extauth"
 	"github.com/wudi/gateway/internal/middleware/geo"
+	"github.com/wudi/gateway/internal/middleware/idempotency"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	"github.com/wudi/gateway/internal/middleware/nonce"
 	"github.com/wudi/gateway/internal/middleware/openapi"
@@ -420,6 +421,27 @@ func (f *csrfFeature) Setup(routeID string, cfg config.RouteConfig) error {
 }
 func (f *csrfFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *csrfFeature) AdminStats() any    { return f.m.Stats() }
+
+// idempotencyFeature wraps IdempotencyByRoute.
+type idempotencyFeature struct {
+	m      *idempotency.IdempotencyByRoute
+	global *config.IdempotencyConfig
+	redis  *redis.Client
+}
+
+func (f *idempotencyFeature) Name() string { return "idempotency" }
+func (f *idempotencyFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.Idempotency.Enabled {
+		merged := idempotency.MergeIdempotencyConfig(cfg.Idempotency, *f.global)
+		return f.m.AddRoute(routeID, merged, f.redis)
+	}
+	if f.global.Enabled {
+		return f.m.AddRoute(routeID, *f.global, f.redis)
+	}
+	return nil
+}
+func (f *idempotencyFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *idempotencyFeature) AdminStats() any    { return f.m.Stats() }
 
 // outlierDetectionFeature wraps DetectorByRoute.
 // Setup is a no-op because the detector needs the Balancer reference, which is only

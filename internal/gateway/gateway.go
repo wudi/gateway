@@ -30,6 +30,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/errorpages"
 	"github.com/wudi/gateway/internal/middleware/extauth"
 	"github.com/wudi/gateway/internal/middleware/geo"
+	"github.com/wudi/gateway/internal/middleware/idempotency"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	"github.com/wudi/gateway/internal/middleware/mtls"
 	"github.com/wudi/gateway/internal/middleware/nonce"
@@ -112,8 +113,9 @@ type Gateway struct {
 	nonceCheckers     *nonce.NonceByRoute
 	csrfProtectors    *csrf.CSRFByRoute
 	outlierDetectors  *outlier.DetectorByRoute
-	geoFilters        *geo.GeoByRoute
-	geoProvider       geo.Provider
+	geoFilters          *geo.GeoByRoute
+	geoProvider         geo.Provider
+	idempotencyHandlers *idempotency.IdempotencyByRoute
 	globalGeo         *geo.CompiledGeo
 	webhookDispatcher *webhook.Dispatcher
 
@@ -187,8 +189,9 @@ func New(cfg *config.Config) (*Gateway, error) {
 		nonceCheckers:     nonce.NewNonceByRoute(),
 		csrfProtectors:    csrf.NewCSRFByRoute(),
 		outlierDetectors:  outlier.NewDetectorByRoute(),
-		geoFilters:        geo.NewGeoByRoute(),
-		routeProxies:      make(map[string]*proxy.RouteProxy),
+		geoFilters:          geo.NewGeoByRoute(),
+		idempotencyHandlers: idempotency.NewIdempotencyByRoute(),
+		routeProxies:        make(map[string]*proxy.RouteProxy),
 		routeHandlers:     make(map[string]http.Handler),
 		watchCancels:      make(map[string]context.CancelFunc),
 	}
@@ -225,6 +228,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&errorPagesFeature{m: g.errorPages, global: &cfg.ErrorPages},
 		&nonceFeature{m: g.nonceCheckers, global: &cfg.Nonce, redis: g.redisClient},
 		&csrfFeature{m: g.csrfProtectors, global: &cfg.CSRF},
+		&idempotencyFeature{m: g.idempotencyHandlers, global: &cfg.Idempotency, redis: g.redisClient},
 		&outlierDetectionFeature{g.outlierDetectors},
 		&geoFeature{m: g.geoFilters, global: &cfg.Geo, provider: g.geoProvider},
 	}
@@ -791,6 +795,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		chain = chain.Use(csrfMW(cp))
 	}
 
+	// 6.4 idempotencyMW — replay cached responses for duplicate idempotency keys
+	if ih := g.idempotencyHandlers.GetHandler(routeID); ih != nil {
+		chain = chain.Use(idempotencyMW(ih))
+	}
+
 	// 6.5 priorityMW — admission control (after auth, needs Identity)
 	if g.priorityAdmitter != nil {
 		if pcfg, ok := g.priorityConfigs.GetConfig(routeID); ok {
@@ -1230,6 +1239,9 @@ func (g *Gateway) Close() error {
 	// Close nonce checkers
 	g.nonceCheckers.CloseAll()
 
+	// Close idempotency handlers
+	g.idempotencyHandlers.CloseAll()
+
 	// Close ext auth clients
 	g.extAuths.CloseAll()
 
@@ -1411,6 +1423,11 @@ func (g *Gateway) GetCSRFProtectors() *csrf.CSRFByRoute {
 // GetOutlierDetectors returns the outlier detection manager.
 func (g *Gateway) GetOutlierDetectors() *outlier.DetectorByRoute {
 	return g.outlierDetectors
+}
+
+// GetIdempotencyHandlers returns the idempotency handler manager.
+func (g *Gateway) GetIdempotencyHandlers() *idempotency.IdempotencyByRoute {
+	return g.idempotencyHandlers
 }
 
 // GetGeoFilters returns the geo filter manager.

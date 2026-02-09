@@ -1109,6 +1109,29 @@ See [CSRF Protection](csrf.md) for token lifecycle, client integration, and secu
 
 ---
 
+## Idempotency Key
+
+```yaml
+idempotency:
+  enabled: bool               # enable idempotency key support (default false)
+  header_name: string          # header to read key from (default "Idempotency-Key")
+  ttl: duration                # how long to store responses (default 24h)
+  methods: [string]            # HTTP methods to check (default ["POST","PUT","PATCH"])
+  enforce: bool                # reject mutations without key with 422 (default false)
+  key_scope: string            # "global" or "per_client" (default "global")
+  mode: string                 # "local" or "distributed" (default "local")
+  max_key_length: int          # max key length, 400 if exceeded (default 256)
+  max_body_size: int64         # max response body to store in bytes (default 1048576)
+```
+
+Per-route idempotency config is merged with the global `idempotency:` block. Per-route fields override global fields.
+
+**Validation:** `mode` must be `local` or `distributed`. `key_scope` must be `global` or `per_client`. `ttl`, `max_key_length`, `max_body_size` must be >= 0. `methods` must be valid HTTP methods. `mode: "distributed"` requires `redis.address`.
+
+See [Idempotency Key Support](idempotency.md) for detailed usage, scoping, and examples.
+
+---
+
 ## Health Check
 
 ```yaml

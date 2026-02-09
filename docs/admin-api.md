@@ -409,6 +409,37 @@ curl http://localhost:8081/geo
 }
 ```
 
+## Idempotency
+
+### GET `/idempotency`
+
+Returns per-route idempotency key statistics including cache hit rates and in-flight deduplication counts.
+
+```bash
+curl http://localhost:8081/idempotency
+```
+
+**Response:**
+```json
+{
+  "payments": {
+    "header_name": "Idempotency-Key",
+    "ttl": "24h0m0s",
+    "enforce": true,
+    "key_scope": "per_client",
+    "mode": "local",
+    "total_requests": 1500,
+    "cache_hits": 45,
+    "cache_misses": 1455,
+    "in_flight_waits": 3,
+    "enforced": 12,
+    "invalid_key": 0,
+    "store_errors": 0,
+    "responses_stored": 1455
+  }
+}
+```
+
 ## Webhooks
 
 ### GET `/webhooks`
