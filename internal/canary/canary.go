@@ -48,6 +48,7 @@ type Controller struct {
 	cancel          context.CancelFunc
 	done            chan struct{}
 	mu              sync.RWMutex
+	onEvent         func(routeID, eventType string, data map[string]interface{})
 }
 
 // NewController creates a new canary controller.
@@ -73,6 +74,13 @@ func NewController(routeID string, cfg config.CanaryConfig, wb *loadbalancer.Wei
 	}
 }
 
+// emitEvent fires the onEvent callback if set.
+func (c *Controller) emitEvent(eventType string, data map[string]interface{}) {
+	if c.onEvent != nil {
+		c.onEvent(c.routeID, eventType, data)
+	}
+}
+
 // Start transitions from pending to progressing and launches the background goroutine.
 func (c *Controller) Start() error {
 	c.mu.Lock()
@@ -87,6 +95,10 @@ func (c *Controller) Start() error {
 
 	// Apply first step weight
 	c.adjustWeights(c.cfg.Steps[0].Weight)
+
+	c.emitEvent("canary.started", map[string]interface{}{
+		"step": 0, "weight": c.cfg.Steps[0].Weight,
+	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
@@ -231,6 +243,7 @@ func (c *Controller) run(ctx context.Context) {
 					logging.Info("Canary paused", zap.String("route", c.routeID))
 				}
 				c.mu.Unlock()
+				c.emitEvent("canary.paused", nil)
 
 			case actionResume:
 				c.mu.Lock()
@@ -240,6 +253,7 @@ func (c *Controller) run(ctx context.Context) {
 					logging.Info("Canary resumed", zap.String("route", c.routeID))
 				}
 				c.mu.Unlock()
+				c.emitEvent("canary.resumed", nil)
 
 			case actionPromote:
 				c.adjustWeights(100)
@@ -247,6 +261,7 @@ func (c *Controller) run(ctx context.Context) {
 				c.state = StateCompleted
 				c.mu.Unlock()
 				logging.Info("Canary promoted to 100%", zap.String("route", c.routeID))
+				c.emitEvent("canary.promoted", nil)
 				return
 
 			case actionRollback:
@@ -309,6 +324,7 @@ func (c *Controller) run(ctx context.Context) {
 				logging.Info("Canary deployment completed",
 					zap.String("route", c.routeID),
 				)
+				c.emitEvent("canary.completed", nil)
 				return
 			}
 
@@ -327,6 +343,9 @@ func (c *Controller) run(ctx context.Context) {
 				zap.Int("step", nextStep),
 				zap.Int("weight", c.cfg.Steps[nextStep].Weight),
 			)
+			c.emitEvent("canary.step_advanced", map[string]interface{}{
+				"step": nextStep, "weight": c.cfg.Steps[nextStep].Weight,
+			})
 		}
 	}
 }
@@ -341,6 +360,9 @@ func (c *Controller) doRollback(reason string) {
 		zap.String("route", c.routeID),
 		zap.String("reason", reason),
 	)
+	c.emitEvent("canary.rolled_back", map[string]interface{}{
+		"reason": reason,
+	})
 }
 
 // adjustWeights sets canary group to target weight and distributes remainder proportionally.
@@ -396,6 +418,7 @@ func (c *Controller) adjustWeights(canaryWeight int) {
 type CanaryByRoute struct {
 	controllers map[string]*Controller
 	mu          sync.RWMutex
+	onEvent     func(routeID, eventType string, data map[string]interface{})
 }
 
 // NewCanaryByRoute creates a new CanaryByRoute manager.
@@ -405,12 +428,20 @@ func NewCanaryByRoute() *CanaryByRoute {
 	}
 }
 
+// SetOnEvent registers a callback invoked on canary state transitions.
+func (m *CanaryByRoute) SetOnEvent(cb func(routeID, eventType string, data map[string]interface{})) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onEvent = cb
+}
+
 // AddRoute adds a canary controller for a route.
 func (m *CanaryByRoute) AddRoute(routeID string, cfg config.CanaryConfig, wb *loadbalancer.WeightedBalancer) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	ctrl := NewController(routeID, cfg, wb)
+	ctrl.onEvent = m.onEvent
 	m.controllers[routeID] = ctrl
 	return nil
 }

@@ -24,7 +24,8 @@ type Breaker struct {
 }
 
 // NewBreaker creates a new circuit breaker backed by gobreaker v2.
-func NewBreaker(cfg config.CircuitBreakerConfig) *Breaker {
+// onStateChange is called when the breaker transitions between states (may be nil).
+func NewBreaker(cfg config.CircuitBreakerConfig, onStateChange func(from, to string)) *Breaker {
 	failureThreshold := cfg.FailureThreshold
 	if failureThreshold <= 0 {
 		failureThreshold = 5
@@ -45,13 +46,19 @@ func NewBreaker(cfg config.CircuitBreakerConfig) *Breaker {
 		maxRequests:      uint32(maxRequests),
 	}
 
-	b.cb = gobreaker.NewTwoStepCircuitBreaker[any](gobreaker.Settings{
+	settings := gobreaker.Settings{
 		MaxRequests: uint32(maxRequests),
 		Timeout:     timeout,
 		ReadyToTrip: func(counts gobreaker.Counts) bool {
 			return int(counts.ConsecutiveFailures) >= failureThreshold
 		},
-	})
+	}
+	if onStateChange != nil {
+		settings.OnStateChange = func(name string, from gobreaker.State, to gobreaker.State) {
+			onStateChange(stateString(from), stateString(to))
+		}
+	}
+	b.cb = gobreaker.NewTwoStepCircuitBreaker[any](settings)
 
 	return b
 }
@@ -123,8 +130,9 @@ type BreakerSnapshot struct {
 
 // BreakerByRoute manages circuit breakers per route.
 type BreakerByRoute struct {
-	breakers map[string]*Breaker
-	mu       sync.RWMutex
+	breakers      map[string]*Breaker
+	mu            sync.RWMutex
+	onStateChange func(routeID, from, to string)
 }
 
 // NewBreakerByRoute creates a new route-based circuit breaker manager.
@@ -134,11 +142,24 @@ func NewBreakerByRoute() *BreakerByRoute {
 	}
 }
 
+// SetOnStateChange registers a callback invoked when any breaker changes state.
+func (br *BreakerByRoute) SetOnStateChange(cb func(routeID, from, to string)) {
+	br.mu.Lock()
+	defer br.mu.Unlock()
+	br.onStateChange = cb
+}
+
 // AddRoute adds a circuit breaker for a route.
 func (br *BreakerByRoute) AddRoute(routeID string, cfg config.CircuitBreakerConfig) {
 	br.mu.Lock()
 	defer br.mu.Unlock()
-	br.breakers[routeID] = NewBreaker(cfg)
+	var cb func(from, to string)
+	if br.onStateChange != nil {
+		onSC := br.onStateChange
+		rid := routeID
+		cb = func(from, to string) { onSC(rid, from, to) }
+	}
+	br.breakers[routeID] = NewBreaker(cfg, cb)
 }
 
 // GetBreaker returns the circuit breaker for a route.

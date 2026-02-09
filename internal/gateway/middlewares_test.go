@@ -359,7 +359,7 @@ func TestCircuitBreakerMW_Closed(t *testing.T) {
 		FailureThreshold: 5,
 		MaxRequests:      1,
 		Timeout:          5 * time.Second,
-	})
+	}, nil)
 
 	mw := circuitBreakerMW(cb, false)
 	handler := mw(ok200())
@@ -379,7 +379,7 @@ func TestCircuitBreakerMW_Open(t *testing.T) {
 		FailureThreshold: 2,
 		MaxRequests:      1,
 		Timeout:          5 * time.Second,
-	})
+	}, nil)
 
 	// Trip the breaker with failures
 	failHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -410,7 +410,7 @@ func TestCircuitBreakerMW_ReportsSuccess(t *testing.T) {
 		FailureThreshold: 5,
 		MaxRequests:      1,
 		Timeout:          5 * time.Second,
-	})
+	}, nil)
 
 	mw := circuitBreakerMW(cb, false)
 	handler := mw(ok200())

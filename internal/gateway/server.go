@@ -464,6 +464,9 @@ func (s *Server) adminHandler() http.Handler {
 	// Timeout policies
 	mux.HandleFunc("/timeouts", s.handleTimeouts)
 
+	// Webhooks
+	mux.HandleFunc("/webhooks", s.handleWebhooks)
+
 	// Canary deployments
 	mux.HandleFunc("/canary", s.handleCanary)
 	mux.HandleFunc("/canary/", s.handleCanaryAction)
@@ -941,6 +944,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["timeouts"] = timeoutStats
 	}
 
+	// Webhooks
+	if d := s.gateway.GetWebhookDispatcher(); d != nil {
+		dashboard["webhooks"] = d.Stats()
+	}
+
 	// Tracing
 	if tracer := s.gateway.GetTracer(); tracer != nil {
 		dashboard["tracing"] = tracer.Status()
@@ -1053,6 +1061,17 @@ func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTimeouts(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.gateway.GetTimeoutConfigs().Stats())
+}
+
+// handleWebhooks handles webhook dispatcher stats requests.
+func (s *Server) handleWebhooks(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	d := s.gateway.GetWebhookDispatcher()
+	if d != nil {
+		json.NewEncoder(w).Encode(d.Stats())
+	} else {
+		json.NewEncoder(w).Encode(map[string]interface{}{"enabled": false})
+	}
 }
 
 // handleCanary lists all canary deployments with status.

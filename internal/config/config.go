@@ -32,6 +32,7 @@ type Config struct {
 	WAF            WAFConfig            `yaml:"waf"`             // Global WAF settings
 	DNSResolver    DNSResolverConfig    `yaml:"dns_resolver"`    // Custom DNS resolver for backends
 	OpenAPI        OpenAPIConfig        `yaml:"openapi"`         // OpenAPI spec-based validation and route generation
+	Webhooks       WebhooksConfig       `yaml:"webhooks"`        // Event webhook notifications
 }
 
 // ListenerConfig defines a listener configuration
@@ -834,6 +835,33 @@ type FaultDelayConfig struct {
 type FaultAbortConfig struct {
 	Percentage int `yaml:"percentage"`  // 0-100
 	StatusCode int `yaml:"status_code"` // HTTP status to return
+}
+
+// WebhooksConfig defines event webhook notification settings.
+type WebhooksConfig struct {
+	Enabled   bool              `yaml:"enabled"`
+	Endpoints []WebhookEndpoint `yaml:"endpoints"`
+	Retry     WebhookRetryConfig `yaml:"retry"`
+	Timeout   time.Duration     `yaml:"timeout"`
+	Workers   int               `yaml:"workers"`
+	QueueSize int               `yaml:"queue_size"`
+}
+
+// WebhookEndpoint defines a single webhook receiver.
+type WebhookEndpoint struct {
+	ID      string            `yaml:"id"`
+	URL     string            `yaml:"url"`
+	Secret  string            `yaml:"secret"`
+	Events  []string          `yaml:"events"`
+	Headers map[string]string `yaml:"headers"`
+	Routes  []string          `yaml:"routes"`
+}
+
+// WebhookRetryConfig defines retry settings for webhook delivery.
+type WebhookRetryConfig struct {
+	MaxRetries int           `yaml:"max_retries"`
+	Backoff    time.Duration `yaml:"backoff"`
+	MaxBackoff time.Duration `yaml:"max_backoff"`
 }
 
 // DefaultConfig returns a configuration with sensible defaults

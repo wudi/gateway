@@ -807,3 +807,35 @@ redis:
 ```
 
 Required for distributed rate limiting (`rate_limit.mode: "distributed"`).
+
+---
+
+## Webhooks
+
+```yaml
+webhooks:
+  enabled: bool               # enable webhook notifications
+  timeout: duration           # HTTP request timeout (default 5s)
+  workers: int                # worker goroutines (default 4)
+  queue_size: int             # event queue capacity (default 1000)
+  retry:
+    max_retries: int          # retry attempts on failure (default 3)
+    backoff: duration         # initial backoff (default 1s)
+    max_backoff: duration     # max backoff cap (default 30s)
+  endpoints:
+    - id: string              # unique endpoint identifier (required)
+      url: string             # HTTP/HTTPS URL (required)
+      secret: string          # HMAC-SHA256 signing secret
+      events: [string]        # event patterns to subscribe to (required)
+      headers:                # custom HTTP headers
+        X-Custom: value
+      routes: [string]        # restrict to specific route IDs
+```
+
+**Validation:**
+- `enabled: true` requires at least one endpoint
+- Each endpoint must have a unique `id`, a valid `url` (http/https), and non-empty `events`
+- Valid event prefixes: `backend.`, `circuit_breaker.`, `canary.`, `config.`, or `*`
+- `retry.max_backoff` must be >= `retry.backoff` when both are set
+
+See [Webhooks](webhooks.md) for event types and payload format.

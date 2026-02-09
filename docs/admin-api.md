@@ -248,6 +248,34 @@ curl -X DELETE http://localhost:8081/admin/keys \
 {"status": "deleted"}
 ```
 
+## Webhooks
+
+### GET `/webhooks`
+
+Returns webhook dispatcher status, queue usage, delivery metrics, and recent events. Returns `{"enabled": false}` when webhooks are not configured.
+
+```bash
+curl http://localhost:8081/webhooks
+```
+
+**Response:**
+```json
+{
+  "enabled": true,
+  "endpoints": 2,
+  "queue_size": 1000,
+  "queue_used": 0,
+  "metrics": {
+    "total_emitted": 42,
+    "total_delivered": 40,
+    "total_failed": 1,
+    "total_dropped": 0,
+    "total_retries": 3
+  },
+  "recent_events": []
+}
+```
+
 ## Key Config Fields
 
 | Field | Type | Description |

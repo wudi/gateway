@@ -36,6 +36,7 @@ import (
 	"github.com/example/gateway/internal/rules"
 	"github.com/example/gateway/internal/trafficshape"
 	"github.com/example/gateway/internal/variables"
+	"github.com/example/gateway/internal/webhook"
 	"github.com/example/gateway/internal/websocket"
 	"go.uber.org/zap"
 )
@@ -159,6 +160,18 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		&accessLogFeature{s.accessLogConfigs},
 		&openapiFeature{s.openapiValidators},
 		&timeoutFeature{s.timeoutConfigs},
+	}
+
+	// Wire webhook callbacks on new state's managers
+	if g.webhookDispatcher != nil {
+		s.circuitBreakers.SetOnStateChange(func(routeID, from, to string) {
+			g.webhookDispatcher.Emit(webhook.NewEvent(webhook.CircuitBreakerStateChange, routeID, map[string]interface{}{
+				"from": from, "to": to,
+			}))
+		})
+		s.canaryControllers.SetOnEvent(func(routeID, eventType string, data map[string]interface{}) {
+			g.webhookDispatcher.Emit(webhook.NewEvent(webhook.EventType(eventType), routeID, data))
+		})
 	}
 
 	// Initialize global IP filter
@@ -520,6 +533,11 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	newState, err := g.buildState(newCfg)
 	if err != nil {
 		result.Error = err.Error()
+		if g.webhookDispatcher != nil {
+			g.webhookDispatcher.Emit(webhook.NewEvent(webhook.ConfigReloadFailure, "", map[string]interface{}{
+				"error": err.Error(),
+			}))
+		}
 		return result
 	}
 
@@ -587,6 +605,14 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	oldAdaptiveLimiters.StopAll()
 	if oldJWT != nil {
 		oldJWT.Close()
+	}
+
+	// Update webhook endpoints and emit success event
+	if g.webhookDispatcher != nil {
+		g.webhookDispatcher.UpdateEndpoints(newCfg.Webhooks.Endpoints)
+		g.webhookDispatcher.Emit(webhook.NewEvent(webhook.ConfigReloadSuccess, "", map[string]interface{}{
+			"changes": result.Changes,
+		}))
 	}
 
 	result.Success = true

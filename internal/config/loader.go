@@ -676,6 +676,74 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate webhooks
+	if cfg.Webhooks.Enabled {
+		if len(cfg.Webhooks.Endpoints) == 0 {
+			return fmt.Errorf("webhooks: enabled requires at least one endpoint")
+		}
+		webhookIDs := make(map[string]bool)
+		validEventPrefixes := map[string]bool{
+			"backend.":         true,
+			"circuit_breaker.": true,
+			"canary.":          true,
+			"config.":          true,
+		}
+		for i, ep := range cfg.Webhooks.Endpoints {
+			if ep.ID == "" {
+				return fmt.Errorf("webhooks: endpoint %d: id is required", i)
+			}
+			if webhookIDs[ep.ID] {
+				return fmt.Errorf("webhooks: duplicate endpoint id: %s", ep.ID)
+			}
+			webhookIDs[ep.ID] = true
+			if ep.URL == "" {
+				return fmt.Errorf("webhooks: endpoint %s: url is required", ep.ID)
+			}
+			if !strings.HasPrefix(ep.URL, "http://") && !strings.HasPrefix(ep.URL, "https://") {
+				return fmt.Errorf("webhooks: endpoint %s: url must start with http:// or https://", ep.ID)
+			}
+			if len(ep.Events) == 0 {
+				return fmt.Errorf("webhooks: endpoint %s: events is required", ep.ID)
+			}
+			for _, evt := range ep.Events {
+				if evt == "*" {
+					continue
+				}
+				valid := false
+				for prefix := range validEventPrefixes {
+					if strings.HasPrefix(evt, prefix) {
+						valid = true
+						break
+					}
+				}
+				if !valid {
+					return fmt.Errorf("webhooks: endpoint %s: invalid event pattern %q (must start with backend., circuit_breaker., canary., config., or be *)", ep.ID, evt)
+				}
+			}
+		}
+		if cfg.Webhooks.Timeout < 0 {
+			return fmt.Errorf("webhooks: timeout must be >= 0")
+		}
+		if cfg.Webhooks.Workers < 0 {
+			return fmt.Errorf("webhooks: workers must be >= 0")
+		}
+		if cfg.Webhooks.QueueSize < 0 {
+			return fmt.Errorf("webhooks: queue_size must be >= 0")
+		}
+		if cfg.Webhooks.Retry.MaxRetries < 0 {
+			return fmt.Errorf("webhooks: retry.max_retries must be >= 0")
+		}
+		if cfg.Webhooks.Retry.Backoff < 0 {
+			return fmt.Errorf("webhooks: retry.backoff must be >= 0")
+		}
+		if cfg.Webhooks.Retry.MaxBackoff < 0 {
+			return fmt.Errorf("webhooks: retry.max_backoff must be >= 0")
+		}
+		if cfg.Webhooks.Retry.MaxBackoff > 0 && cfg.Webhooks.Retry.Backoff > 0 && cfg.Webhooks.Retry.MaxBackoff < cfg.Webhooks.Retry.Backoff {
+			return fmt.Errorf("webhooks: retry.max_backoff must be >= retry.backoff")
+		}
+	}
+
 	return nil
 }
 

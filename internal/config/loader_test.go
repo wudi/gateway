@@ -1553,3 +1553,185 @@ routes:
 		})
 	}
 }
+
+func TestLoaderValidateWebhooks(t *testing.T) {
+	base := `
+listeners:
+  - id: default
+    address: ":8080"
+    protocol: http
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:8080
+`
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+	}{
+		{
+			name: "valid config",
+			yaml: base + `
+webhooks:
+  enabled: true
+  timeout: 5s
+  workers: 4
+  queue_size: 1000
+  retry:
+    max_retries: 3
+    backoff: 1s
+    max_backoff: 30s
+  endpoints:
+    - id: alerts
+      url: https://hooks.example.com/gateway
+      secret: whsec_abc123
+      events:
+        - "backend.unhealthy"
+        - "circuit_breaker.state_change"
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid wildcard events",
+			yaml: base + `
+webhooks:
+  enabled: true
+  endpoints:
+    - id: all
+      url: https://hooks.example.com/all
+      events:
+        - "*"
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid prefix wildcard",
+			yaml: base + `
+webhooks:
+  enabled: true
+  endpoints:
+    - id: canary-watcher
+      url: https://hooks.example.com/canary
+      events:
+        - "canary.*"
+        - "config.*"
+`,
+			wantErr: false,
+		},
+		{
+			name: "missing endpoints",
+			yaml: base + `
+webhooks:
+  enabled: true
+`,
+			wantErr: true,
+		},
+		{
+			name: "missing endpoint id",
+			yaml: base + `
+webhooks:
+  enabled: true
+  endpoints:
+    - url: https://hooks.example.com
+      events:
+        - "*"
+`,
+			wantErr: true,
+		},
+		{
+			name: "duplicate endpoint id",
+			yaml: base + `
+webhooks:
+  enabled: true
+  endpoints:
+    - id: dup
+      url: https://hooks.example.com/1
+      events:
+        - "*"
+    - id: dup
+      url: https://hooks.example.com/2
+      events:
+        - "*"
+`,
+			wantErr: true,
+		},
+		{
+			name: "missing url",
+			yaml: base + `
+webhooks:
+  enabled: true
+  endpoints:
+    - id: test
+      events:
+        - "*"
+`,
+			wantErr: true,
+		},
+		{
+			name: "invalid url scheme",
+			yaml: base + `
+webhooks:
+  enabled: true
+  endpoints:
+    - id: test
+      url: ftp://example.com
+      events:
+        - "*"
+`,
+			wantErr: true,
+		},
+		{
+			name: "missing events",
+			yaml: base + `
+webhooks:
+  enabled: true
+  endpoints:
+    - id: test
+      url: https://example.com
+`,
+			wantErr: true,
+		},
+		{
+			name: "invalid event prefix",
+			yaml: base + `
+webhooks:
+  enabled: true
+  endpoints:
+    - id: test
+      url: https://example.com
+      events:
+        - "invalid.event"
+`,
+			wantErr: true,
+		},
+		{
+			name: "negative timeout",
+			yaml: base + `
+webhooks:
+  enabled: true
+  timeout: -1s
+  endpoints:
+    - id: test
+      url: https://example.com
+      events:
+        - "*"
+`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}

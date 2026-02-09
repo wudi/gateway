@@ -9,7 +9,7 @@ import (
 )
 
 func TestNewBreakerDefaults(t *testing.T) {
-	b := NewBreaker(config.CircuitBreakerConfig{})
+	b := NewBreaker(config.CircuitBreakerConfig{}, nil)
 
 	snap := b.Snapshot()
 	if snap.State != "closed" {
@@ -27,7 +27,7 @@ func TestBreakerClosedToOpen(t *testing.T) {
 	b := NewBreaker(config.CircuitBreakerConfig{
 		FailureThreshold: 3,
 		Timeout:          1 * time.Second,
-	})
+	}, nil)
 
 	// First 2 failures: still closed
 	for i := 0; i < 2; i++ {
@@ -60,7 +60,7 @@ func TestBreakerOpenRejectsRequests(t *testing.T) {
 	b := NewBreaker(config.CircuitBreakerConfig{
 		FailureThreshold: 1,
 		Timeout:          10 * time.Second,
-	})
+	}, nil)
 
 	// Trip the breaker
 	done, _ := b.Allow()
@@ -78,7 +78,7 @@ func TestBreakerOpenToHalfOpen(t *testing.T) {
 		FailureThreshold: 1,
 		Timeout:          50 * time.Millisecond,
 		MaxRequests:      1,
-	})
+	}, nil)
 
 	// Trip the breaker
 	done, _ := b.Allow()
@@ -104,7 +104,7 @@ func TestBreakerHalfOpenLimitsRequests(t *testing.T) {
 		FailureThreshold: 1,
 		Timeout:          50 * time.Millisecond,
 		MaxRequests:      1,
-	})
+	}, nil)
 
 	// Trip the breaker
 	done, _ := b.Allow()
@@ -131,7 +131,7 @@ func TestBreakerHalfOpenToClosed(t *testing.T) {
 		FailureThreshold: 1,
 		MaxRequests:      2,
 		Timeout:          50 * time.Millisecond,
-	})
+	}, nil)
 
 	// Trip the breaker
 	done, _ := b.Allow()
@@ -157,7 +157,7 @@ func TestBreakerHalfOpenToOpen(t *testing.T) {
 		FailureThreshold: 1,
 		Timeout:          50 * time.Millisecond,
 		MaxRequests:      2,
-	})
+	}, nil)
 
 	// Trip the breaker
 	done, _ := b.Allow()
@@ -180,7 +180,7 @@ func TestBreakerSuccessResetsClosed(t *testing.T) {
 	b := NewBreaker(config.CircuitBreakerConfig{
 		FailureThreshold: 3,
 		Timeout:          1 * time.Second,
-	})
+	}, nil)
 
 	// 2 failures
 	done, _ := b.Allow()
@@ -208,7 +208,7 @@ func TestBreakerMetrics(t *testing.T) {
 	b := NewBreaker(config.CircuitBreakerConfig{
 		FailureThreshold: 2,
 		Timeout:          10 * time.Second,
-	})
+	}, nil)
 
 	done, _ := b.Allow()
 	done(nil)

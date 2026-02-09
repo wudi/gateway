@@ -49,6 +49,7 @@ import (
 	"github.com/example/gateway/internal/router"
 	"github.com/example/gateway/internal/tracing"
 	"github.com/example/gateway/internal/variables"
+	"github.com/example/gateway/internal/webhook"
 	"github.com/example/gateway/internal/websocket"
 )
 
@@ -102,6 +103,7 @@ type Gateway struct {
 	accessLogConfigs       *accesslog.AccessLogByRoute
 	openapiValidators      *openapivalidation.OpenAPIByRoute
 	timeoutConfigs         *timeout.TimeoutByRoute
+	webhookDispatcher      *webhook.Dispatcher
 
 	features []Feature
 
@@ -244,6 +246,23 @@ func New(cfg *config.Config) (*Gateway, error) {
 		g.caches.SetRedisClient(g.redisClient)
 	}
 
+	// Initialize webhook dispatcher if enabled
+	if cfg.Webhooks.Enabled {
+		g.webhookDispatcher = webhook.NewDispatcher(cfg.Webhooks)
+
+		// Wire circuit breaker state change callback
+		g.circuitBreakers.SetOnStateChange(func(routeID, from, to string) {
+			g.webhookDispatcher.Emit(webhook.NewEvent(webhook.CircuitBreakerStateChange, routeID, map[string]interface{}{
+				"from": from, "to": to,
+			}))
+		})
+
+		// Wire canary event callback
+		g.canaryControllers.SetOnEvent(func(routeID, eventType string, data map[string]interface{}) {
+			g.webhookDispatcher.Emit(webhook.NewEvent(webhook.EventType(eventType), routeID, data))
+		})
+	}
+
 	// Initialize health checker
 	g.healthChecker = health.NewChecker(health.Config{
 		OnChange: func(url string, status health.Status) {
@@ -252,6 +271,20 @@ func New(cfg *config.Config) (*Gateway, error) {
 				zap.String("status", string(status)),
 			)
 			g.updateBackendHealth(url, status)
+
+			// Emit webhook event for backend health changes
+			if g.webhookDispatcher != nil {
+				var eventType webhook.EventType
+				if status == health.StatusHealthy {
+					eventType = webhook.BackendHealthy
+				} else {
+					eventType = webhook.BackendUnhealthy
+				}
+				g.webhookDispatcher.Emit(webhook.NewEvent(eventType, "", map[string]interface{}{
+					"url":    url,
+					"status": string(status),
+				}))
+			}
 		},
 	})
 
@@ -944,6 +977,11 @@ func (g *Gateway) Close() error {
 		g.redisClient.Close()
 	}
 
+	// Close webhook dispatcher
+	if g.webhookDispatcher != nil {
+		g.webhookDispatcher.Close()
+	}
+
 	// Stop canary controllers
 	g.canaryControllers.StopAll()
 
@@ -1106,6 +1144,11 @@ func (g *Gateway) GetOpenAPIValidators() *openapivalidation.OpenAPIByRoute {
 // GetTimeoutConfigs returns the timeout config manager.
 func (g *Gateway) GetTimeoutConfigs() *timeout.TimeoutByRoute {
 	return g.timeoutConfigs
+}
+
+// GetWebhookDispatcher returns the webhook dispatcher (may be nil).
+func (g *Gateway) GetWebhookDispatcher() *webhook.Dispatcher {
+	return g.webhookDispatcher
 }
 
 // GetLoadBalancerInfo returns per-route load balancer algorithm and stats.
