@@ -13,6 +13,7 @@ import (
 	"github.com/example/gateway/internal/middleware/extauth"
 	"github.com/example/gateway/internal/middleware/ipfilter"
 	"github.com/example/gateway/internal/middleware/openapi"
+	"github.com/example/gateway/internal/middleware/timeout"
 	"github.com/example/gateway/internal/middleware/validation"
 	"github.com/example/gateway/internal/middleware/versioning"
 	"github.com/example/gateway/internal/middleware/waf"
@@ -339,3 +340,16 @@ func (f *openapiFeature) Setup(routeID string, cfg config.RouteConfig) error {
 }
 func (f *openapiFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *openapiFeature) AdminStats() any     { return f.m.Stats() }
+
+// timeoutFeature wraps TimeoutByRoute.
+type timeoutFeature struct{ m *timeout.TimeoutByRoute }
+
+func (f *timeoutFeature) Name() string { return "timeout" }
+func (f *timeoutFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.TimeoutPolicy.IsActive() {
+		f.m.AddRoute(routeID, cfg.TimeoutPolicy)
+	}
+	return nil
+}
+func (f *timeoutFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *timeoutFeature) AdminStats() any     { return f.m.Stats() }

@@ -22,6 +22,7 @@ import (
 	"github.com/example/gateway/internal/middleware/ipfilter"
 	"github.com/example/gateway/internal/middleware/ratelimit"
 	openapivalidation "github.com/example/gateway/internal/middleware/openapi"
+	"github.com/example/gateway/internal/middleware/timeout"
 	"github.com/example/gateway/internal/middleware/validation"
 	"github.com/example/gateway/internal/middleware/versioning"
 	"github.com/example/gateway/internal/middleware/waf"
@@ -81,6 +82,7 @@ type gatewayState struct {
 	versioners           *versioning.VersioningByRoute
 	accessLogConfigs     *accesslog.AccessLogByRoute
 	openapiValidators    *openapivalidation.OpenAPIByRoute
+	timeoutConfigs       *timeout.TimeoutByRoute
 	translators          *protocol.TranslatorByRoute
 	rateLimiters      *ratelimit.RateLimitByRoute
 	grpcHandlers      map[string]*grpcproxy.Handler
@@ -122,6 +124,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		versioners:         versioning.NewVersioningByRoute(),
 		accessLogConfigs:   accesslog.NewAccessLogByRoute(),
 		openapiValidators: openapivalidation.NewOpenAPIByRoute(),
+		timeoutConfigs:    timeout.NewTimeoutByRoute(),
 		translators:        protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
 		grpcHandlers:      make(map[string]*grpcproxy.Handler),
@@ -155,6 +158,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		&versioningFeature{s.versioners},
 		&accessLogFeature{s.accessLogConfigs},
 		&openapiFeature{s.openapiValidators},
+		&timeoutFeature{s.timeoutConfigs},
 	}
 
 	// Initialize global IP filter
@@ -332,6 +336,11 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 		}
 	}
 
+	// Override per-try timeout with backend timeout when configured
+	if routeCfg.TimeoutPolicy.Backend > 0 {
+		s.routeProxies[routeCfg.ID].SetPerTryTimeout(routeCfg.TimeoutPolicy.Backend)
+	}
+
 	// Canary setup (needs WeightedBalancer)
 	if routeCfg.Canary.Enabled {
 		if wb, ok := s.routeProxies[routeCfg.ID].GetBalancer().(*loadbalancer.WeightedBalancer); ok {
@@ -434,6 +443,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldVersioners := g.versioners
 	oldAccessLogConfigs := g.accessLogConfigs
 	oldOpenAPIValidators := g.openapiValidators
+	oldTimeoutConfigs := g.timeoutConfigs
 
 	// Install new state
 	g.ipFilters = s.ipFilters
@@ -463,6 +473,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.versioners = s.versioners
 	g.accessLogConfigs = s.accessLogConfigs
 	g.openapiValidators = s.openapiValidators
+	g.timeoutConfigs = s.timeoutConfigs
 
 	handler := g.buildRouteHandler(routeID, cfg, route, rp)
 
@@ -494,6 +505,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.versioners = oldVersioners
 	g.accessLogConfigs = oldAccessLogConfigs
 	g.openapiValidators = oldOpenAPIValidators
+	g.timeoutConfigs = oldTimeoutConfigs
 
 	return handler
 }
@@ -556,6 +568,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.versioners = newState.versioners
 	g.accessLogConfigs = newState.accessLogConfigs
 	g.openapiValidators = newState.openapiValidators
+	g.timeoutConfigs = newState.timeoutConfigs
 	g.translators = newState.translators
 	g.rateLimiters = newState.rateLimiters
 	g.grpcHandlers = newState.grpcHandlers

@@ -292,8 +292,15 @@ type HedgingConfig struct {
 
 // TimeoutConfig defines timeout policy settings
 type TimeoutConfig struct {
-	Request time.Duration `yaml:"request"`
-	Idle    time.Duration `yaml:"idle"`
+	Request       time.Duration `yaml:"request"`
+	Idle          time.Duration `yaml:"idle"`
+	Backend       time.Duration `yaml:"backend"`
+	HeaderTimeout time.Duration `yaml:"header_timeout"`
+}
+
+// IsActive returns true if any timeout is configured.
+func (c TimeoutConfig) IsActive() bool {
+	return c.Request > 0 || c.Idle > 0 || c.Backend > 0 || c.HeaderTimeout > 0
 }
 
 // CircuitBreakerConfig defines circuit breaker settings

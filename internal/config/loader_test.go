@@ -1481,3 +1481,75 @@ routes:
 		})
 	}
 }
+
+func TestLoaderValidateTimeoutPolicy(t *testing.T) {
+	base := func(tp string) string {
+		return `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /api
+    backends:
+      - url: http://localhost:9000
+    timeout_policy:
+` + tp
+	}
+
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+	}{
+		{
+			name:    "valid full config",
+			yaml:    base("      request: 30s\n      backend: 5s\n      header_timeout: 3s\n      idle: 60s"),
+			wantErr: false,
+		},
+		{
+			name:    "empty config is valid",
+			yaml:    base("      {}"),
+			wantErr: false,
+		},
+		{
+			name:    "backend > request",
+			yaml:    base("      request: 5s\n      backend: 10s"),
+			wantErr: true,
+		},
+		{
+			name:    "header_timeout > backend",
+			yaml:    base("      request: 30s\n      backend: 5s\n      header_timeout: 10s"),
+			wantErr: true,
+		},
+		{
+			name:    "header_timeout > request when no backend",
+			yaml:    base("      request: 5s\n      header_timeout: 10s"),
+			wantErr: true,
+		},
+		{
+			name:    "header_timeout alone is valid",
+			yaml:    base("      header_timeout: 3s"),
+			wantErr: false,
+		},
+		{
+			name:    "backend alone is valid",
+			yaml:    base("      backend: 5s"),
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}

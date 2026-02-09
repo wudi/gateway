@@ -461,6 +461,9 @@ func (s *Server) adminHandler() http.Handler {
 	// OpenAPI validation stats
 	mux.HandleFunc("/openapi", s.handleOpenAPI)
 
+	// Timeout policies
+	mux.HandleFunc("/timeouts", s.handleTimeouts)
+
 	// Canary deployments
 	mux.HandleFunc("/canary", s.handleCanary)
 	mux.HandleFunc("/canary/", s.handleCanaryAction)
@@ -933,6 +936,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["openapi"] = openapiStats
 	}
 
+	// Timeout policies
+	if timeoutStats := s.gateway.GetTimeoutConfigs().Stats(); len(timeoutStats) > 0 {
+		dashboard["timeouts"] = timeoutStats
+	}
+
 	// Tracing
 	if tracer := s.gateway.GetTracer(); tracer != nil {
 		dashboard["tracing"] = tracer.Status()
@@ -1039,6 +1047,12 @@ func (s *Server) handleAccessLog(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.gateway.GetOpenAPIValidators().Stats())
+}
+
+// handleTimeouts handles timeout policy stats requests.
+func (s *Server) handleTimeouts(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetTimeoutConfigs().Stats())
 }
 
 // handleCanary lists all canary deployments with status.

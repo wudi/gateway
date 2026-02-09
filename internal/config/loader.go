@@ -646,6 +646,34 @@ func (l *Loader) validate(cfg *Config) error {
 		if route.Validation.ResponseSchema != "" && route.Validation.ResponseSchemaFile != "" {
 			return fmt.Errorf("route %s: validation response_schema and response_schema_file are mutually exclusive", route.ID)
 		}
+
+		// Validate timeout policy
+		if route.TimeoutPolicy.IsActive() {
+			if route.TimeoutPolicy.Request < 0 {
+				return fmt.Errorf("route %s: timeout_policy.request must be >= 0", route.ID)
+			}
+			if route.TimeoutPolicy.Idle < 0 {
+				return fmt.Errorf("route %s: timeout_policy.idle must be >= 0", route.ID)
+			}
+			if route.TimeoutPolicy.Backend < 0 {
+				return fmt.Errorf("route %s: timeout_policy.backend must be >= 0", route.ID)
+			}
+			if route.TimeoutPolicy.HeaderTimeout < 0 {
+				return fmt.Errorf("route %s: timeout_policy.header_timeout must be >= 0", route.ID)
+			}
+			if route.TimeoutPolicy.Backend > 0 && route.TimeoutPolicy.Request > 0 && route.TimeoutPolicy.Backend > route.TimeoutPolicy.Request {
+				return fmt.Errorf("route %s: timeout_policy.backend must be <= timeout_policy.request", route.ID)
+			}
+			if route.TimeoutPolicy.HeaderTimeout > 0 {
+				limit := route.TimeoutPolicy.Backend
+				if limit <= 0 {
+					limit = route.TimeoutPolicy.Request
+				}
+				if limit > 0 && route.TimeoutPolicy.HeaderTimeout > limit {
+					return fmt.Errorf("route %s: timeout_policy.header_timeout must be <= backend (or request) timeout", route.ID)
+				}
+			}
+		}
 	}
 
 	return nil

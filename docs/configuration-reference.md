@@ -197,9 +197,13 @@ routes:
 
 ```yaml
     timeout_policy:
-      request: duration
-      idle: duration
+      request: duration        # total end-to-end request timeout
+      backend: duration        # per-backend-call timeout
+      header_timeout: duration # timeout for response headers
+      idle: duration           # idle timeout for response body streaming
 ```
+
+**Validation:** All durations must be >= 0. `backend` must be <= `request` when both are set. `header_timeout` must be <= `backend` (or `request` if no `backend`) when both are set.
 
 ### Circuit Breaker
 

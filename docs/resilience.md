@@ -82,7 +82,7 @@ The circuit breaker operates after the cache check — a cache hit never touches
 
 ## Timeouts
 
-Set per-route request and idle timeouts:
+Set per-route timeout policies with four levels of control:
 
 ```yaml
 routes:
@@ -91,12 +91,33 @@ routes:
     path_prefix: true
     backends:
       - url: "http://backend:9000"
-    timeout: 30s              # simple request timeout
-    # Or use timeout_policy for more control:
+    timeout: 30s              # simple request timeout (legacy)
+    # Or use timeout_policy for comprehensive control:
     timeout_policy:
-      request: 30s            # total request timeout
-      idle: 60s               # idle connection timeout
+      request: 30s            # total end-to-end request timeout
+      backend: 5s             # per-backend-call timeout (each attempt)
+      header_timeout: 3s      # timeout waiting for response headers
+      idle: 60s               # idle timeout for response body streaming
+    retry_policy:
+      max_retries: 3          # each attempt gets 5s (backend), total capped at 30s
 ```
+
+### Timeout Fields
+
+- **`request`** — Total end-to-end timeout for the entire request lifecycle. The timeout middleware sets a context deadline before the request enters the middleware chain. Any 504 response includes a `Retry-After` header.
+- **`backend`** — Per-backend-call timeout. When retries are configured, each attempt is individually capped at this duration. When `retry_policy.per_try_timeout` is also set, `backend` takes precedence.
+- **`header_timeout`** — Maximum time to wait for response headers from the backend. This is enforced as part of the backend timeout via `http.Transport` semantics.
+- **`idle`** — Idle timeout for response body streaming. If no data is received from the backend for this duration during body transfer, the connection is terminated with `context.DeadlineExceeded`.
+
+### Interactions with Retries
+
+When both `timeout_policy.backend` and `retry_policy` are configured, each retry attempt is individually subject to the backend timeout, while the overall request timeout caps the total time across all attempts. For example, with `request: 30s`, `backend: 5s`, and `max_retries: 3`, the gateway allows up to 4 attempts (1 original + 3 retries) of 5s each, all within the 30s request deadline.
+
+### Validation
+
+- All timeout durations must be >= 0
+- `backend` must be <= `request` when both are set
+- `header_timeout` must be <= `backend` (or `request` if no backend) when both are set
 
 ## Key Config Fields
 
@@ -109,5 +130,9 @@ routes:
 | `retry_policy.hedging.delay` | duration | Wait before hedged request |
 | `circuit_breaker.failure_threshold` | int | Failures before circuit opens |
 | `circuit_breaker.timeout` | duration | Time in open state before half-open |
+| `timeout_policy.request` | duration | Total end-to-end request timeout |
+| `timeout_policy.backend` | duration | Per-backend-call timeout |
+| `timeout_policy.header_timeout` | duration | Response header timeout |
+| `timeout_policy.idle` | duration | Streaming idle timeout |
 
 See [Configuration Reference](configuration-reference.md#routes) for all fields.

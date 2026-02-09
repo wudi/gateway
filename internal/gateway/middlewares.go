@@ -12,6 +12,7 @@ import (
 	"github.com/example/gateway/internal/cache"
 	"github.com/example/gateway/internal/middleware/accesslog"
 	"github.com/example/gateway/internal/middleware/extauth"
+	"github.com/example/gateway/internal/middleware/timeout"
 	"github.com/example/gateway/internal/middleware/versioning"
 	"github.com/example/gateway/internal/canary"
 	"github.com/example/gateway/internal/circuitbreaker"
@@ -642,6 +643,11 @@ func accessLogMW(cfg *accesslog.CompiledAccessLog) middleware.Middleware {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// timeoutMW applies a request-level context deadline and injects Retry-After on 504.
+func timeoutMW(ct *timeout.CompiledTimeout) middleware.Middleware {
+	return ct.Middleware()
 }
 
 // openapiRequestMW validates requests against an OpenAPI spec.

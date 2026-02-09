@@ -87,16 +87,20 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 		varCtx := variables.GetFromRequest(r)
 		varCtx.RouteID = route.ID
 
-		// Set timeout
-		timeout := p.defaultTimeout
-		if route.TimeoutPolicy.Request > 0 {
-			timeout = route.TimeoutPolicy.Request
-		} else if route.Timeout > 0 {
-			timeout = time.Duration(route.Timeout)
+		// Set timeout: only create a new context deadline if the incoming context
+		// has none (i.e., no timeout middleware already set one).
+		ctx := r.Context()
+		if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+			timeout := p.defaultTimeout
+			if route.TimeoutPolicy.Request > 0 {
+				timeout = route.TimeoutPolicy.Request
+			} else if route.Timeout > 0 {
+				timeout = time.Duration(route.Timeout)
+			}
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, timeout)
+			defer cancel()
 		}
-
-		ctx, cancel := context.WithTimeout(r.Context(), timeout)
-		defer cancel()
 
 		start := time.Now()
 		var resp *http.Response
@@ -180,6 +184,12 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 			if retryPolicy != nil {
 				resp, err = retryPolicy.Execute(ctx, p.transport, proxyReq)
 			} else {
+				// Apply backend timeout for non-retry path
+				if route.TimeoutPolicy.Backend > 0 {
+					tryCtx, tryCancel := context.WithTimeout(ctx, route.TimeoutPolicy.Backend)
+					defer tryCancel()
+					proxyReq = proxyReq.WithContext(tryCtx)
+				}
 				resp, err = p.transport.RoundTrip(proxyReq)
 			}
 		}
@@ -197,6 +207,11 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 			return
 		}
 		defer resp.Body.Close()
+
+		// Wrap response body with idle timeout reader if configured
+		if route.TimeoutPolicy.Idle > 0 {
+			resp.Body = newIdleTimeoutReader(resp.Body, route.TimeoutPolicy.Idle)
+		}
 
 		varCtx.UpstreamStatus = resp.StatusCode
 
@@ -432,6 +447,14 @@ func (rp *RouteProxy) UpdateBackends(backends []*loadbalancer.Backend) {
 // GetBalancer returns the load balancer
 func (rp *RouteProxy) GetBalancer() loadbalancer.Balancer {
 	return rp.balancer
+}
+
+// SetPerTryTimeout overrides the per-try timeout on the retry policy.
+// This is safe because the handler closure captures the *retry.Policy pointer.
+func (rp *RouteProxy) SetPerTryTimeout(d time.Duration) {
+	if rp.retryPolicy != nil {
+		rp.retryPolicy.PerTryTimeout = d
+	}
 }
 
 // GetRetryMetrics returns the retry metrics for this route (may be nil)

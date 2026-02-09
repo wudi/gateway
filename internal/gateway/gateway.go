@@ -31,6 +31,7 @@ import (
 	"github.com/example/gateway/internal/middleware/transform"
 	openapivalidation "github.com/example/gateway/internal/middleware/openapi"
 	"github.com/example/gateway/internal/middleware/validation"
+	"github.com/example/gateway/internal/middleware/timeout"
 	"github.com/example/gateway/internal/middleware/versioning"
 	"github.com/example/gateway/internal/middleware/waf"
 	"github.com/example/gateway/internal/mirror"
@@ -100,6 +101,7 @@ type Gateway struct {
 	versioners             *versioning.VersioningByRoute
 	accessLogConfigs       *accesslog.AccessLogByRoute
 	openapiValidators      *openapivalidation.OpenAPIByRoute
+	timeoutConfigs         *timeout.TimeoutByRoute
 
 	features []Feature
 
@@ -166,6 +168,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		versioners:         versioning.NewVersioningByRoute(),
 		accessLogConfigs:   accesslog.NewAccessLogByRoute(),
 		openapiValidators: openapivalidation.NewOpenAPIByRoute(),
+		timeoutConfigs:    timeout.NewTimeoutByRoute(),
 		routeProxies:      make(map[string]*proxy.RouteProxy),
 		routeHandlers:    make(map[string]http.Handler),
 		watchCancels:     make(map[string]context.CancelFunc),
@@ -199,6 +202,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&versioningFeature{g.versioners},
 		&accessLogFeature{g.accessLogConfigs},
 		&openapiFeature{g.openapiValidators},
+		&timeoutFeature{g.timeoutConfigs},
 	}
 
 	// Initialize global IP filter
@@ -481,6 +485,11 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 		}
 	}
 
+	// Override per-try timeout with backend timeout when configured
+	if routeCfg.TimeoutPolicy.Backend > 0 {
+		g.routeProxies[routeCfg.ID].SetPerTryTimeout(routeCfg.TimeoutPolicy.Backend)
+	}
+
 	// Set up canary controller (needs WeightedBalancer, only available after route proxy creation)
 	if routeCfg.Canary.Enabled {
 		if wb, ok := g.routeProxies[routeCfg.ID].GetBalancer().(*loadbalancer.WeightedBalancer); ok {
@@ -548,6 +557,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 	// 4.5. versioningMW — detect version, strip prefix, deprecation headers
 	if ver := g.versioners.GetVersioner(routeID); ver != nil {
 		chain = chain.Use(versioningMW(ver))
+	}
+
+	// 4.75. timeoutMW — request-level context deadline + Retry-After on 504
+	if ct := g.timeoutConfigs.GetTimeout(routeID); ct != nil {
+		chain = chain.Use(timeoutMW(ct))
 	}
 
 	// 5. rateLimitMW — per-route limiter (local or distributed)
@@ -1087,6 +1101,11 @@ func (g *Gateway) GetAccessLogConfigs() *accesslog.AccessLogByRoute {
 // GetOpenAPIValidators returns the OpenAPI validator manager.
 func (g *Gateway) GetOpenAPIValidators() *openapivalidation.OpenAPIByRoute {
 	return g.openapiValidators
+}
+
+// GetTimeoutConfigs returns the timeout config manager.
+func (g *Gateway) GetTimeoutConfigs() *timeout.TimeoutByRoute {
+	return g.timeoutConfigs
 }
 
 // GetLoadBalancerInfo returns per-route load balancer algorithm and stats.

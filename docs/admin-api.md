@@ -111,6 +111,7 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /versioning` | API versioning stats per route (source, default version, per-version request counts, deprecation info) |
 | `GET /access-log` | Per-route access log config status (enabled, format, body capture, conditions) |
 | `GET /openapi` | OpenAPI validation stats per route (spec, operation, request/response validation, metrics) |
+| `GET /timeouts` | Per-route timeout policy config and metrics (request/backend/idle/header timeouts, timeout counts) |
 
 ### Example: Querying Feature Endpoints
 
