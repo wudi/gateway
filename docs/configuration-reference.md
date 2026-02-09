@@ -336,9 +336,28 @@ See [Canary Deployments](canary-deployments.md) for full documentation.
 ```yaml
     validation:
       enabled: bool
-      schema: string          # inline JSON schema
-      schema_file: string     # path to JSON schema file
+      schema: string               # inline JSON schema
+      schema_file: string          # path to JSON schema file
+      response_schema: string      # inline JSON schema for response validation
+      response_schema_file: string # path to response JSON schema file
+      log_only: bool               # log validation errors instead of rejecting (default false)
 ```
+
+**Validation:** `schema` and `schema_file` are mutually exclusive. `response_schema` and `response_schema_file` are mutually exclusive. Uses `santhosh-tekuri/jsonschema/v6` for full JSON Schema support (draft 4/6/7/2019-09/2020-12) including `minLength`, `pattern`, `enum`, `$ref`, `oneOf`/`anyOf`/`allOf`.
+
+### OpenAPI Validation (per-route)
+
+```yaml
+    openapi:
+      spec_file: string        # path to OpenAPI 3.x spec file
+      spec_id: string          # reference to top-level spec by ID (mutually exclusive with spec_file)
+      operation_id: string     # specific operation to validate against
+      validate_request: bool   # validate requests (default true)
+      validate_response: bool  # validate responses (default false)
+      log_only: bool           # log errors instead of rejecting (default false)
+```
+
+**Validation:** `spec_file` and `spec_id` are mutually exclusive. When `spec_id` is used, the ID must reference a spec defined in the top-level `openapi.specs` section.
 
 ### Traffic Split
 
@@ -703,6 +722,28 @@ traffic_shaping:
     smoothing_factor: float   # default 0.5, 0 < x < 1
     min_latency_samples: int  # default 25
 ```
+
+---
+
+## OpenAPI
+
+```yaml
+openapi:
+  specs:
+    - id: string                # required, unique identifier for spec
+      file: string              # required, path to OpenAPI 3.x spec file
+      default_backends:         # required, backends for generated routes
+        - url: string
+          weight: int
+      route_prefix: string      # prefix prepended to all paths (e.g., "/api")
+      strip_prefix: bool        # strip route_prefix before proxying
+      validation:
+        request: bool           # validate requests (default true)
+        response: bool          # validate responses (default false)
+        log_only: bool          # log errors instead of rejecting (default false)
+```
+
+**Validation:** Each spec requires `id` (unique), `file`, and non-empty `default_backends`. Routes are auto-generated at config load time from each spec's paths and operations.
 
 ---
 

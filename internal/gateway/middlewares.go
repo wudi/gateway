@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -26,6 +27,7 @@ import (
 	"github.com/example/gateway/internal/middleware/ratelimit"
 	"github.com/example/gateway/internal/middleware/transform"
 	"github.com/example/gateway/internal/middleware/waf"
+	openapivalidation "github.com/example/gateway/internal/middleware/openapi"
 	"github.com/example/gateway/internal/middleware/validation"
 	"github.com/example/gateway/internal/mirror"
 	grpcproxy "github.com/example/gateway/internal/proxy/grpc"
@@ -640,6 +642,145 @@ func accessLogMW(cfg *accesslog.CompiledAccessLog) middleware.Middleware {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// openapiRequestMW validates requests against an OpenAPI spec.
+func openapiRequestMW(ov *openapivalidation.CompiledOpenAPI) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			varCtx := variables.GetFromRequest(r)
+			if err := ov.ValidateRequest(r, varCtx.PathParams); err != nil {
+				if ov.IsLogOnly() {
+					// Log and continue
+					next.ServeHTTP(w, r)
+					return
+				}
+				validation.RejectValidation(w, err)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// responseValidationMW validates backend responses against standalone and/or OpenAPI schemas.
+// It buffers the response body (up to maxValidationBody) and validates before sending to client.
+func responseValidationMW(v *validation.Validator, ov *openapivalidation.CompiledOpenAPI) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			vw := &validatingResponseWriter{
+				ResponseWriter: w,
+				maxSize:        1 << 20, // 1MB
+			}
+			next.ServeHTTP(vw, r)
+
+			// If body exceeded maxSize, it was already streamed through — skip validation
+			if vw.overflowed {
+				return
+			}
+
+			body := vw.buf.Bytes()
+			logOnly := false
+			var validationErr error
+
+			// Standalone JSON Schema response validation
+			if v != nil && v.HasResponseSchema() {
+				if v.IsLogOnly() {
+					logOnly = true
+				}
+				if err := v.ValidateResponseBody(body); err != nil {
+					validationErr = err
+				}
+			}
+
+			// OpenAPI response validation
+			if validationErr == nil && ov != nil && ov.ValidatesResponse() {
+				if ov.IsLogOnly() {
+					logOnly = true
+				}
+				varCtx := variables.GetFromRequest(r)
+				if err := ov.ValidateResponse(vw.statusCode, vw.header, io.NopCloser(bytes.NewReader(body)), r, varCtx.PathParams); err != nil {
+					validationErr = err
+				}
+			}
+
+			if validationErr != nil && !logOnly {
+				// Invalid response: return 502
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadGateway)
+				w.Write([]byte(`{"error":"bad_gateway","message":"Backend response validation failed"}`))
+				return
+			}
+
+			// Valid (or logOnly): flush buffered response
+			vw.flush()
+		})
+	}
+}
+
+// validatingResponseWriter buffers the response up to maxSize.
+// If the body exceeds maxSize, it switches to pass-through mode.
+type validatingResponseWriter struct {
+	http.ResponseWriter
+	maxSize    int
+	buf        bytes.Buffer
+	statusCode int
+	header     http.Header
+	overflowed bool
+	wroteHeader bool
+}
+
+func (w *validatingResponseWriter) WriteHeader(code int) {
+	if w.wroteHeader {
+		return
+	}
+	w.wroteHeader = true
+	w.statusCode = code
+	// Clone headers so we can replay them later
+	w.header = w.ResponseWriter.Header().Clone()
+}
+
+func (w *validatingResponseWriter) Write(b []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(200)
+	}
+	if w.overflowed {
+		return w.ResponseWriter.Write(b)
+	}
+	if w.buf.Len()+len(b) > w.maxSize {
+		// Switch to pass-through: flush what we have and stream the rest
+		w.overflowed = true
+		for k, vv := range w.header {
+			for _, v := range vv {
+				w.ResponseWriter.Header().Add(k, v)
+			}
+		}
+		w.ResponseWriter.WriteHeader(w.statusCode)
+		w.ResponseWriter.Write(w.buf.Bytes())
+		w.buf.Reset()
+		return w.ResponseWriter.Write(b)
+	}
+	return w.buf.Write(b)
+}
+
+func (w *validatingResponseWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// flush writes the buffered status, headers, and body to the underlying writer.
+func (w *validatingResponseWriter) flush() {
+	for k, vv := range w.header {
+		for _, v := range vv {
+			w.ResponseWriter.Header().Add(k, v)
+		}
+	}
+	if w.statusCode == 0 {
+		w.statusCode = 200
+	}
+	w.ResponseWriter.WriteHeader(w.statusCode)
+	w.ResponseWriter.Write(w.buf.Bytes())
 }
 
 // routeMatchKey is the context key for storing the route match.

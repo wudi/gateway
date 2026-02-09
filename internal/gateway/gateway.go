@@ -29,6 +29,7 @@ import (
 	"github.com/example/gateway/internal/middleware/ipfilter"
 	"github.com/example/gateway/internal/middleware/ratelimit"
 	"github.com/example/gateway/internal/middleware/transform"
+	openapivalidation "github.com/example/gateway/internal/middleware/openapi"
 	"github.com/example/gateway/internal/middleware/validation"
 	"github.com/example/gateway/internal/middleware/versioning"
 	"github.com/example/gateway/internal/middleware/waf"
@@ -98,6 +99,7 @@ type Gateway struct {
 	extAuths               *extauth.ExtAuthByRoute
 	versioners             *versioning.VersioningByRoute
 	accessLogConfigs       *accesslog.AccessLogByRoute
+	openapiValidators      *openapivalidation.OpenAPIByRoute
 
 	features []Feature
 
@@ -163,6 +165,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		extAuths:           extauth.NewExtAuthByRoute(),
 		versioners:         versioning.NewVersioningByRoute(),
 		accessLogConfigs:   accesslog.NewAccessLogByRoute(),
+		openapiValidators: openapivalidation.NewOpenAPIByRoute(),
 		routeProxies:      make(map[string]*proxy.RouteProxy),
 		routeHandlers:    make(map[string]http.Handler),
 		watchCancels:     make(map[string]context.CancelFunc),
@@ -195,6 +198,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&extAuthFeature{g.extAuths},
 		&versioningFeature{g.versioners},
 		&accessLogFeature{g.accessLogConfigs},
+		&openapiFeature{g.openapiValidators},
 	}
 
 	// Initialize global IP filter
@@ -605,6 +609,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		chain = chain.Use(validationMW(v))
 	}
 
+	// 9.1. openapiRequestMW — OpenAPI request validation
+	if ov := g.openapiValidators.GetValidator(routeID); ov != nil {
+		chain = chain.Use(openapiRequestMW(ov))
+	}
+
 	// 9.5. graphqlMW — parse, validate depth/complexity, rate limit by operation
 	if gql := g.graphqlParsers.GetParser(routeID); gql != nil {
 		chain = chain.Use(gql.Middleware())
@@ -683,6 +692,16 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 	if translatorHandler := g.translators.GetHandler(routeID); translatorHandler != nil {
 		innermost = translatorHandler
 	}
+
+	// 17.5 responseValidationMW — validate raw backend response (closest to proxy)
+	respValidator := g.validators.GetValidator(routeID)
+	openapiV := g.openapiValidators.GetValidator(routeID)
+	hasRespValidation := (respValidator != nil && respValidator.HasResponseSchema()) ||
+		(openapiV != nil && openapiV.ValidatesResponse())
+	if hasRespValidation {
+		innermost = responseValidationMW(respValidator, openapiV)(innermost)
+	}
+
 	return chain.Handler(innermost)
 }
 
@@ -1062,6 +1081,11 @@ func (g *Gateway) GetVersioners() *versioning.VersioningByRoute {
 // GetAccessLogConfigs returns the access log config manager.
 func (g *Gateway) GetAccessLogConfigs() *accesslog.AccessLogByRoute {
 	return g.accessLogConfigs
+}
+
+// GetOpenAPIValidators returns the OpenAPI validator manager.
+func (g *Gateway) GetOpenAPIValidators() *openapivalidation.OpenAPIByRoute {
+	return g.openapiValidators
 }
 
 // GetLoadBalancerInfo returns per-route load balancer algorithm and stats.

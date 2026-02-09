@@ -458,6 +458,9 @@ func (s *Server) adminHandler() http.Handler {
 	// Access log configs
 	mux.HandleFunc("/access-log", s.handleAccessLog)
 
+	// OpenAPI validation stats
+	mux.HandleFunc("/openapi", s.handleOpenAPI)
+
 	// Canary deployments
 	mux.HandleFunc("/canary", s.handleCanary)
 	mux.HandleFunc("/canary/", s.handleCanaryAction)
@@ -925,6 +928,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["access_log"] = alStats
 	}
 
+	// OpenAPI validation
+	if openapiStats := s.gateway.GetOpenAPIValidators().Stats(); len(openapiStats) > 0 {
+		dashboard["openapi"] = openapiStats
+	}
+
 	// Tracing
 	if tracer := s.gateway.GetTracer(); tracer != nil {
 		dashboard["tracing"] = tracer.Status()
@@ -1025,6 +1033,12 @@ func (s *Server) handleVersioning(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAccessLog(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.gateway.GetAccessLogConfigs().Stats())
+}
+
+// handleOpenAPI handles OpenAPI validation stats requests.
+func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetOpenAPIValidators().Stats())
 }
 
 // handleCanary lists all canary deployments with status.

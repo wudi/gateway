@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/goccy/go-yaml"
+	"github.com/getkin/kin-openapi/openapi3"
 )
 
 // validHTTPMethods contains all valid HTTP method names.
@@ -53,6 +55,11 @@ func (l *Loader) Parse(data []byte) (*Config, error) {
 	// Unmarshal YAML into config
 	if err := yaml.Unmarshal([]byte(expanded), cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse YAML: %w", err)
+	}
+
+	// Expand OpenAPI spec routes before validation
+	if err := expandOpenAPIRoutes(cfg); err != nil {
+		return nil, fmt.Errorf("openapi route expansion: %w", err)
 	}
 
 	// Validate configuration
@@ -610,6 +617,29 @@ func (l *Loader) validate(cfg *Config) error {
 		if err := l.validateAccessLog(route.ID, route.AccessLog); err != nil {
 			return err
 		}
+
+		// Validate per-route OpenAPI config
+		if route.OpenAPI.SpecFile != "" && route.OpenAPI.SpecID != "" {
+			return fmt.Errorf("route %s: openapi spec_file and spec_id are mutually exclusive", route.ID)
+		}
+		if route.OpenAPI.SpecID != "" {
+			// Validate spec_id references an existing spec
+			found := false
+			for _, s := range cfg.OpenAPI.Specs {
+				if s.ID == route.OpenAPI.SpecID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("route %s: openapi.spec_id %q not found in openapi.specs", route.ID, route.OpenAPI.SpecID)
+			}
+		}
+
+		// Validate enhanced validation: response_schema and response_schema_file mutually exclusive
+		if route.Validation.ResponseSchema != "" && route.Validation.ResponseSchemaFile != "" {
+			return fmt.Errorf("route %s: validation response_schema and response_schema_file are mutually exclusive", route.ID)
+		}
 	}
 
 	return nil
@@ -952,6 +982,121 @@ func (l *Loader) validateMatchConfig(routeID string, mc MatchConfig) error {
 	}
 
 	return nil
+}
+
+// expandOpenAPIRoutes generates routes from OpenAPI specs and appends them to cfg.Routes.
+func expandOpenAPIRoutes(cfg *Config) error {
+	if len(cfg.OpenAPI.Specs) == 0 {
+		return nil
+	}
+
+	existingIDs := make(map[string]bool, len(cfg.Routes))
+	for _, r := range cfg.Routes {
+		existingIDs[r.ID] = true
+	}
+
+	specIDs := make(map[string]bool)
+	for _, specCfg := range cfg.OpenAPI.Specs {
+		if specCfg.ID != "" {
+			if specIDs[specCfg.ID] {
+				return fmt.Errorf("duplicate openapi spec id: %s", specCfg.ID)
+			}
+			specIDs[specCfg.ID] = true
+		}
+		if specCfg.File == "" {
+			return fmt.Errorf("openapi spec %s: file is required", specCfg.ID)
+		}
+		if len(specCfg.DefaultBackends) == 0 {
+			return fmt.Errorf("openapi spec %s: default_backends is required", specCfg.ID)
+		}
+
+		routes, err := generateRoutesFromSpec(specCfg)
+		if err != nil {
+			return fmt.Errorf("spec %s: %w", specCfg.ID, err)
+		}
+
+		for _, r := range routes {
+			if existingIDs[r.ID] {
+				return fmt.Errorf("openapi spec %s: generated route %s conflicts with existing route", specCfg.ID, r.ID)
+			}
+			existingIDs[r.ID] = true
+			cfg.Routes = append(cfg.Routes, r)
+		}
+	}
+
+	return nil
+}
+
+// pathParamRegex matches OpenAPI path parameters like {user_id}.
+var pathParamRegex = regexp.MustCompile(`\{([^}]+)\}`)
+
+// generateRoutesFromSpec auto-generates route configs from an OpenAPI spec file.
+func generateRoutesFromSpec(specCfg OpenAPISpecConfig) ([]RouteConfig, error) {
+	ctx := context.Background()
+	loader := &openapi3.Loader{Context: ctx, IsExternalRefsAllowed: true}
+	doc, err := loader.LoadFromFile(specCfg.File)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load OpenAPI spec: %w", err)
+	}
+	if err := doc.Validate(ctx); err != nil {
+		return nil, fmt.Errorf("invalid OpenAPI spec: %w", err)
+	}
+
+	if doc.Paths == nil {
+		return nil, nil
+	}
+
+	validateReq := true
+	if specCfg.Validation.Request != nil {
+		validateReq = *specCfg.Validation.Request
+	}
+
+	var routes []RouteConfig
+
+	for path, pathItem := range doc.Paths.Map() {
+		for method, op := range pathItem.Operations() {
+			routeID := openAPIRouteID(method, path, op.OperationID)
+
+			gwPath := specCfg.RoutePrefix + openAPIConvertPath(path)
+
+			valReqPtr := &validateReq
+			routeCfg := RouteConfig{
+				ID:          routeID,
+				Path:        gwPath,
+				PathPrefix:  strings.Contains(path, "{"),
+				Methods:     []string{strings.ToUpper(method)},
+				Backends:    specCfg.DefaultBackends,
+				StripPrefix: specCfg.StripPrefix,
+				OpenAPI: OpenAPIRouteConfig{
+					SpecFile:         specCfg.File,
+					SpecID:           specCfg.ID,
+					OperationID:      op.OperationID,
+					ValidateRequest:  valReqPtr,
+					ValidateResponse: specCfg.Validation.Response,
+					LogOnly:          specCfg.Validation.LogOnly,
+				},
+			}
+
+			routes = append(routes, routeCfg)
+		}
+	}
+
+	return routes, nil
+}
+
+// openAPIRouteID creates a route ID from the operation.
+func openAPIRouteID(method, path, operationID string) string {
+	if operationID != "" {
+		return "openapi-" + operationID
+	}
+	sanitized := strings.NewReplacer("/", "-", "{", "", "}", "").Replace(path)
+	sanitized = strings.Trim(sanitized, "-")
+	return fmt.Sprintf("openapi-%s-%s", strings.ToLower(method), sanitized)
+}
+
+// openAPIConvertPath converts OpenAPI path params {id} to gateway path params :id.
+func openAPIConvertPath(path string) string {
+	return pathParamRegex.ReplaceAllString(path, ":$1")
 }
 
 // LoadFromEnv loads configuration from environment variables

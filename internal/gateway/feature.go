@@ -12,6 +12,7 @@ import (
 	"github.com/example/gateway/internal/middleware/accesslog"
 	"github.com/example/gateway/internal/middleware/extauth"
 	"github.com/example/gateway/internal/middleware/ipfilter"
+	"github.com/example/gateway/internal/middleware/openapi"
 	"github.com/example/gateway/internal/middleware/validation"
 	"github.com/example/gateway/internal/middleware/versioning"
 	"github.com/example/gateway/internal/middleware/waf"
@@ -325,3 +326,16 @@ func (f *accessLogFeature) Setup(routeID string, cfg config.RouteConfig) error {
 }
 func (f *accessLogFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *accessLogFeature) AdminStats() any     { return f.m.Stats() }
+
+// openapiFeature wraps OpenAPIByRoute.
+type openapiFeature struct{ m *openapi.OpenAPIByRoute }
+
+func (f *openapiFeature) Name() string { return "openapi" }
+func (f *openapiFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.OpenAPI.SpecFile != "" || cfg.OpenAPI.SpecID != "" {
+		return f.m.AddRoute(routeID, cfg.OpenAPI)
+	}
+	return nil
+}
+func (f *openapiFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *openapiFeature) AdminStats() any     { return f.m.Stats() }

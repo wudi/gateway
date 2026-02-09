@@ -21,6 +21,7 @@ import (
 	"github.com/example/gateway/internal/middleware/cors"
 	"github.com/example/gateway/internal/middleware/ipfilter"
 	"github.com/example/gateway/internal/middleware/ratelimit"
+	openapivalidation "github.com/example/gateway/internal/middleware/openapi"
 	"github.com/example/gateway/internal/middleware/validation"
 	"github.com/example/gateway/internal/middleware/versioning"
 	"github.com/example/gateway/internal/middleware/waf"
@@ -79,6 +80,7 @@ type gatewayState struct {
 	extAuths             *extauth.ExtAuthByRoute
 	versioners           *versioning.VersioningByRoute
 	accessLogConfigs     *accesslog.AccessLogByRoute
+	openapiValidators    *openapivalidation.OpenAPIByRoute
 	translators          *protocol.TranslatorByRoute
 	rateLimiters      *ratelimit.RateLimitByRoute
 	grpcHandlers      map[string]*grpcproxy.Handler
@@ -119,6 +121,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		extAuths:           extauth.NewExtAuthByRoute(),
 		versioners:         versioning.NewVersioningByRoute(),
 		accessLogConfigs:   accesslog.NewAccessLogByRoute(),
+		openapiValidators: openapivalidation.NewOpenAPIByRoute(),
 		translators:        protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
 		grpcHandlers:      make(map[string]*grpcproxy.Handler),
@@ -151,6 +154,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		&extAuthFeature{s.extAuths},
 		&versioningFeature{s.versioners},
 		&accessLogFeature{s.accessLogConfigs},
+		&openapiFeature{s.openapiValidators},
 	}
 
 	// Initialize global IP filter
@@ -429,6 +433,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldExtAuths := g.extAuths
 	oldVersioners := g.versioners
 	oldAccessLogConfigs := g.accessLogConfigs
+	oldOpenAPIValidators := g.openapiValidators
 
 	// Install new state
 	g.ipFilters = s.ipFilters
@@ -457,6 +462,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.extAuths = s.extAuths
 	g.versioners = s.versioners
 	g.accessLogConfigs = s.accessLogConfigs
+	g.openapiValidators = s.openapiValidators
 
 	handler := g.buildRouteHandler(routeID, cfg, route, rp)
 
@@ -487,6 +493,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.extAuths = oldExtAuths
 	g.versioners = oldVersioners
 	g.accessLogConfigs = oldAccessLogConfigs
+	g.openapiValidators = oldOpenAPIValidators
 
 	return handler
 }
@@ -548,6 +555,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.extAuths = newState.extAuths
 	g.versioners = newState.versioners
 	g.accessLogConfigs = newState.accessLogConfigs
+	g.openapiValidators = newState.openapiValidators
 	g.translators = newState.translators
 	g.rateLimiters = newState.rateLimiters
 	g.grpcHandlers = newState.grpcHandlers

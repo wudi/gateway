@@ -31,6 +31,7 @@ type Config struct {
 	Redis          RedisConfig          `yaml:"redis"`           // Redis for distributed features
 	WAF            WAFConfig            `yaml:"waf"`             // Global WAF settings
 	DNSResolver    DNSResolverConfig    `yaml:"dns_resolver"`    // Custom DNS resolver for backends
+	OpenAPI        OpenAPIConfig        `yaml:"openapi"`         // OpenAPI spec-based validation and route generation
 }
 
 // ListenerConfig defines a listener configuration
@@ -243,6 +244,7 @@ type RouteConfig struct {
 	ExtAuth        ExtAuthConfig        `yaml:"ext_auth"`        // External auth service
 	Versioning     VersioningConfig     `yaml:"versioning"`      // API versioning
 	AccessLog      AccessLogConfig      `yaml:"access_log"`      // Per-route access log overrides
+	OpenAPI        OpenAPIRouteConfig   `yaml:"openapi"`         // OpenAPI spec-based validation
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -368,9 +370,12 @@ type TrafficSplitConfig struct {
 
 // ValidationConfig defines request validation settings (Feature 8)
 type ValidationConfig struct {
-	Enabled    bool   `yaml:"enabled"`
-	SchemaFile string `yaml:"schema_file"` // path to JSON schema file
-	Schema     string `yaml:"schema"`      // inline JSON schema
+	Enabled            bool   `yaml:"enabled"`
+	SchemaFile         string `yaml:"schema_file"`          // path to JSON schema file
+	Schema             string `yaml:"schema"`               // inline JSON schema
+	ResponseSchemaFile string `yaml:"response_schema_file"` // path to response JSON schema file
+	ResponseSchema     string `yaml:"response_schema"`      // inline response JSON schema
+	LogOnly            bool   `yaml:"log_only"`             // log instead of reject
 }
 
 // TracingConfig defines distributed tracing settings (Feature 9)
@@ -556,6 +561,38 @@ type AccessLogConditions struct {
 	StatusCodes []string `yaml:"status_codes"` // "4xx", "5xx", "200", "200-299"
 	Methods     []string `yaml:"methods"`      // "POST", "DELETE"
 	SampleRate  float64  `yaml:"sample_rate"`  // 0.0-1.0 (0 = log all)
+}
+
+// OpenAPIConfig defines top-level OpenAPI settings for spec-based validation and route generation.
+type OpenAPIConfig struct {
+	Specs []OpenAPISpecConfig `yaml:"specs"`
+}
+
+// OpenAPISpecConfig defines a single OpenAPI spec for route generation.
+type OpenAPISpecConfig struct {
+	ID              string                   `yaml:"id"`
+	File            string                   `yaml:"file"`
+	DefaultBackends []BackendConfig          `yaml:"default_backends"`
+	RoutePrefix     string                   `yaml:"route_prefix"`
+	StripPrefix     bool                     `yaml:"strip_prefix"`
+	Validation      OpenAPIValidationOptions `yaml:"validation"`
+}
+
+// OpenAPIValidationOptions defines validation settings for an OpenAPI spec.
+type OpenAPIValidationOptions struct {
+	Request  *bool `yaml:"request"`  // default true
+	Response bool  `yaml:"response"` // default false
+	LogOnly  bool  `yaml:"log_only"` // default false
+}
+
+// OpenAPIRouteConfig defines per-route OpenAPI validation settings.
+type OpenAPIRouteConfig struct {
+	SpecFile         string `yaml:"spec_file"`
+	SpecID           string `yaml:"spec_id"`           // reference to top-level spec by ID
+	OperationID      string `yaml:"operation_id"`      // specific operation
+	ValidateRequest  *bool  `yaml:"validate_request"`  // default true
+	ValidateResponse bool   `yaml:"validate_response"` // default false
+	LogOnly          bool   `yaml:"log_only"`          // default false
 }
 
 // BodyTransformConfig defines request/response body transformation settings (Feature 13)

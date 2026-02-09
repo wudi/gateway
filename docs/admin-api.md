@@ -110,6 +110,7 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /ext-auth` | External auth metrics (total, allowed, denied, errors, cache hits, latencies) |
 | `GET /versioning` | API versioning stats per route (source, default version, per-version request counts, deprecation info) |
 | `GET /access-log` | Per-route access log config status (enabled, format, body capture, conditions) |
+| `GET /openapi` | OpenAPI validation stats per route (spec, operation, request/response validation, metrics) |
 
 ### Example: Querying Feature Endpoints
 
