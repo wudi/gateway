@@ -232,6 +232,49 @@ routes:
             body: ""
 ```
 
+## Thrift Translation with REST Mappings
+
+Expose a Thrift service as a REST API:
+
+```yaml
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+
+routes:
+  - id: "user-thrift"
+    path: "/users"
+    path_prefix: true
+    backends:
+      - url: "http://thrift-server:9090"
+    protocol:
+      type: "http_to_thrift"
+      thrift:
+        idl_file: "/etc/idl/user_service.thrift"
+        service: "UserService"
+        timeout: 10s
+        protocol: "binary"
+        transport: "framed"
+        mappings:
+          - http_method: "GET"
+            http_path: "/users/:user_id"
+            thrift_method: "GetUser"
+            body: ""
+          - http_method: "POST"
+            http_path: "/users"
+            thrift_method: "CreateUser"
+            body: "*"
+          - http_method: "PUT"
+            http_path: "/users/:user_id"
+            thrift_method: "UpdateUser"
+            body: "*"
+          - http_method: "DELETE"
+            http_path: "/users/:user_id"
+            thrift_method: "DeleteUser"
+            body: ""
+```
+
 ## GraphQL API with Protection
 
 Front a GraphQL backend with depth, complexity, and introspection controls:

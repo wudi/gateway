@@ -453,8 +453,9 @@ type GRPCConfig struct {
 
 // ProtocolConfig defines protocol translation settings per route.
 type ProtocolConfig struct {
-	Type string              `yaml:"type"` // "http_to_grpc"
-	GRPC GRPCTranslateConfig `yaml:"grpc"`
+	Type   string                `yaml:"type"` // "http_to_grpc", "http_to_thrift"
+	GRPC   GRPCTranslateConfig   `yaml:"grpc"`
+	Thrift ThriftTranslateConfig `yaml:"thrift"`
 }
 
 // GRPCTranslateConfig defines HTTP-to-gRPC translation settings.
@@ -481,6 +482,27 @@ type ProtocolTLSConfig struct {
 	CertFile string `yaml:"cert_file"`
 	KeyFile  string `yaml:"key_file"`
 	CAFile   string `yaml:"ca_file"`
+}
+
+// ThriftTranslateConfig defines HTTP-to-Thrift translation settings.
+type ThriftTranslateConfig struct {
+	IDLFile     string                `yaml:"idl_file"`     // path to .thrift IDL file (required)
+	Service     string                `yaml:"service"`      // Thrift service name (required)
+	Method      string                `yaml:"method"`       // optional: fixed method name
+	Timeout     time.Duration         `yaml:"timeout"`      // per-call timeout (default 30s)
+	Protocol    string                `yaml:"protocol"`     // "binary" (default) or "compact"
+	Transport   string                `yaml:"transport"`    // "framed" (default) or "buffered"
+	Multiplexed bool                  `yaml:"multiplexed"`  // use TMultiplexedProtocol
+	TLS         ProtocolTLSConfig     `yaml:"tls"`
+	Mappings    []ThriftMethodMapping `yaml:"mappings"` // REST-to-Thrift method mappings
+}
+
+// ThriftMethodMapping defines a REST-to-Thrift method mapping.
+type ThriftMethodMapping struct {
+	HTTPMethod   string `yaml:"http_method"`   // GET, POST, PUT, DELETE, PATCH
+	HTTPPath     string `yaml:"http_path"`     // /users/:user_id or /users/{user_id}
+	ThriftMethod string `yaml:"thrift_method"` // GetUser (method name within the service)
+	Body         string `yaml:"body"`          // "*" = whole body, "field" = nested under field, "" = no body
 }
 
 // WAFConfig defines Web Application Firewall settings.

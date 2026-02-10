@@ -524,7 +524,7 @@ Note: The `database` field is only valid at the global level. Per-route geo conf
 
 ```yaml
     protocol:
-      type: string            # "http_to_grpc"
+      type: string            # "http_to_grpc" or "http_to_thrift"
       grpc:
         service: string       # fully-qualified gRPC service name
         method: string        # fixed method (requires service)
@@ -540,9 +540,29 @@ Note: The `database` field is only valid at the global level. Per-route geo conf
             http_path: string    # /path/:param or /path/{param}
             grpc_method: string
             body: string         # "", "*", or "field_name"
+      thrift:
+        idl_file: string      # path to .thrift IDL file (required)
+        service: string       # Thrift service name (required)
+        method: string        # fixed method name (optional)
+        timeout: duration     # default 30s
+        protocol: string      # "binary" (default) or "compact"
+        transport: string     # "framed" (default) or "buffered"
+        multiplexed: bool     # enable TMultiplexedProtocol
+        tls:
+          enabled: bool
+          cert_file: string
+          key_file: string
+          ca_file: string
+        mappings:
+          - http_method: string    # GET, POST, PUT, DELETE, PATCH
+            http_path: string      # /path/:param or /path/{param}
+            thrift_method: string
+            body: string           # "", "*", or "field_name"
 ```
 
-**Validation:** Mutually exclusive with `grpc.enabled`. `method` and `mappings` are mutually exclusive. If `grpc.tls.enabled` is true, `ca_file` is required. If `mappings` is used, `service` is required. `method` requires `service`.
+**Validation (gRPC):** Mutually exclusive with `grpc.enabled`. `method` and `mappings` are mutually exclusive. If `grpc.tls.enabled` is true, `ca_file` is required. If `mappings` is used, `service` is required. `method` requires `service`.
+
+**Validation (Thrift):** `idl_file` and `service` are required. `method` and `mappings` are mutually exclusive. `protocol` must be `binary` or `compact`. `transport` must be `framed` or `buffered`. If `tls.enabled` is true, `ca_file` is required.
 
 ### gRPC Passthrough
 

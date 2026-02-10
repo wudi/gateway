@@ -16,7 +16,7 @@ A high-performance, feature-rich API gateway supporting HTTP, TCP, and UDP proxy
 10. [Security](security.md) — IP filtering, CORS, WAF, body limits, DNS resolver
 11. [Transformations](transformations.md) — Headers, body, variables, path rewrite, validation, compression
 12. [Rules Engine](rules-engine.md) — Expression syntax, request/response rules, actions
-13. [Protocol Translation](protocol-translation.md) — HTTP-to-gRPC, REST mappings, WebSocket proxy
+13. [Protocol Translation](protocol-translation.md) — HTTP-to-gRPC, HTTP-to-Thrift, REST mappings, WebSocket proxy
 14. [GraphQL Protection](graphql.md) — Depth/complexity limits, introspection, operation rate limits
 15. [Observability](observability.md) — Logging, Prometheus metrics, OpenTelemetry tracing
 16. [Traffic Mirroring](traffic-mirroring.md) — Shadow traffic, conditions, comparison

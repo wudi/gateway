@@ -6,7 +6,7 @@ Gateway provides enterprise-grade traffic management, security, resilience, and 
 
 ## Highlights
 
-- **Multi-protocol** — HTTP/HTTPS reverse proxy, TCP/UDP L4 proxy, WebSocket, HTTP-to-gRPC translation
+- **Multi-protocol** — HTTP/HTTPS reverse proxy, TCP/UDP L4 proxy, WebSocket, HTTP-to-gRPC and HTTP-to-Thrift translation
 - **Service discovery** — Consul, etcd, Kubernetes, or static backends
 - **Advanced load balancing** — Round-robin, least-connections, consistent-hash, least-response-time, weighted splits
 - **Built-in security** — JWT/JWKS, OAuth 2.0/OIDC, mTLS, API keys, WAF (Coraza), CSRF, IP/geo filtering
@@ -231,7 +231,7 @@ routes:
               ┌──────────────────────┼──────────────────────┐
               │                      │                      │
      ┌────────▼──────┐    ┌─────────▼────────┐   ┌────────▼───────┐
-     │  HTTP Proxy   │    │  WebSocket Proxy  │   │  gRPC Proxy    │
+     │  HTTP Proxy   │    │  WebSocket Proxy  │   │ gRPC / Thrift  │
      │  + Retries    │    │                   │   │  (Protocol     │
      │  + Hedging    │    │                   │   │   Translation) │
      └────────┬──────┘    └─────────┬────────┘   └────────┬───────┘
@@ -341,7 +341,7 @@ Full documentation is available in the [docs/](docs/) directory:
 - [Observability](docs/observability.md) (metrics, tracing, logging, webhooks)
 - [Rules Engine](docs/rules-engine.md)
 - [GraphQL](docs/graphql.md)
-- [Protocol Translation](docs/protocol-translation.md) (HTTP-to-gRPC)
+- [Protocol Translation](docs/protocol-translation.md) (HTTP-to-gRPC, HTTP-to-Thrift)
 
 ## Development
 

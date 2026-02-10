@@ -3,7 +3,9 @@ module github.com/wudi/gateway
 go 1.25.5
 
 require (
+	github.com/apache/thrift v0.22.0
 	github.com/cenkalti/backoff/v4 v4.3.0
+	github.com/cloudwego/thriftgo v0.4.3
 	github.com/corazawaf/coraza/v3 v3.3.3
 	github.com/expr-lang/expr v1.17.7
 	github.com/fsnotify/fsnotify v1.9.0
@@ -42,8 +44,10 @@ require (
 require (
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/bytedance/gopkg v0.1.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/cloudwego/gopkg v0.1.4 // indirect
 	github.com/corazawaf/libinjection-go v0.2.3 // indirect
 	github.com/coreos/go-semver v0.3.1 // indirect
 	github.com/coreos/go-systemd/v22 v22.7.0 // indirect

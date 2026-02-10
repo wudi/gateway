@@ -94,7 +94,7 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /cache` | Cache statistics (hits, misses, size, evictions). For distributed mode, size is Redis key count; hits/misses are local per-instance counters. |
 | `GET /retries` | Retry metrics per route (attempts, budget exhaustion, hedged requests) |
 | `GET /rules` | Rules engine status (global + per-route rules and metrics) |
-| `GET /protocol-translators` | gRPC translator statistics |
+| `GET /protocol-translators` | Protocol translator statistics (gRPC and Thrift) |
 | `GET /traffic-shaping` | Throttle, bandwidth, priority, fault injection, and adaptive concurrency stats |
 | `GET /adaptive-concurrency` | Adaptive concurrency limiter stats (limit, in-flight, EWMA, rejections) |
 | `GET /mirrors` | Mirror metrics (counts, latencies, comparisons) |

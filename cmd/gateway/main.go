@@ -12,6 +12,7 @@ import (
 
 	// Protocol translators (auto-register)
 	_ "github.com/wudi/gateway/internal/proxy/protocol/grpc"
+	_ "github.com/wudi/gateway/internal/proxy/protocol/thrift"
 )
 
 var (

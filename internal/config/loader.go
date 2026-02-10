@@ -587,7 +587,7 @@ func (l *Loader) validate(cfg *Config) error {
 
 		// Validate protocol translation config
 		if route.Protocol.Type != "" {
-			validProtocolTypes := map[string]bool{"http_to_grpc": true}
+			validProtocolTypes := map[string]bool{"http_to_grpc": true, "http_to_thrift": true}
 			if !validProtocolTypes[route.Protocol.Type] {
 				return fmt.Errorf("route %s: unknown protocol type: %s", route.ID, route.Protocol.Type)
 			}
@@ -595,15 +595,40 @@ func (l *Loader) validate(cfg *Config) error {
 			if route.GRPC.Enabled {
 				return fmt.Errorf("route %s: cannot enable both grpc.enabled and protocol translation", route.ID)
 			}
-			// Validate TLS config if enabled
-			if route.Protocol.GRPC.TLS.Enabled {
-				if route.Protocol.GRPC.TLS.CAFile == "" {
-					return fmt.Errorf("route %s: protocol grpc tls enabled but ca_file not provided", route.ID)
+			// Type-specific validation
+			switch route.Protocol.Type {
+			case "http_to_grpc":
+				// Validate TLS config if enabled
+				if route.Protocol.GRPC.TLS.Enabled {
+					if route.Protocol.GRPC.TLS.CAFile == "" {
+						return fmt.Errorf("route %s: protocol grpc tls enabled but ca_file not provided", route.ID)
+					}
 				}
-			}
-			// Validate REST-to-gRPC mappings
-			if err := l.validateGRPCMappings(route.ID, route.Protocol.GRPC); err != nil {
-				return err
+				// Validate REST-to-gRPC mappings
+				if err := l.validateGRPCMappings(route.ID, route.Protocol.GRPC); err != nil {
+					return err
+				}
+			case "http_to_thrift":
+				if route.Protocol.Thrift.IDLFile == "" {
+					return fmt.Errorf("route %s: thrift.idl_file is required for http_to_thrift", route.ID)
+				}
+				if route.Protocol.Thrift.Service == "" {
+					return fmt.Errorf("route %s: thrift.service is required for http_to_thrift", route.ID)
+				}
+				if p := route.Protocol.Thrift.Protocol; p != "" && p != "binary" && p != "compact" {
+					return fmt.Errorf("route %s: thrift.protocol must be 'binary' or 'compact', got %q", route.ID, p)
+				}
+				if t := route.Protocol.Thrift.Transport; t != "" && t != "framed" && t != "buffered" {
+					return fmt.Errorf("route %s: thrift.transport must be 'framed' or 'buffered', got %q", route.ID, t)
+				}
+				if route.Protocol.Thrift.TLS.Enabled {
+					if route.Protocol.Thrift.TLS.CAFile == "" {
+						return fmt.Errorf("route %s: thrift tls enabled but ca_file not provided", route.ID)
+					}
+				}
+				if err := l.validateThriftMappings(route.ID, route.Protocol.Thrift); err != nil {
+					return err
+				}
 			}
 		}
 
@@ -1311,6 +1336,46 @@ func (l *Loader) validateGRPCMappings(routeID string, cfg GRPCTranslateConfig) e
 		key := m.HTTPMethod + " " + m.HTTPPath
 		if seen[key] {
 			return fmt.Errorf("route %s: mapping %d: duplicate mapping for %s", routeID, i, key)
+		}
+		seen[key] = true
+	}
+
+	return nil
+}
+
+// validateThriftMappings validates REST-to-Thrift method mappings
+func (l *Loader) validateThriftMappings(routeID string, cfg ThriftTranslateConfig) error {
+	// Method and mappings are mutually exclusive
+	if cfg.Method != "" && len(cfg.Mappings) > 0 {
+		return fmt.Errorf("route %s: cannot use both thrift.method and thrift.mappings", routeID)
+	}
+
+	if len(cfg.Mappings) == 0 {
+		return nil
+	}
+
+	validMethods := map[string]bool{
+		"GET": true, "POST": true, "PUT": true, "DELETE": true, "PATCH": true,
+	}
+
+	seen := make(map[string]bool)
+	for i, m := range cfg.Mappings {
+		if m.HTTPMethod == "" {
+			return fmt.Errorf("route %s: thrift mapping %d: http_method is required", routeID, i)
+		}
+		if !validMethods[m.HTTPMethod] {
+			return fmt.Errorf("route %s: thrift mapping %d: invalid http_method: %s", routeID, i, m.HTTPMethod)
+		}
+		if m.HTTPPath == "" {
+			return fmt.Errorf("route %s: thrift mapping %d: http_path is required", routeID, i)
+		}
+		if m.ThriftMethod == "" {
+			return fmt.Errorf("route %s: thrift mapping %d: thrift_method is required", routeID, i)
+		}
+
+		key := m.HTTPMethod + " " + m.HTTPPath
+		if seen[key] {
+			return fmt.Errorf("route %s: thrift mapping %d: duplicate mapping for %s", routeID, i, key)
 		}
 		seen[key] = true
 	}
