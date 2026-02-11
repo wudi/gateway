@@ -609,8 +609,13 @@ func (l *Loader) validate(cfg *Config) error {
 					return err
 				}
 			case "http_to_thrift":
-				if route.Protocol.Thrift.IDLFile == "" {
-					return fmt.Errorf("route %s: thrift.idl_file is required for http_to_thrift", route.ID)
+				hasIDL := route.Protocol.Thrift.IDLFile != ""
+				hasMethods := len(route.Protocol.Thrift.Methods) > 0
+				if hasIDL && hasMethods {
+					return fmt.Errorf("route %s: thrift.idl_file and thrift.methods are mutually exclusive", route.ID)
+				}
+				if !hasIDL && !hasMethods {
+					return fmt.Errorf("route %s: thrift.idl_file or thrift.methods is required for http_to_thrift", route.ID)
 				}
 				if route.Protocol.Thrift.Service == "" {
 					return fmt.Errorf("route %s: thrift.service is required for http_to_thrift", route.ID)
@@ -628,6 +633,11 @@ func (l *Loader) validate(cfg *Config) error {
 				}
 				if err := l.validateThriftMappings(route.ID, route.Protocol.Thrift); err != nil {
 					return err
+				}
+				if hasMethods {
+					if err := l.validateThriftInlineSchema(route.ID, route.Protocol.Thrift); err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -1380,6 +1390,106 @@ func (l *Loader) validateThriftMappings(routeID string, cfg ThriftTranslateConfi
 		seen[key] = true
 	}
 
+	return nil
+}
+
+// validThriftTypes lists the valid scalar/container type strings for inline schemas.
+var validThriftTypes = map[string]bool{
+	"bool": true, "byte": true, "i16": true, "i32": true, "i64": true,
+	"double": true, "string": true, "binary": true,
+	"struct": true, "list": true, "set": true, "map": true,
+}
+
+// validateThriftInlineSchema validates inline method/struct/enum definitions.
+func (l *Loader) validateThriftInlineSchema(routeID string, cfg ThriftTranslateConfig) error {
+	for mname, mdef := range cfg.Methods {
+		if mname == "" {
+			return fmt.Errorf("route %s: thrift.methods: method name must not be empty", routeID)
+		}
+		for i, arg := range mdef.Args {
+			if err := validateThriftFieldDef(routeID, fmt.Sprintf("methods.%s.args[%d]", mname, i), arg, cfg.Structs, cfg.Enums); err != nil {
+				return err
+			}
+		}
+		for i, res := range mdef.Result {
+			if err := validateThriftResultFieldDef(routeID, fmt.Sprintf("methods.%s.result[%d]", mname, i), res, cfg.Structs, cfg.Enums); err != nil {
+				return err
+			}
+		}
+	}
+	for sname, fields := range cfg.Structs {
+		if sname == "" {
+			return fmt.Errorf("route %s: thrift.structs: struct name must not be empty", routeID)
+		}
+		for i, f := range fields {
+			if err := validateThriftFieldDef(routeID, fmt.Sprintf("structs.%s[%d]", sname, i), f, cfg.Structs, cfg.Enums); err != nil {
+				return err
+			}
+		}
+	}
+	for ename, vals := range cfg.Enums {
+		if ename == "" {
+			return fmt.Errorf("route %s: thrift.enums: enum name must not be empty", routeID)
+		}
+		if len(vals) == 0 {
+			return fmt.Errorf("route %s: thrift.enums.%s: must have at least one value", routeID, ename)
+		}
+	}
+	return nil
+}
+
+func validateThriftFieldDef(routeID, path string, fd ThriftFieldDef, structs map[string][]ThriftFieldDef, enums map[string]map[string]int) error {
+	if fd.ID <= 0 {
+		return fmt.Errorf("route %s: thrift.%s: field id must be > 0, got %d", routeID, path, fd.ID)
+	}
+	return validateThriftFieldDefCommon(routeID, path, fd, structs, enums)
+}
+
+// validateThriftResultFieldDef validates result field definitions where id 0 is
+// allowed (field 0 = success return value in Thrift result structs).
+func validateThriftResultFieldDef(routeID, path string, fd ThriftFieldDef, structs map[string][]ThriftFieldDef, enums map[string]map[string]int) error {
+	if fd.ID < 0 {
+		return fmt.Errorf("route %s: thrift.%s: field id must be >= 0, got %d", routeID, path, fd.ID)
+	}
+	return validateThriftFieldDefCommon(routeID, path, fd, structs, enums)
+}
+
+func validateThriftFieldDefCommon(routeID, path string, fd ThriftFieldDef, structs map[string][]ThriftFieldDef, enums map[string]map[string]int) error {
+	if fd.Name == "" {
+		return fmt.Errorf("route %s: thrift.%s: field name is required", routeID, path)
+	}
+	if fd.Type == "" {
+		return fmt.Errorf("route %s: thrift.%s: field type is required", routeID, path)
+	}
+	if !validThriftTypes[fd.Type] {
+		// Check if it's an enum name
+		if enums != nil {
+			if _, ok := enums[fd.Type]; ok {
+				return nil
+			}
+		}
+		return fmt.Errorf("route %s: thrift.%s: invalid type %q", routeID, path, fd.Type)
+	}
+	switch fd.Type {
+	case "struct":
+		if fd.Struct == "" {
+			return fmt.Errorf("route %s: thrift.%s: struct type requires 'struct' field name", routeID, path)
+		}
+		if _, ok := structs[fd.Struct]; !ok {
+			return fmt.Errorf("route %s: thrift.%s: unknown struct %q", routeID, path, fd.Struct)
+		}
+	case "list", "set":
+		if fd.Elem == "" {
+			return fmt.Errorf("route %s: thrift.%s: %s type requires 'elem' field", routeID, path, fd.Type)
+		}
+	case "map":
+		if fd.Key == "" {
+			return fmt.Errorf("route %s: thrift.%s: map type requires 'key' field", routeID, path)
+		}
+		if fd.Value == "" {
+			return fmt.Errorf("route %s: thrift.%s: map type requires 'value' field", routeID, path)
+		}
+	}
 	return nil
 }
 

@@ -486,7 +486,7 @@ type ProtocolTLSConfig struct {
 
 // ThriftTranslateConfig defines HTTP-to-Thrift translation settings.
 type ThriftTranslateConfig struct {
-	IDLFile     string                `yaml:"idl_file"`     // path to .thrift IDL file (required)
+	IDLFile     string                `yaml:"idl_file"`     // path to .thrift IDL file (alternative to methods)
 	Service     string                `yaml:"service"`      // Thrift service name (required)
 	Method      string                `yaml:"method"`       // optional: fixed method name
 	Timeout     time.Duration         `yaml:"timeout"`      // per-call timeout (default 30s)
@@ -495,6 +495,28 @@ type ThriftTranslateConfig struct {
 	Multiplexed bool                  `yaml:"multiplexed"`  // use TMultiplexedProtocol
 	TLS         ProtocolTLSConfig     `yaml:"tls"`
 	Mappings    []ThriftMethodMapping `yaml:"mappings"` // REST-to-Thrift method mappings
+	Methods     map[string]ThriftMethodDef  `yaml:"methods"`  // inline method definitions (alternative to idl_file)
+	Structs     map[string][]ThriftFieldDef `yaml:"structs"`  // inline struct definitions
+	Enums       map[string]map[string]int   `yaml:"enums"`    // inline enum definitions
+}
+
+// ThriftMethodDef defines an inline Thrift method schema.
+type ThriftMethodDef struct {
+	Args   []ThriftFieldDef `yaml:"args"`
+	Result []ThriftFieldDef `yaml:"result"` // field 0 = success return, 1+ = exceptions
+	Oneway bool             `yaml:"oneway"`
+	Void   bool             `yaml:"void"`
+}
+
+// ThriftFieldDef defines a Thrift field with its ID, name, and type info.
+type ThriftFieldDef struct {
+	ID     int32  `yaml:"id"`
+	Name   string `yaml:"name"`
+	Type   string `yaml:"type"`    // bool, byte, i16, i32, i64, double, string, binary, struct, list, set, map, or enum name
+	Struct string `yaml:"struct"`  // struct name (when type=struct)
+	Elem   string `yaml:"elem"`    // element type (when type=list/set)
+	Key    string `yaml:"key"`     // key type (when type=map)
+	Value  string `yaml:"value"`   // value type (when type=map)
 }
 
 // ThriftMethodMapping defines a REST-to-Thrift method mapping.

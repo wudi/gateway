@@ -89,7 +89,7 @@ protocol:
 
 ## HTTP-to-Thrift Translation
 
-Translates incoming HTTP/JSON requests into Thrift RPC calls. Unlike gRPC, Thrift has no reflection API, so service schemas come from user-provided `.thrift` IDL files parsed at startup. Dynamic invocation uses Apache Thrift TProtocol primitives to construct and read binary messages without generated code.
+Translates incoming HTTP/JSON requests into Thrift RPC calls. Unlike gRPC, Thrift has no reflection API, so service schemas must be provided by the user — either via `.thrift` IDL files or inline in the YAML config. Dynamic invocation uses Apache Thrift TProtocol primitives to construct and read binary messages without generated code.
 
 ### Basic Configuration
 
@@ -111,6 +111,83 @@ routes:
 ```
 
 With this configuration, requests to `/thrift/GetUser` with a JSON body `{"id": "123"}` are translated to a Thrift `UserService.GetUser` call. The last path segment is used as the method name.
+
+### IDL-Free Mode (Inline Schema)
+
+Instead of distributing `.thrift` IDL files, you can define method schemas directly in the YAML config. The gateway builds the same internal schema structures, so the behavior is identical to the IDL-based approach.
+
+```yaml
+routes:
+  - id: "thrift-api"
+    path: "/thrift"
+    path_prefix: true
+    backends:
+      - url: "http://thrift-backend:9090"
+    protocol:
+      type: "http_to_thrift"
+      thrift:
+        service: "UserService"
+        timeout: 30s
+        methods:
+          GetUser:
+            args:
+              - id: 1
+                name: "user_id"
+                type: "string"
+            result:
+              - id: 0
+                name: "success"
+                type: "struct"
+                struct: "User"
+          CreateUser:
+            args:
+              - id: 1
+                name: "user"
+                type: "struct"
+                struct: "User"
+            void: true
+          NotifyUser:
+            args:
+              - id: 1
+                name: "id"
+                type: "string"
+              - id: 2
+                name: "message"
+                type: "string"
+            oneway: true
+        structs:
+          User:
+            - id: 1
+              name: "name"
+              type: "string"
+            - id: 2
+              name: "age"
+              type: "i32"
+            - id: 3
+              name: "tags"
+              type: "list"
+              elem: "string"
+          Address:
+            - id: 1
+              name: "street"
+              type: "string"
+            - id: 2
+              name: "zip"
+              type: "i32"
+        enums:
+          Status:
+            ACTIVE: 1
+            INACTIVE: 2
+```
+
+**Key points:**
+
+- `idl_file` and `methods` are mutually exclusive — use one or the other.
+- Each field requires an `id` (the Thrift field ID) and `type`. Field IDs in `args` must be > 0. In `result`, field ID 0 is the success return value; IDs 1+ are exceptions.
+- The `type` field accepts: `bool`, `byte`, `i16`, `i32`, `i64`, `double`, `string`, `binary`, `struct`, `list`, `set`, `map`, or an enum name defined in `enums`.
+- For `struct` types, specify the struct name in the `struct` field. For `list`/`set`, specify the element type in `elem`. For `map`, specify `key` and `value` types.
+- Methods with `void: true` return no value. Methods with `oneway: true` are fire-and-forget.
+- Struct and enum names referenced in fields must be defined in the `structs` and `enums` maps.
 
 ### Fixed Method Mode
 
@@ -266,7 +343,7 @@ WebSocket connections bypass the cache and circuit breaker (they return early in
 | `protocol.grpc.timeout` | duration | Per-call timeout (default 30s) |
 | `protocol.grpc.descriptor_cache_ttl` | duration | Reflection cache TTL (default 5m) |
 | `protocol.grpc.mappings` | []GRPCMethodMapping | REST-to-gRPC path mappings |
-| `protocol.thrift.idl_file` | string | Path to `.thrift` IDL file (required) |
+| `protocol.thrift.idl_file` | string | Path to `.thrift` IDL file (mutually exclusive with `methods`) |
 | `protocol.thrift.service` | string | Thrift service name (required) |
 | `protocol.thrift.method` | string | Fixed method name (optional) |
 | `protocol.thrift.timeout` | duration | Per-call timeout (default 30s) |
@@ -274,6 +351,9 @@ WebSocket connections bypass the cache and circuit breaker (they return early in
 | `protocol.thrift.transport` | string | `framed` (default) or `buffered` |
 | `protocol.thrift.multiplexed` | bool | Enable TMultiplexedProtocol |
 | `protocol.thrift.mappings` | []ThriftMethodMapping | REST-to-Thrift path mappings |
+| `protocol.thrift.methods` | map[string]ThriftMethodDef | Inline method schemas (mutually exclusive with `idl_file`) |
+| `protocol.thrift.structs` | map[string][]ThriftFieldDef | Inline struct definitions |
+| `protocol.thrift.enums` | map[string]map[string]int | Inline enum definitions |
 | `grpc.enabled` | bool | Enable gRPC passthrough (mutually exclusive with protocol) |
 | `websocket.enabled` | bool | Enable WebSocket proxying |
 | `websocket.ping_interval` | duration | Keep-alive ping interval |

@@ -56,8 +56,14 @@ func (t *Translator) Name() string {
 
 // Handler returns an http.Handler that translates HTTP/JSON to Thrift.
 func (t *Translator) Handler(routeID string, balancer loadbalancer.Balancer, cfg config.ProtocolConfig) (http.Handler, error) {
-	// Parse IDL and load schema.
-	schema, err := t.schemaCache.getServiceSchema(cfg.Thrift.IDLFile, cfg.Thrift.Service)
+	// Load schema from IDL file or inline config.
+	var schema *serviceSchema
+	var err error
+	if cfg.Thrift.IDLFile != "" {
+		schema, err = t.schemaCache.getServiceSchema(cfg.Thrift.IDLFile, cfg.Thrift.Service)
+	} else {
+		schema, err = buildServiceSchemaFromConfig(cfg.Thrift)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to load thrift schema: %w", err)
 	}

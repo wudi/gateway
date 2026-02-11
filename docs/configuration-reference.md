@@ -541,7 +541,7 @@ Note: The `database` field is only valid at the global level. Per-route geo conf
             grpc_method: string
             body: string         # "", "*", or "field_name"
       thrift:
-        idl_file: string      # path to .thrift IDL file (required)
+        idl_file: string      # path to .thrift IDL file (mutually exclusive with methods)
         service: string       # Thrift service name (required)
         method: string        # fixed method name (optional)
         timeout: duration     # default 30s
@@ -558,11 +558,40 @@ Note: The `database` field is only valid at the global level. Per-route geo conf
             http_path: string      # /path/:param or /path/{param}
             thrift_method: string
             body: string           # "", "*", or "field_name"
+        methods:               # inline method definitions (mutually exclusive with idl_file)
+          MethodName:
+            args:
+              - id: int32          # Thrift field ID (> 0)
+                name: string       # field name
+                type: string       # bool, byte, i16, i32, i64, double, string, binary, struct, list, set, map, or enum name
+                struct: string     # struct name (when type=struct)
+                elem: string       # element type (when type=list/set)
+                key: string        # key type (when type=map)
+                value: string      # value type (when type=map)
+            result:                # field 0 = success return, 1+ = exceptions
+              - id: int32          # 0 for success, 1+ for exceptions
+                name: string
+                type: string
+                struct: string
+            oneway: bool           # fire-and-forget (no response)
+            void: bool             # no return value
+        structs:               # inline struct definitions
+          StructName:
+            - id: int32
+              name: string
+              type: string
+              struct: string
+              elem: string
+              key: string
+              value: string
+        enums:                 # inline enum definitions
+          EnumName:
+            VALUE_NAME: int    # enum value name → integer value
 ```
 
 **Validation (gRPC):** Mutually exclusive with `grpc.enabled`. `method` and `mappings` are mutually exclusive. If `grpc.tls.enabled` is true, `ca_file` is required. If `mappings` is used, `service` is required. `method` requires `service`.
 
-**Validation (Thrift):** `idl_file` and `service` are required. `method` and `mappings` are mutually exclusive. `protocol` must be `binary` or `compact`. `transport` must be `framed` or `buffered`. If `tls.enabled` is true, `ca_file` is required.
+**Validation (Thrift):** `idl_file` and `methods` are mutually exclusive; one must be provided. `service` is required. `method` and `mappings` are mutually exclusive. `protocol` must be `binary` or `compact`. `transport` must be `framed` or `buffered`. If `tls.enabled` is true, `ca_file` is required. When using `methods`: field IDs in args must be > 0; in result, ID 0 is the success return. Struct references must exist in `structs`. Enum references must exist in `enums`. Enums must have at least one value.
 
 ### gRPC Passthrough
 

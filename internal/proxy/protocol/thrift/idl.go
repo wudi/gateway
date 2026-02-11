@@ -6,6 +6,7 @@ import (
 
 	"github.com/cloudwego/thriftgo/parser"
 	"github.com/cloudwego/thriftgo/semantic"
+	"github.com/wudi/gateway/internal/config"
 )
 
 // schemaCache caches parsed IDL schemas keyed by "idlFile:serviceName".
@@ -133,6 +134,224 @@ func buildServiceSchema(ast *parser.Thrift, serviceName string) (*serviceSchema,
 		enums:    enums,
 		typedefs: typedefs,
 	}, nil
+}
+
+// typeStringToCategory maps YAML type strings to parser.Category values.
+var typeStringToCategory = map[string]parser.Category{
+	"bool":   parser.Category_Bool,
+	"byte":   parser.Category_Byte,
+	"i16":    parser.Category_I16,
+	"i32":    parser.Category_I32,
+	"i64":    parser.Category_I64,
+	"double": parser.Category_Double,
+	"string": parser.Category_String,
+	"binary": parser.Category_Binary,
+	"struct": parser.Category_Struct,
+	"list":   parser.Category_List,
+	"set":    parser.Category_Set,
+	"map":    parser.Category_Map,
+}
+
+// buildServiceSchemaFromConfig constructs a serviceSchema from inline config
+// instead of a parsed IDL file. It produces the same serviceSchema structure
+// used by the IDL path, so downstream codec/invoker code is unchanged.
+func buildServiceSchemaFromConfig(cfg config.ThriftTranslateConfig) (*serviceSchema, error) {
+	// Build enums.
+	enums := make(map[string]*parser.Enum, len(cfg.Enums))
+	for name, vals := range cfg.Enums {
+		values := make([]*parser.EnumValue, 0, len(vals))
+		for vname, vval := range vals {
+			values = append(values, &parser.EnumValue{
+				Name:  vname,
+				Value: int64(vval),
+			})
+		}
+		enums[name] = &parser.Enum{
+			Name:   name,
+			Values: values,
+		}
+	}
+
+	// Build structs.
+	structs := make(map[string]*parser.StructLike, len(cfg.Structs))
+	for name, fields := range cfg.Structs {
+		pfields := make([]*parser.Field, len(fields))
+		for i, fd := range fields {
+			pt, err := fieldDefToParserType(fd, cfg.Structs, cfg.Enums)
+			if err != nil {
+				return nil, fmt.Errorf("struct %s field %s: %w", name, fd.Name, err)
+			}
+			pfields[i] = &parser.Field{
+				ID:   fd.ID,
+				Name: fd.Name,
+				Type: pt,
+			}
+		}
+		structs[name] = &parser.StructLike{
+			Category: "struct",
+			Name:     name,
+			Fields:   pfields,
+		}
+	}
+
+	// Build methods.
+	methods := make(map[string]*methodSchema, len(cfg.Methods))
+	functions := make([]*parser.Function, 0, len(cfg.Methods))
+
+	for mname, mdef := range cfg.Methods {
+		// Build args.
+		args := make([]*parser.Field, len(mdef.Args))
+		for i, fd := range mdef.Args {
+			pt, err := fieldDefToParserType(fd, cfg.Structs, cfg.Enums)
+			if err != nil {
+				return nil, fmt.Errorf("method %s arg %s: %w", mname, fd.Name, err)
+			}
+			args[i] = &parser.Field{
+				ID:   fd.ID,
+				Name: fd.Name,
+				Type: pt,
+			}
+		}
+
+		// Build return type and exceptions from result fields.
+		var returnType *parser.Type
+		var throws []*parser.Field
+		isVoid := mdef.Void || mdef.Oneway
+
+		for _, rd := range mdef.Result {
+			pt, err := fieldDefToParserType(rd, cfg.Structs, cfg.Enums)
+			if err != nil {
+				return nil, fmt.Errorf("method %s result %s: %w", mname, rd.Name, err)
+			}
+			if rd.ID == 0 {
+				// Field 0 = success return type.
+				returnType = pt
+				isVoid = false
+			} else {
+				// Fields 1+ = exceptions.
+				throws = append(throws, &parser.Field{
+					ID:   rd.ID,
+					Name: rd.Name,
+					Type: pt,
+				})
+			}
+		}
+
+		if returnType == nil && !isVoid {
+			// No result fields and not explicitly void/oneway — treat as void.
+			isVoid = true
+		}
+
+		fn := &parser.Function{
+			Name:         mname,
+			Oneway:       mdef.Oneway,
+			Void:         isVoid,
+			FunctionType: returnType,
+			Arguments:    args,
+			Throws:       throws,
+		}
+		functions = append(functions, fn)
+
+		methods[mname] = &methodSchema{
+			function:   fn,
+			args:       args,
+			returnType: returnType,
+			throws:     throws,
+			oneway:     mdef.Oneway,
+			void:       isVoid,
+		}
+	}
+
+	svc := &parser.Service{
+		Name:      cfg.Service,
+		Functions: functions,
+	}
+
+	return &serviceSchema{
+		service:  svc,
+		methods:  methods,
+		structs:  structs,
+		enums:    enums,
+		typedefs: make(map[string]*parser.Type),
+	}, nil
+}
+
+// fieldDefToParserType converts a config.ThriftFieldDef to a *parser.Type.
+func fieldDefToParserType(fd config.ThriftFieldDef, structDefs map[string][]config.ThriftFieldDef, enumDefs map[string]map[string]int) (*parser.Type, error) {
+	// Check if type is an enum name.
+	if enumDefs != nil {
+		if _, ok := enumDefs[fd.Type]; ok {
+			return &parser.Type{
+				Name:     fd.Type,
+				Category: parser.Category_Enum,
+			}, nil
+		}
+	}
+
+	cat, ok := typeStringToCategory[fd.Type]
+	if !ok {
+		return nil, fmt.Errorf("invalid type %q", fd.Type)
+	}
+
+	pt := &parser.Type{
+		Name:     fd.Type,
+		Category: cat,
+	}
+
+	switch fd.Type {
+	case "struct":
+		pt.Name = fd.Struct
+	case "list", "set":
+		elemType, err := elemStringToParserType(fd.Elem, structDefs, enumDefs)
+		if err != nil {
+			return nil, fmt.Errorf("elem type: %w", err)
+		}
+		pt.ValueType = elemType
+	case "map":
+		keyType, err := elemStringToParserType(fd.Key, structDefs, enumDefs)
+		if err != nil {
+			return nil, fmt.Errorf("key type: %w", err)
+		}
+		valType, err := elemStringToParserType(fd.Value, structDefs, enumDefs)
+		if err != nil {
+			return nil, fmt.Errorf("value type: %w", err)
+		}
+		pt.KeyType = keyType
+		pt.ValueType = valType
+	}
+
+	return pt, nil
+}
+
+// elemStringToParserType converts a simple type string (used in elem/key/value)
+// to a *parser.Type. Supports scalar types, enum names, and struct names.
+func elemStringToParserType(typeStr string, structDefs map[string][]config.ThriftFieldDef, enumDefs map[string]map[string]int) (*parser.Type, error) {
+	// Check for enum.
+	if enumDefs != nil {
+		if _, ok := enumDefs[typeStr]; ok {
+			return &parser.Type{
+				Name:     typeStr,
+				Category: parser.Category_Enum,
+			}, nil
+		}
+	}
+	// Check for struct.
+	if structDefs != nil {
+		if _, ok := structDefs[typeStr]; ok {
+			return &parser.Type{
+				Name:     typeStr,
+				Category: parser.Category_Struct,
+			}, nil
+		}
+	}
+	// Check scalar types.
+	if cat, ok := typeStringToCategory[typeStr]; ok {
+		return &parser.Type{
+			Name:     typeStr,
+			Category: cat,
+		}, nil
+	}
+	return nil, fmt.Errorf("unknown type %q", typeStr)
 }
 
 // collectTypes recursively collects struct-like types, enums, and typedefs.

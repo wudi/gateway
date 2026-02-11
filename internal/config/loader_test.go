@@ -1053,6 +1053,398 @@ routes:
 	}
 }
 
+func TestLoaderValidateThriftInlineSchema(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+	}{
+		{
+			name: "valid thrift with idl_file",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: thrift-route
+    path: /thrift
+    path_prefix: true
+    backends:
+      - url: http://localhost:9090
+    protocol:
+      type: http_to_thrift
+      thrift:
+        idl_file: /etc/idl/service.thrift
+        service: UserService
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid thrift with inline methods",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: thrift-route
+    path: /thrift
+    path_prefix: true
+    backends:
+      - url: http://localhost:9090
+    protocol:
+      type: http_to_thrift
+      thrift:
+        service: UserService
+        methods:
+          GetUser:
+            args:
+              - id: 1
+                name: user_id
+                type: string
+            result:
+              - id: 0
+                name: success
+                type: struct
+                struct: User
+          CreateUser:
+            args:
+              - id: 1
+                name: user
+                type: struct
+                struct: User
+            void: true
+        structs:
+          User:
+            - id: 1
+              name: name
+              type: string
+            - id: 2
+              name: age
+              type: i32
+`,
+			wantErr: false,
+		},
+		{
+			name: "idl_file and methods mutually exclusive",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: thrift-route
+    path: /thrift
+    backends:
+      - url: http://localhost:9090
+    protocol:
+      type: http_to_thrift
+      thrift:
+        idl_file: /etc/idl/service.thrift
+        service: UserService
+        methods:
+          GetUser:
+            args:
+              - id: 1
+                name: id
+                type: string
+`,
+			wantErr: true,
+		},
+		{
+			name: "neither idl_file nor methods",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: thrift-route
+    path: /thrift
+    backends:
+      - url: http://localhost:9090
+    protocol:
+      type: http_to_thrift
+      thrift:
+        service: UserService
+`,
+			wantErr: true,
+		},
+		{
+			name: "invalid field type in methods",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: thrift-route
+    path: /thrift
+    backends:
+      - url: http://localhost:9090
+    protocol:
+      type: http_to_thrift
+      thrift:
+        service: UserService
+        methods:
+          Test:
+            args:
+              - id: 1
+                name: x
+                type: invalid_type
+`,
+			wantErr: true,
+		},
+		{
+			name: "missing field id",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: thrift-route
+    path: /thrift
+    backends:
+      - url: http://localhost:9090
+    protocol:
+      type: http_to_thrift
+      thrift:
+        service: UserService
+        methods:
+          Test:
+            args:
+              - id: 0
+                name: x
+                type: string
+`,
+			wantErr: true,
+		},
+		{
+			name: "missing field name",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: thrift-route
+    path: /thrift
+    backends:
+      - url: http://localhost:9090
+    protocol:
+      type: http_to_thrift
+      thrift:
+        service: UserService
+        methods:
+          Test:
+            args:
+              - id: 1
+                type: string
+`,
+			wantErr: true,
+		},
+		{
+			name: "struct type without struct name",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: thrift-route
+    path: /thrift
+    backends:
+      - url: http://localhost:9090
+    protocol:
+      type: http_to_thrift
+      thrift:
+        service: UserService
+        methods:
+          Test:
+            args:
+              - id: 1
+                name: x
+                type: struct
+`,
+			wantErr: true,
+		},
+		{
+			name: "struct reference to unknown struct",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: thrift-route
+    path: /thrift
+    backends:
+      - url: http://localhost:9090
+    protocol:
+      type: http_to_thrift
+      thrift:
+        service: UserService
+        methods:
+          Test:
+            args:
+              - id: 1
+                name: x
+                type: struct
+                struct: NonExistent
+`,
+			wantErr: true,
+		},
+		{
+			name: "list without elem",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: thrift-route
+    path: /thrift
+    backends:
+      - url: http://localhost:9090
+    protocol:
+      type: http_to_thrift
+      thrift:
+        service: UserService
+        methods:
+          Test:
+            args:
+              - id: 1
+                name: x
+                type: list
+`,
+			wantErr: true,
+		},
+		{
+			name: "map without key",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: thrift-route
+    path: /thrift
+    backends:
+      - url: http://localhost:9090
+    protocol:
+      type: http_to_thrift
+      thrift:
+        service: UserService
+        methods:
+          Test:
+            args:
+              - id: 1
+                name: x
+                type: map
+                value: string
+`,
+			wantErr: true,
+		},
+		{
+			name: "empty enum values",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: thrift-route
+    path: /thrift
+    backends:
+      - url: http://localhost:9090
+    protocol:
+      type: http_to_thrift
+      thrift:
+        service: UserService
+        methods:
+          Test:
+            args:
+              - id: 1
+                name: x
+                type: string
+        enums:
+          Status: {}
+`,
+			wantErr: true,
+		},
+		{
+			name: "valid enum type in field",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: thrift-route
+    path: /thrift
+    backends:
+      - url: http://localhost:9090
+    protocol:
+      type: http_to_thrift
+      thrift:
+        service: UserService
+        methods:
+          Test:
+            args:
+              - id: 1
+                name: status
+                type: Status
+        enums:
+          Status:
+            ACTIVE: 1
+            INACTIVE: 2
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid oneway method",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: thrift-route
+    path: /thrift
+    backends:
+      - url: http://localhost:9090
+    protocol:
+      type: http_to_thrift
+      thrift:
+        service: UserService
+        methods:
+          Notify:
+            args:
+              - id: 1
+                name: message
+                type: string
+            oneway: true
+`,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestLoaderValidateDNSResolver(t *testing.T) {
 	tests := []struct {
 		name    string
