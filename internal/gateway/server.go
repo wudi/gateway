@@ -529,6 +529,9 @@ func (s *Server) adminHandler() http.Handler {
 	// Request decompression
 	mux.HandleFunc("/decompression", s.handleDecompression)
 
+	// Response limits
+	mux.HandleFunc("/response-limits", s.handleResponseLimits)
+
 	// Security headers
 	mux.HandleFunc("/security-headers", s.handleSecurityHeaders)
 
@@ -1119,6 +1122,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["request_decompression"] = decompStats
 	}
 
+	// Response limits
+	if rlStats := s.gateway.GetResponseLimiters().Stats(); len(rlStats) > 0 {
+		dashboard["response_limits"] = rlStats
+	}
+
 	// Security headers
 	if shStats := s.gateway.GetSecurityHeaders().Stats(); len(shStats) > 0 {
 		dashboard["security_headers"] = shStats
@@ -1314,6 +1322,12 @@ func (s *Server) handleCompression(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDecompression(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.gateway.GetDecompressors().Stats())
+}
+
+// handleResponseLimits handles response limit stats requests.
+func (s *Server) handleResponseLimits(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetResponseLimiters().Stats())
 }
 
 // handleSecurityHeaders handles security headers stats requests.

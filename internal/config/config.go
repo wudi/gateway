@@ -53,6 +53,7 @@ type Config struct {
 	BackendSigning         BackendSigningConfig         `yaml:"backend_signing"`          // Global backend request signing
 	Transport              TransportConfig              `yaml:"transport"`                // Global upstream transport settings
 	RequestDecompression   RequestDecompressionConfig   `yaml:"request_decompression"`    // Global request decompression
+	ResponseLimit          ResponseLimitConfig          `yaml:"response_limit"`           // Global response size limit
 	SecurityHeaders        SecurityHeadersConfig        `yaml:"security_headers"`         // Global security response headers
 	Maintenance            MaintenanceConfig            `yaml:"maintenance"`              // Global maintenance mode
 	Shutdown               ShutdownConfig               `yaml:"shutdown"`                 // Graceful shutdown settings
@@ -280,6 +281,7 @@ type RouteConfig struct {
 	Geo              GeoConfig               `yaml:"geo"`                // Per-route geo filtering
 	BackendSigning       BackendSigningConfig       `yaml:"backend_signing"`       // Per-route backend request signing
 	RequestDecompression RequestDecompressionConfig `yaml:"request_decompression"` // Per-route request decompression
+	ResponseLimit        ResponseLimitConfig        `yaml:"response_limit"`        // Per-route response size limit
 	SecurityHeaders      SecurityHeadersConfig      `yaml:"security_headers"`      // Per-route security response headers
 	Maintenance          MaintenanceConfig          `yaml:"maintenance"`           // Per-route maintenance mode
 	Echo                 bool                       `yaml:"echo"`                  // Echo handler (no backend needed)
@@ -407,6 +409,13 @@ type RequestDecompressionConfig struct {
 	Enabled             bool     `yaml:"enabled"`
 	Algorithms          []string `yaml:"algorithms"`            // "gzip", "deflate", "br", "zstd"; default all four
 	MaxDecompressedSize int64    `yaml:"max_decompressed_size"` // zip bomb protection; default 52428800 (50MB)
+}
+
+// ResponseLimitConfig controls maximum response body size from backends.
+type ResponseLimitConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	MaxSize int64  `yaml:"max_size"` // max response body in bytes
+	Action  string `yaml:"action"`   // "reject" (default: 502 if known, discard if streaming), "truncate", "log_only"
 }
 
 // SecurityHeadersConfig defines automatic security response headers.

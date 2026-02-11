@@ -1011,6 +1011,16 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate response limit config (global + per-route)
+	if err := l.validateResponseLimitConfig("global", cfg.ResponseLimit); err != nil {
+		return err
+	}
+	for _, route := range cfg.Routes {
+		if err := l.validateResponseLimitConfig(fmt.Sprintf("route %s", route.ID), route.ResponseLimit); err != nil {
+			return err
+		}
+	}
+
 	// Validate security headers custom_headers keys
 	if err := l.validateSecurityHeadersConfig("global", cfg.SecurityHeaders); err != nil {
 		return err
@@ -2054,6 +2064,30 @@ func (l *Loader) validateDecompressionConfig(scope string, cfg RequestDecompress
 		if !validDecompressionAlgorithms[algo] {
 			return fmt.Errorf("%s: request_decompression.algorithms: unsupported algorithm %q (valid: gzip, deflate, br, zstd)", scope, algo)
 		}
+	}
+	return nil
+}
+
+// validResponseLimitActions is the set of valid response_limit.action values.
+var validResponseLimitActions = map[string]bool{
+	"reject":   true,
+	"truncate": true,
+	"log_only": true,
+}
+
+// validateResponseLimitConfig validates a response limit config.
+func (l *Loader) validateResponseLimitConfig(scope string, cfg ResponseLimitConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	if cfg.MaxSize < 0 {
+		return fmt.Errorf("%s: response_limit.max_size must be >= 0", scope)
+	}
+	if cfg.MaxSize == 0 {
+		return fmt.Errorf("%s: response_limit.max_size must be set when enabled", scope)
+	}
+	if cfg.Action != "" && !validResponseLimitActions[cfg.Action] {
+		return fmt.Errorf("%s: response_limit.action must be one of: reject, truncate, log_only", scope)
 	}
 	return nil
 }

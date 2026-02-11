@@ -116,6 +116,7 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /transport` | Transport pool configuration (default settings, per-upstream overrides) |
 | `GET /error-pages` | Custom error page configuration per route (configured pages, render metrics) |
 | `GET /decompression` | Request decompression stats per route (total, decompressed, errors, per-algorithm counts) |
+| `GET /response-limits` | Response size limit stats per route (total responses, limited count, total bytes, max size, action) |
 | `GET /security-headers` | Security response headers stats per route (total requests, header count, header names) |
 | `GET /maintenance` | Maintenance mode status per route (enabled, blocked/bypassed counts) |
 | `POST /maintenance/{route}/enable` | Enable maintenance mode for a route at runtime |
@@ -533,6 +534,36 @@ curl http://localhost:8081/decompression
       "br": 30,
       "zstd": 10
     }
+  }
+}
+```
+
+## Response Size Limiting
+
+### GET `/response-limits`
+
+Returns per-route response size limit statistics.
+
+```bash
+curl http://localhost:8081/response-limits
+```
+
+**Response:**
+```json
+{
+  "api": {
+    "total_responses": 10000,
+    "limited": 15,
+    "total_bytes": 52428800,
+    "max_size": 1048576,
+    "action": "reject"
+  },
+  "uploads": {
+    "total_responses": 500,
+    "limited": 3,
+    "total_bytes": 25000000,
+    "max_size": 5242880,
+    "action": "truncate"
   }
 }
 ```

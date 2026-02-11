@@ -24,6 +24,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	"github.com/wudi/gateway/internal/middleware/nonce"
 	"github.com/wudi/gateway/internal/middleware/openapi"
+	"github.com/wudi/gateway/internal/middleware/responselimit"
 	"github.com/wudi/gateway/internal/middleware/timeout"
 	"github.com/wudi/gateway/internal/middleware/validation"
 	"github.com/wudi/gateway/internal/middleware/versioning"
@@ -538,6 +539,25 @@ func (f *maintenanceFeature) Setup(routeID string, cfg config.RouteConfig) error
 }
 func (f *maintenanceFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *maintenanceFeature) AdminStats() any    { return f.m.Stats() }
+
+// responseLimitFeature wraps ResponseLimitByRoute.
+type responseLimitFeature struct {
+	m      *responselimit.ResponseLimitByRoute
+	global *config.ResponseLimitConfig
+}
+
+func (f *responseLimitFeature) Name() string { return "response_limit" }
+func (f *responseLimitFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.ResponseLimit.Enabled {
+		merged := responselimit.MergeResponseLimitConfig(cfg.ResponseLimit, *f.global)
+		f.m.AddRoute(routeID, merged)
+	} else if f.global.Enabled {
+		f.m.AddRoute(routeID, *f.global)
+	}
+	return nil
+}
+func (f *responseLimitFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *responseLimitFeature) AdminStats() any    { return f.m.Stats() }
 
 // signingFeature wraps SigningByRoute.
 type signingFeature struct {

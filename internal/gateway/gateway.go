@@ -43,6 +43,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/signing"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
 	"github.com/wudi/gateway/internal/middleware/ratelimit"
+	"github.com/wudi/gateway/internal/middleware/responselimit"
 	"github.com/wudi/gateway/internal/middleware/timeout"
 	"github.com/wudi/gateway/internal/middleware/transform"
 	"github.com/wudi/gateway/internal/middleware/validation"
@@ -125,6 +126,7 @@ type Gateway struct {
 	idempotencyHandlers *idempotency.IdempotencyByRoute
 	backendSigners      *signing.SigningByRoute
 	decompressors       *decompress.DecompressorByRoute
+	responseLimiters    *responselimit.ResponseLimitByRoute
 	securityHeaders     *securityheaders.SecurityHeadersByRoute
 	maintenanceHandlers *maintenance.MaintenanceByRoute
 	realIPExtractor     *realip.CompiledRealIP
@@ -206,6 +208,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		idempotencyHandlers: idempotency.NewIdempotencyByRoute(),
 		backendSigners:      signing.NewSigningByRoute(),
 		decompressors:       decompress.NewDecompressorByRoute(),
+		responseLimiters:    responselimit.NewResponseLimitByRoute(),
 		securityHeaders:     securityheaders.NewSecurityHeadersByRoute(),
 		maintenanceHandlers: maintenance.NewMaintenanceByRoute(),
 		routeProxies:        make(map[string]*proxy.RouteProxy),
@@ -250,6 +253,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&geoFeature{m: g.geoFilters, global: &cfg.Geo, provider: g.geoProvider},
 		&signingFeature{m: g.backendSigners, global: &cfg.BackendSigning},
 		&decompressFeature{m: g.decompressors, global: &cfg.RequestDecompression},
+		&responseLimitFeature{m: g.responseLimiters, global: &cfg.ResponseLimit},
 		&securityHeadersFeature{m: g.securityHeaders, global: &cfg.SecurityHeaders},
 		&maintenanceFeature{m: g.maintenanceHandlers, global: &cfg.Maintenance},
 	}
@@ -941,6 +945,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		chain = chain.Use(compressionMW(compressor))
 	}
 
+	// 13.5. responseLimitMW — enforce max response body size from backend
+	if rl := g.responseLimiters.GetLimiter(routeID); rl != nil && rl.IsEnabled() {
+		chain = chain.Use(responseLimitMW(rl))
+	}
+
 	// 14. responseRulesMW — wrap writer + eval (Steps 8.5+10.2)
 	hasRespRules := (g.globalRules != nil && g.globalRules.HasResponseRules()) ||
 		(routeEngine != nil && routeEngine.HasResponseRules())
@@ -1518,6 +1527,11 @@ func (g *Gateway) GetCompressors() *compression.CompressorByRoute {
 // GetDecompressors returns the request decompression manager.
 func (g *Gateway) GetDecompressors() *decompress.DecompressorByRoute {
 	return g.decompressors
+}
+
+// GetResponseLimiters returns the response limit ByRoute manager.
+func (g *Gateway) GetResponseLimiters() *responselimit.ResponseLimitByRoute {
+	return g.responseLimiters
 }
 
 // GetMaintenanceHandlers returns the maintenance ByRoute manager.

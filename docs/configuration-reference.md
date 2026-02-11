@@ -1267,6 +1267,28 @@ See [Security](security.md#security-response-headers) for details.
 
 ---
 
+## Response Size Limiting
+
+```yaml
+response_limit:
+  enabled: bool                # enable response size limiting (default false)
+  max_size: int                # maximum response body size in bytes (required when enabled)
+  action: string               # "reject" (default), "truncate", "log_only"
+```
+
+Per-route `response_limit:` overrides global. Per-route non-zero fields override global fields.
+
+**Actions:**
+- `reject` — If the backend response has a `Content-Length` header exceeding `max_size`, returns 502 Bad Gateway immediately. For streaming (chunked) responses, writes are accepted until the limit is reached, then discarded silently.
+- `truncate` — Writes up to `max_size` bytes, then discards the rest. The client receives a truncated response.
+- `log_only` — Passes the full response through but increments the `limited` counter in metrics. Useful for monitoring before enforcing.
+
+**Validation:** `max_size` must be > 0 when enabled. `action` must be one of: `reject`, `truncate`, `log_only`.
+
+When a response is limited, the `X-Response-Limited: true` header is set.
+
+---
+
 ## Maintenance Mode
 
 ```yaml

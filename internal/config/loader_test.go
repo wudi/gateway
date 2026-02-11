@@ -3340,6 +3340,146 @@ trusted_proxies:
 	}
 }
 
+func TestLoaderValidateResponseLimit(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid global response limit",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+response_limit:
+  enabled: true
+  max_size: 1048576
+  action: reject
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid per-route truncate",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    response_limit:
+      enabled: true
+      max_size: 5242880
+      action: truncate
+`,
+			wantErr: false,
+		},
+		{
+			name: "negative max_size rejected",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+response_limit:
+  enabled: true
+  max_size: -1
+`,
+			wantErr: true,
+			errMsg:  "response_limit.max_size must be >= 0",
+		},
+		{
+			name: "zero max_size when enabled rejected",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+response_limit:
+  enabled: true
+  max_size: 0
+`,
+			wantErr: true,
+			errMsg:  "response_limit.max_size must be set when enabled",
+		},
+		{
+			name: "invalid action rejected",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+response_limit:
+  enabled: true
+  max_size: 1048576
+  action: drop
+`,
+			wantErr: true,
+			errMsg:  "response_limit.action must be one of",
+		},
+		{
+			name: "disabled config skips validation",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+response_limit:
+  enabled: false
+  max_size: -999
+`,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				} else if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("expected error containing %q, got %q", tt.errMsg, err.Error())
+				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestLoaderValidateTransportCertFiles(t *testing.T) {
 	base := `
 listeners:

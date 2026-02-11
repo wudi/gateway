@@ -37,6 +37,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/signing"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
 	"github.com/wudi/gateway/internal/middleware/ratelimit"
+	"github.com/wudi/gateway/internal/middleware/responselimit"
 	"github.com/wudi/gateway/internal/middleware/timeout"
 	"github.com/wudi/gateway/internal/middleware/transform"
 	"github.com/wudi/gateway/internal/middleware/validation"
@@ -462,6 +463,11 @@ func compressionMW(c *compression.Compressor) middleware.Middleware {
 			cw.Close()
 		})
 	}
+}
+
+// 11.5. responseLimitMW enforces a maximum response body size.
+func responseLimitMW(rl *responselimit.ResponseLimiter) middleware.Middleware {
+	return rl.Middleware()
 }
 
 // 12. responseRulesMW wraps with RulesResponseWriter, evaluates response rules, then flushes.
