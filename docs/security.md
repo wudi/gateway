@@ -250,6 +250,32 @@ Optional Origin/Referer validation and shadow mode for gradual rollout. See [CSR
 | `nonce.scope` | string | `global` (default) or `per_client` |
 | `nonce.required` | bool | Reject missing nonce (default `true`) |
 
+## Upstream mTLS (Client Certificates)
+
+The gateway can present client certificates when connecting to backends that require mutual TLS authentication. This is common for internal microservices, payment APIs, and partner integrations.
+
+Configure client certificates globally or per-upstream via the `transport` block:
+
+```yaml
+# Global — all upstreams present this client cert
+transport:
+  ca_file: /etc/gateway/internal-ca.pem
+  cert_file: /etc/gateway/client.crt
+  key_file: /etc/gateway/client.key
+
+# Per-upstream — specific cert for a single upstream
+upstreams:
+  payment-api:
+    backends:
+      - url: https://payments.internal:443
+    transport:
+      cert_file: /etc/gateway/payment-client.crt
+      key_file: /etc/gateway/payment-client.key
+      ca_file: /etc/gateway/payment-ca.pem
+```
+
+Both `cert_file` and `key_file` must be specified together. Per-upstream settings override global settings. See [Transport](transport.md) for details.
+
 ## Backend Request Signing
 
 The gateway can HMAC-sign every outgoing request so backends can verify that requests actually came through the gateway and weren't tampered with. This prevents "backend bypass" attacks where clients send requests directly to backend services.

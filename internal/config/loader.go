@@ -1936,6 +1936,19 @@ func (l *Loader) validateTransportConfig(scope string, cfg TransportConfig) erro
 			return fmt.Errorf("%s: transport.ca_file does not exist: %s", scope, cfg.CAFile)
 		}
 	}
+	if (cfg.CertFile != "") != (cfg.KeyFile != "") {
+		return fmt.Errorf("%s: transport.cert_file and transport.key_file must both be set", scope)
+	}
+	if cfg.CertFile != "" {
+		if _, err := os.Stat(cfg.CertFile); os.IsNotExist(err) {
+			return fmt.Errorf("%s: transport.cert_file does not exist: %s", scope, cfg.CertFile)
+		}
+	}
+	if cfg.KeyFile != "" {
+		if _, err := os.Stat(cfg.KeyFile); os.IsNotExist(err) {
+			return fmt.Errorf("%s: transport.key_file does not exist: %s", scope, cfg.KeyFile)
+		}
+	}
 	return nil
 }
 

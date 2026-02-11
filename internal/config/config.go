@@ -1069,6 +1069,8 @@ type TransportConfig struct {
 	DisableKeepAlives     bool          `yaml:"disable_keep_alives"`
 	InsecureSkipVerify    bool          `yaml:"insecure_skip_verify"`
 	CAFile                string        `yaml:"ca_file"`
+	CertFile              string        `yaml:"cert_file"`
+	KeyFile               string        `yaml:"key_file"`
 	ForceHTTP2            *bool         `yaml:"force_http2"`
 }
 

@@ -1,7 +1,14 @@
 package proxy
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
+	"math/big"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -201,6 +208,103 @@ func TestMergeTransportConfigsBoolFields(t *testing.T) {
 	}
 	if !merged.InsecureSkipVerify {
 		t.Error("expected InsecureSkipVerify=true")
+	}
+}
+
+func TestMergeTransportConfigsCertFiles(t *testing.T) {
+	base := DefaultTransportConfig
+
+	overlay := config.TransportConfig{
+		CertFile: "/tmp/client.crt",
+		KeyFile:  "/tmp/client.key",
+	}
+
+	merged := MergeTransportConfigs(base, overlay)
+
+	if merged.CertFile != "/tmp/client.crt" {
+		t.Errorf("expected CertFile=/tmp/client.crt, got %q", merged.CertFile)
+	}
+	if merged.KeyFile != "/tmp/client.key" {
+		t.Errorf("expected KeyFile=/tmp/client.key, got %q", merged.KeyFile)
+	}
+
+	// Second overlay overrides first
+	overlay2 := config.TransportConfig{
+		CertFile: "/tmp/other.crt",
+		KeyFile:  "/tmp/other.key",
+	}
+	merged = MergeTransportConfigs(base, overlay, overlay2)
+	if merged.CertFile != "/tmp/other.crt" {
+		t.Errorf("expected CertFile=/tmp/other.crt, got %q", merged.CertFile)
+	}
+	if merged.KeyFile != "/tmp/other.key" {
+		t.Errorf("expected KeyFile=/tmp/other.key, got %q", merged.KeyFile)
+	}
+}
+
+func TestNewTransportClientCert(t *testing.T) {
+	// Create temporary self-signed cert and key for testing
+	dir := t.TempDir()
+	certFile := dir + "/client.crt"
+	keyFile := dir + "/client.key"
+
+	// Generate a self-signed cert using crypto/ecdsa
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().Add(time.Hour),
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+
+	if err := os.WriteFile(certFile, certPEM, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyFile, keyPEM, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := DefaultTransportConfig
+	cfg.CertFile = certFile
+	cfg.KeyFile = keyFile
+
+	tr := NewTransport(cfg)
+	if tr == nil {
+		t.Fatal("expected non-nil transport")
+	}
+	if tr.TLSClientConfig == nil {
+		t.Fatal("expected non-nil TLSClientConfig")
+	}
+	if len(tr.TLSClientConfig.Certificates) != 1 {
+		t.Fatalf("expected 1 certificate, got %d", len(tr.TLSClientConfig.Certificates))
+	}
+}
+
+func TestNewTransportClientCertInvalidFiles(t *testing.T) {
+	// With invalid paths, the transport should still be created (cert loading silently fails)
+	cfg := DefaultTransportConfig
+	cfg.CertFile = "/nonexistent/client.crt"
+	cfg.KeyFile = "/nonexistent/client.key"
+
+	tr := NewTransport(cfg)
+	if tr == nil {
+		t.Fatal("expected non-nil transport")
+	}
+	if len(tr.TLSClientConfig.Certificates) != 0 {
+		t.Errorf("expected no certificates with invalid files, got %d", len(tr.TLSClientConfig.Certificates))
 	}
 }
 

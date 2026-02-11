@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -2693,6 +2694,105 @@ routes:
     path: /b
     upstream: shared
 `,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestLoaderValidateTransportCertFiles(t *testing.T) {
+	base := `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+`
+
+	dir := t.TempDir()
+	certFile := dir + "/client.crt"
+	keyFile := dir + "/client.key"
+	os.WriteFile(certFile, []byte("fake-cert"), 0600)
+	os.WriteFile(keyFile, []byte("fake-key"), 0600)
+
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+	}{
+		{
+			name: "valid both cert and key",
+			yaml: base + fmt.Sprintf(`
+transport:
+  cert_file: %s
+  key_file: %s
+`, certFile, keyFile),
+			wantErr: false,
+		},
+		{
+			name: "cert without key",
+			yaml: base + fmt.Sprintf(`
+transport:
+  cert_file: %s
+`, certFile),
+			wantErr: true,
+		},
+		{
+			name: "key without cert",
+			yaml: base + fmt.Sprintf(`
+transport:
+  key_file: %s
+`, keyFile),
+			wantErr: true,
+		},
+		{
+			name: "cert file does not exist",
+			yaml: base + `
+transport:
+  cert_file: /nonexistent/client.crt
+  key_file: /nonexistent/client.key
+`,
+			wantErr: true,
+		},
+		{
+			name: "upstream cert without key",
+			yaml: base + fmt.Sprintf(`
+upstreams:
+  api:
+    backends:
+      - url: http://localhost:9001
+    transport:
+      cert_file: %s
+`, certFile),
+			wantErr: true,
+		},
+		{
+			name: "valid upstream cert and key",
+			yaml: base + fmt.Sprintf(`
+upstreams:
+  api:
+    backends:
+      - url: http://localhost:9001
+    transport:
+      cert_file: %s
+      key_file: %s
+`, certFile, keyFile),
 			wantErr: false,
 		},
 	}

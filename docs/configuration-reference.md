@@ -150,6 +150,8 @@ upstreams:
       disable_keep_alives: bool
       insecure_skip_verify: bool
       ca_file: string
+      cert_file: string
+      key_file: string
       force_http2: bool
 
   my-service-pool:
@@ -1255,11 +1257,13 @@ transport:
   disable_keep_alives: bool        # disable HTTP keep-alive (default false)
   insecure_skip_verify: bool       # skip TLS certificate verification (default false)
   ca_file: string                  # path to custom CA certificate file
+  cert_file: string                # path to client certificate for upstream mTLS
+  key_file: string                 # path to client private key for upstream mTLS
   force_http2: bool                # attempt HTTP/2 connections (default true)
 ```
 
 **Three-level merge:** defaults (hardcoded) -> global `transport:` -> per-upstream `upstreams.<name>.transport:`. Non-zero values at each level override the previous level.
 
-**Validation:** All integer fields >= 0. All durations >= 0. If `ca_file` is set, the file must exist.
+**Validation:** All integer fields >= 0. All durations >= 0. If `ca_file` is set, the file must exist. `cert_file` and `key_file` must both be set if either is specified, and both files must exist.
 
 See [Transport](transport.md) for tuning guidance.

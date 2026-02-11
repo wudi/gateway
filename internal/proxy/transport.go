@@ -29,6 +29,8 @@ type TransportConfig struct {
 	// TLS settings
 	InsecureSkipVerify bool
 	CAFile             string
+	CertFile           string
+	KeyFile            string
 
 	// Keep-alive
 	DisableKeepAlives bool
@@ -74,6 +76,14 @@ func NewTransport(cfg TransportConfig) *http.Transport {
 			pool := x509.NewCertPool()
 			pool.AppendCertsFromPEM(caCert)
 			tlsConfig.RootCAs = pool
+		}
+	}
+
+	// Load client certificate for upstream mTLS
+	if cfg.CertFile != "" && cfg.KeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
+		if err == nil {
+			tlsConfig.Certificates = []tls.Certificate{cert}
 		}
 	}
 
@@ -141,6 +151,12 @@ func MergeTransportConfigs(base TransportConfig, overlays ...config.TransportCon
 		}
 		if o.CAFile != "" {
 			base.CAFile = o.CAFile
+		}
+		if o.CertFile != "" {
+			base.CertFile = o.CertFile
+		}
+		if o.KeyFile != "" {
+			base.KeyFile = o.KeyFile
 		}
 		if o.ForceHTTP2 != nil {
 			base.ForceHTTP2 = *o.ForceHTTP2

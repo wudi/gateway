@@ -66,6 +66,8 @@ Only non-zero values at each level take effect. For example, setting `max_idle_c
 | `disable_keep_alives` | bool | false | Disable HTTP keep-alive connections |
 | `insecure_skip_verify` | bool | false | Skip TLS certificate verification |
 | `ca_file` | string | - | Path to custom CA certificate (PEM) |
+| `cert_file` | string | - | Path to client certificate for upstream mTLS (PEM) |
+| `key_file` | string | - | Path to client private key for upstream mTLS (PEM) |
 | `force_http2` | bool | true | Attempt HTTP/2 via ALPN negotiation |
 
 ## Tuning Guidance
@@ -102,6 +104,32 @@ For backends using internal CA-signed certificates:
 transport:
   ca_file: /etc/gateway/internal-ca.pem
 ```
+
+### Upstream mTLS (Client Certificates)
+
+For backends that require mutual TLS authentication, provide a client certificate and private key:
+
+```yaml
+transport:
+  ca_file: /etc/gateway/internal-ca.pem
+  cert_file: /etc/gateway/client.crt
+  key_file: /etc/gateway/client.key
+```
+
+Per-upstream client certificates allow different backends to use different identities:
+
+```yaml
+upstreams:
+  payment-api:
+    backends:
+      - url: https://payments.internal:443
+    transport:
+      cert_file: /etc/gateway/payment-client.crt
+      key_file: /etc/gateway/payment-client.key
+      ca_file: /etc/gateway/payment-ca.pem
+```
+
+Both `cert_file` and `key_file` must be specified together. If only one is set, validation will reject the config.
 
 ### Legacy Backends
 
