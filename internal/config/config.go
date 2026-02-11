@@ -56,6 +56,7 @@ type Config struct {
 	SecurityHeaders        SecurityHeadersConfig        `yaml:"security_headers"`         // Global security response headers
 	Maintenance            MaintenanceConfig            `yaml:"maintenance"`              // Global maintenance mode
 	Shutdown               ShutdownConfig               `yaml:"shutdown"`                 // Graceful shutdown settings
+	TrustedProxies         TrustedProxiesConfig         `yaml:"trusted_proxies"`          // Trusted proxy IP extraction
 }
 
 // ListenerConfig defines a listener configuration
@@ -434,6 +435,13 @@ type MaintenanceConfig struct {
 	ExcludePaths []string         `yaml:"exclude_paths"`  // paths that bypass maintenance (glob patterns)
 	ExcludeIPs   []string         `yaml:"exclude_ips"`    // CIDRs that bypass maintenance
 	Headers     map[string]string `yaml:"headers"`        // extra response headers
+}
+
+// TrustedProxiesConfig defines trusted proxy settings for real client IP extraction.
+type TrustedProxiesConfig struct {
+	CIDRs   []string `yaml:"cidrs"`    // trusted proxy CIDRs (e.g. "10.0.0.0/8", "127.0.0.1/32")
+	Headers []string `yaml:"headers"`  // headers to check for client IP (default: X-Forwarded-For, X-Real-IP)
+	MaxHops int      `yaml:"max_hops"` // maximum number of hops to walk back in XFF chain (0 = unlimited)
 }
 
 // ShutdownConfig defines graceful shutdown settings.

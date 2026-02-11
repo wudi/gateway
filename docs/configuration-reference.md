@@ -1355,3 +1355,24 @@ shutdown:
 **Validation:** Both durations >= 0. `drain_delay` must be less than `timeout` when both are set.
 
 See [Graceful Shutdown](graceful-shutdown.md) for Kubernetes integration and drain API.
+
+## Trusted Proxies
+
+Configure trusted proxy CIDRs for secure real client IP extraction from forwarded headers.
+
+```yaml
+trusted_proxies:
+  cidrs:                     # trusted proxy CIDRs or bare IPs
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+    - "127.0.0.1"
+  headers:                   # headers to check for client IP (default: X-Forwarded-For, X-Real-IP)
+    - "X-Forwarded-For"
+    - "X-Real-IP"
+  max_hops: int              # max proxy hops to walk back in XFF chain, 0 = unlimited (default 0)
+```
+
+**Validation:** All `cidrs` entries must be valid CIDR or IP. `max_hops` >= 0.
+
+See [Security](security.md#trusted-proxies) for how IP extraction works and its security impact.

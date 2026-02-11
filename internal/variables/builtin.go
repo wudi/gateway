@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/wudi/gateway/internal/middleware/realip"
 )
 
 // BuiltinVariables provides all built-in variable implementations
@@ -385,9 +387,17 @@ func FormatBytes(bytes int64) string {
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
-// ExtractClientIP extracts the real client IP from headers or RemoteAddr
+// ExtractClientIP extracts the real client IP from the request.
+// If the realip middleware has stored a trusted-proxy-aware IP in the
+// request context, that value is returned. Otherwise falls back to
+// X-Forwarded-For, X-Real-IP, and finally RemoteAddr.
 func ExtractClientIP(r *http.Request) string {
-	// Check X-Forwarded-For first
+	// Check for realip middleware result in context
+	if ip := realip.FromContext(r.Context()); ip != "" {
+		return ip
+	}
+
+	// Fallback: legacy behavior (no trusted proxy config)
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		ips := strings.Split(xff, ",")
 		if len(ips) > 0 {
@@ -395,12 +405,10 @@ func ExtractClientIP(r *http.Request) string {
 		}
 	}
 
-	// Check X-Real-IP
 	if xri := r.Header.Get("X-Real-IP"); xri != "" {
 		return xri
 	}
 
-	// Fall back to RemoteAddr
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr

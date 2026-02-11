@@ -28,6 +28,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/nonce"
 	"github.com/wudi/gateway/internal/middleware/decompress"
 	"github.com/wudi/gateway/internal/middleware/maintenance"
+	"github.com/wudi/gateway/internal/middleware/realip"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/signing"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
@@ -101,6 +102,7 @@ type gatewayState struct {
 	decompressors       *decompress.DecompressorByRoute
 	securityHeaders     *securityheaders.SecurityHeadersByRoute
 	maintenanceHandlers *maintenance.MaintenanceByRoute
+	realIPExtractor     *realip.CompiledRealIP
 	outlierDetectors    *outlier.DetectorByRoute
 	translators       *protocol.TranslatorByRoute
 	rateLimiters      *ratelimit.RateLimitByRoute
@@ -228,6 +230,15 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		s.globalIPFilter, err = ipfilter.New(cfg.IPFilter)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize global IP filter: %w", err)
+		}
+	}
+
+	// Initialize trusted proxies / real IP extractor
+	if len(cfg.TrustedProxies.CIDRs) > 0 {
+		var err error
+		s.realIPExtractor, err = realip.New(cfg.TrustedProxies.CIDRs, cfg.TrustedProxies.Headers, cfg.TrustedProxies.MaxHops)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize trusted proxies: %w", err)
 		}
 	}
 
@@ -548,6 +559,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldDecompressors := g.decompressors
 	oldSecurityHeaders := g.securityHeaders
 	oldMaintenanceHandlers := g.maintenanceHandlers
+	oldRealIPExtractor := g.realIPExtractor
 
 	// Install new state
 	g.ipFilters = s.ipFilters
@@ -586,6 +598,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.decompressors = s.decompressors
 	g.securityHeaders = s.securityHeaders
 	g.maintenanceHandlers = s.maintenanceHandlers
+	g.realIPExtractor = s.realIPExtractor
 
 	handler := g.buildRouteHandler(routeID, cfg, route, rp)
 
@@ -626,6 +639,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.decompressors = oldDecompressors
 	g.securityHeaders = oldSecurityHeaders
 	g.maintenanceHandlers = oldMaintenanceHandlers
+	g.realIPExtractor = oldRealIPExtractor
 
 	return handler
 }
@@ -707,6 +721,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.decompressors = newState.decompressors
 	g.securityHeaders = newState.securityHeaders
 	g.maintenanceHandlers = newState.maintenanceHandlers
+	g.realIPExtractor = newState.realIPExtractor
 	g.translators = newState.translators
 	g.rateLimiters = newState.rateLimiters
 	g.grpcHandlers = newState.grpcHandlers

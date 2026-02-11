@@ -3236,6 +3236,110 @@ shutdown: {}
 	}
 }
 
+func TestLoaderValidateTrustedProxies(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid CIDRs",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+trusted_proxies:
+  cidrs:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+  max_hops: 2
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid bare IP",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+trusted_proxies:
+  cidrs:
+    - "127.0.0.1"
+`,
+			wantErr: false,
+		},
+		{
+			name: "invalid CIDR",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+trusted_proxies:
+  cidrs:
+    - "not-a-cidr"
+`,
+			wantErr: true,
+			errMsg:  "trusted_proxies.cidrs",
+		},
+		{
+			name: "negative max_hops",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+trusted_proxies:
+  cidrs:
+    - "10.0.0.0/8"
+  max_hops: -1
+`,
+			wantErr: true,
+			errMsg:  "max_hops must be >= 0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				} else if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("expected error containing %q, got %q", tt.errMsg, err.Error())
+				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestLoaderValidateTransportCertFiles(t *testing.T) {
 	base := `
 listeners:

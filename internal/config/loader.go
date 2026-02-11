@@ -1036,6 +1036,11 @@ func (l *Loader) validate(cfg *Config) error {
 		return err
 	}
 
+	// Validate trusted proxies config
+	if err := l.validateTrustedProxiesConfig(cfg.TrustedProxies); err != nil {
+		return err
+	}
+
 	// Validate global transport config
 	if err := l.validateTransportConfig("global", cfg.Transport); err != nil {
 		return err
@@ -2084,6 +2089,25 @@ func (l *Loader) validateMaintenanceConfig(scope string, cfg MaintenanceConfig) 
 				return fmt.Errorf("%s: maintenance.exclude_ips: invalid IP %q", scope, cidr)
 			}
 		}
+	}
+	return nil
+}
+
+// validateTrustedProxiesConfig validates the trusted proxies config.
+func (l *Loader) validateTrustedProxiesConfig(cfg TrustedProxiesConfig) error {
+	for _, cidr := range cfg.CIDRs {
+		if strings.Contains(cidr, "/") {
+			if _, _, err := net.ParseCIDR(cidr); err != nil {
+				return fmt.Errorf("trusted_proxies.cidrs: invalid CIDR %q: %w", cidr, err)
+			}
+		} else {
+			if ip := net.ParseIP(cidr); ip == nil {
+				return fmt.Errorf("trusted_proxies.cidrs: invalid IP %q", cidr)
+			}
+		}
+	}
+	if cfg.MaxHops < 0 {
+		return fmt.Errorf("trusted_proxies.max_hops must be >= 0")
 	}
 	return nil
 }

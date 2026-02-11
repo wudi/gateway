@@ -122,6 +122,7 @@ All feature endpoints return JSON with per-route status and metrics.
 | `POST /maintenance/{route}/disable` | Disable maintenance mode for a route at runtime |
 | `GET /drain` | Connection drain status (draining, drain_start, drain_duration) |
 | `POST /drain` | Initiate drain mode — readiness checks return 503 |
+| `GET /trusted-proxies` | Trusted proxy configuration and extraction metrics |
 
 ### Example: Querying Feature Endpoints
 
@@ -584,6 +585,32 @@ curl -X POST http://localhost:8081/maintenance/api/disable
 **Response:**
 ```json
 {"route": "api", "status": "disabled"}
+```
+
+## Trusted Proxies
+
+### GET `/trusted-proxies`
+
+Returns trusted proxy configuration and real IP extraction metrics.
+
+```bash
+curl http://localhost:8081/trusted-proxies
+```
+
+**Response (configured):**
+```json
+{
+  "total_requests": 15000,
+  "extracted": 14500,
+  "trusted_cidrs": 3,
+  "headers": ["X-Forwarded-For", "X-Real-IP"],
+  "max_hops": 0
+}
+```
+
+**Response (not configured):**
+```json
+{"enabled": false}
 ```
 
 ## Connection Draining

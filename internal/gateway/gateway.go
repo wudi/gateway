@@ -38,6 +38,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/mtls"
 	"github.com/wudi/gateway/internal/middleware/nonce"
 	"github.com/wudi/gateway/internal/middleware/maintenance"
+	"github.com/wudi/gateway/internal/middleware/realip"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/signing"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
@@ -126,6 +127,7 @@ type Gateway struct {
 	decompressors       *decompress.DecompressorByRoute
 	securityHeaders     *securityheaders.SecurityHeadersByRoute
 	maintenanceHandlers *maintenance.MaintenanceByRoute
+	realIPExtractor     *realip.CompiledRealIP
 	globalGeo         *geo.CompiledGeo
 	webhookDispatcher *webhook.Dispatcher
 	http3AltSvcPort   string // port for Alt-Svc header; empty = no HTTP/3
@@ -271,6 +273,15 @@ func New(cfg *config.Config) (*Gateway, error) {
 		g.globalGeo, err = geo.New("_global", cfg.Geo, g.geoProvider)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize global geo filter: %w", err)
+		}
+	}
+
+	// Initialize trusted proxies / real IP extractor
+	if len(cfg.TrustedProxies.CIDRs) > 0 {
+		var err error
+		g.realIPExtractor, err = realip.New(cfg.TrustedProxies.CIDRs, cfg.TrustedProxies.Headers, cfg.TrustedProxies.MaxHops)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize trusted proxies: %w", err)
 		}
 	}
 
@@ -1149,8 +1160,14 @@ func (g *Gateway) updateBackendHealth(url string, status health.Status) {
 // Handler returns the main HTTP handler
 func (g *Gateway) Handler() http.Handler {
 	chain := middleware.NewBuilder().
-		Use(middleware.Recovery()).
-		Use(middleware.RequestID())
+		Use(middleware.Recovery())
+
+	// Real IP extraction from trusted proxies (before everything else)
+	if g.realIPExtractor != nil {
+		chain = chain.Use(g.realIPExtractor.Middleware)
+	}
+
+	chain = chain.Use(middleware.RequestID())
 
 	// Alt-Svc: advertise HTTP/3 on HTTP/1+2 responses
 	if g.http3AltSvcPort != "" {
@@ -1511,6 +1528,11 @@ func (g *Gateway) GetMaintenanceHandlers() *maintenance.MaintenanceByRoute {
 // GetSecurityHeaders returns the security headers ByRoute manager.
 func (g *Gateway) GetSecurityHeaders() *securityheaders.SecurityHeadersByRoute {
 	return g.securityHeaders
+}
+
+// GetRealIPExtractor returns the real IP extractor (may be nil).
+func (g *Gateway) GetRealIPExtractor() *realip.CompiledRealIP {
+	return g.realIPExtractor
 }
 
 // GetWebhookDispatcher returns the webhook dispatcher (may be nil).

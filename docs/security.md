@@ -1,6 +1,50 @@
 # Security
 
-The gateway provides IP filtering, geo filtering, CORS handling, a web application firewall (WAF), request body size limits, replay prevention, CSRF protection, backend request signing, security response headers, and custom DNS resolution for defense-in-depth security.
+The gateway provides trusted proxy handling, IP filtering, geo filtering, CORS handling, a web application firewall (WAF), request body size limits, replay prevention, CSRF protection, backend request signing, security response headers, and custom DNS resolution for defense-in-depth security.
+
+## Trusted Proxies
+
+When the gateway runs behind a load balancer, CDN, or reverse proxy, the real client IP is in the `X-Forwarded-For` or `X-Real-IP` headers — not in the TCP connection address. Without trusted proxy configuration, any client can spoof these headers and bypass IP-based security features (rate limiting, IP filtering, geo filtering).
+
+Configure `trusted_proxies` to tell the gateway which upstream proxies to trust. The gateway walks the `X-Forwarded-For` chain from right to left, skipping trusted proxy IPs, and uses the first untrusted IP as the real client IP.
+
+```yaml
+trusted_proxies:
+  cidrs:
+    - "10.0.0.0/8"         # internal network
+    - "172.16.0.0/12"       # Docker networks
+    - "192.168.0.0/16"      # private networks
+    - "127.0.0.1"           # loopback
+  headers:                   # headers to check (default: X-Forwarded-For, X-Real-IP)
+    - "X-Forwarded-For"
+    - "X-Real-IP"
+  max_hops: 3                # max proxy hops to walk back (0 = unlimited)
+```
+
+### How It Works
+
+1. **Check RemoteAddr** — If the direct TCP connection source does not match any trusted CIDR, the gateway uses `RemoteAddr` as the client IP (ignoring all headers). This prevents spoofing from untrusted sources.
+2. **Walk XFF chain** — If `RemoteAddr` is trusted, the gateway reads the configured headers (default: `X-Forwarded-For`, then `X-Real-IP`) and walks the `X-Forwarded-For` chain from right to left, skipping IPs that match trusted CIDRs.
+3. **Return first untrusted IP** — The first IP in the chain that does NOT match a trusted CIDR is the real client IP.
+
+### Security Impact
+
+All IP-based features automatically use the extracted real IP:
+- **Rate limiting** — limits apply to the real client, not the load balancer
+- **IP filtering** — allow/deny rules evaluate against the real client IP
+- **Geo filtering** — country lookups use the real client location
+- **WAF** — IP-based rules see the real client
+- **Rules engine** — `ip.src` resolves to the real client IP
+- **Access logging** — logs show the real client IP
+
+### Without Trusted Proxies
+
+When `trusted_proxies` is not configured, the gateway uses legacy behavior: it trusts the first entry in `X-Forwarded-For` unconditionally. This is acceptable when the gateway is the internet-facing edge (no upstream proxies), but is **insecure** when behind a load balancer because clients can spoof the header.
+
+### Validation
+
+- All entries in `cidrs` must be valid CIDR notation (e.g., `10.0.0.0/8`) or bare IP addresses (e.g., `127.0.0.1`)
+- `max_hops` must be >= 0
 
 ## IP Filtering
 

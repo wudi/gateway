@@ -536,6 +536,9 @@ func (s *Server) adminHandler() http.Handler {
 	mux.HandleFunc("/maintenance", s.handleMaintenance)
 	mux.HandleFunc("/maintenance/", s.handleMaintenanceAction)
 
+	// Trusted proxies / real IP
+	mux.HandleFunc("/trusted-proxies", s.handleTrustedProxies)
+
 	// Drain / graceful shutdown
 	mux.HandleFunc("/drain", s.handleDrain)
 
@@ -1126,6 +1129,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["maintenance"] = maintStats
 	}
 
+	// Trusted proxies
+	if ext := s.gateway.GetRealIPExtractor(); ext != nil {
+		dashboard["trusted_proxies"] = ext.Stats()
+	}
+
 	// Webhooks
 	if d := s.gateway.GetWebhookDispatcher(); d != nil {
 		dashboard["webhooks"] = d.Stats()
@@ -1360,6 +1368,17 @@ func (s *Server) handleMaintenanceAction(w http.ResponseWriter, r *http.Request)
 		})
 	default:
 		http.Error(w, `{"error":"action must be 'enable' or 'disable'"}`, http.StatusBadRequest)
+	}
+}
+
+// handleTrustedProxies handles trusted proxies stats requests.
+func (s *Server) handleTrustedProxies(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	extractor := s.gateway.GetRealIPExtractor()
+	if extractor != nil {
+		json.NewEncoder(w).Encode(extractor.Stats())
+	} else {
+		json.NewEncoder(w).Encode(map[string]interface{}{"enabled": false})
 	}
 }
 
