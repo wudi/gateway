@@ -493,6 +493,9 @@ func (s *Server) adminHandler() http.Handler {
 	// Request decompression
 	mux.HandleFunc("/decompression", s.handleDecompression)
 
+	// Security headers
+	mux.HandleFunc("/security-headers", s.handleSecurityHeaders)
+
 	// Webhooks
 	mux.HandleFunc("/webhooks", s.handleWebhooks)
 
@@ -1053,6 +1056,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["request_decompression"] = decompStats
 	}
 
+	// Security headers
+	if shStats := s.gateway.GetSecurityHeaders().Stats(); len(shStats) > 0 {
+		dashboard["security_headers"] = shStats
+	}
+
 	// Webhooks
 	if d := s.gateway.GetWebhookDispatcher(); d != nil {
 		dashboard["webhooks"] = d.Stats()
@@ -1233,6 +1241,12 @@ func (s *Server) handleCompression(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDecompression(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.gateway.GetDecompressors().Stats())
+}
+
+// handleSecurityHeaders handles security headers stats requests.
+func (s *Server) handleSecurityHeaders(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetSecurityHeaders().Stats())
 }
 
 // handleWebhooks handles webhook dispatcher stats requests.

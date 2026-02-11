@@ -37,6 +37,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	"github.com/wudi/gateway/internal/middleware/mtls"
 	"github.com/wudi/gateway/internal/middleware/nonce"
+	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/signing"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
 	"github.com/wudi/gateway/internal/middleware/ratelimit"
@@ -122,6 +123,7 @@ type Gateway struct {
 	idempotencyHandlers *idempotency.IdempotencyByRoute
 	backendSigners      *signing.SigningByRoute
 	decompressors       *decompress.DecompressorByRoute
+	securityHeaders     *securityheaders.SecurityHeadersByRoute
 	globalGeo         *geo.CompiledGeo
 	webhookDispatcher *webhook.Dispatcher
 	http3AltSvcPort   string // port for Alt-Svc header; empty = no HTTP/3
@@ -200,6 +202,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		idempotencyHandlers: idempotency.NewIdempotencyByRoute(),
 		backendSigners:      signing.NewSigningByRoute(),
 		decompressors:       decompress.NewDecompressorByRoute(),
+		securityHeaders:     securityheaders.NewSecurityHeadersByRoute(),
 		routeProxies:        make(map[string]*proxy.RouteProxy),
 		routeHandlers:     make(map[string]http.Handler),
 		watchCancels:      make(map[string]context.CancelFunc),
@@ -242,6 +245,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&geoFeature{m: g.geoFilters, global: &cfg.Geo, provider: g.geoProvider},
 		&signingFeature{m: g.backendSigners, global: &cfg.BackendSigning},
 		&decompressFeature{m: g.decompressors, global: &cfg.RequestDecompression},
+		&securityHeadersFeature{m: g.securityHeaders, global: &cfg.SecurityHeaders},
 	}
 
 	// Initialize global IP filter
@@ -763,6 +767,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 
 	// 4. varContextMW — set RouteID + PathParams (Step 2)
 	chain = chain.Use(varContextMW(routeID))
+
+	// 4.05. securityHeadersMW — inject security response headers
+	if sh := g.securityHeaders.GetHeaders(routeID); sh != nil {
+		chain = chain.Use(securityHeadersMW(sh))
+	}
 
 	// 4.1. errorPagesMW — custom error page rendering
 	if ep := g.errorPages.GetErrorPages(routeID); ep != nil {
@@ -1483,6 +1492,11 @@ func (g *Gateway) GetCompressors() *compression.CompressorByRoute {
 // GetDecompressors returns the request decompression manager.
 func (g *Gateway) GetDecompressors() *decompress.DecompressorByRoute {
 	return g.decompressors
+}
+
+// GetSecurityHeaders returns the security headers ByRoute manager.
+func (g *Gateway) GetSecurityHeaders() *securityheaders.SecurityHeadersByRoute {
+	return g.securityHeaders
 }
 
 // GetWebhookDispatcher returns the webhook dispatcher (may be nil).

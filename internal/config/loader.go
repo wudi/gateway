@@ -1011,6 +1011,16 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate security headers custom_headers keys
+	if err := l.validateSecurityHeadersConfig("global", cfg.SecurityHeaders); err != nil {
+		return err
+	}
+	for _, route := range cfg.Routes {
+		if err := l.validateSecurityHeadersConfig(fmt.Sprintf("route %s", route.ID), route.SecurityHeaders); err != nil {
+			return err
+		}
+	}
+
 	// Validate global transport config
 	if err := l.validateTransportConfig("global", cfg.Transport); err != nil {
 		return err
@@ -2023,6 +2033,19 @@ func (l *Loader) validateDecompressionConfig(scope string, cfg RequestDecompress
 	for _, algo := range cfg.Algorithms {
 		if !validDecompressionAlgorithms[algo] {
 			return fmt.Errorf("%s: request_decompression.algorithms: unsupported algorithm %q (valid: gzip, deflate, br, zstd)", scope, algo)
+		}
+	}
+	return nil
+}
+
+// validateSecurityHeadersConfig validates a security headers config.
+func (l *Loader) validateSecurityHeadersConfig(scope string, cfg SecurityHeadersConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	for name := range cfg.CustomHeaders {
+		if name == "" {
+			return fmt.Errorf("%s: security_headers.custom_headers: header name must not be empty", scope)
 		}
 	}
 	return nil

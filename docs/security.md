@@ -1,6 +1,6 @@
 # Security
 
-The gateway provides IP filtering, geo filtering, CORS handling, a web application firewall (WAF), request body size limits, replay prevention, CSRF protection, backend request signing, and custom DNS resolution for defense-in-depth security.
+The gateway provides IP filtering, geo filtering, CORS handling, a web application firewall (WAF), request body size limits, replay prevention, CSRF protection, backend request signing, security response headers, and custom DNS resolution for defense-in-depth security.
 
 ## IP Filtering
 
@@ -368,5 +368,62 @@ def verify_request(request, secrets):
     expected = hmac(secret, signing_str, algorithm=algo).hex()
     return constant_time_compare(sig, expected)
 ```
+
+## Security Response Headers
+
+Automatically inject security-related HTTP response headers on every response. This provides defense-in-depth without requiring rules engine expressions or manual header transforms. Configurable globally and per route (per-route overrides global).
+
+```yaml
+# Global security headers — applied to all routes
+security_headers:
+  enabled: true
+  strict_transport_security: "max-age=31536000; includeSubDomains"
+  content_security_policy: "default-src 'self'"
+  x_content_type_options: "nosniff"     # default when omitted
+  x_frame_options: "DENY"
+  referrer_policy: "strict-origin-when-cross-origin"
+  permissions_policy: "camera=(), microphone=(), geolocation=()"
+  cross_origin_opener_policy: "same-origin"
+  cross_origin_embedder_policy: "require-corp"
+  cross_origin_resource_policy: "same-origin"
+  x_permitted_cross_domain_policies: "none"
+  custom_headers:
+    X-Custom-Security: "enabled"
+```
+
+Per-route overrides:
+
+```yaml
+routes:
+  - id: "web-app"
+    path: "/app"
+    path_prefix: true
+    backends:
+      - url: "http://backend:9000"
+    security_headers:
+      enabled: true
+      x_frame_options: "SAMEORIGIN"   # override global DENY
+      content_security_policy: "default-src 'self'; script-src 'self' cdn.example.com"
+```
+
+### Supported Headers
+
+| Config Field | HTTP Header | Default |
+|-------------|-------------|---------|
+| `strict_transport_security` | `Strict-Transport-Security` | — |
+| `content_security_policy` | `Content-Security-Policy` | — |
+| `x_content_type_options` | `X-Content-Type-Options` | `nosniff` |
+| `x_frame_options` | `X-Frame-Options` | — |
+| `referrer_policy` | `Referrer-Policy` | — |
+| `permissions_policy` | `Permissions-Policy` | — |
+| `cross_origin_opener_policy` | `Cross-Origin-Opener-Policy` | — |
+| `cross_origin_embedder_policy` | `Cross-Origin-Embedder-Policy` | — |
+| `cross_origin_resource_policy` | `Cross-Origin-Resource-Policy` | — |
+| `x_permitted_cross_domain_policies` | `X-Permitted-Cross-Domain-Policies` | — |
+| `custom_headers` | Any | — |
+
+`X-Content-Type-Options: nosniff` is always injected by default (even with no explicit value). All other headers are only sent when explicitly configured. Use `custom_headers` for arbitrary extra response headers.
+
+Per-route metrics (total requests served, header count) are available via the `/security-headers` admin endpoint.
 
 See [Configuration Reference](configuration-reference.md#security) for all fields.

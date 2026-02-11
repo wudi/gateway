@@ -27,6 +27,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	"github.com/wudi/gateway/internal/middleware/nonce"
 	"github.com/wudi/gateway/internal/middleware/decompress"
+	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/signing"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
 	"github.com/wudi/gateway/internal/middleware/ratelimit"
@@ -97,6 +98,7 @@ type gatewayState struct {
 	idempotencyHandlers *idempotency.IdempotencyByRoute
 	backendSigners      *signing.SigningByRoute
 	decompressors       *decompress.DecompressorByRoute
+	securityHeaders     *securityheaders.SecurityHeadersByRoute
 	outlierDetectors    *outlier.DetectorByRoute
 	translators       *protocol.TranslatorByRoute
 	rateLimiters      *ratelimit.RateLimitByRoute
@@ -146,6 +148,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		idempotencyHandlers: idempotency.NewIdempotencyByRoute(),
 		backendSigners:      signing.NewSigningByRoute(),
 		decompressors:       decompress.NewDecompressorByRoute(),
+		securityHeaders:     securityheaders.NewSecurityHeadersByRoute(),
 		outlierDetectors:    outlier.NewDetectorByRoute(),
 		translators:       protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
@@ -188,6 +191,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		&outlierDetectionFeature{s.outlierDetectors},
 		&signingFeature{m: s.backendSigners, global: &cfg.BackendSigning},
 		&decompressFeature{m: s.decompressors, global: &cfg.RequestDecompression},
+		&securityHeadersFeature{m: s.securityHeaders, global: &cfg.SecurityHeaders},
 	}
 
 	// Wire webhook callbacks on new state's managers
@@ -538,6 +542,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldIdempotencyHandlers := g.idempotencyHandlers
 	oldBackendSigners := g.backendSigners
 	oldDecompressors := g.decompressors
+	oldSecurityHeaders := g.securityHeaders
 
 	// Install new state
 	g.ipFilters = s.ipFilters
@@ -574,6 +579,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.idempotencyHandlers = s.idempotencyHandlers
 	g.backendSigners = s.backendSigners
 	g.decompressors = s.decompressors
+	g.securityHeaders = s.securityHeaders
 
 	handler := g.buildRouteHandler(routeID, cfg, route, rp)
 
@@ -612,6 +618,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.idempotencyHandlers = oldIdempotencyHandlers
 	g.backendSigners = oldBackendSigners
 	g.decompressors = oldDecompressors
+	g.securityHeaders = oldSecurityHeaders
 
 	return handler
 }
@@ -691,6 +698,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.idempotencyHandlers = newState.idempotencyHandlers
 	g.backendSigners = newState.backendSigners
 	g.decompressors = newState.decompressors
+	g.securityHeaders = newState.securityHeaders
 	g.translators = newState.translators
 	g.rateLimiters = newState.rateLimiters
 	g.grpcHandlers = newState.grpcHandlers

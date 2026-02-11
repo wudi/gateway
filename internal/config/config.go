@@ -53,6 +53,7 @@ type Config struct {
 	BackendSigning         BackendSigningConfig         `yaml:"backend_signing"`          // Global backend request signing
 	Transport              TransportConfig              `yaml:"transport"`                // Global upstream transport settings
 	RequestDecompression   RequestDecompressionConfig   `yaml:"request_decompression"`    // Global request decompression
+	SecurityHeaders        SecurityHeadersConfig        `yaml:"security_headers"`         // Global security response headers
 }
 
 // ListenerConfig defines a listener configuration
@@ -276,6 +277,7 @@ type RouteConfig struct {
 	Geo              GeoConfig               `yaml:"geo"`                // Per-route geo filtering
 	BackendSigning       BackendSigningConfig       `yaml:"backend_signing"`       // Per-route backend request signing
 	RequestDecompression RequestDecompressionConfig `yaml:"request_decompression"` // Per-route request decompression
+	SecurityHeaders      SecurityHeadersConfig      `yaml:"security_headers"`      // Per-route security response headers
 	Echo                 bool                       `yaml:"echo"`                  // Echo handler (no backend needed)
 }
 
@@ -401,6 +403,22 @@ type RequestDecompressionConfig struct {
 	Enabled             bool     `yaml:"enabled"`
 	Algorithms          []string `yaml:"algorithms"`            // "gzip", "deflate", "br", "zstd"; default all four
 	MaxDecompressedSize int64    `yaml:"max_decompressed_size"` // zip bomb protection; default 52428800 (50MB)
+}
+
+// SecurityHeadersConfig defines automatic security response headers.
+type SecurityHeadersConfig struct {
+	Enabled                    bool   `yaml:"enabled"`
+	StrictTransportSecurity    string `yaml:"strict_transport_security"`     // HSTS, e.g. "max-age=31536000; includeSubDomains"
+	ContentSecurityPolicy      string `yaml:"content_security_policy"`       // CSP header value
+	XContentTypeOptions        string `yaml:"x_content_type_options"`        // default "nosniff"
+	XFrameOptions              string `yaml:"x_frame_options"`               // e.g. "DENY", "SAMEORIGIN"
+	ReferrerPolicy             string `yaml:"referrer_policy"`               // e.g. "strict-origin-when-cross-origin"
+	PermissionsPolicy          string `yaml:"permissions_policy"`            // e.g. "camera=(), microphone=()"
+	CrossOriginOpenerPolicy    string `yaml:"cross_origin_opener_policy"`    // e.g. "same-origin"
+	CrossOriginEmbedderPolicy  string `yaml:"cross_origin_embedder_policy"`  // e.g. "require-corp"
+	CrossOriginResourcePolicy  string `yaml:"cross_origin_resource_policy"`  // e.g. "same-origin"
+	XPermittedCrossDomainPolicies string `yaml:"x_permitted_cross_domain_policies"` // e.g. "none"
+	CustomHeaders              map[string]string `yaml:"custom_headers"`    // arbitrary extra headers
 }
 
 // MetricsConfig defines Prometheus metrics settings (Feature 5)

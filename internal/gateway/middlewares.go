@@ -32,6 +32,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	"github.com/wudi/gateway/internal/middleware/nonce"
 	"github.com/wudi/gateway/internal/middleware/decompress"
+	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/signing"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
 	"github.com/wudi/gateway/internal/middleware/ratelimit"
@@ -622,6 +623,16 @@ func varContextMW(routeID string) middleware.Middleware {
 			varCtx.PathParams = match.PathParams
 			ctx := context.WithValue(r.Context(), variables.RequestContextKey{}, varCtx)
 			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// securityHeadersMW injects configured security response headers.
+func securityHeadersMW(sh *securityheaders.CompiledSecurityHeaders) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			sh.Apply(w.Header())
+			next.ServeHTTP(w, r)
 		})
 	}
 }

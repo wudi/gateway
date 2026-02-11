@@ -116,6 +116,7 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /transport` | Transport pool configuration (default settings, per-upstream overrides) |
 | `GET /error-pages` | Custom error page configuration per route (configured pages, render metrics) |
 | `GET /decompression` | Request decompression stats per route (total, decompressed, errors, per-algorithm counts) |
+| `GET /security-headers` | Security response headers stats per route (total requests, header count, header names) |
 
 ### Example: Querying Feature Endpoints
 
@@ -526,6 +527,33 @@ curl http://localhost:8081/decompression
       "br": 30,
       "zstd": 10
     }
+  }
+}
+```
+
+## Security Response Headers
+
+### GET `/security-headers`
+
+Returns per-route security headers configuration and request counts.
+
+```bash
+curl http://localhost:8081/security-headers
+```
+
+**Response:**
+```json
+{
+  "api": {
+    "total_requests": 1500,
+    "header_count": 5,
+    "headers": [
+      "X-Content-Type-Options",
+      "Strict-Transport-Security",
+      "X-Frame-Options",
+      "Referrer-Policy",
+      "Permissions-Policy"
+    ]
   }
 }
 ```

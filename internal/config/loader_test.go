@@ -2914,6 +2914,91 @@ routes:
 	}
 }
 
+func TestLoaderValidateSecurityHeaders(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid global security headers",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+security_headers:
+  enabled: true
+  strict_transport_security: "max-age=31536000"
+  x_frame_options: "DENY"
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid per-route security headers",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    security_headers:
+      enabled: true
+      referrer_policy: "no-referrer"
+      custom_headers:
+        X-Custom: "value"
+`,
+			wantErr: false,
+		},
+		{
+			name: "empty custom header name rejected",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+security_headers:
+  enabled: true
+  custom_headers:
+    "": "bad"
+`,
+			wantErr: true,
+			errMsg:  "header name must not be empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				} else if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("expected error containing %q, got %q", tt.errMsg, err.Error())
+				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestLoaderValidateTransportCertFiles(t *testing.T) {
 	base := `
 listeners:

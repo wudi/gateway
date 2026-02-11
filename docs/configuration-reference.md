@@ -1240,6 +1240,33 @@ See [Transformations](transformations.md#request-decompression) for details.
 
 ---
 
+## Security Response Headers
+
+```yaml
+security_headers:
+  enabled: bool                           # enable automatic security headers (default false)
+  strict_transport_security: string       # HSTS value, e.g. "max-age=31536000; includeSubDomains"
+  content_security_policy: string         # CSP header value
+  x_content_type_options: string          # default "nosniff" (always injected when enabled)
+  x_frame_options: string                 # "DENY", "SAMEORIGIN", or "ALLOW-FROM uri"
+  referrer_policy: string                 # e.g. "strict-origin-when-cross-origin"
+  permissions_policy: string              # e.g. "camera=(), microphone=()"
+  cross_origin_opener_policy: string      # e.g. "same-origin"
+  cross_origin_embedder_policy: string    # e.g. "require-corp"
+  cross_origin_resource_policy: string    # e.g. "same-origin"
+  x_permitted_cross_domain_policies: string # e.g. "none"
+  custom_headers:                         # arbitrary extra response headers
+    Header-Name: "value"
+```
+
+Per-route security headers config is merged with the global `security_headers:` block. Per-route non-empty fields override global fields. `custom_headers` maps are merged (per-route keys override global keys with the same name).
+
+**Validation:** `custom_headers` keys must not be empty strings.
+
+See [Security](security.md#security-response-headers) for details.
+
+---
+
 ## Health Check
 
 ```yaml

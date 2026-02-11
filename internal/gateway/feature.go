@@ -18,6 +18,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/geo"
 	"github.com/wudi/gateway/internal/middleware/idempotency"
 	"github.com/wudi/gateway/internal/middleware/decompress"
+	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/signing"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	"github.com/wudi/gateway/internal/middleware/nonce"
@@ -498,6 +499,25 @@ func (f *decompressFeature) Setup(routeID string, cfg config.RouteConfig) error 
 }
 func (f *decompressFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *decompressFeature) AdminStats() any    { return f.m.Stats() }
+
+// securityHeadersFeature wraps SecurityHeadersByRoute.
+type securityHeadersFeature struct {
+	m      *securityheaders.SecurityHeadersByRoute
+	global *config.SecurityHeadersConfig
+}
+
+func (f *securityHeadersFeature) Name() string { return "security_headers" }
+func (f *securityHeadersFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.SecurityHeaders.Enabled {
+		merged := securityheaders.MergeSecurityHeadersConfig(cfg.SecurityHeaders, *f.global)
+		f.m.AddRoute(routeID, merged)
+	} else if f.global.Enabled {
+		f.m.AddRoute(routeID, *f.global)
+	}
+	return nil
+}
+func (f *securityHeadersFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *securityHeadersFeature) AdminStats() any    { return f.m.Stats() }
 
 // signingFeature wraps SigningByRoute.
 type signingFeature struct {
