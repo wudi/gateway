@@ -26,6 +26,7 @@ listeners:
       idle_timeout: duration       # default 60s
       max_header_bytes: int        # max header size (bytes)
       read_header_timeout: duration
+      enable_http3: bool           # serve HTTP/3 over QUIC on same port (requires TLS)
     tcp:
       sni_routing: bool         # enable SNI-based routing
       connect_timeout: duration
@@ -37,7 +38,7 @@ listeners:
       write_buffer_size: int
 ```
 
-**Validation:** At least one listener required. If TLS enabled, both `cert_file` and `key_file` required.
+**Validation:** At least one listener required. If TLS enabled, both `cert_file` and `key_file` required. `enable_http3` requires `tls.enabled`.
 
 ---
 
@@ -153,6 +154,7 @@ upstreams:
       cert_file: string
       key_file: string
       force_http2: bool
+      enable_http3: bool   # connect via HTTP/3 over QUIC (mutually exclusive with force_http2)
 
   my-service-pool:
     service:
@@ -1264,6 +1266,7 @@ transport:
   cert_file: string                # path to client certificate for upstream mTLS
   key_file: string                 # path to client private key for upstream mTLS
   force_http2: bool                # attempt HTTP/2 connections (default true)
+  enable_http3: bool               # connect via HTTP/3 over QUIC (mutually exclusive with force_http2)
 ```
 
 **Three-level merge:** defaults (hardcoded) -> global `transport:` -> per-upstream `upstreams.<name>.transport:`. Non-zero values at each level override the previous level.

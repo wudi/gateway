@@ -138,6 +138,11 @@ func (l *Loader) validate(cfg *Config) error {
 				return fmt.Errorf("listener %s: TLS enabled but key_file not provided", listener.ID)
 			}
 		}
+
+		// Validate HTTP/3 config: requires TLS (QUIC mandates TLS 1.3)
+		if listener.HTTP.EnableHTTP3 && !listener.TLS.Enabled {
+			return fmt.Errorf("listener %s: enable_http3 requires tls.enabled", listener.ID)
+		}
 	}
 
 	// Validate routes
@@ -1955,6 +1960,10 @@ func (l *Loader) validateTransportConfig(scope string, cfg TransportConfig) erro
 		if _, err := os.Stat(cfg.KeyFile); os.IsNotExist(err) {
 			return fmt.Errorf("%s: transport.key_file does not exist: %s", scope, cfg.KeyFile)
 		}
+	}
+	// enable_http3 and force_http2 are mutually exclusive
+	if cfg.EnableHTTP3 != nil && *cfg.EnableHTTP3 && cfg.ForceHTTP2 != nil && *cfg.ForceHTTP2 {
+		return fmt.Errorf("%s: transport.enable_http3 and transport.force_http2 are mutually exclusive", scope)
 	}
 	return nil
 }

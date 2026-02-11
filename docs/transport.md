@@ -69,6 +69,7 @@ Only non-zero values at each level take effect. For example, setting `max_idle_c
 | `cert_file` | string | - | Path to client certificate for upstream mTLS (PEM) |
 | `key_file` | string | - | Path to client private key for upstream mTLS (PEM) |
 | `force_http2` | bool | true | Attempt HTTP/2 via ALPN negotiation |
+| `enable_http3` | bool | false | Connect to upstream via HTTP/3 over QUIC (mutually exclusive with `force_http2`) |
 
 ## Tuning Guidance
 
@@ -130,6 +131,21 @@ upstreams:
 ```
 
 Both `cert_file` and `key_file` must be specified together. If only one is set, validation will reject the config.
+
+### HTTP/3 Outbound (QUIC)
+
+For upstreams that support HTTP/3, enable QUIC-based connections:
+
+```yaml
+upstreams:
+  modern-api:
+    backends:
+      - url: https://api.example.com:443
+    transport:
+      enable_http3: true
+```
+
+This uses `quic-go/http3.Transport` instead of the standard `http.Transport`. HTTP/3 and `force_http2` are mutually exclusive — the config validator rejects both being set.
 
 ### Legacy Backends
 

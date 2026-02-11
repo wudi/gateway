@@ -72,6 +72,7 @@ type HTTPListenerConfig struct {
 	IdleTimeout       time.Duration `yaml:"idle_timeout"`
 	MaxHeaderBytes    int           `yaml:"max_header_bytes"`
 	ReadHeaderTimeout time.Duration `yaml:"read_header_timeout"`
+	EnableHTTP3       bool          `yaml:"enable_http3"` // serve HTTP/3 over QUIC on same port
 }
 
 // TCPListenerConfig defines TCP-specific listener settings
@@ -1074,6 +1075,7 @@ type TransportConfig struct {
 	CertFile              string        `yaml:"cert_file"`
 	KeyFile               string        `yaml:"key_file"`
 	ForceHTTP2            *bool         `yaml:"force_http2"`
+	EnableHTTP3           *bool         `yaml:"enable_http3"` // connect via QUIC to upstream
 }
 
 // DefaultConfig returns a configuration with sensible defaults

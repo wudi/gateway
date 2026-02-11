@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/quic-go/quic-go/http3"
 	"github.com/wudi/gateway/internal/config"
 )
 
@@ -38,6 +39,9 @@ type TransportConfig struct {
 	// HTTP/2
 	ForceHTTP2 bool
 
+	// HTTP/3
+	EnableHTTP3 bool
+
 	// DNS
 	Resolver *net.Resolver // nil = default OS resolver
 }
@@ -57,14 +61,8 @@ var DefaultTransportConfig = TransportConfig{
 	ForceHTTP2:            true,
 }
 
-// NewTransport creates a new HTTP transport with the given configuration
-func NewTransport(cfg TransportConfig) *http.Transport {
-	dialer := &net.Dialer{
-		Timeout:   cfg.DialTimeout,
-		KeepAlive: 30 * time.Second,
-		Resolver:  cfg.Resolver,
-	}
-
+// buildTLSConfig creates a shared TLS configuration from transport settings.
+func buildTLSConfig(cfg TransportConfig) *tls.Config {
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: cfg.InsecureSkipVerify,
 	}
@@ -87,6 +85,19 @@ func NewTransport(cfg TransportConfig) *http.Transport {
 		}
 	}
 
+	return tlsConfig
+}
+
+// NewTransport creates a new HTTP transport with the given configuration
+func NewTransport(cfg TransportConfig) *http.Transport {
+	dialer := &net.Dialer{
+		Timeout:   cfg.DialTimeout,
+		KeepAlive: 30 * time.Second,
+		Resolver:  cfg.Resolver,
+	}
+
+	tlsConfig := buildTLSConfig(cfg)
+
 	return &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
 		DialContext:           dialer.DialContext,
@@ -100,6 +111,14 @@ func NewTransport(cfg TransportConfig) *http.Transport {
 		DisableKeepAlives:     cfg.DisableKeepAlives,
 		TLSClientConfig:       tlsConfig,
 		ForceAttemptHTTP2:     cfg.ForceHTTP2,
+	}
+}
+
+// NewHTTP3Transport creates an HTTP/3 QUIC transport with the given configuration.
+func NewHTTP3Transport(cfg TransportConfig) *http3.Transport {
+	tlsConfig := buildTLSConfig(cfg)
+	return &http3.Transport{
+		TLSClientConfig: tlsConfig,
 	}
 }
 
@@ -161,21 +180,24 @@ func MergeTransportConfigs(base TransportConfig, overlays ...config.TransportCon
 		if o.ForceHTTP2 != nil {
 			base.ForceHTTP2 = *o.ForceHTTP2
 		}
+		if o.EnableHTTP3 != nil {
+			base.EnableHTTP3 = *o.EnableHTTP3
+		}
 	}
 	return base
 }
 
 // TransportPool manages a pool of transports keyed by upstream name.
 type TransportPool struct {
-	defaultTransport *http.Transport
-	transports       map[string]*http.Transport
+	defaultTransport http.RoundTripper
+	transports       map[string]http.RoundTripper
 }
 
 // NewTransportPool creates a new transport pool with a default transport.
 func NewTransportPool() *TransportPool {
 	return &TransportPool{
 		defaultTransport: DefaultTransport(),
-		transports:       make(map[string]*http.Transport),
+		transports:       make(map[string]http.RoundTripper),
 	}
 }
 
@@ -183,13 +205,13 @@ func NewTransportPool() *TransportPool {
 func NewTransportPoolWithDefault(cfg TransportConfig) *TransportPool {
 	return &TransportPool{
 		defaultTransport: NewTransport(cfg),
-		transports:       make(map[string]*http.Transport),
+		transports:       make(map[string]http.RoundTripper),
 	}
 }
 
 // Get returns a transport for the given upstream name.
 // Returns the default transport for empty or unknown names.
-func (tp *TransportPool) Get(name string) *http.Transport {
+func (tp *TransportPool) Get(name string) http.RoundTripper {
 	if name != "" {
 		if t, ok := tp.transports[name]; ok {
 			return t
@@ -199,8 +221,13 @@ func (tp *TransportPool) Get(name string) *http.Transport {
 }
 
 // Set adds a named transport built from the given config.
+// Uses HTTP/3 transport when EnableHTTP3 is set, otherwise TCP-based transport.
 func (tp *TransportPool) Set(name string, cfg TransportConfig) {
-	tp.transports[name] = NewTransport(cfg)
+	if cfg.EnableHTTP3 {
+		tp.transports[name] = NewHTTP3Transport(cfg)
+	} else {
+		tp.transports[name] = NewTransport(cfg)
+	}
 }
 
 // SetForHost sets a custom transport for a host (legacy API, delegates to Set).
@@ -220,24 +247,39 @@ func (tp *TransportPool) Names() []string {
 // DefaultConfig returns the TransportConfig that produced the default transport.
 // This is approximate — we return the current default fields for admin display.
 func (tp *TransportPool) DefaultConfig() map[string]interface{} {
-	dt := tp.defaultTransport
+	if dt, ok := tp.defaultTransport.(*http.Transport); ok {
+		return map[string]interface{}{
+			"max_idle_conns":          dt.MaxIdleConns,
+			"max_idle_conns_per_host": dt.MaxIdleConnsPerHost,
+			"max_conns_per_host":      dt.MaxConnsPerHost,
+			"idle_conn_timeout":       fmt.Sprintf("%v", dt.IdleConnTimeout),
+			"tls_handshake_timeout":   fmt.Sprintf("%v", dt.TLSHandshakeTimeout),
+			"response_header_timeout": fmt.Sprintf("%v", dt.ResponseHeaderTimeout),
+			"expect_continue_timeout": fmt.Sprintf("%v", dt.ExpectContinueTimeout),
+			"disable_keep_alives":     dt.DisableKeepAlives,
+			"force_attempt_http2":     dt.ForceAttemptHTTP2,
+		}
+	}
+	// HTTP/3 transport — fewer configurable fields
 	return map[string]interface{}{
-		"max_idle_conns":          dt.MaxIdleConns,
-		"max_idle_conns_per_host": dt.MaxIdleConnsPerHost,
-		"max_conns_per_host":      dt.MaxConnsPerHost,
-		"idle_conn_timeout":       fmt.Sprintf("%v", dt.IdleConnTimeout),
-		"tls_handshake_timeout":   fmt.Sprintf("%v", dt.TLSHandshakeTimeout),
-		"response_header_timeout": fmt.Sprintf("%v", dt.ResponseHeaderTimeout),
-		"expect_continue_timeout": fmt.Sprintf("%v", dt.ExpectContinueTimeout),
-		"disable_keep_alives":     dt.DisableKeepAlives,
-		"force_attempt_http2":     dt.ForceAttemptHTTP2,
+		"type": "http3",
 	}
 }
 
 // CloseIdleConnections closes idle connections on all transports
 func (tp *TransportPool) CloseIdleConnections() {
-	tp.defaultTransport.CloseIdleConnections()
+	closeIdle(tp.defaultTransport)
 	for _, t := range tp.transports {
+		closeIdle(t)
+	}
+}
+
+// closeIdle closes idle connections on a transport using type switch.
+func closeIdle(rt http.RoundTripper) {
+	switch t := rt.(type) {
+	case *http.Transport:
 		t.CloseIdleConnections()
+	case *http3.Transport:
+		t.Close()
 	}
 }

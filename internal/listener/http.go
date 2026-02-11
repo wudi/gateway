@@ -11,18 +11,22 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/quic-go/quic-go/http3"
 	"github.com/wudi/gateway/internal/config"
 )
 
 // HTTPListener wraps an HTTP server as a Listener
 type HTTPListener struct {
-	id       string
-	address  string
-	server   *http.Server
-	handler  http.Handler
-	tlsCfg   *tls.Config
-	listener net.Listener
-	certPtr  atomic.Pointer[tls.Certificate] // for hot TLS cert reload
+	id          string
+	address     string
+	server      *http.Server
+	handler     http.Handler
+	tlsCfg      *tls.Config
+	listener    net.Listener
+	certPtr     atomic.Pointer[tls.Certificate] // for hot TLS cert reload
+	enableHTTP3 bool
+	http3Server *http3.Server
+	udpConn     net.PacketConn
 }
 
 // HTTPListenerConfig holds configuration for creating an HTTP listener
@@ -36,14 +40,16 @@ type HTTPListenerConfig struct {
 	IdleTimeout       time.Duration
 	MaxHeaderBytes    int
 	ReadHeaderTimeout time.Duration
+	EnableHTTP3       bool
 }
 
 // NewHTTPListener creates a new HTTP listener
 func NewHTTPListener(cfg HTTPListenerConfig) (*HTTPListener, error) {
 	h := &HTTPListener{
-		id:      cfg.ID,
-		address: cfg.Address,
-		handler: cfg.Handler,
+		id:          cfg.ID,
+		address:     cfg.Address,
+		handler:     cfg.Handler,
+		enableHTTP3: cfg.EnableHTTP3,
 	}
 
 	// Set up TLS if enabled
@@ -127,6 +133,14 @@ func NewHTTPListener(cfg HTTPListenerConfig) (*HTTPListener, error) {
 		TLSConfig:         h.tlsCfg,
 	}
 
+	// Set up HTTP/3 server if enabled
+	if cfg.EnableHTTP3 && h.tlsCfg != nil {
+		h.http3Server = &http3.Server{
+			Handler:   cfg.Handler,
+			TLSConfig: http3.ConfigureTLSConfig(h.tlsCfg),
+		}
+	}
+
 	return h, nil
 }
 
@@ -157,12 +171,29 @@ func (h *HTTPListener) Start(ctx context.Context) error {
 		h.listener = tls.NewListener(ln, h.tlsCfg)
 	}
 
-	errCh := make(chan error, 1)
+	errCh := make(chan error, 2)
 	go func() {
 		if err := h.server.Serve(h.listener); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
 	}()
+
+	// Start HTTP/3 QUIC listener on the same port via UDP
+	if h.http3Server != nil {
+		udpConn, err := net.ListenPacket("udp", h.address)
+		if err != nil {
+			// Shut down the TCP listener since we failed to start UDP
+			h.server.Shutdown(ctx)
+			return fmt.Errorf("failed to listen UDP for HTTP/3 on %s: %w", h.address, err)
+		}
+		h.udpConn = udpConn
+
+		go func() {
+			if err := h.http3Server.Serve(udpConn); err != nil && err != http.ErrServerClosed {
+				errCh <- err
+			}
+		}()
+	}
 
 	// Check for immediate startup errors
 	select {
@@ -175,6 +206,14 @@ func (h *HTTPListener) Start(ctx context.Context) error {
 
 // Stop stops the HTTP listener
 func (h *HTTPListener) Stop(ctx context.Context) error {
+	// Shut down HTTP/3 first
+	if h.http3Server != nil {
+		h.http3Server.Close()
+	}
+	if h.udpConn != nil {
+		h.udpConn.Close()
+	}
+
 	return h.server.Shutdown(ctx)
 }
 
@@ -186,6 +225,11 @@ func (h *HTTPListener) ReloadTLSCert(certFile, keyFile string) error {
 	}
 	h.certPtr.Store(&cert)
 	return nil
+}
+
+// HTTP3Enabled returns whether HTTP/3 is enabled on this listener.
+func (h *HTTPListener) HTTP3Enabled() bool {
+	return h.enableHTTP3
 }
 
 // Server returns the underlying HTTP server

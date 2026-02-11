@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -2706,6 +2707,107 @@ routes:
 				t.Error("expected error, got nil")
 			}
 			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestLoaderValidateHTTP3(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "enable_http3 without TLS rejected",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+    http:
+      enable_http3: true
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: true,
+			errMsg:  "enable_http3 requires tls.enabled",
+		},
+		{
+			name: "enable_http3 with TLS passes",
+			yaml: `
+listeners:
+  - id: "https"
+    address: ":443"
+    protocol: "http"
+    tls:
+      enabled: true
+      cert_file: /dev/null
+      key_file: /dev/null
+    http:
+      enable_http3: true
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: false,
+		},
+		{
+			name: "enable_http3 and force_http2 on transport rejected",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+transport:
+  enable_http3: true
+  force_http2: true
+`,
+			wantErr: true,
+			errMsg:  "enable_http3 and transport.force_http2 are mutually exclusive",
+		},
+		{
+			name: "enable_http3 on transport without force_http2 passes",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+transport:
+  enable_http3: true
+`,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				} else if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("expected error containing %q, got %q", tt.errMsg, err.Error())
+				}
+			} else if err != nil {
 				t.Errorf("unexpected error: %v", err)
 			}
 		})

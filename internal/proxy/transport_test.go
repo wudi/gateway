@@ -8,10 +8,12 @@ import (
 	"encoding/pem"
 	"math/big"
 	"net"
+	"net/http"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/quic-go/quic-go/http3"
 	"github.com/wudi/gateway/internal/config"
 )
 
@@ -71,8 +73,12 @@ func TestTransportPool(t *testing.T) {
 	pool.SetForHost("custom.host", cfg)
 
 	tr = pool.Get("custom.host")
-	if tr.MaxIdleConns != 42 {
-		t.Errorf("expected MaxIdleConns 42 for custom host, got %d", tr.MaxIdleConns)
+	httpTr, ok := tr.(*http.Transport)
+	if !ok {
+		t.Fatal("expected *http.Transport for TCP transport")
+	}
+	if httpTr.MaxIdleConns != 42 {
+		t.Errorf("expected MaxIdleConns 42 for custom host, got %d", httpTr.MaxIdleConns)
 	}
 
 	// CloseIdleConnections should not panic
@@ -85,8 +91,12 @@ func TestNewTransportPoolWithDefault(t *testing.T) {
 	pool := NewTransportPoolWithDefault(cfg)
 
 	tr := pool.Get("")
-	if tr.MaxIdleConns != 200 {
-		t.Errorf("expected MaxIdleConns 200 from custom default, got %d", tr.MaxIdleConns)
+	httpTr, ok := tr.(*http.Transport)
+	if !ok {
+		t.Fatal("expected *http.Transport")
+	}
+	if httpTr.MaxIdleConns != 200 {
+		t.Errorf("expected MaxIdleConns 200 from custom default, got %d", httpTr.MaxIdleConns)
 	}
 }
 
@@ -97,14 +107,22 @@ func TestTransportPoolSet(t *testing.T) {
 	pool.Set("my-upstream", cfg)
 
 	tr := pool.Get("my-upstream")
-	if tr.MaxIdleConns != 50 {
-		t.Errorf("expected MaxIdleConns 50, got %d", tr.MaxIdleConns)
+	httpTr, ok := tr.(*http.Transport)
+	if !ok {
+		t.Fatal("expected *http.Transport")
+	}
+	if httpTr.MaxIdleConns != 50 {
+		t.Errorf("expected MaxIdleConns 50, got %d", httpTr.MaxIdleConns)
 	}
 
 	// Unknown upstream returns default
 	def := pool.Get("other")
-	if def.MaxIdleConns != 100 {
-		t.Errorf("expected default MaxIdleConns 100 for unknown upstream, got %d", def.MaxIdleConns)
+	defHTTP, ok := def.(*http.Transport)
+	if !ok {
+		t.Fatal("expected *http.Transport for default")
+	}
+	if defHTTP.MaxIdleConns != 100 {
+		t.Errorf("expected default MaxIdleConns 100 for unknown upstream, got %d", defHTTP.MaxIdleConns)
 	}
 }
 
@@ -320,5 +338,89 @@ func TestNewTransportForceHTTP2(t *testing.T) {
 	tr = NewTransport(cfg)
 	if !tr.ForceAttemptHTTP2 {
 		t.Error("expected ForceAttemptHTTP2=true")
+	}
+}
+
+func TestNewHTTP3Transport(t *testing.T) {
+	cfg := DefaultTransportConfig
+	cfg.EnableHTTP3 = true
+
+	h3 := NewHTTP3Transport(cfg)
+	if h3 == nil {
+		t.Fatal("expected non-nil http3.Transport")
+	}
+	if h3.TLSClientConfig == nil {
+		t.Fatal("expected non-nil TLSClientConfig on HTTP/3 transport")
+	}
+}
+
+func TestTransportPoolSetHTTP3(t *testing.T) {
+	pool := NewTransportPool()
+
+	cfg := DefaultTransportConfig
+	cfg.EnableHTTP3 = true
+	pool.Set("h3-upstream", cfg)
+
+	tr := pool.Get("h3-upstream")
+	if _, ok := tr.(*http3.Transport); !ok {
+		t.Errorf("expected *http3.Transport, got %T", tr)
+	}
+
+	// TCP upstream still works
+	tcpCfg := DefaultTransportConfig
+	pool.Set("tcp-upstream", tcpCfg)
+	tcpTr := pool.Get("tcp-upstream")
+	if _, ok := tcpTr.(*http.Transport); !ok {
+		t.Errorf("expected *http.Transport, got %T", tcpTr)
+	}
+}
+
+func TestTransportPoolCloseIdleWithMixedTypes(t *testing.T) {
+	pool := NewTransportPool()
+
+	h3Cfg := DefaultTransportConfig
+	h3Cfg.EnableHTTP3 = true
+	pool.Set("h3", h3Cfg)
+	pool.Set("tcp", DefaultTransportConfig)
+
+	// Should not panic with mixed transport types
+	pool.CloseIdleConnections()
+}
+
+func TestTransportPoolDefaultConfigHTTP3(t *testing.T) {
+	// When default transport is HTTP/3, DefaultConfig should return type info
+	h3Transport := NewHTTP3Transport(DefaultTransportConfig)
+	pool := &TransportPool{
+		defaultTransport: h3Transport,
+		transports:       make(map[string]http.RoundTripper),
+	}
+
+	dc := pool.DefaultConfig()
+	if dc["type"] != "http3" {
+		t.Errorf("expected type=http3 for HTTP/3 default transport, got %v", dc["type"])
+	}
+}
+
+func TestMergeTransportConfigsEnableHTTP3(t *testing.T) {
+	base := DefaultTransportConfig
+
+	boolTrue := true
+	overlay := config.TransportConfig{
+		EnableHTTP3: &boolTrue,
+	}
+
+	merged := MergeTransportConfigs(base, overlay)
+	if !merged.EnableHTTP3 {
+		t.Error("expected EnableHTTP3=true after merge")
+	}
+
+	// EnableHTTP3 can be overridden to false
+	boolFalse := false
+	overlay2 := config.TransportConfig{
+		EnableHTTP3: &boolFalse,
+	}
+	merged = MergeTransportConfigs(base, overlay, overlay2)
+	if merged.EnableHTTP3 {
+		t.Error("expected EnableHTTP3=false after second overlay")
 	}
 }

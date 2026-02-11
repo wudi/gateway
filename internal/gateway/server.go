@@ -118,6 +118,7 @@ func (s *Server) initListeners() error {
 				IdleTimeout:       listenerCfg.HTTP.IdleTimeout,
 				MaxHeaderBytes:    listenerCfg.HTTP.MaxHeaderBytes,
 				ReadHeaderTimeout: listenerCfg.HTTP.ReadHeaderTimeout,
+				EnableHTTP3:       listenerCfg.HTTP.EnableHTTP3,
 			})
 
 		case config.ProtocolTCP:
@@ -338,6 +339,7 @@ func (s *Server) reconcileListeners(newCfg *config.Config) {
 			IdleTimeout:       listenerCfg.HTTP.IdleTimeout,
 			MaxHeaderBytes:    listenerCfg.HTTP.MaxHeaderBytes,
 			ReadHeaderTimeout: listenerCfg.HTTP.ReadHeaderTimeout,
+			EnableHTTP3:       listenerCfg.HTTP.EnableHTTP3,
 		})
 		if err != nil {
 			logging.Error("Failed to create new listener", zap.String("id", listenerCfg.ID), zap.Error(err))
@@ -764,16 +766,21 @@ func (s *Server) handleListeners(w http.ResponseWriter, r *http.Request) {
 		ID       string `json:"id"`
 		Protocol string `json:"protocol"`
 		Address  string `json:"address"`
+		HTTP3    bool   `json:"http3,omitempty"`
 	}
 
 	result := make([]listenerInfo, 0, len(listenerIDs))
 	for _, id := range listenerIDs {
 		if l, ok := s.manager.Get(id); ok {
-			result = append(result, listenerInfo{
+			info := listenerInfo{
 				ID:       l.ID(),
 				Protocol: l.Protocol(),
 				Address:  l.Addr(),
-			})
+			}
+			if hl, ok := l.(*listener.HTTPListener); ok {
+				info.HTTP3 = hl.HTTP3Enabled()
+			}
+			result = append(result, info)
 		}
 	}
 

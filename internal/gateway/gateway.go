@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"sync"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/wudi/gateway/internal/metrics"
 	"github.com/wudi/gateway/internal/middleware"
 	"github.com/wudi/gateway/internal/middleware/accesslog"
+	"github.com/wudi/gateway/internal/middleware/altsvc"
 	"github.com/wudi/gateway/internal/middleware/auth"
 	"github.com/wudi/gateway/internal/middleware/compression"
 	"github.com/wudi/gateway/internal/middleware/cors"
@@ -120,6 +122,7 @@ type Gateway struct {
 	backendSigners      *signing.SigningByRoute
 	globalGeo         *geo.CompiledGeo
 	webhookDispatcher *webhook.Dispatcher
+	http3AltSvcPort   string // port for Alt-Svc header; empty = no HTTP/3
 
 	features []Feature
 
@@ -287,6 +290,17 @@ func New(cfg *config.Config) (*Gateway, error) {
 			DialTimeout: cfg.Redis.DialTimeout,
 		})
 		g.caches.SetRedisClient(g.redisClient)
+	}
+
+	// Detect HTTP/3 port for Alt-Svc header
+	for _, lc := range cfg.Listeners {
+		if lc.Protocol == config.ProtocolHTTP && lc.HTTP.EnableHTTP3 {
+			_, port, err := net.SplitHostPort(lc.Address)
+			if err == nil {
+				g.http3AltSvcPort = port
+			}
+			break
+		}
 	}
 
 	// Initialize webhook dispatcher if enabled
@@ -1109,8 +1123,14 @@ func (g *Gateway) updateBackendHealth(url string, status health.Status) {
 func (g *Gateway) Handler() http.Handler {
 	chain := middleware.NewBuilder().
 		Use(middleware.Recovery()).
-		Use(middleware.RequestID()).
-		Use(mtls.Middleware())
+		Use(middleware.RequestID())
+
+	// Alt-Svc: advertise HTTP/3 on HTTP/1+2 responses
+	if g.http3AltSvcPort != "" {
+		chain = chain.Use(altsvc.Middleware(g.http3AltSvcPort))
+	}
+
+	chain = chain.Use(mtls.Middleware())
 
 	if g.tracer != nil {
 		chain = chain.Use(g.tracer.Middleware())

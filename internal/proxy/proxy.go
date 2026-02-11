@@ -31,7 +31,7 @@ type Proxy struct {
 
 // Config holds proxy configuration
 type Config struct {
-	Transport      *http.Transport // deprecated: use TransportPool
+	Transport      http.RoundTripper // deprecated: use TransportPool
 	TransportPool  *TransportPool
 	HealthChecker  *health.Checker
 	DefaultTimeout time.Duration
@@ -45,7 +45,7 @@ func New(cfg Config) *Proxy {
 		if cfg.Transport != nil {
 			pool = &TransportPool{
 				defaultTransport: cfg.Transport,
-				transports:       make(map[string]*http.Transport),
+				transports:       make(map[string]http.RoundTripper),
 			}
 		} else {
 			pool = NewTransportPool()
