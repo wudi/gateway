@@ -26,6 +26,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/idempotency"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	"github.com/wudi/gateway/internal/middleware/nonce"
+	"github.com/wudi/gateway/internal/middleware/signing"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
 	"github.com/wudi/gateway/internal/middleware/ratelimit"
 	"github.com/wudi/gateway/internal/middleware/timeout"
@@ -93,6 +94,7 @@ type gatewayState struct {
 	nonceCheckers     *nonce.NonceByRoute
 	csrfProtectors      *csrf.CSRFByRoute
 	idempotencyHandlers *idempotency.IdempotencyByRoute
+	backendSigners      *signing.SigningByRoute
 	outlierDetectors    *outlier.DetectorByRoute
 	translators       *protocol.TranslatorByRoute
 	rateLimiters      *ratelimit.RateLimitByRoute
@@ -140,6 +142,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		nonceCheckers:     nonce.NewNonceByRoute(),
 		csrfProtectors:      csrf.NewCSRFByRoute(),
 		idempotencyHandlers: idempotency.NewIdempotencyByRoute(),
+		backendSigners:      signing.NewSigningByRoute(),
 		outlierDetectors:    outlier.NewDetectorByRoute(),
 		translators:       protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
@@ -180,6 +183,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		&csrfFeature{m: s.csrfProtectors, global: &cfg.CSRF},
 		&idempotencyFeature{m: s.idempotencyHandlers, global: &cfg.Idempotency, redis: g.redisClient},
 		&outlierDetectionFeature{s.outlierDetectors},
+		&signingFeature{m: s.backendSigners, global: &cfg.BackendSigning},
 	}
 
 	// Wire webhook callbacks on new state's managers
@@ -517,6 +521,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldNonceCheckers := g.nonceCheckers
 	oldOutlierDetectors := g.outlierDetectors
 	oldIdempotencyHandlers := g.idempotencyHandlers
+	oldBackendSigners := g.backendSigners
 
 	// Install new state
 	g.ipFilters = s.ipFilters
@@ -551,6 +556,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.nonceCheckers = s.nonceCheckers
 	g.outlierDetectors = s.outlierDetectors
 	g.idempotencyHandlers = s.idempotencyHandlers
+	g.backendSigners = s.backendSigners
 
 	handler := g.buildRouteHandler(routeID, cfg, route, rp)
 
@@ -587,6 +593,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.nonceCheckers = oldNonceCheckers
 	g.outlierDetectors = oldOutlierDetectors
 	g.idempotencyHandlers = oldIdempotencyHandlers
+	g.backendSigners = oldBackendSigners
 
 	return handler
 }
@@ -624,6 +631,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	oldNonceCheckers := g.nonceCheckers
 	oldOutlierDetectors := g.outlierDetectors
 	oldIdempotencyHandlers := g.idempotencyHandlers
+	oldBackendSigners := g.backendSigners
 
 	// Swap all state under write lock
 	g.mu.Lock()
@@ -663,6 +671,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.csrfProtectors = newState.csrfProtectors
 	g.outlierDetectors = newState.outlierDetectors
 	g.idempotencyHandlers = newState.idempotencyHandlers
+	g.backendSigners = newState.backendSigners
 	g.translators = newState.translators
 	g.rateLimiters = newState.rateLimiters
 	g.grpcHandlers = newState.grpcHandlers
@@ -682,6 +691,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	oldNonceCheckers.CloseAll()
 	oldOutlierDetectors.StopAll()
 	oldIdempotencyHandlers.CloseAll()
+	_ = oldBackendSigners // no cleanup needed (stateless)
 	if oldJWT != nil {
 		oldJWT.Close()
 	}

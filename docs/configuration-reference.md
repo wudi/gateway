@@ -1181,6 +1181,27 @@ See [Idempotency Key Support](idempotency.md) for detailed usage, scoping, and e
 
 ---
 
+## Backend Signing
+
+```yaml
+backend_signing:
+  enabled: bool               # enable HMAC request signing (default false)
+  algorithm: string           # "hmac-sha256" (default) or "hmac-sha512"
+  secret: string              # base64-encoded shared secret (min 32 decoded bytes)
+  key_id: string              # key identifier for rotation (required)
+  signed_headers: [string]    # request headers to include in signature
+  include_body: bool          # hash request body into signature (default true)
+  header_prefix: string       # prefix for injected headers (default "X-Gateway-")
+```
+
+Per-route backend signing config is merged with the global `backend_signing:` block. Per-route fields override global fields.
+
+**Validation:** `algorithm` must be `hmac-sha256` or `hmac-sha512`. `secret` must be valid base64 decoding to at least 32 bytes. `key_id` is required. `signed_headers` must not contain whitespace. `header_prefix` must not contain whitespace.
+
+See [Security](security.md#backend-request-signing) for signing protocol details and backend verification.
+
+---
+
 ## Health Check
 
 ```yaml

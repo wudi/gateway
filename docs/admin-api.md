@@ -440,6 +440,33 @@ curl http://localhost:8081/idempotency
 }
 ```
 
+## Backend Signing
+
+### GET `/signing`
+
+Returns per-route backend request signing statistics.
+
+```bash
+curl http://localhost:8081/signing
+```
+
+**Response:**
+```json
+{
+  "payments": {
+    "route_id": "payments",
+    "algorithm": "hmac-sha256",
+    "key_id": "gateway-key-1",
+    "header_prefix": "X-Gateway-",
+    "include_body": true,
+    "total_requests": 5000,
+    "signed": 5000,
+    "errors": 0,
+    "body_hashed": 4200
+  }
+}
+```
+
 ## Webhooks
 
 ### GET `/webhooks`

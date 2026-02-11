@@ -34,6 +34,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	"github.com/wudi/gateway/internal/middleware/mtls"
 	"github.com/wudi/gateway/internal/middleware/nonce"
+	"github.com/wudi/gateway/internal/middleware/signing"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
 	"github.com/wudi/gateway/internal/middleware/ratelimit"
 	"github.com/wudi/gateway/internal/middleware/timeout"
@@ -116,6 +117,7 @@ type Gateway struct {
 	geoFilters          *geo.GeoByRoute
 	geoProvider         geo.Provider
 	idempotencyHandlers *idempotency.IdempotencyByRoute
+	backendSigners      *signing.SigningByRoute
 	globalGeo         *geo.CompiledGeo
 	webhookDispatcher *webhook.Dispatcher
 
@@ -191,6 +193,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		outlierDetectors:  outlier.NewDetectorByRoute(),
 		geoFilters:          geo.NewGeoByRoute(),
 		idempotencyHandlers: idempotency.NewIdempotencyByRoute(),
+		backendSigners:      signing.NewSigningByRoute(),
 		routeProxies:        make(map[string]*proxy.RouteProxy),
 		routeHandlers:     make(map[string]http.Handler),
 		watchCancels:      make(map[string]context.CancelFunc),
@@ -231,6 +234,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&idempotencyFeature{m: g.idempotencyHandlers, global: &cfg.Idempotency, redis: g.redisClient},
 		&outlierDetectionFeature{g.outlierDetectors},
 		&geoFeature{m: g.geoFilters, global: &cfg.Geo, provider: g.geoProvider},
+		&signingFeature{m: g.backendSigners, global: &cfg.BackendSigning},
 	}
 
 	// Initialize global IP filter
@@ -920,6 +924,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 	// 16. requestTransformMW — headers + body + gRPC (Step 9)
 	chain = chain.Use(requestTransformMW(route, g.grpcHandlers[routeID], reqBodyTransform))
 
+	// 16.5. backendSigningMW — HMAC sign the final request
+	if signer := g.backendSigners.GetSigner(routeID); signer != nil {
+		chain = chain.Use(backendSigningMW(signer))
+	}
+
 	// 17. responseBodyTransformMW — buffer + replay (Steps 9.5+10.1)
 	if respBodyTransform != nil {
 		chain = chain.Use(transform.ResponseBodyTransformMiddleware(respBodyTransform))
@@ -1428,6 +1437,11 @@ func (g *Gateway) GetOutlierDetectors() *outlier.DetectorByRoute {
 // GetIdempotencyHandlers returns the idempotency handler manager.
 func (g *Gateway) GetIdempotencyHandlers() *idempotency.IdempotencyByRoute {
 	return g.idempotencyHandlers
+}
+
+// GetBackendSigners returns the backend signing manager.
+func (g *Gateway) GetBackendSigners() *signing.SigningByRoute {
+	return g.backendSigners
 }
 
 // GetGeoFilters returns the geo filter manager.

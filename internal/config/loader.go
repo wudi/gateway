@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -978,6 +979,16 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate backend signing config (global + per-route)
+	if err := l.validateBackendSigningConfig("global", cfg.BackendSigning); err != nil {
+		return err
+	}
+	for _, route := range cfg.Routes {
+		if err := l.validateBackendSigningConfig(fmt.Sprintf("route %s", route.ID), route.BackendSigning); err != nil {
+			return err
+		}
+	}
+
 	// Validate webhooks
 	if cfg.Webhooks.Enabled {
 		if len(cfg.Webhooks.Endpoints) == 0 {
@@ -1843,6 +1854,41 @@ func (l *Loader) validateIdempotencyConfig(scope string, cfg IdempotencyConfig, 
 	}
 	if cfg.Mode == "distributed" && redisAddr == "" {
 		return fmt.Errorf("%s: idempotency.mode \"distributed\" requires redis.address to be configured", scope)
+	}
+	return nil
+}
+
+// validateBackendSigningConfig validates a backend signing config for a given scope.
+func (l *Loader) validateBackendSigningConfig(scope string, cfg BackendSigningConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	switch cfg.Algorithm {
+	case "", "hmac-sha256", "hmac-sha512":
+		// valid
+	default:
+		return fmt.Errorf("%s: backend_signing.algorithm must be \"hmac-sha256\" or \"hmac-sha512\"", scope)
+	}
+	if cfg.Secret == "" {
+		return fmt.Errorf("%s: backend_signing.secret is required", scope)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(cfg.Secret)
+	if err != nil {
+		return fmt.Errorf("%s: backend_signing.secret must be valid base64: %v", scope, err)
+	}
+	if len(decoded) < 32 {
+		return fmt.Errorf("%s: backend_signing.secret must decode to at least 32 bytes (got %d)", scope, len(decoded))
+	}
+	if cfg.KeyID == "" {
+		return fmt.Errorf("%s: backend_signing.key_id is required", scope)
+	}
+	for _, h := range cfg.SignedHeaders {
+		if strings.ContainsAny(h, " \t\r\n") {
+			return fmt.Errorf("%s: backend_signing.signed_headers contains header with whitespace: %q", scope, h)
+		}
+	}
+	if strings.ContainsAny(cfg.HeaderPrefix, " \t\r\n") {
+		return fmt.Errorf("%s: backend_signing.header_prefix must not contain whitespace", scope)
 	}
 	return nil
 }

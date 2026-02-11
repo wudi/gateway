@@ -482,6 +482,9 @@ func (s *Server) adminHandler() http.Handler {
 	// Idempotency keys
 	mux.HandleFunc("/idempotency", s.handleIdempotency)
 
+	// Backend signing
+	mux.HandleFunc("/signing", s.handleSigning)
+
 	// Webhooks
 	mux.HandleFunc("/webhooks", s.handleWebhooks)
 
@@ -1019,6 +1022,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["idempotency"] = idemStats
 	}
 
+	// Backend signing
+	if sigStats := s.gateway.GetBackendSigners().Stats(); len(sigStats) > 0 {
+		dashboard["backend_signing"] = sigStats
+	}
+
 	// Webhooks
 	if d := s.gateway.GetWebhookDispatcher(); d != nil {
 		dashboard["webhooks"] = d.Stats()
@@ -1177,6 +1185,12 @@ func (s *Server) handleGeo(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleIdempotency(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.gateway.GetIdempotencyHandlers().Stats())
+}
+
+// handleSigning handles backend signing stats requests.
+func (s *Server) handleSigning(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetBackendSigners().Stats())
 }
 
 // handleWebhooks handles webhook dispatcher stats requests.

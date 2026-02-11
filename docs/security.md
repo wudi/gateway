@@ -1,6 +1,6 @@
 # Security
 
-The gateway provides IP filtering, geo filtering, CORS handling, a web application firewall (WAF), request body size limits, replay prevention, CSRF protection, and custom DNS resolution for defense-in-depth security.
+The gateway provides IP filtering, geo filtering, CORS handling, a web application firewall (WAF), request body size limits, replay prevention, CSRF protection, backend request signing, and custom DNS resolution for defense-in-depth security.
 
 ## IP Filtering
 
@@ -249,5 +249,98 @@ Optional Origin/Referer validation and shadow mode for gradual rollout. See [CSR
 | `nonce.mode` | string | `local` (default) or `distributed` |
 | `nonce.scope` | string | `global` (default) or `per_client` |
 | `nonce.required` | bool | Reject missing nonce (default `true`) |
+
+## Backend Request Signing
+
+The gateway can HMAC-sign every outgoing request so backends can verify that requests actually came through the gateway and weren't tampered with. This prevents "backend bypass" attacks where clients send requests directly to backend services.
+
+### How It Works
+
+1. The gateway reads the request body (for POST/PUT/PATCH/DELETE) and computes its SHA-256 hash
+2. A signing string is built from the method, path+query, timestamp, body hash, and any configured signed headers
+3. An HMAC is computed over the signing string using the configured algorithm and shared secret
+4. Four headers are injected into the outgoing request
+
+### Signing String Format
+
+Newline-separated fields:
+
+```
+POST
+/api/v1/users?page=2
+1707654321
+e3b0c44298fc1c14...  (SHA-256 hex of body)
+content-type:application/json
+host:api.example.com
+```
+
+### Injected Headers
+
+| Header | Example | Description |
+|--------|---------|-------------|
+| `X-Gateway-Signature` | `hmac-sha256=a1b2c3...` | HMAC hex digest with algorithm prefix |
+| `X-Gateway-Timestamp` | `1707654321` | Unix seconds when signature was created |
+| `X-Gateway-Key-ID` | `gateway-key-1` | Key identifier for rotation |
+| `X-Gateway-Signed-Headers` | `content-type;host` | Semicolon-separated list of signed headers |
+
+The header prefix is configurable via `header_prefix` (default `X-Gateway-`).
+
+### Configuration
+
+```yaml
+# Global — signs all route requests
+backend_signing:
+  enabled: true
+  algorithm: "hmac-sha256"       # or "hmac-sha512"
+  secret: "base64-encoded-secret-at-least-32-bytes"
+  key_id: "gateway-key-1"
+  signed_headers:                # optional: headers to include
+    - "Content-Type"
+    - "Host"
+  include_body: true             # default true
+  header_prefix: "X-Gateway-"   # default "X-Gateway-"
+
+# Per-route override
+routes:
+  - id: "payments"
+    path: "/api/payments"
+    backends:
+      - url: "http://payments:8080"
+    backend_signing:
+      enabled: true
+      key_id: "payments-key-2"   # override key for this route
+      algorithm: "hmac-sha512"   # stronger algorithm for sensitive route
+```
+
+### Key Rotation
+
+Use `key_id` to support key rotation. Deploy the new key to backends first, then update the gateway config. Backends should accept signatures from any known key ID during the transition period.
+
+### Backend Verification Pseudocode
+
+```python
+def verify_request(request, secrets):
+    key_id = request.headers["X-Gateway-Key-ID"]
+    secret = secrets[key_id]
+    timestamp = request.headers["X-Gateway-Timestamp"]
+
+    # Reject stale signatures (e.g., > 5 minutes)
+    if abs(time.now() - int(timestamp)) > 300:
+        return False
+
+    # Rebuild signing string
+    body_hash = sha256(request.body).hex()
+    signing_str = f"{request.method}\n{request.path_and_query}\n{timestamp}\n{body_hash}"
+
+    signed_headers = request.headers["X-Gateway-Signed-Headers"]
+    if signed_headers:
+        for header in signed_headers.split(";"):
+            signing_str += f"\n{header.lower()}:{request.headers[header]}"
+
+    # Verify HMAC
+    algo, sig = request.headers["X-Gateway-Signature"].split("=", 1)
+    expected = hmac(secret, signing_str, algorithm=algo).hex()
+    return constant_time_compare(sig, expected)
+```
 
 See [Configuration Reference](configuration-reference.md#security) for all fields.

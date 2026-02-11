@@ -17,6 +17,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/extauth"
 	"github.com/wudi/gateway/internal/middleware/geo"
 	"github.com/wudi/gateway/internal/middleware/idempotency"
+	"github.com/wudi/gateway/internal/middleware/signing"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	"github.com/wudi/gateway/internal/middleware/nonce"
 	"github.com/wudi/gateway/internal/middleware/openapi"
@@ -476,3 +477,23 @@ func (f *geoFeature) Setup(routeID string, cfg config.RouteConfig) error {
 }
 func (f *geoFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *geoFeature) AdminStats() any    { return f.m.Stats() }
+
+// signingFeature wraps SigningByRoute.
+type signingFeature struct {
+	m      *signing.SigningByRoute
+	global *config.BackendSigningConfig
+}
+
+func (f *signingFeature) Name() string { return "backend_signing" }
+func (f *signingFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.BackendSigning.Enabled {
+		merged := signing.MergeSigningConfig(cfg.BackendSigning, *f.global)
+		return f.m.AddRoute(routeID, merged)
+	}
+	if f.global.Enabled {
+		return f.m.AddRoute(routeID, *f.global)
+	}
+	return nil
+}
+func (f *signingFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *signingFeature) AdminStats() any    { return f.m.Stats() }

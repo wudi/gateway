@@ -49,6 +49,7 @@ type Config struct {
 	CSRF           CSRFConfig           `yaml:"csrf"`            // Global CSRF protection
 	Geo            GeoConfig            `yaml:"geo"`             // Global geo filtering
 	Idempotency    IdempotencyConfig    `yaml:"idempotency"`     // Global idempotency key support
+	BackendSigning BackendSigningConfig `yaml:"backend_signing"` // Global backend request signing
 }
 
 // ListenerConfig defines a listener configuration
@@ -269,6 +270,7 @@ type RouteConfig struct {
 	Idempotency       IdempotencyConfig       `yaml:"idempotency"`        // Per-route idempotency key support
 	OutlierDetection OutlierDetectionConfig  `yaml:"outlier_detection"`  // Per-route outlier detection
 	Geo              GeoConfig               `yaml:"geo"`                // Per-route geo filtering
+	BackendSigning   BackendSigningConfig    `yaml:"backend_signing"`    // Per-route backend request signing
 	Echo             bool                    `yaml:"echo"`               // Echo handler (no backend needed)
 }
 
@@ -1039,6 +1041,17 @@ type GeoConfig struct {
 	DenyCities     []string `yaml:"deny_cities"`
 	Order          string   `yaml:"order"`           // "allow_first" or "deny_first" (default)
 	ShadowMode     bool     `yaml:"shadow_mode"`     // log but don't reject
+}
+
+// BackendSigningConfig defines HMAC-based request signing for backend verification.
+type BackendSigningConfig struct {
+	Enabled       bool     `yaml:"enabled"`
+	Algorithm     string   `yaml:"algorithm"`       // "hmac-sha256" (default), "hmac-sha512"
+	Secret        string   `yaml:"secret"`           // base64-encoded, min 32 decoded bytes
+	KeyID         string   `yaml:"key_id"`           // key identifier for rotation
+	SignedHeaders []string `yaml:"signed_headers"`   // headers to include in signature
+	IncludeBody   *bool    `yaml:"include_body"`     // default true (*bool for merge semantics)
+	HeaderPrefix  string   `yaml:"header_prefix"`    // default "X-Gateway-"
 }
 
 // DefaultConfig returns a configuration with sensible defaults

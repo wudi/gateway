@@ -18,6 +18,7 @@ import (
 	"github.com/wudi/gateway/internal/errors"
 	"github.com/wudi/gateway/internal/loadbalancer"
 	"github.com/wudi/gateway/internal/loadbalancer/outlier"
+	"github.com/wudi/gateway/internal/logging"
 	"github.com/wudi/gateway/internal/metrics"
 	"github.com/wudi/gateway/internal/middleware"
 	"github.com/wudi/gateway/internal/middleware/accesslog"
@@ -30,6 +31,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/geo"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	"github.com/wudi/gateway/internal/middleware/nonce"
+	"github.com/wudi/gateway/internal/middleware/signing"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
 	"github.com/wudi/gateway/internal/middleware/ratelimit"
 	"github.com/wudi/gateway/internal/middleware/timeout"
@@ -44,6 +46,7 @@ import (
 	"github.com/wudi/gateway/internal/trafficshape"
 	"github.com/wudi/gateway/internal/variables"
 	"github.com/wudi/gateway/internal/websocket"
+	"go.uber.org/zap"
 )
 
 // 1. ipFilterMW checks global then per-route IP filters; rejects with 403.
@@ -959,6 +962,21 @@ func outlierDetectionMW(det *outlier.Detector) middleware.Middleware {
 				}
 				det.Record(varCtx.UpstreamAddr, status, varCtx.UpstreamResponseTime)
 			}
+		})
+	}
+}
+
+// backendSigningMW signs outgoing requests with HMAC before they reach the backend.
+func backendSigningMW(signer *signing.CompiledSigner) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := signer.Sign(r); err != nil {
+				logging.Warn("backend signing failed",
+					zap.String("route_id", signer.RouteID()),
+					zap.Error(err),
+				)
+			}
+			next.ServeHTTP(w, r)
 		})
 	}
 }
