@@ -2999,6 +2999,128 @@ security_headers:
 	}
 }
 
+func TestLoaderValidateMaintenance(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid global maintenance",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+maintenance:
+  enabled: true
+  status_code: 503
+  retry_after: "3600"
+  exclude_paths: ["/health"]
+  exclude_ips: ["10.0.0.0/8"]
+`,
+			wantErr: false,
+		},
+		{
+			name: "invalid status code",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+maintenance:
+  enabled: true
+  status_code: 999
+`,
+			wantErr: true,
+			errMsg:  "valid HTTP status",
+		},
+		{
+			name: "invalid CIDR",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+maintenance:
+  enabled: true
+  exclude_ips: ["not-a-cidr/33"]
+`,
+			wantErr: true,
+			errMsg:  "invalid CIDR",
+		},
+		{
+			name: "invalid IP",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+maintenance:
+  enabled: true
+  exclude_ips: ["not-an-ip"]
+`,
+			wantErr: true,
+			errMsg:  "invalid IP",
+		},
+		{
+			name: "valid per-route maintenance",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    maintenance:
+      enabled: true
+      body: "Under maintenance"
+`,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				} else if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("expected error containing %q, got %q", tt.errMsg, err.Error())
+				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestLoaderValidateTransportCertFiles(t *testing.T) {
 	base := `
 listeners:

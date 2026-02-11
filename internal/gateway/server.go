@@ -496,6 +496,10 @@ func (s *Server) adminHandler() http.Handler {
 	// Security headers
 	mux.HandleFunc("/security-headers", s.handleSecurityHeaders)
 
+	// Maintenance mode
+	mux.HandleFunc("/maintenance", s.handleMaintenance)
+	mux.HandleFunc("/maintenance/", s.handleMaintenanceAction)
+
 	// Webhooks
 	mux.HandleFunc("/webhooks", s.handleWebhooks)
 
@@ -1061,6 +1065,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["security_headers"] = shStats
 	}
 
+	// Maintenance mode
+	if maintStats := s.gateway.GetMaintenanceHandlers().Stats(); len(maintStats) > 0 {
+		dashboard["maintenance"] = maintStats
+	}
+
 	// Webhooks
 	if d := s.gateway.GetWebhookDispatcher(); d != nil {
 		dashboard["webhooks"] = d.Stats()
@@ -1247,6 +1256,55 @@ func (s *Server) handleDecompression(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSecurityHeaders(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.gateway.GetSecurityHeaders().Stats())
+}
+
+// handleMaintenance handles maintenance mode status requests.
+func (s *Server) handleMaintenance(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetMaintenanceHandlers().Stats())
+}
+
+// handleMaintenanceAction handles runtime enable/disable of maintenance mode.
+// POST /maintenance/{routeID}/enable or POST /maintenance/{routeID}/disable
+func (s *Server) handleMaintenanceAction(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse /maintenance/{routeID}/{action}
+	path := strings.TrimPrefix(r.URL.Path, "/maintenance/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) != 2 {
+		http.Error(w, `{"error":"expected /maintenance/{route}/{action}"}`, http.StatusBadRequest)
+		return
+	}
+	routeID := parts[0]
+	action := parts[1]
+
+	cm := s.gateway.GetMaintenanceHandlers().GetMaintenance(routeID)
+	if cm == nil {
+		http.Error(w, `{"error":"route not found or maintenance not configured"}`, http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	switch action {
+	case "enable":
+		cm.Enable()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":  "enabled",
+			"route":   routeID,
+		})
+	case "disable":
+		cm.Disable()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":  "disabled",
+			"route":   routeID,
+		})
+	default:
+		http.Error(w, `{"error":"action must be 'enable' or 'disable'"}`, http.StatusBadRequest)
+	}
 }
 
 // handleWebhooks handles webhook dispatcher stats requests.

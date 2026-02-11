@@ -18,6 +18,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/geo"
 	"github.com/wudi/gateway/internal/middleware/idempotency"
 	"github.com/wudi/gateway/internal/middleware/decompress"
+	"github.com/wudi/gateway/internal/middleware/maintenance"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/signing"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
@@ -518,6 +519,25 @@ func (f *securityHeadersFeature) Setup(routeID string, cfg config.RouteConfig) e
 }
 func (f *securityHeadersFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *securityHeadersFeature) AdminStats() any    { return f.m.Stats() }
+
+// maintenanceFeature wraps MaintenanceByRoute.
+type maintenanceFeature struct {
+	m      *maintenance.MaintenanceByRoute
+	global *config.MaintenanceConfig
+}
+
+func (f *maintenanceFeature) Name() string { return "maintenance" }
+func (f *maintenanceFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.Maintenance.Enabled {
+		merged := maintenance.MergeMaintenanceConfig(cfg.Maintenance, *f.global)
+		f.m.AddRoute(routeID, merged)
+	} else if f.global.Enabled {
+		f.m.AddRoute(routeID, *f.global)
+	}
+	return nil
+}
+func (f *maintenanceFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *maintenanceFeature) AdminStats() any    { return f.m.Stats() }
 
 // signingFeature wraps SigningByRoute.
 type signingFeature struct {

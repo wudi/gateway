@@ -1267,6 +1267,29 @@ See [Security](security.md#security-response-headers) for details.
 
 ---
 
+## Maintenance Mode
+
+```yaml
+maintenance:
+  enabled: bool                # enable maintenance mode (default false)
+  status_code: int             # HTTP status code (default 503)
+  body: string                 # response body (default JSON error message)
+  content_type: string         # Content-Type header (default "application/json")
+  retry_after: string          # Retry-After header value (seconds or HTTP-date)
+  exclude_paths: [string]      # glob patterns for paths that bypass maintenance
+  exclude_ips: [string]        # IPs or CIDRs that bypass maintenance
+  headers:                     # extra response headers
+    Header-Name: "value"
+```
+
+Per-route maintenance config is merged with the global `maintenance:` block. Per-route non-empty fields override global fields. Maintenance mode can be toggled at runtime via admin API without config reload.
+
+**Validation:** `status_code` must be 100-599. `exclude_ips` entries must be valid IPs or CIDRs.
+
+See [Resilience](resilience.md#maintenance-mode) for details.
+
+---
+
 ## Health Check
 
 ```yaml

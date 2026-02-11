@@ -32,6 +32,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	"github.com/wudi/gateway/internal/middleware/nonce"
 	"github.com/wudi/gateway/internal/middleware/decompress"
+	"github.com/wudi/gateway/internal/middleware/maintenance"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/signing"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
@@ -623,6 +624,19 @@ func varContextMW(routeID string) middleware.Middleware {
 			varCtx.PathParams = match.PathParams
 			ctx := context.WithValue(r.Context(), variables.RequestContextKey{}, varCtx)
 			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// maintenanceMW checks if the route is in maintenance mode and short-circuits with a response.
+func maintenanceMW(cm *maintenance.CompiledMaintenance) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if cm.ShouldBlock(r) {
+				cm.WriteResponse(w)
+				return
+			}
+			next.ServeHTTP(w, r)
 		})
 	}
 }

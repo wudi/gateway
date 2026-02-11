@@ -117,6 +117,9 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /error-pages` | Custom error page configuration per route (configured pages, render metrics) |
 | `GET /decompression` | Request decompression stats per route (total, decompressed, errors, per-algorithm counts) |
 | `GET /security-headers` | Security response headers stats per route (total requests, header count, header names) |
+| `GET /maintenance` | Maintenance mode status per route (enabled, blocked/bypassed counts) |
+| `POST /maintenance/{route}/enable` | Enable maintenance mode for a route at runtime |
+| `POST /maintenance/{route}/disable` | Disable maintenance mode for a route at runtime |
 
 ### Example: Querying Feature Endpoints
 
@@ -529,6 +532,56 @@ curl http://localhost:8081/decompression
     }
   }
 }
+```
+
+## Maintenance Mode
+
+### GET `/maintenance`
+
+Returns per-route maintenance mode status and metrics.
+
+```bash
+curl http://localhost:8081/maintenance
+```
+
+**Response:**
+```json
+{
+  "api": {
+    "enabled": true,
+    "status_code": 503,
+    "retry_after": "3600",
+    "exclude_paths": ["/health"],
+    "total_blocked": 150,
+    "total_bypassed": 25
+  }
+}
+```
+
+### POST `/maintenance/{route}/enable`
+
+Enable maintenance mode for a route at runtime.
+
+```bash
+curl -X POST http://localhost:8081/maintenance/api/enable
+```
+
+**Response:**
+```json
+{"route": "api", "status": "enabled"}
+```
+
+### POST `/maintenance/{route}/disable`
+
+Disable maintenance mode for a route at runtime.
+
+```bash
+curl -X POST http://localhost:8081/maintenance/api/disable
+```
+
+**Response:**
+```json
+{"route": "api", "status": "disabled"}
 ```
 
 ## Security Response Headers

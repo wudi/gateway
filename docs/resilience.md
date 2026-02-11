@@ -1,6 +1,6 @@
 # Resilience
 
-The gateway provides retry policies, retry budgets, request hedging, circuit breakers, and timeouts to protect against backend failures and cascading overload.
+The gateway provides retry policies, retry budgets, request hedging, circuit breakers, timeouts, and maintenance mode to protect against backend failures and cascading overload.
 
 ## Retry Policy
 
@@ -243,5 +243,70 @@ When webhooks are enabled, outlier detection emits:
 | `outlier_detection.interval` | duration | Detection evaluation frequency (default 10s) |
 | `outlier_detection.error_rate_threshold` | float | Absolute error rate threshold (0.0-1.0) |
 | `outlier_detection.max_ejection_percent` | float | Max % of backends to eject (0-100) |
+
+## Maintenance Mode
+
+Put routes into maintenance mode to reject traffic during planned downtime. Maintenance mode returns a configurable response and can be toggled at runtime via the admin API without config reload.
+
+```yaml
+# Global — all routes enter maintenance
+maintenance:
+  enabled: true
+  status_code: 503
+  body: '{"error":"service unavailable","message":"scheduled maintenance in progress"}'
+  content_type: "application/json"
+  retry_after: "3600"
+  exclude_paths:
+    - "/health"
+    - "/ready"
+  exclude_ips:
+    - "10.0.0.0/8"      # internal monitoring
+  headers:
+    X-Maintenance: "true"
+```
+
+Per-route override:
+
+```yaml
+routes:
+  - id: "api"
+    path: "/api"
+    path_prefix: true
+    backends:
+      - url: "http://backend:9000"
+    maintenance:
+      enabled: true
+      body: "<h1>API Maintenance</h1>"
+      content_type: "text/html"
+      retry_after: "1800"
+```
+
+### Runtime Toggle
+
+Enable or disable maintenance mode at runtime without reloading config:
+
+```bash
+# Enable maintenance for a route
+curl -X POST http://localhost:8081/maintenance/api/enable
+
+# Disable maintenance for a route
+curl -X POST http://localhost:8081/maintenance/api/disable
+
+# Check status
+curl http://localhost:8081/maintenance
+```
+
+### Key Config Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `maintenance.enabled` | bool | false | Activate maintenance mode |
+| `maintenance.status_code` | int | 503 | HTTP status code to return |
+| `maintenance.body` | string | JSON error | Response body |
+| `maintenance.content_type` | string | application/json | Response Content-Type |
+| `maintenance.retry_after` | string | — | Retry-After header value |
+| `maintenance.exclude_paths` | []string | — | Glob patterns for bypass |
+| `maintenance.exclude_ips` | []string | — | IPs/CIDRs for bypass |
+| `maintenance.headers` | map | — | Extra response headers |
 
 See [Configuration Reference](configuration-reference.md#routes) for all fields.

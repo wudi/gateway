@@ -37,6 +37,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	"github.com/wudi/gateway/internal/middleware/mtls"
 	"github.com/wudi/gateway/internal/middleware/nonce"
+	"github.com/wudi/gateway/internal/middleware/maintenance"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/signing"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
@@ -124,6 +125,7 @@ type Gateway struct {
 	backendSigners      *signing.SigningByRoute
 	decompressors       *decompress.DecompressorByRoute
 	securityHeaders     *securityheaders.SecurityHeadersByRoute
+	maintenanceHandlers *maintenance.MaintenanceByRoute
 	globalGeo         *geo.CompiledGeo
 	webhookDispatcher *webhook.Dispatcher
 	http3AltSvcPort   string // port for Alt-Svc header; empty = no HTTP/3
@@ -203,6 +205,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		backendSigners:      signing.NewSigningByRoute(),
 		decompressors:       decompress.NewDecompressorByRoute(),
 		securityHeaders:     securityheaders.NewSecurityHeadersByRoute(),
+		maintenanceHandlers: maintenance.NewMaintenanceByRoute(),
 		routeProxies:        make(map[string]*proxy.RouteProxy),
 		routeHandlers:     make(map[string]http.Handler),
 		watchCancels:      make(map[string]context.CancelFunc),
@@ -246,6 +249,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&signingFeature{m: g.backendSigners, global: &cfg.BackendSigning},
 		&decompressFeature{m: g.decompressors, global: &cfg.RequestDecompression},
 		&securityHeadersFeature{m: g.securityHeaders, global: &cfg.SecurityHeaders},
+		&maintenanceFeature{m: g.maintenanceHandlers, global: &cfg.Maintenance},
 	}
 
 	// Initialize global IP filter
@@ -758,6 +762,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 	routeGeo := g.geoFilters.GetGeo(routeID)
 	if g.globalGeo != nil || routeGeo != nil {
 		chain = chain.Use(geoMW(g.globalGeo, routeGeo))
+	}
+
+	// 2.75. maintenanceMW — return 503 when route is in maintenance mode
+	if maint := g.maintenanceHandlers.GetMaintenance(routeID); maint != nil {
+		chain = chain.Use(maintenanceMW(maint))
 	}
 
 	// 3. corsMW — preflight + headers (Step 1.5)
@@ -1492,6 +1501,11 @@ func (g *Gateway) GetCompressors() *compression.CompressorByRoute {
 // GetDecompressors returns the request decompression manager.
 func (g *Gateway) GetDecompressors() *decompress.DecompressorByRoute {
 	return g.decompressors
+}
+
+// GetMaintenanceHandlers returns the maintenance ByRoute manager.
+func (g *Gateway) GetMaintenanceHandlers() *maintenance.MaintenanceByRoute {
+	return g.maintenanceHandlers
 }
 
 // GetSecurityHeaders returns the security headers ByRoute manager.

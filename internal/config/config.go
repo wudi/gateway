@@ -54,6 +54,7 @@ type Config struct {
 	Transport              TransportConfig              `yaml:"transport"`                // Global upstream transport settings
 	RequestDecompression   RequestDecompressionConfig   `yaml:"request_decompression"`    // Global request decompression
 	SecurityHeaders        SecurityHeadersConfig        `yaml:"security_headers"`         // Global security response headers
+	Maintenance            MaintenanceConfig            `yaml:"maintenance"`              // Global maintenance mode
 }
 
 // ListenerConfig defines a listener configuration
@@ -278,6 +279,7 @@ type RouteConfig struct {
 	BackendSigning       BackendSigningConfig       `yaml:"backend_signing"`       // Per-route backend request signing
 	RequestDecompression RequestDecompressionConfig `yaml:"request_decompression"` // Per-route request decompression
 	SecurityHeaders      SecurityHeadersConfig      `yaml:"security_headers"`      // Per-route security response headers
+	Maintenance          MaintenanceConfig          `yaml:"maintenance"`           // Per-route maintenance mode
 	Echo                 bool                       `yaml:"echo"`                  // Echo handler (no backend needed)
 }
 
@@ -419,6 +421,18 @@ type SecurityHeadersConfig struct {
 	CrossOriginResourcePolicy  string `yaml:"cross_origin_resource_policy"`  // e.g. "same-origin"
 	XPermittedCrossDomainPolicies string `yaml:"x_permitted_cross_domain_policies"` // e.g. "none"
 	CustomHeaders              map[string]string `yaml:"custom_headers"`    // arbitrary extra headers
+}
+
+// MaintenanceConfig defines maintenance mode settings.
+type MaintenanceConfig struct {
+	Enabled     bool              `yaml:"enabled"`
+	StatusCode  int               `yaml:"status_code"`   // default 503
+	Body        string            `yaml:"body"`           // response body (default JSON message)
+	ContentType string            `yaml:"content_type"`   // default "application/json"
+	RetryAfter  string            `yaml:"retry_after"`    // Retry-After header value (seconds or HTTP-date)
+	ExcludePaths []string         `yaml:"exclude_paths"`  // paths that bypass maintenance (glob patterns)
+	ExcludeIPs   []string         `yaml:"exclude_ips"`    // CIDRs that bypass maintenance
+	Headers     map[string]string `yaml:"headers"`        // extra response headers
 }
 
 // MetricsConfig defines Prometheus metrics settings (Feature 5)

@@ -1021,6 +1021,16 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate maintenance config
+	if err := l.validateMaintenanceConfig("global", cfg.Maintenance); err != nil {
+		return err
+	}
+	for _, route := range cfg.Routes {
+		if err := l.validateMaintenanceConfig(fmt.Sprintf("route %s", route.ID), route.Maintenance); err != nil {
+			return err
+		}
+	}
+
 	// Validate global transport config
 	if err := l.validateTransportConfig("global", cfg.Transport); err != nil {
 		return err
@@ -2046,6 +2056,28 @@ func (l *Loader) validateSecurityHeadersConfig(scope string, cfg SecurityHeaders
 	for name := range cfg.CustomHeaders {
 		if name == "" {
 			return fmt.Errorf("%s: security_headers.custom_headers: header name must not be empty", scope)
+		}
+	}
+	return nil
+}
+
+// validateMaintenanceConfig validates a maintenance config.
+func (l *Loader) validateMaintenanceConfig(scope string, cfg MaintenanceConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	if cfg.StatusCode != 0 && (cfg.StatusCode < 100 || cfg.StatusCode > 599) {
+		return fmt.Errorf("%s: maintenance.status_code must be a valid HTTP status (100-599)", scope)
+	}
+	for _, cidr := range cfg.ExcludeIPs {
+		if strings.Contains(cidr, "/") {
+			if _, _, err := net.ParseCIDR(cidr); err != nil {
+				return fmt.Errorf("%s: maintenance.exclude_ips: invalid CIDR %q: %w", scope, cidr, err)
+			}
+		} else {
+			if ip := net.ParseIP(cidr); ip == nil {
+				return fmt.Errorf("%s: maintenance.exclude_ips: invalid IP %q", scope, cidr)
+			}
 		}
 	}
 	return nil
