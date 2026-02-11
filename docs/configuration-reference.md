@@ -372,10 +372,13 @@ See [Canary Deployments](canary-deployments.md) for full documentation.
 ```yaml
     compression:
       enabled: bool
-      level: int              # 1-9 (default 6)
+      algorithms: [string]    # "gzip", "br", "zstd" (default: all three)
+      level: int              # 0-11 (default 6; gzip clamped to 9)
       min_size: int           # min bytes to compress (default 1024)
       content_types: [string] # MIME types to compress
 ```
+
+**Validation:** `algorithms` entries must be `"gzip"`, `"br"`, or `"zstd"`. `level` must be 0-11. `min_size` must be >= 0.
 
 ### Transforms
 

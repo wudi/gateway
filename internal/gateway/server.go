@@ -485,6 +485,9 @@ func (s *Server) adminHandler() http.Handler {
 	// Backend signing
 	mux.HandleFunc("/signing", s.handleSigning)
 
+	// Compression
+	mux.HandleFunc("/compression", s.handleCompression)
+
 	// Webhooks
 	mux.HandleFunc("/webhooks", s.handleWebhooks)
 
@@ -1030,6 +1033,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["backend_signing"] = sigStats
 	}
 
+	// Compression
+	if compStats := s.gateway.GetCompressors().Stats(); len(compStats) > 0 {
+		dashboard["compression"] = compStats
+	}
+
 	// Webhooks
 	if d := s.gateway.GetWebhookDispatcher(); d != nil {
 		dashboard["webhooks"] = d.Stats()
@@ -1198,6 +1206,12 @@ func (s *Server) handleIdempotency(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSigning(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.gateway.GetBackendSigners().Stats())
+}
+
+// handleCompression handles compression stats requests.
+func (s *Server) handleCompression(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetCompressors().Stats())
 }
 
 // handleWebhooks handles webhook dispatcher stats requests.

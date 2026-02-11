@@ -1446,6 +1446,11 @@ func (g *Gateway) GetGeoFilters() *geo.GeoByRoute {
 	return g.geoFilters
 }
 
+// GetCompressors returns the compression manager.
+func (g *Gateway) GetCompressors() *compression.CompressorByRoute {
+	return g.compressors
+}
+
 // GetWebhookDispatcher returns the webhook dispatcher (may be nil).
 func (g *Gateway) GetWebhookDispatcher() *webhook.Dispatcher {
 	return g.webhookDispatcher

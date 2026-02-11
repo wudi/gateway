@@ -387,9 +387,10 @@ type CORSConfig struct {
 // CompressionConfig defines response compression settings (Feature 4)
 type CompressionConfig struct {
 	Enabled      bool     `yaml:"enabled"`
-	Level        int      `yaml:"level"`         // 1-9, default 6
+	Level        int      `yaml:"level"`         // 0-11, default 6
 	MinSize      int      `yaml:"min_size"`      // default 1024 bytes
 	ContentTypes []string `yaml:"content_types"` // MIME types to compress
+	Algorithms   []string `yaml:"algorithms"`    // "gzip", "br", "zstd"; default all three
 }
 
 // MetricsConfig defines Prometheus metrics settings (Feature 5)

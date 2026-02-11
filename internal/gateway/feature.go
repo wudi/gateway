@@ -108,7 +108,8 @@ func (f *compressionFeature) Setup(routeID string, cfg config.RouteConfig) error
 	}
 	return nil
 }
-func (f *compressionFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *compressionFeature) RouteIDs() []string  { return f.m.RouteIDs() }
+func (f *compressionFeature) AdminStats() any     { return f.m.Stats() }
 
 // validationFeature wraps ValidatorByRoute.
 type validationFeature struct{ m *validation.ValidatorByRoute }

@@ -446,15 +446,16 @@ func TestCompressionMW_Compresses(t *testing.T) {
 	handler := mw(backend)
 
 	req := httptest.NewRequest("GET", "/test", nil)
-	req.Header.Set("Accept-Encoding", "gzip")
+	req.Header.Set("Accept-Encoding", "gzip, br")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
 	if w.Code != 200 {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
-	if w.Header().Get("Content-Encoding") != "gzip" {
-		t.Errorf("expected Content-Encoding: gzip, got %q", w.Header().Get("Content-Encoding"))
+	// br is preferred by server when both are accepted
+	if w.Header().Get("Content-Encoding") != "br" {
+		t.Errorf("expected Content-Encoding: br, got %q", w.Header().Get("Content-Encoding"))
 	}
 }
 
@@ -475,8 +476,39 @@ func TestCompressionMW_SkipsNoAcceptEncoding(t *testing.T) {
 	if w.Code != 200 {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
-	if w.Header().Get("Content-Encoding") == "gzip" {
-		t.Error("should not compress without Accept-Encoding")
+	if enc := w.Header().Get("Content-Encoding"); enc != "" {
+		t.Errorf("should not compress without Accept-Encoding, got %q", enc)
+	}
+}
+
+func TestCompressionMW_NegotiatesGzip(t *testing.T) {
+	c := compression.New(config.CompressionConfig{
+		Enabled:      true,
+		Level:        6,
+		MinSize:      0,
+		ContentTypes: []string{"application/json"},
+	})
+
+	largeBody := strings.Repeat(`{"data":"value"},`, 100)
+	backend := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		w.Write([]byte(largeBody))
+	})
+
+	mw := compressionMW(c)
+	handler := mw(backend)
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	if w.Header().Get("Content-Encoding") != "gzip" {
+		t.Errorf("expected Content-Encoding: gzip, got %q", w.Header().Get("Content-Encoding"))
 	}
 }
 

@@ -429,15 +429,16 @@ func adaptiveConcurrencyMW(al *trafficshape.AdaptiveLimiter) middleware.Middlewa
 	}
 }
 
-// 11. compressionMW wraps the response writer with gzip compression.
+// 11. compressionMW wraps the response writer with negotiated compression.
 func compressionMW(c *compression.Compressor) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !c.ShouldCompress(r) {
+			algo := c.NegotiateEncoding(r)
+			if algo == "" {
 				next.ServeHTTP(w, r)
 				return
 			}
-			cw := compression.NewCompressingResponseWriter(w, c)
+			cw := compression.NewCompressingResponseWriter(w, c, algo)
 			r.Header.Del("Accept-Encoding")
 			next.ServeHTTP(cw, r)
 			cw.Close()

@@ -254,7 +254,9 @@ Invalid requests receive `400 Bad Request` with validation error details.
 
 ## Response Compression
 
-Compress responses with gzip:
+The gateway supports three compression algorithms: **Brotli** (`br`), **Zstd**, and **gzip**. The best algorithm is selected via RFC 7231 `Accept-Encoding` negotiation with quality factor parsing.
+
+Server preference order when quality factors tie: `br` > `zstd` > `gzip`.
 
 ```yaml
 routes:
@@ -265,7 +267,8 @@ routes:
       - url: "http://backend:9000"
     compression:
       enabled: true
-      level: 6                # 1-9 (default 6)
+      algorithms: ["br", "zstd", "gzip"]  # default: all three
+      level: 6                # 0-11 (default 6; gzip clamped to 9)
       min_size: 1024          # minimum body size to compress (bytes)
       content_types:          # MIME types to compress
         - "application/json"
@@ -273,7 +276,9 @@ routes:
         - "text/plain"
 ```
 
-Compression only applies when the client sends `Accept-Encoding: gzip`.
+The `level` field maps to each algorithm's native range: gzip uses 1-9 (values above 9 are clamped), brotli uses 0-11, and zstd maps via `EncoderLevelFromZstd()`.
+
+Compression only applies when the client sends an `Accept-Encoding` header matching a configured algorithm. Per-algorithm metrics (bytes in/out, count) are available via the `/compression` admin endpoint.
 
 ## Key Config Fields
 
@@ -292,6 +297,7 @@ Compression only applies when the client sends `Accept-Encoding: gzip`.
 | `strip_prefix` | bool | Strip matched path prefix |
 | `validation.schema` | string | Inline JSON schema |
 | `validation.schema_file` | string | Path to schema file |
-| `compression.level` | int | Gzip level 1-9 |
+| `compression.algorithms` | []string | Algorithms: "gzip", "br", "zstd" |
+| `compression.level` | int | Compression level 0-11 |
 
 See [Configuration Reference](configuration-reference.md#routes) for all fields.

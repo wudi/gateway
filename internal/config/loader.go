@@ -989,6 +989,13 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate compression config (per-route)
+	for _, route := range cfg.Routes {
+		if err := l.validateCompressionConfig(fmt.Sprintf("route %s", route.ID), route.Compression); err != nil {
+			return err
+		}
+	}
+
 	// Validate global transport config
 	if err := l.validateTransportConfig("global", cfg.Transport); err != nil {
 		return err
@@ -1947,6 +1954,32 @@ func (l *Loader) validateTransportConfig(scope string, cfg TransportConfig) erro
 	if cfg.KeyFile != "" {
 		if _, err := os.Stat(cfg.KeyFile); os.IsNotExist(err) {
 			return fmt.Errorf("%s: transport.key_file does not exist: %s", scope, cfg.KeyFile)
+		}
+	}
+	return nil
+}
+
+// validCompressionAlgorithms is the set of supported compression algorithms.
+var validCompressionAlgorithms = map[string]bool{
+	"gzip": true,
+	"br":   true,
+	"zstd": true,
+}
+
+// validateCompressionConfig validates a compression config for a given scope.
+func (l *Loader) validateCompressionConfig(scope string, cfg CompressionConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	if cfg.Level < 0 || cfg.Level > 11 {
+		return fmt.Errorf("%s: compression.level must be 0-11", scope)
+	}
+	if cfg.MinSize < 0 {
+		return fmt.Errorf("%s: compression.min_size must be >= 0", scope)
+	}
+	for _, algo := range cfg.Algorithms {
+		if !validCompressionAlgorithms[algo] {
+			return fmt.Errorf("%s: compression.algorithms: unsupported algorithm %q (valid: gzip, br, zstd)", scope, algo)
 		}
 	}
 	return nil

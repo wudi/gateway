@@ -3,6 +3,7 @@ module github.com/wudi/gateway
 go 1.25.5
 
 require (
+	github.com/andybalholm/brotli v1.2.0
 	github.com/apache/thrift v0.22.0
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/cloudwego/thriftgo v0.4.3
@@ -17,6 +18,7 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/ipipdotnet/ipdb-go v1.3.3
 	github.com/julienschmidt/httprouter v1.3.0
+	github.com/klauspost/compress v1.18.4
 	github.com/lestrrat-go/jwx/v2 v2.1.6
 	github.com/oschwald/maxminddb-golang/v2 v2.1.1
 	github.com/prometheus/client_golang v1.23.2

@@ -468,6 +468,41 @@ curl http://localhost:8081/signing
 }
 ```
 
+## Compression
+
+### GET `/compression`
+
+Returns per-route compression statistics with per-algorithm metrics (bytes in/out, request count).
+
+```bash
+curl http://localhost:8081/compression
+```
+
+**Response:**
+```json
+{
+  "api": {
+    "algorithms": {
+      "br": {
+        "bytes_in": 524288,
+        "bytes_out": 98304,
+        "count": 150
+      },
+      "gzip": {
+        "bytes_in": 262144,
+        "bytes_out": 65536,
+        "count": 80
+      },
+      "zstd": {
+        "bytes_in": 131072,
+        "bytes_out": 32768,
+        "count": 40
+      }
+    }
+  }
+}
+```
+
 ## Webhooks
 
 ### GET `/webhooks`
