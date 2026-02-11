@@ -21,6 +21,7 @@ type UpstreamConfig struct {
 	LoadBalancer   string               `yaml:"load_balancer"`
 	ConsistentHash ConsistentHashConfig `yaml:"consistent_hash"`
 	HealthCheck    *HealthCheckConfig   `yaml:"health_check"`
+	Transport      TransportConfig      `yaml:"transport"`
 }
 
 // Config represents the complete gateway configuration
@@ -50,6 +51,7 @@ type Config struct {
 	Geo            GeoConfig            `yaml:"geo"`             // Global geo filtering
 	Idempotency    IdempotencyConfig    `yaml:"idempotency"`     // Global idempotency key support
 	BackendSigning BackendSigningConfig `yaml:"backend_signing"` // Global backend request signing
+	Transport      TransportConfig      `yaml:"transport"`       // Global upstream transport settings
 }
 
 // ListenerConfig defines a listener configuration
@@ -1052,6 +1054,22 @@ type BackendSigningConfig struct {
 	SignedHeaders []string `yaml:"signed_headers"`   // headers to include in signature
 	IncludeBody   *bool    `yaml:"include_body"`     // default true (*bool for merge semantics)
 	HeaderPrefix  string   `yaml:"header_prefix"`    // default "X-Gateway-"
+}
+
+// TransportConfig defines upstream HTTP transport (connection pool) settings.
+type TransportConfig struct {
+	MaxIdleConns          int           `yaml:"max_idle_conns"`
+	MaxIdleConnsPerHost   int           `yaml:"max_idle_conns_per_host"`
+	MaxConnsPerHost       int           `yaml:"max_conns_per_host"`
+	IdleConnTimeout       time.Duration `yaml:"idle_conn_timeout"`
+	DialTimeout           time.Duration `yaml:"dial_timeout"`
+	TLSHandshakeTimeout   time.Duration `yaml:"tls_handshake_timeout"`
+	ResponseHeaderTimeout time.Duration `yaml:"response_header_timeout"`
+	ExpectContinueTimeout time.Duration `yaml:"expect_continue_timeout"`
+	DisableKeepAlives     bool          `yaml:"disable_keep_alives"`
+	InsecureSkipVerify    bool          `yaml:"insecure_skip_verify"`
+	CAFile                string        `yaml:"ca_file"`
+	ForceHTTP2            *bool         `yaml:"force_http2"`
 }
 
 // DefaultConfig returns a configuration with sensible defaults

@@ -22,7 +22,7 @@ import (
 
 // Proxy handles proxying requests to backends
 type Proxy struct {
-	transport      *http.Transport
+	transportPool  *TransportPool
 	healthChecker  *health.Checker
 	resolver       *variables.Resolver
 	defaultTimeout time.Duration
@@ -31,7 +31,8 @@ type Proxy struct {
 
 // Config holds proxy configuration
 type Config struct {
-	Transport      *http.Transport
+	Transport      *http.Transport // deprecated: use TransportPool
+	TransportPool  *TransportPool
 	HealthChecker  *health.Checker
 	DefaultTimeout time.Duration
 	FlushInterval  time.Duration
@@ -39,9 +40,16 @@ type Config struct {
 
 // New creates a new proxy
 func New(cfg Config) *Proxy {
-	transport := cfg.Transport
-	if transport == nil {
-		transport = DefaultTransport()
+	pool := cfg.TransportPool
+	if pool == nil {
+		if cfg.Transport != nil {
+			pool = &TransportPool{
+				defaultTransport: cfg.Transport,
+				transports:       make(map[string]*http.Transport),
+			}
+		} else {
+			pool = NewTransportPool()
+		}
 	}
 
 	timeout := cfg.DefaultTimeout
@@ -55,12 +63,22 @@ func New(cfg Config) *Proxy {
 	}
 
 	return &Proxy{
-		transport:      transport,
+		transportPool:  pool,
 		healthChecker:  cfg.HealthChecker,
 		resolver:       variables.NewResolver(),
 		defaultTimeout: timeout,
 		flushInterval:  flushInterval,
 	}
+}
+
+// GetTransportPool returns the transport pool.
+func (p *Proxy) GetTransportPool() *TransportPool {
+	return p.transportPool
+}
+
+// SetTransportPool replaces the transport pool (used during config reload).
+func (p *Proxy) SetTransportPool(pool *TransportPool) {
+	p.transportPool = pool
 }
 
 // Handler returns an http.Handler that proxies requests based on the route
@@ -82,6 +100,9 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 			retryPolicy = retry.NewPolicyFromLegacy(route.Retries, time.Duration(route.Timeout))
 		}
 	}
+
+	// Resolve transport for this route's upstream once per handler creation
+	transport := p.transportPool.Get(route.UpstreamName)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		varCtx := variables.GetFromRequest(r)
@@ -133,7 +154,7 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 				req := p.createProxyRequest(r, target, route, varCtx)
 				return req, nil
 			}
-			resp, err = retryPolicy.Hedging.Execute(ctx, p.transport, nextBackend, makeReq, retryPolicy.PerTryTimeout)
+			resp, err = retryPolicy.Hedging.Execute(ctx, transport, nextBackend, makeReq, retryPolicy.PerTryTimeout)
 			if resp != nil {
 				backendURL = "" // hedging picks multiple backends
 			}
@@ -182,7 +203,7 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 			proxyReq = proxyReq.WithContext(ctx)
 
 			if retryPolicy != nil {
-				resp, err = retryPolicy.Execute(ctx, p.transport, proxyReq)
+				resp, err = retryPolicy.Execute(ctx, transport, proxyReq)
 			} else {
 				// Apply backend timeout for non-retry path
 				if route.TimeoutPolicy.Backend > 0 {
@@ -190,7 +211,7 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 					defer tryCancel()
 					proxyReq = proxyReq.WithContext(tryCtx)
 				}
-				resp, err = p.transport.RoundTrip(proxyReq)
+				resp, err = transport.RoundTrip(proxyReq)
 			}
 		}
 		varCtx.UpstreamResponseTime = time.Since(start)

@@ -989,6 +989,18 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate global transport config
+	if err := l.validateTransportConfig("global", cfg.Transport); err != nil {
+		return err
+	}
+
+	// Validate per-upstream transport configs
+	for name, us := range cfg.Upstreams {
+		if err := l.validateTransportConfig(fmt.Sprintf("upstream %s", name), us.Transport); err != nil {
+			return err
+		}
+	}
+
 	// Validate webhooks
 	if cfg.Webhooks.Enabled {
 		if len(cfg.Webhooks.Endpoints) == 0 {
@@ -1889,6 +1901,40 @@ func (l *Loader) validateBackendSigningConfig(scope string, cfg BackendSigningCo
 	}
 	if strings.ContainsAny(cfg.HeaderPrefix, " \t\r\n") {
 		return fmt.Errorf("%s: backend_signing.header_prefix must not contain whitespace", scope)
+	}
+	return nil
+}
+
+// validateTransportConfig validates a transport config for a given scope.
+func (l *Loader) validateTransportConfig(scope string, cfg TransportConfig) error {
+	if cfg.MaxIdleConns < 0 {
+		return fmt.Errorf("%s: transport.max_idle_conns must be >= 0", scope)
+	}
+	if cfg.MaxIdleConnsPerHost < 0 {
+		return fmt.Errorf("%s: transport.max_idle_conns_per_host must be >= 0", scope)
+	}
+	if cfg.MaxConnsPerHost < 0 {
+		return fmt.Errorf("%s: transport.max_conns_per_host must be >= 0", scope)
+	}
+	if cfg.IdleConnTimeout < 0 {
+		return fmt.Errorf("%s: transport.idle_conn_timeout must be >= 0", scope)
+	}
+	if cfg.DialTimeout < 0 {
+		return fmt.Errorf("%s: transport.dial_timeout must be >= 0", scope)
+	}
+	if cfg.TLSHandshakeTimeout < 0 {
+		return fmt.Errorf("%s: transport.tls_handshake_timeout must be >= 0", scope)
+	}
+	if cfg.ResponseHeaderTimeout < 0 {
+		return fmt.Errorf("%s: transport.response_header_timeout must be >= 0", scope)
+	}
+	if cfg.ExpectContinueTimeout < 0 {
+		return fmt.Errorf("%s: transport.expect_continue_timeout must be >= 0", scope)
+	}
+	if cfg.CAFile != "" {
+		if _, err := os.Stat(cfg.CAFile); os.IsNotExist(err) {
+			return fmt.Errorf("%s: transport.ca_file does not exist: %s", scope, cfg.CAFile)
+		}
 	}
 	return nil
 }

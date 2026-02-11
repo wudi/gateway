@@ -138,6 +138,19 @@ upstreams:
       healthy_after: int
       unhealthy_after: int
       expected_status: [string]
+    transport:                # per-upstream transport overrides (see Transport section)
+      max_idle_conns: int
+      max_idle_conns_per_host: int
+      max_conns_per_host: int
+      idle_conn_timeout: duration
+      dial_timeout: duration
+      tls_handshake_timeout: duration
+      response_header_timeout: duration
+      expect_continue_timeout: duration
+      disable_keep_alives: bool
+      insecure_skip_verify: bool
+      ca_file: string
+      force_http2: bool
 
   my-service-pool:
     service:
@@ -1222,3 +1235,31 @@ Per-backend overrides can be set on each `backends[].health_check` entry. Unset 
 **Validation:** `method` must be GET, HEAD, OPTIONS, or POST. `timeout` must be <= `interval` when both > 0. All durations >= 0. `healthy_after` and `unhealthy_after` >= 0. Status patterns must be valid.
 
 See [Resilience](resilience.md#health-checks) for full documentation.
+
+---
+
+## Transport
+
+Global upstream transport settings (connection pooling, timeouts, TLS). These defaults apply to all upstreams; per-upstream overrides are set in `upstreams.<name>.transport`.
+
+```yaml
+transport:
+  max_idle_conns: int              # max total idle connections across all hosts (default 100)
+  max_idle_conns_per_host: int     # max idle connections per upstream host (default 10)
+  max_conns_per_host: int          # max total connections per host, 0 = unlimited (default 0)
+  idle_conn_timeout: duration      # close idle connections after this duration (default 90s)
+  dial_timeout: duration           # TCP dial timeout (default 30s)
+  tls_handshake_timeout: duration  # TLS handshake timeout (default 10s)
+  response_header_timeout: duration # timeout waiting for response headers, 0 = none (default 0)
+  expect_continue_timeout: duration # timeout for 100-continue from server (default 1s)
+  disable_keep_alives: bool        # disable HTTP keep-alive (default false)
+  insecure_skip_verify: bool       # skip TLS certificate verification (default false)
+  ca_file: string                  # path to custom CA certificate file
+  force_http2: bool                # attempt HTTP/2 connections (default true)
+```
+
+**Three-level merge:** defaults (hardcoded) -> global `transport:` -> per-upstream `upstreams.<name>.transport:`. Non-zero values at each level override the previous level.
+
+**Validation:** All integer fields >= 0. All durations >= 0. If `ca_file` is set, the file must exist.
+
+See [Transport](transport.md) for tuning guidance.

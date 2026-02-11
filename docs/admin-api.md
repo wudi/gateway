@@ -113,6 +113,7 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /openapi` | OpenAPI validation stats per route (spec, operation, request/response validation, metrics) |
 | `GET /timeouts` | Per-route timeout policy config and metrics (request/backend/idle/header timeouts, timeout counts) |
 | `GET /upstreams` | Named upstream pool definitions (backends, LB algorithm, health check config) |
+| `GET /transport` | Transport pool configuration (default settings, per-upstream overrides) |
 | `GET /error-pages` | Custom error page configuration per route (configured pages, render metrics) |
 
 ### Example: Querying Feature Endpoints

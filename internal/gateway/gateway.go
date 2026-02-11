@@ -345,16 +345,10 @@ func New(cfg *config.Config) (*Gateway, error) {
 		},
 	})
 
-	// Initialize proxy with optional custom DNS resolver
-	var transport *http.Transport
-	if len(cfg.DNSResolver.Nameservers) > 0 {
-		resolver := proxy.NewResolver(cfg.DNSResolver.Nameservers, cfg.DNSResolver.Timeout)
-		tcfg := proxy.DefaultTransportConfig
-		tcfg.Resolver = resolver
-		transport = proxy.NewTransport(tcfg)
-	}
+	// Initialize proxy with transport pool
+	pool := g.buildTransportPool(cfg)
 	g.proxy = proxy.New(proxy.Config{
-		Transport:     transport,
+		TransportPool: pool,
 		HealthChecker: g.healthChecker,
 	})
 
@@ -535,6 +529,9 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 	if route == nil {
 		return fmt.Errorf("route not found after adding: %s", routeCfg.ID)
 	}
+
+	// Set upstream name on route for transport pool resolution
+	route.UpstreamName = routeCfg.Upstream
 
 	// Set up backends (skip for echo routes — no backend needed)
 	if !routeCfg.Echo {
@@ -1459,6 +1456,36 @@ func (g *Gateway) GetUpstreams() map[string]config.UpstreamConfig {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.config.Upstreams
+}
+
+// GetTransportPool returns the proxy's transport pool.
+func (g *Gateway) GetTransportPool() *proxy.TransportPool {
+	return g.proxy.GetTransportPool()
+}
+
+// buildTransportPool constructs a TransportPool from the config.
+// Three-level merge: defaults → global transport → per-upstream transport.
+func (g *Gateway) buildTransportPool(cfg *config.Config) *proxy.TransportPool {
+	// Start from defaults, apply global config
+	baseCfg := proxy.MergeTransportConfigs(proxy.DefaultTransportConfig, cfg.Transport)
+
+	// Apply DNS resolver if configured
+	if len(cfg.DNSResolver.Nameservers) > 0 {
+		baseCfg.Resolver = proxy.NewResolver(cfg.DNSResolver.Nameservers, cfg.DNSResolver.Timeout)
+	}
+
+	pool := proxy.NewTransportPoolWithDefault(baseCfg)
+
+	// Create per-upstream transports
+	for name, us := range cfg.Upstreams {
+		if us.Transport == (config.TransportConfig{}) {
+			continue // no per-upstream overrides
+		}
+		usCfg := proxy.MergeTransportConfigs(baseCfg, us.Transport)
+		pool.Set(name, usCfg)
+	}
+
+	return pool
 }
 
 // GetLoadBalancerInfo returns per-route load balancer algorithm and stats.

@@ -19,6 +19,7 @@ type Route struct {
 	Backends       []Backend
 	ServiceName    string
 	ServiceTags    []string
+	UpstreamName   string
 	Auth           RouteAuth
 	RateLimit      config.RateLimitConfig
 	Transform      config.TransformConfig

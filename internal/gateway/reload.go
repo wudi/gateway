@@ -247,6 +247,14 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		}
 	}
 
+	// Rebuild transport pool from new config and swap onto shared proxy
+	newPool := g.buildTransportPool(cfg)
+	oldPool := g.proxy.GetTransportPool()
+	g.proxy.SetTransportPool(newPool)
+	if oldPool != nil {
+		oldPool.CloseIdleConnections()
+	}
+
 	// Initialize each route using a temporary Gateway view so addRouteForState works
 	for _, routeCfg := range cfg.Routes {
 		if err := g.addRouteForState(s, routeCfg); err != nil {
@@ -273,6 +281,9 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 	if route == nil {
 		return fmt.Errorf("route not found after adding: %s", routeCfg.ID)
 	}
+
+	// Set upstream name on route for transport pool resolution
+	route.UpstreamName = routeCfg.Upstream
 
 	var backends []*loadbalancer.Backend
 

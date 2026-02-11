@@ -488,6 +488,9 @@ func (s *Server) adminHandler() http.Handler {
 	// Webhooks
 	mux.HandleFunc("/webhooks", s.handleWebhooks)
 
+	// Transport pool
+	mux.HandleFunc("/transport", s.handleTransport)
+
 	// Upstreams
 	mux.HandleFunc("/upstreams", s.handleUpstreams)
 
@@ -1037,6 +1040,10 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["upstreams"] = upstreams
 	}
 
+	// Transport pool
+	pool := s.gateway.GetTransportPool()
+	dashboard["transport"] = pool.DefaultConfig()
+
 	// Tracing
 	if tracer := s.gateway.GetTracer(); tracer != nil {
 		dashboard["tracing"] = tracer.Status()
@@ -1212,6 +1219,27 @@ func (s *Server) handleUpstreams(w http.ResponseWriter, r *http.Request) {
 		upstreams = make(map[string]config.UpstreamConfig)
 	}
 	json.NewEncoder(w).Encode(upstreams)
+}
+
+// handleTransport returns transport pool configuration.
+func (s *Server) handleTransport(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	pool := s.gateway.GetTransportPool()
+	result := map[string]interface{}{
+		"default":   pool.DefaultConfig(),
+		"upstreams": make(map[string]interface{}),
+	}
+
+	// Show per-upstream transport overrides from config
+	for name, us := range s.gateway.GetUpstreams() {
+		if us.Transport == (config.TransportConfig{}) {
+			continue
+		}
+		result["upstreams"].(map[string]interface{})[name] = us.Transport
+	}
+
+	json.NewEncoder(w).Encode(result)
 }
 
 // handleCanary lists all canary deployments with status.
