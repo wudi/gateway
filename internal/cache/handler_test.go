@@ -3,6 +3,7 @@ package cache
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -169,8 +170,12 @@ func TestWriteCachedResponse(t *testing.T) {
 	}
 
 	w := httptest.NewRecorder()
-	WriteCachedResponse(w, entry)
+	r := httptest.NewRequest("GET", "/test", nil)
+	notModified := WriteCachedResponse(w, r, entry, false)
 
+	if notModified {
+		t.Error("expected notModified=false")
+	}
 	if w.Code != 200 {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
@@ -256,6 +261,296 @@ func TestCacheByRoute(t *testing.T) {
 	stats := cbr.Stats()
 	if len(stats) != 2 {
 		t.Errorf("expected 2 route stats, got %d", len(stats))
+	}
+}
+
+func TestGenerateETag(t *testing.T) {
+	body1 := []byte("hello world")
+	body2 := []byte("hello world")
+	body3 := []byte("different body")
+
+	etag1 := GenerateETag(body1)
+	etag2 := GenerateETag(body2)
+	etag3 := GenerateETag(body3)
+
+	// Deterministic
+	if etag1 != etag2 {
+		t.Errorf("same body should produce same ETag: %s vs %s", etag1, etag2)
+	}
+
+	// Different bodies produce different ETags
+	if etag1 == etag3 {
+		t.Error("different bodies should produce different ETags")
+	}
+
+	// Quoted format
+	if !strings.HasPrefix(etag1, `"`) || !strings.HasSuffix(etag1, `"`) {
+		t.Errorf("ETag should be quoted, got: %s", etag1)
+	}
+
+	// Should be 32 hex chars + 2 quotes = 34 chars (16 bytes hex-encoded)
+	if len(etag1) != 34 {
+		t.Errorf("expected ETag length 34, got %d: %s", len(etag1), etag1)
+	}
+}
+
+func TestPopulateConditionalFields(t *testing.T) {
+	t.Run("generated values", func(t *testing.T) {
+		entry := &Entry{
+			StatusCode: 200,
+			Headers:    http.Header{"Content-Type": {"application/json"}},
+			Body:       []byte(`{"key":"value"}`),
+		}
+		PopulateConditionalFields(entry)
+
+		if entry.ETag == "" {
+			t.Error("expected ETag to be generated")
+		}
+		if entry.ETag != GenerateETag(entry.Body) {
+			t.Error("expected ETag to match GenerateETag output")
+		}
+		if entry.LastModified.IsZero() {
+			t.Error("expected LastModified to be set")
+		}
+		// Should be truncated to seconds
+		if entry.LastModified.Nanosecond() != 0 {
+			t.Error("expected LastModified truncated to seconds")
+		}
+	})
+
+	t.Run("backend-provided ETag", func(t *testing.T) {
+		entry := &Entry{
+			StatusCode: 200,
+			Headers:    http.Header{"Etag": {`"backend-etag-123"`}},
+			Body:       []byte(`{"key":"value"}`),
+		}
+		PopulateConditionalFields(entry)
+
+		if entry.ETag != `"backend-etag-123"` {
+			t.Errorf("expected backend ETag, got: %s", entry.ETag)
+		}
+	})
+
+	t.Run("backend-provided Last-Modified", func(t *testing.T) {
+		lm := time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC)
+		entry := &Entry{
+			StatusCode: 200,
+			Headers:    http.Header{"Last-Modified": {lm.Format(http.TimeFormat)}},
+			Body:       []byte(`data`),
+		}
+		PopulateConditionalFields(entry)
+
+		if !entry.LastModified.Equal(lm) {
+			t.Errorf("expected backend Last-Modified %v, got %v", lm, entry.LastModified)
+		}
+	})
+}
+
+func TestCheckConditional_IfNoneMatch(t *testing.T) {
+	entry := &Entry{
+		ETag:         `"abc123"`,
+		LastModified: time.Now().Truncate(time.Second),
+	}
+
+	tests := []struct {
+		name string
+		inm  string
+		want bool
+	}{
+		{"exact match", `"abc123"`, true},
+		{"no match", `"xyz789"`, false},
+		{"wildcard", "*", true},
+		{"comma-separated match", `"xyz789", "abc123"`, true},
+		{"comma-separated no match", `"xyz789", "def456"`, false},
+		{"empty", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest("GET", "/test", nil)
+			if tt.inm != "" {
+				r.Header.Set("If-None-Match", tt.inm)
+			}
+			got := CheckConditional(r, entry)
+			if got != tt.want {
+				t.Errorf("CheckConditional() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCheckConditional_IfModifiedSince(t *testing.T) {
+	entryTime := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
+	entry := &Entry{
+		ETag:         `"etag1"`,
+		LastModified: entryTime,
+	}
+
+	tests := []struct {
+		name string
+		ims  string
+		want bool
+	}{
+		{"fresh - same time", entryTime.Format(http.TimeFormat), true},
+		{"fresh - later time", entryTime.Add(time.Hour).Format(http.TimeFormat), true},
+		{"stale - earlier time", entryTime.Add(-time.Hour).Format(http.TimeFormat), false},
+		{"malformed date", "not-a-date", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest("GET", "/test", nil)
+			r.Header.Set("If-Modified-Since", tt.ims)
+			got := CheckConditional(r, entry)
+			if got != tt.want {
+				t.Errorf("CheckConditional() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCheckConditional_Precedence(t *testing.T) {
+	entryTime := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
+	entry := &Entry{
+		ETag:         `"etag1"`,
+		LastModified: entryTime,
+	}
+
+	// If-None-Match takes precedence: ETag doesn't match, but If-Modified-Since would say fresh
+	r := httptest.NewRequest("GET", "/test", nil)
+	r.Header.Set("If-None-Match", `"wrong-etag"`)
+	r.Header.Set("If-Modified-Since", entryTime.Add(time.Hour).Format(http.TimeFormat))
+
+	got := CheckConditional(r, entry)
+	if got {
+		t.Error("expected false: If-None-Match should take precedence and it doesn't match")
+	}
+}
+
+func TestCheckConditional_NoHeaders(t *testing.T) {
+	entry := &Entry{
+		ETag:         `"etag1"`,
+		LastModified: time.Now().Truncate(time.Second),
+	}
+
+	r := httptest.NewRequest("GET", "/test", nil)
+	got := CheckConditional(r, entry)
+	if got {
+		t.Error("expected false when no conditional headers present")
+	}
+}
+
+func TestWriteCachedResponse_Conditional304(t *testing.T) {
+	entry := &Entry{
+		StatusCode:   200,
+		Headers:      http.Header{"Content-Type": {"application/json"}},
+		Body:         []byte(`{"data":"large payload"}`),
+		ETag:         `"test-etag"`,
+		LastModified: time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC),
+	}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/test", nil)
+	r.Header.Set("If-None-Match", `"test-etag"`)
+
+	notModified := WriteCachedResponse(w, r, entry, true)
+
+	if !notModified {
+		t.Error("expected notModified=true")
+	}
+	if w.Code != 304 {
+		t.Errorf("expected 304, got %d", w.Code)
+	}
+	if w.Body.Len() != 0 {
+		t.Errorf("expected empty body for 304, got %d bytes", w.Body.Len())
+	}
+	if w.Header().Get("X-Cache") != "HIT" {
+		t.Errorf("expected X-Cache: HIT, got %s", w.Header().Get("X-Cache"))
+	}
+	if w.Header().Get("ETag") != `"test-etag"` {
+		t.Errorf("expected ETag header, got %s", w.Header().Get("ETag"))
+	}
+	if w.Header().Get("Last-Modified") == "" {
+		t.Error("expected Last-Modified header")
+	}
+}
+
+func TestWriteCachedResponse_Conditional200(t *testing.T) {
+	entry := &Entry{
+		StatusCode:   200,
+		Headers:      http.Header{"Content-Type": {"application/json"}},
+		Body:         []byte(`{"data":"payload"}`),
+		ETag:         `"test-etag"`,
+		LastModified: time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC),
+	}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/test", nil)
+	// No conditional headers
+
+	notModified := WriteCachedResponse(w, r, entry, true)
+
+	if notModified {
+		t.Error("expected notModified=false")
+	}
+	if w.Code != 200 {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	if w.Body.String() != `{"data":"payload"}` {
+		t.Errorf("unexpected body: %s", w.Body.String())
+	}
+	if w.Header().Get("ETag") != `"test-etag"` {
+		t.Errorf("expected ETag header, got %s", w.Header().Get("ETag"))
+	}
+}
+
+func TestWriteCachedResponse_ConditionalDisabled(t *testing.T) {
+	entry := &Entry{
+		StatusCode:   200,
+		Headers:      http.Header{"Content-Type": {"application/json"}},
+		Body:         []byte(`{"data":"payload"}`),
+		ETag:         `"test-etag"`,
+		LastModified: time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC),
+	}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/test", nil)
+	r.Header.Set("If-None-Match", `"test-etag"`)
+
+	// conditional=false: should always return full 200 even with matching headers
+	notModified := WriteCachedResponse(w, r, entry, false)
+
+	if notModified {
+		t.Error("expected notModified=false when conditional disabled")
+	}
+	if w.Code != 200 {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	if w.Body.String() != `{"data":"payload"}` {
+		t.Errorf("unexpected body: %s", w.Body.String())
+	}
+	// Should NOT inject ETag/Last-Modified when conditional is disabled
+	if w.Header().Get("ETag") != "" {
+		t.Error("expected no ETag header when conditional disabled")
+	}
+}
+
+func TestCacheStatsNotModified(t *testing.T) {
+	store := NewMemoryStore(100, time.Minute)
+	c := New(store)
+
+	stats := c.Stats()
+	if stats.NotModifieds != 0 {
+		t.Errorf("expected 0 not_modifieds, got %d", stats.NotModifieds)
+	}
+
+	c.RecordNotModified()
+	c.RecordNotModified()
+	c.RecordNotModified()
+
+	stats = c.Stats()
+	if stats.NotModifieds != 3 {
+		t.Errorf("expected 3 not_modifieds, got %d", stats.NotModifieds)
 	}
 }
 

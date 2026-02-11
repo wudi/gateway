@@ -24,7 +24,8 @@ type Collector struct {
 	cbState          *prometheus.GaugeVec
 	backendHealth    *prometheus.GaugeVec
 	activeRequests   *prometheus.GaugeVec
-	rateLimitRejects *prometheus.CounterVec
+	rateLimitRejects     *prometheus.CounterVec
+	cacheNotModifiedTotal *prometheus.CounterVec
 }
 
 // NewCollector creates a new metrics collector backed by prometheus/client_golang
@@ -70,6 +71,10 @@ func NewCollector() *Collector {
 			Name: "gateway_rate_limit_rejects_total",
 			Help: "Total rate limit rejections",
 		}, []string{"route"}),
+		cacheNotModifiedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "gateway_cache_not_modified_total",
+			Help: "Total 304 Not Modified responses from conditional cache hits",
+		}, []string{"route"}),
 	}
 
 	reg.MustRegister(
@@ -82,6 +87,7 @@ func NewCollector() *Collector {
 		c.backendHealth,
 		c.activeRequests,
 		c.rateLimitRejects,
+		c.cacheNotModifiedTotal,
 	)
 
 	return c
@@ -130,6 +136,11 @@ func (c *Collector) RecordActiveRequest(route string, delta float64) {
 // RecordRateLimitReject records a rate limit rejection
 func (c *Collector) RecordRateLimitReject(route string) {
 	c.rateLimitRejects.WithLabelValues(route).Inc()
+}
+
+// RecordCacheNotModified records a 304 Not Modified response from a conditional cache hit
+func (c *Collector) RecordCacheNotModified(route string) {
+	c.cacheNotModifiedTotal.WithLabelValues(route).Inc()
 }
 
 // Handler returns an http.Handler that serves the Prometheus metrics

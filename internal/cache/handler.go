@@ -3,6 +3,7 @@ package cache
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"sort"
@@ -18,9 +19,11 @@ import (
 
 // Entry represents a cached response.
 type Entry struct {
-	StatusCode int
-	Headers    http.Header
-	Body       []byte
+	StatusCode   int
+	Headers      http.Header
+	Body         []byte
+	ETag         string    // strong ETag, e.g. `"abc123def..."`
+	LastModified time.Time // when entry was cached (or backend value)
 }
 
 // Handler manages caching for a single route.
@@ -30,6 +33,7 @@ type Handler struct {
 	maxBodySize int64
 	keyHeaders  []string
 	methods     map[string]bool
+	conditional bool
 }
 
 // NewHandler creates a new cache handler for a route with the given store backend.
@@ -60,6 +64,7 @@ func NewHandler(cfg config.CacheConfig, store Store) *Handler {
 		maxBodySize: maxBodySize,
 		keyHeaders:  cfg.KeyHeaders,
 		methods:     methodMap,
+		conditional: cfg.Conditional,
 	}
 }
 
@@ -235,8 +240,82 @@ func (crw *CachingResponseWriter) Hijack() (c interface{}, brw interface{}, err 
 	return nil, nil, fmt.Errorf("hijack not supported on caching response writer")
 }
 
+// IsConditional returns true if conditional caching (ETag/Last-Modified/304) is enabled.
+func (h *Handler) IsConditional() bool {
+	return h.conditional
+}
+
+// RecordNotModified increments the 304 Not Modified counter.
+func (h *Handler) RecordNotModified() {
+	h.cache.RecordNotModified()
+}
+
+// GenerateETag generates a strong ETag from a response body using SHA-256.
+func GenerateETag(body []byte) string {
+	sum := sha256.Sum256(body)
+	return `"` + hex.EncodeToString(sum[:16]) + `"`
+}
+
+// PopulateConditionalFields sets ETag and LastModified on a cache entry.
+// If the backend provided these headers, they are used; otherwise they are generated.
+func PopulateConditionalFields(entry *Entry) {
+	// Use backend-provided ETag if present
+	if etag := entry.Headers.Get("ETag"); etag != "" {
+		entry.ETag = etag
+	} else {
+		entry.ETag = GenerateETag(entry.Body)
+	}
+
+	// Use backend-provided Last-Modified if present and parseable
+	if lm := entry.Headers.Get("Last-Modified"); lm != "" {
+		if t, err := http.ParseTime(lm); err == nil {
+			entry.LastModified = t.Truncate(time.Second)
+			return
+		}
+	}
+	entry.LastModified = time.Now().Truncate(time.Second)
+}
+
+// CheckConditional checks request conditional headers against a cache entry.
+// Returns true if the client's cached version is still fresh (304 should be sent).
+func CheckConditional(r *http.Request, entry *Entry) bool {
+	// If-None-Match takes precedence per RFC 7232 §6
+	if inm := r.Header.Get("If-None-Match"); inm != "" {
+		return etagMatch(inm, entry.ETag)
+	}
+
+	// Fall back to If-Modified-Since
+	if ims := r.Header.Get("If-Modified-Since"); ims != "" {
+		t, err := http.ParseTime(ims)
+		if err != nil {
+			return false
+		}
+		return !entry.LastModified.After(t.Truncate(time.Second))
+	}
+
+	return false
+}
+
+// etagMatch checks if the given If-None-Match header value matches the entry's ETag.
+// Handles wildcard `*` and comma-separated lists.
+func etagMatch(inm, etag string) bool {
+	if inm == "*" {
+		return true
+	}
+	for _, candidate := range strings.Split(inm, ",") {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == etag {
+			return true
+		}
+	}
+	return false
+}
+
 // WriteCachedResponse writes a cached entry to the response writer.
-func WriteCachedResponse(w http.ResponseWriter, entry *Entry) {
+// When conditional is true and the request has matching conditional headers,
+// a 304 Not Modified is returned instead of the full body.
+// Returns true if a 304 was sent.
+func WriteCachedResponse(w http.ResponseWriter, r *http.Request, entry *Entry, conditional bool) bool {
 	// Copy headers
 	for key, values := range entry.Headers {
 		for _, v := range values {
@@ -244,8 +323,28 @@ func WriteCachedResponse(w http.ResponseWriter, entry *Entry) {
 		}
 	}
 	w.Header().Set("X-Cache", "HIT")
+
+	if conditional {
+		// Inject conditional headers
+		if entry.ETag != "" {
+			w.Header().Set("ETag", entry.ETag)
+		}
+		if !entry.LastModified.IsZero() {
+			w.Header().Set("Last-Modified", entry.LastModified.UTC().Format(http.TimeFormat))
+		}
+
+		// Check if client already has fresh content
+		if CheckConditional(r, entry) {
+			// Remove body-related headers for 304
+			w.Header().Del("Content-Length")
+			w.WriteHeader(http.StatusNotModified)
+			return true
+		}
+	}
+
 	w.WriteHeader(entry.StatusCode)
 	w.Write(entry.Body)
+	return false
 }
 
 // CacheByRoute manages cache handlers per route.

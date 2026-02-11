@@ -51,6 +51,50 @@ routes:
 
 Only `query` operations are cached — `mutation` and `subscription` operations always bypass the cache.
 
+## Conditional Caching (ETags / 304 Not Modified)
+
+When `conditional: true` is set on a cache-enabled route, the gateway supports HTTP conditional requests. This allows clients that already have a cached copy to validate it with lightweight `304 Not Modified` responses instead of re-downloading the full body.
+
+```yaml
+routes:
+  - id: "api"
+    path: "/api/products"
+    backends:
+      - url: "http://backend:9000"
+    cache:
+      enabled: true
+      conditional: true    # enable ETag/Last-Modified/304
+      ttl: 5m
+      max_size: 1000
+```
+
+### How It Works
+
+1. When a response is cached, the gateway generates an `ETag` (SHA-256 hash of the body) and records a `Last-Modified` timestamp. If the backend already provides these headers, the backend values are used instead.
+2. On a cache HIT, the gateway checks the request for conditional headers:
+   - `If-None-Match` — compared against the cached `ETag` (supports `*` and comma-separated lists)
+   - `If-Modified-Since` — compared against the cached `Last-Modified` timestamp
+3. If the client's cached version is still fresh, the gateway returns `304 Not Modified` with no body.
+4. If the content has changed (or no conditional headers are present), the full `200` response is returned as usual.
+
+`If-None-Match` takes precedence over `If-Modified-Since` per RFC 7232.
+
+### Response Headers
+
+On cache HITs with `conditional: true`, the following headers are always included:
+
+| Header | Description |
+|--------|-------------|
+| `ETag` | Strong ETag of the cached response body |
+| `Last-Modified` | Timestamp when the entry was cached (or backend value) |
+| `X-Cache` | `HIT` (present on all cache hits) |
+
+### Metrics
+
+304 responses are tracked in:
+- The per-route `CacheStats.not_modifieds` counter (visible at `GET /cache`)
+- The `gateway_cache_not_modified_total` Prometheus counter (with `route` label)
+
 ## Request Coalescing (Singleflight)
 
 When many clients request the same uncached resource simultaneously (cache stampede / thundering herd), the gateway can deduplicate these requests using request coalescing. When N identical in-flight requests arrive concurrently, only **one** goes to the backend. The other N-1 wait and share the same response.
@@ -165,6 +209,7 @@ The cache check happens before the circuit breaker. A cache hit never touches th
 |-------|------|-------------|
 | `cache.enabled` | bool | Enable response caching |
 | `cache.mode` | string | `"local"` (default) or `"distributed"` (Redis-backed) |
+| `cache.conditional` | bool | Enable ETag/Last-Modified/304 Not Modified support |
 | `cache.ttl` | duration | Time-to-live per entry |
 | `cache.max_size` | int | Max entries (LRU eviction, local mode only) |
 | `cache.max_body_size` | int64 | Max response body size to cache (bytes) |

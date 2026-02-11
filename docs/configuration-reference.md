@@ -295,6 +295,7 @@ routes:
     cache:
       enabled: bool
       mode: string              # "local" (default) or "distributed" (Redis-backed)
+      conditional: bool         # enable ETag/Last-Modified/304 Not Modified support
       ttl: duration             # > 0
       max_size: int             # > 0 (max entries, local mode only)
       max_body_size: int64      # max response body to cache

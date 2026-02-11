@@ -321,12 +321,17 @@ func websocketMW(wsProxy *websocket.Proxy, getBalancer func() loadbalancer.Balan
 
 // 9. cacheMW handles both cache HIT (early return) and MISS (wrap writer, store after proxy).
 func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware.Middleware {
+	conditional := h.IsConditional()
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if h.ShouldCache(r) {
 				if entry, ok := h.Get(r); ok {
 					mc.RecordCacheHit(routeID)
-					cache.WriteCachedResponse(w, entry)
+					notModified := cache.WriteCachedResponse(w, r, entry, conditional)
+					if notModified {
+						h.RecordNotModified()
+						mc.RecordCacheNotModified(routeID)
+					}
 					return
 				}
 				mc.RecordCacheMiss(routeID)
@@ -350,6 +355,9 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 						StatusCode: cachingWriter.StatusCode(),
 						Headers:    cachingWriter.Header().Clone(),
 						Body:       cachingWriter.Body.Bytes(),
+					}
+					if conditional {
+						cache.PopulateConditionalFields(entry)
 					}
 					h.Store(r, entry)
 				}
