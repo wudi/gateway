@@ -55,6 +55,7 @@ type Config struct {
 	RequestDecompression   RequestDecompressionConfig   `yaml:"request_decompression"`    // Global request decompression
 	SecurityHeaders        SecurityHeadersConfig        `yaml:"security_headers"`         // Global security response headers
 	Maintenance            MaintenanceConfig            `yaml:"maintenance"`              // Global maintenance mode
+	Shutdown               ShutdownConfig               `yaml:"shutdown"`                 // Graceful shutdown settings
 }
 
 // ListenerConfig defines a listener configuration
@@ -433,6 +434,12 @@ type MaintenanceConfig struct {
 	ExcludePaths []string         `yaml:"exclude_paths"`  // paths that bypass maintenance (glob patterns)
 	ExcludeIPs   []string         `yaml:"exclude_ips"`    // CIDRs that bypass maintenance
 	Headers     map[string]string `yaml:"headers"`        // extra response headers
+}
+
+// ShutdownConfig defines graceful shutdown settings.
+type ShutdownConfig struct {
+	Timeout    time.Duration `yaml:"timeout"`     // total shutdown timeout (default 30s)
+	DrainDelay time.Duration `yaml:"drain_delay"` // delay before stopping listeners (default 0s)
 }
 
 // MetricsConfig defines Prometheus metrics settings (Feature 5)

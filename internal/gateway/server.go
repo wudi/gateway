@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
-
-	"strings"
 
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/listener"
@@ -31,6 +31,8 @@ type Server struct {
 	udpProxy      *udp.Proxy
 	startTime     time.Time
 	reloadHistory []ReloadResult
+	draining      atomic.Bool
+	drainStart    atomic.Int64 // unix nano timestamp when drain started
 }
 
 // NewServer creates a new gateway server.
@@ -220,7 +222,11 @@ func (s *Server) Run() error {
 			}
 		default:
 			logging.Info("Shutting down gracefully...")
-			return s.Shutdown(30 * time.Second)
+			timeout := s.config.Shutdown.Timeout
+			if timeout <= 0 {
+				timeout = 30 * time.Second
+			}
+			return s.Shutdown(timeout)
 		}
 	}
 
@@ -229,8 +235,25 @@ func (s *Server) Run() error {
 
 // Shutdown gracefully shuts down the servers
 func (s *Server) Shutdown(timeout time.Duration) error {
+	// Mark as draining — readiness checks will return 503
+	s.draining.Store(true)
+	s.drainStart.Store(time.Now().UnixNano())
+	logging.Info("Server entering drain mode")
+
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+
+	// Drain delay: wait before stopping listeners so load balancers
+	// (e.g. Kubernetes) can remove this instance from service endpoints.
+	drainDelay := s.config.Shutdown.DrainDelay
+	if drainDelay > 0 {
+		logging.Info("Waiting for drain delay", zap.Duration("delay", drainDelay))
+		select {
+		case <-time.After(drainDelay):
+		case <-ctx.Done():
+			logging.Warn("Drain delay interrupted by shutdown timeout")
+		}
+	}
 
 	// Shutdown admin server first
 	if s.adminServer != nil {
@@ -260,6 +283,19 @@ func (s *Server) Shutdown(timeout time.Duration) error {
 
 	logging.Info("Server shutdown complete")
 	return nil
+}
+
+// Drain initiates the drain process without shutting down the server.
+// Readiness checks will return 503 once draining is active.
+func (s *Server) Drain() {
+	s.draining.Store(true)
+	s.drainStart.Store(time.Now().UnixNano())
+	logging.Info("Server drain initiated via admin API")
+}
+
+// IsDraining returns whether the server is in drain mode.
+func (s *Server) IsDraining() bool {
+	return s.draining.Load()
 }
 
 // ReloadConfig loads a new config from the config path and performs a hot reload.
@@ -500,6 +536,9 @@ func (s *Server) adminHandler() http.Handler {
 	mux.HandleFunc("/maintenance", s.handleMaintenance)
 	mux.HandleFunc("/maintenance/", s.handleMaintenanceAction)
 
+	// Drain / graceful shutdown
+	mux.HandleFunc("/drain", s.handleDrain)
+
 	// Webhooks
 	mux.HandleFunc("/webhooks", s.handleWebhooks)
 
@@ -591,6 +630,12 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 
 	ready := true
 	reasons := []string{}
+
+	// Check draining state — draining instances are not ready
+	if s.draining.Load() {
+		ready = false
+		reasons = append(reasons, "server is draining")
+	}
 
 	// Check healthy backends threshold
 	minHealthy := readyCfg.MinHealthyBackends
@@ -942,6 +987,17 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			"healthy": stats.HealthyRoutes,
 		},
 		"listeners": s.manager.Count(),
+	}
+
+	// Drain status
+	if s.draining.Load() {
+		drainInfo := map[string]interface{}{"draining": true}
+		if ts := s.drainStart.Load(); ts > 0 {
+			startTime := time.Unix(0, ts)
+			drainInfo["drain_start"] = startTime.Format(time.RFC3339)
+			drainInfo["drain_duration"] = time.Since(startTime).String()
+		}
+		dashboard["drain"] = drainInfo
 	}
 
 	// Aggregate feature stats
@@ -1304,6 +1360,41 @@ func (s *Server) handleMaintenanceAction(w http.ResponseWriter, r *http.Request)
 		})
 	default:
 		http.Error(w, `{"error":"action must be 'enable' or 'disable'"}`, http.StatusBadRequest)
+	}
+}
+
+// handleDrain handles drain status (GET) and drain initiation (POST).
+func (s *Server) handleDrain(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	switch r.Method {
+	case http.MethodGet:
+		response := map[string]interface{}{
+			"draining": s.draining.Load(),
+		}
+		if ts := s.drainStart.Load(); ts > 0 {
+			startTime := time.Unix(0, ts)
+			response["drain_start"] = startTime.Format(time.RFC3339)
+			response["drain_duration"] = time.Since(startTime).String()
+		}
+		json.NewEncoder(w).Encode(response)
+
+	case http.MethodPost:
+		if s.draining.Load() {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"status":  "already_draining",
+				"message": "server is already in drain mode",
+			})
+			return
+		}
+		s.Drain()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":  "draining",
+			"message": "drain mode activated, readiness checks will return 503",
+		})
+
+	default:
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 	}
 }
 

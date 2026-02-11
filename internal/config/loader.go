@@ -1031,6 +1031,11 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate shutdown config
+	if err := l.validateShutdownConfig(cfg.Shutdown); err != nil {
+		return err
+	}
+
 	// Validate global transport config
 	if err := l.validateTransportConfig("global", cfg.Transport); err != nil {
 		return err
@@ -2079,6 +2084,20 @@ func (l *Loader) validateMaintenanceConfig(scope string, cfg MaintenanceConfig) 
 				return fmt.Errorf("%s: maintenance.exclude_ips: invalid IP %q", scope, cidr)
 			}
 		}
+	}
+	return nil
+}
+
+// validateShutdownConfig validates the graceful shutdown config.
+func (l *Loader) validateShutdownConfig(cfg ShutdownConfig) error {
+	if cfg.Timeout < 0 {
+		return fmt.Errorf("shutdown.timeout must be >= 0")
+	}
+	if cfg.DrainDelay < 0 {
+		return fmt.Errorf("shutdown.drain_delay must be >= 0")
+	}
+	if cfg.Timeout > 0 && cfg.DrainDelay > 0 && cfg.DrainDelay >= cfg.Timeout {
+		return fmt.Errorf("shutdown.drain_delay (%s) must be less than shutdown.timeout (%s)", cfg.DrainDelay, cfg.Timeout)
 	}
 	return nil
 }

@@ -1341,3 +1341,17 @@ transport:
 **Validation:** All integer fields >= 0. All durations >= 0. If `ca_file` is set, the file must exist. `cert_file` and `key_file` must both be set if either is specified, and both files must exist.
 
 See [Transport](transport.md) for tuning guidance.
+
+## Shutdown
+
+Graceful shutdown and connection draining settings.
+
+```yaml
+shutdown:
+  timeout: duration       # total shutdown timeout (default 30s)
+  drain_delay: duration   # delay before stopping listeners for LB deregistration (default 0s)
+```
+
+**Validation:** Both durations >= 0. `drain_delay` must be less than `timeout` when both are set.
+
+See [Graceful Shutdown](graceful-shutdown.md) for Kubernetes integration and drain API.

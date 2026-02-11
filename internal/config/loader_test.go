@@ -3121,6 +3121,121 @@ routes:
 	}
 }
 
+func TestLoaderValidateShutdown(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid shutdown config",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+shutdown:
+  timeout: 60s
+  drain_delay: 10s
+`,
+			wantErr: false,
+		},
+		{
+			name: "negative timeout",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+shutdown:
+  timeout: -1s
+`,
+			wantErr: true,
+			errMsg:  "shutdown.timeout must be >= 0",
+		},
+		{
+			name: "negative drain_delay",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+shutdown:
+  drain_delay: -5s
+`,
+			wantErr: true,
+			errMsg:  "shutdown.drain_delay must be >= 0",
+		},
+		{
+			name: "drain_delay >= timeout",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+shutdown:
+  timeout: 10s
+  drain_delay: 10s
+`,
+			wantErr: true,
+			errMsg:  "shutdown.drain_delay",
+		},
+		{
+			name: "zero values valid (defaults apply)",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+shutdown: {}
+`,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				} else if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("expected error containing %q, got %q", tt.errMsg, err.Error())
+				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestLoaderValidateTransportCertFiles(t *testing.T) {
 	base := `
 listeners:

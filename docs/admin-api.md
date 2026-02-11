@@ -120,6 +120,8 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /maintenance` | Maintenance mode status per route (enabled, blocked/bypassed counts) |
 | `POST /maintenance/{route}/enable` | Enable maintenance mode for a route at runtime |
 | `POST /maintenance/{route}/disable` | Disable maintenance mode for a route at runtime |
+| `GET /drain` | Connection drain status (draining, drain_start, drain_duration) |
+| `POST /drain` | Initiate drain mode — readiness checks return 503 |
 
 ### Example: Querying Feature Endpoints
 
@@ -582,6 +584,48 @@ curl -X POST http://localhost:8081/maintenance/api/disable
 **Response:**
 ```json
 {"route": "api", "status": "disabled"}
+```
+
+## Connection Draining
+
+### GET `/drain`
+
+Returns current drain status.
+
+```bash
+curl http://localhost:8081/drain
+```
+
+**Response (not draining):**
+```json
+{"draining": false}
+```
+
+**Response (draining):**
+```json
+{
+  "draining": true,
+  "drain_start": "2026-01-15T10:30:00Z",
+  "drain_duration": "5m30s"
+}
+```
+
+### POST `/drain`
+
+Initiate drain mode. Readiness checks (`/ready`, `/readyz`) will immediately begin returning `503`.
+
+```bash
+curl -X POST http://localhost:8081/drain
+```
+
+**Response:**
+```json
+{"status": "draining", "message": "drain mode activated, readiness checks will return 503"}
+```
+
+**Already draining:**
+```json
+{"status": "already_draining", "message": "server is already in drain mode"}
 ```
 
 ## Security Response Headers
