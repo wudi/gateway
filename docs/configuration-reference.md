@@ -199,6 +199,11 @@ routes:
           value: string
           present: bool
           regex: string
+      cookies:
+        - name: string
+          value: string
+          present: bool
+          regex: string
     backends:
       - url: string           # required, backend URL
         weight: int           # load balancer weight (0-100)

@@ -3480,6 +3480,130 @@ response_limit:
 	}
 }
 
+func TestLoaderValidateCookieMatch(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid cookie exact match",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    match:
+      cookies:
+        - name: beta
+          value: "true"
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid cookie regex",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    match:
+      cookies:
+        - name: variant
+          regex: "^(a|b)$"
+`,
+			wantErr: false,
+		},
+		{
+			name: "cookie missing name",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    match:
+      cookies:
+        - value: "true"
+`,
+			wantErr: true,
+			errMsg:  "match cookie 0: name is required",
+		},
+		{
+			name: "cookie invalid regex",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    match:
+      cookies:
+        - name: variant
+          regex: "[invalid"
+`,
+			wantErr: true,
+			errMsg:  "invalid regex",
+		},
+		{
+			name: "cookie must set exactly one criterion",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    match:
+      cookies:
+        - name: beta
+          value: "true"
+          regex: "^true$"
+`,
+			wantErr: true,
+			errMsg:  "must set exactly one of",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				} else if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("expected error containing %q, got %q", tt.errMsg, err.Error())
+				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestLoaderValidateTransportCertFiles(t *testing.T) {
 	base := `
 listeners:

@@ -90,13 +90,14 @@ routes:
 - **Exact match** (`path_prefix: false`): `/health` matches only `/health`
 - **Prefix match** (`path_prefix: true`): `/api` matches `/api`, `/api/users`, `/api/users/123`, etc.
 
-### Domain, Header, and Query Matching
+### Domain, Header, Query, and Cookie Matching
 
 The `match` block adds additional constraints beyond path:
 
 - **Domains**: request `Host` header must match one of the listed domains
 - **Headers**: each entry requires `name` plus exactly one of `value` (exact), `present` (exists), or `regex` (pattern)
 - **Query**: same as headers but for query parameters
+- **Cookies**: same as headers but for request cookies
 
 ### TCP and UDP Routes
 

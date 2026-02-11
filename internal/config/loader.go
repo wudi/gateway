@@ -1640,6 +1640,31 @@ func (l *Loader) validateMatchConfig(routeID string, mc MatchConfig) error {
 		}
 	}
 
+	// Validate cookie matchers
+	for i, c := range mc.Cookies {
+		if c.Name == "" {
+			return fmt.Errorf("route %s: match cookie %d: name is required", routeID, i)
+		}
+		count := 0
+		if c.Value != "" {
+			count++
+		}
+		if c.Present != nil {
+			count++
+		}
+		if c.Regex != "" {
+			count++
+		}
+		if count != 1 {
+			return fmt.Errorf("route %s: match cookie %q: must set exactly one of value, present, or regex", routeID, c.Name)
+		}
+		if c.Regex != "" {
+			if _, err := regexp.Compile(c.Regex); err != nil {
+				return fmt.Errorf("route %s: match cookie %q: invalid regex: %w", routeID, c.Name, err)
+			}
+		}
+	}
+
 	return nil
 }
 

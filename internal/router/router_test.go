@@ -462,6 +462,137 @@ func TestQueryMatchRegex(t *testing.T) {
 	}
 }
 
+func TestCookieMatchExact(t *testing.T) {
+	r := New()
+
+	r.AddRoute(config.RouteConfig{
+		ID:   "beta-route",
+		Path: "/app",
+		Match: config.MatchConfig{
+			Cookies: []config.CookieMatchConfig{
+				{Name: "beta", Value: "true"},
+			},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	// With matching cookie
+	req := httptest.NewRequest("GET", "/app", nil)
+	req.AddCookie(&http.Cookie{Name: "beta", Value: "true"})
+	match := r.Match(req)
+	if match == nil {
+		t.Error("expected match for exact cookie value")
+	}
+
+	// Without cookie
+	req = httptest.NewRequest("GET", "/app", nil)
+	match = r.Match(req)
+	if match != nil {
+		t.Error("should not match without cookie")
+	}
+
+	// Wrong value
+	req = httptest.NewRequest("GET", "/app", nil)
+	req.AddCookie(&http.Cookie{Name: "beta", Value: "false"})
+	match = r.Match(req)
+	if match != nil {
+		t.Error("should not match wrong cookie value")
+	}
+}
+
+func TestCookieMatchPresent(t *testing.T) {
+	r := New()
+
+	boolTrue := true
+	r.AddRoute(config.RouteConfig{
+		ID:   "tracked-route",
+		Path: "/app",
+		Match: config.MatchConfig{
+			Cookies: []config.CookieMatchConfig{
+				{Name: "session", Present: &boolTrue},
+			},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	// With cookie present
+	req := httptest.NewRequest("GET", "/app", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: "abc123"})
+	match := r.Match(req)
+	if match == nil {
+		t.Error("expected match for present cookie")
+	}
+
+	// Without cookie
+	req = httptest.NewRequest("GET", "/app", nil)
+	match = r.Match(req)
+	if match != nil {
+		t.Error("should not match without cookie")
+	}
+}
+
+func TestCookieMatchPresentFalse(t *testing.T) {
+	r := New()
+
+	boolFalse := false
+	r.AddRoute(config.RouteConfig{
+		ID:   "no-session-route",
+		Path: "/app",
+		Match: config.MatchConfig{
+			Cookies: []config.CookieMatchConfig{
+				{Name: "session", Present: &boolFalse},
+			},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	// Without cookie — should match (present: false)
+	req := httptest.NewRequest("GET", "/app", nil)
+	match := r.Match(req)
+	if match == nil {
+		t.Error("expected match when cookie is absent and present: false")
+	}
+
+	// With cookie — should NOT match
+	req = httptest.NewRequest("GET", "/app", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: "abc"})
+	match = r.Match(req)
+	if match != nil {
+		t.Error("should not match when cookie exists and present: false")
+	}
+}
+
+func TestCookieMatchRegex(t *testing.T) {
+	r := New()
+
+	r.AddRoute(config.RouteConfig{
+		ID:   "ab-route",
+		Path: "/app",
+		Match: config.MatchConfig{
+			Cookies: []config.CookieMatchConfig{
+				{Name: "variant", Regex: "^(group-a|group-b)$"},
+			},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	// Matching regex
+	req := httptest.NewRequest("GET", "/app", nil)
+	req.AddCookie(&http.Cookie{Name: "variant", Value: "group-a"})
+	match := r.Match(req)
+	if match == nil {
+		t.Error("expected match for regex cookie")
+	}
+
+	// Non-matching
+	req = httptest.NewRequest("GET", "/app", nil)
+	req.AddCookie(&http.Cookie{Name: "variant", Value: "group-c"})
+	match = r.Match(req)
+	if match != nil {
+		t.Error("should not match non-matching regex cookie")
+	}
+}
+
 func TestMultiRouteSpecificity(t *testing.T) {
 	r := New()
 

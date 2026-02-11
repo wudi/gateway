@@ -8,11 +8,12 @@ import (
 	"github.com/wudi/gateway/internal/config"
 )
 
-// CompiledMatcher evaluates domain, header, and query match criteria for a route.
+// CompiledMatcher evaluates domain, header, query, and cookie match criteria for a route.
 type CompiledMatcher struct {
 	domains []domainMatcher
 	headers []headerMatcher
 	queries []queryMatcher
+	cookies []cookieMatcher
 	methods map[string]bool // nil = all methods allowed
 }
 
@@ -29,6 +30,13 @@ type headerMatcher struct {
 }
 
 type queryMatcher struct {
+	name    string
+	exact   string
+	present *bool
+	regex   *regexp.Regexp
+}
+
+type cookieMatcher struct {
 	name    string
 	exact   string
 	present *bool
@@ -73,6 +81,19 @@ func NewCompiledMatcher(mc config.MatchConfig, methods []string) *CompiledMatche
 			qm.regex = regexp.MustCompile(q.Regex) // already validated in loader
 		}
 		cm.queries = append(cm.queries, qm)
+	}
+
+	// Compile cookie matchers
+	for _, c := range mc.Cookies {
+		ck := cookieMatcher{name: c.Name}
+		if c.Value != "" {
+			ck.exact = c.Value
+		} else if c.Present != nil {
+			ck.present = c.Present
+		} else if c.Regex != "" {
+			ck.regex = regexp.MustCompile(c.Regex) // already validated in loader
+		}
+		cm.cookies = append(cm.cookies, ck)
 	}
 
 	// Methods
@@ -167,6 +188,33 @@ func (cm *CompiledMatcher) Matches(r *http.Request) bool {
 		}
 	}
 
+	// Cookie checks — all must match (AND)
+	for _, ck := range cm.cookies {
+		cookie, err := r.Cookie(ck.name)
+		if ck.present != nil {
+			has := err == nil
+			if has != *ck.present {
+				return false
+			}
+			continue
+		}
+		if err != nil {
+			return false // cookie not found, and we need exact/regex match
+		}
+		if ck.exact != "" {
+			if cookie.Value != ck.exact {
+				return false
+			}
+			continue
+		}
+		if ck.regex != nil {
+			if !ck.regex.MatchString(cookie.Value) {
+				return false
+			}
+			continue
+		}
+	}
+
 	return true
 }
 
@@ -182,6 +230,7 @@ func (cm *CompiledMatcher) Specificity() int {
 	}
 	score += len(cm.headers) * 10
 	score += len(cm.queries) * 10
+	score += len(cm.cookies) * 10
 	if cm.methods != nil {
 		score += 5
 	}

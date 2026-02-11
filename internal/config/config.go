@@ -764,11 +764,12 @@ func (c BodyTransformConfig) IsActive() bool {
 		len(c.SetFields) > 0 || len(c.AllowFields) > 0 || len(c.DenyFields) > 0 || c.Template != ""
 }
 
-// MatchConfig defines route match criteria for domain/header/query matching
+// MatchConfig defines route match criteria for domain/header/query/cookie matching
 type MatchConfig struct {
-	Domains []string            `yaml:"domains"`
-	Headers []HeaderMatchConfig `yaml:"headers"`
-	Query   []QueryMatchConfig  `yaml:"query"`
+	Domains []string             `yaml:"domains"`
+	Headers []HeaderMatchConfig  `yaml:"headers"`
+	Query   []QueryMatchConfig   `yaml:"query"`
+	Cookies []CookieMatchConfig  `yaml:"cookies"`
 }
 
 // HeaderMatchConfig defines a single header match criterion
@@ -781,6 +782,14 @@ type HeaderMatchConfig struct {
 
 // QueryMatchConfig defines a single query parameter match criterion
 type QueryMatchConfig struct {
+	Name    string `yaml:"name"`
+	Value   string `yaml:"value"`
+	Present *bool  `yaml:"present"`
+	Regex   string `yaml:"regex"`
+}
+
+// CookieMatchConfig defines a single cookie match criterion
+type CookieMatchConfig struct {
 	Name    string `yaml:"name"`
 	Value   string `yaml:"value"`
 	Present *bool  `yaml:"present"`
