@@ -490,6 +490,9 @@ func (s *Server) adminHandler() http.Handler {
 	// Compression
 	mux.HandleFunc("/compression", s.handleCompression)
 
+	// Request decompression
+	mux.HandleFunc("/decompression", s.handleDecompression)
+
 	// Webhooks
 	mux.HandleFunc("/webhooks", s.handleWebhooks)
 
@@ -1045,6 +1048,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["compression"] = compStats
 	}
 
+	// Request decompression
+	if decompStats := s.gateway.GetDecompressors().Stats(); len(decompStats) > 0 {
+		dashboard["request_decompression"] = decompStats
+	}
+
 	// Webhooks
 	if d := s.gateway.GetWebhookDispatcher(); d != nil {
 		dashboard["webhooks"] = d.Stats()
@@ -1219,6 +1227,12 @@ func (s *Server) handleSigning(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCompression(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.gateway.GetCompressors().Stats())
+}
+
+// handleDecompression handles request decompression stats requests.
+func (s *Server) handleDecompression(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetDecompressors().Stats())
 }
 
 // handleWebhooks handles webhook dispatcher stats requests.

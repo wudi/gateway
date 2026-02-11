@@ -1001,6 +1001,16 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate request decompression config (global + per-route)
+	if err := l.validateDecompressionConfig("global", cfg.RequestDecompression); err != nil {
+		return err
+	}
+	for _, route := range cfg.Routes {
+		if err := l.validateDecompressionConfig(fmt.Sprintf("route %s", route.ID), route.RequestDecompression); err != nil {
+			return err
+		}
+	}
+
 	// Validate global transport config
 	if err := l.validateTransportConfig("global", cfg.Transport); err != nil {
 		return err
@@ -1989,6 +1999,30 @@ func (l *Loader) validateCompressionConfig(scope string, cfg CompressionConfig) 
 	for _, algo := range cfg.Algorithms {
 		if !validCompressionAlgorithms[algo] {
 			return fmt.Errorf("%s: compression.algorithms: unsupported algorithm %q (valid: gzip, br, zstd)", scope, algo)
+		}
+	}
+	return nil
+}
+
+// validDecompressionAlgorithms is the set of supported request decompression algorithms.
+var validDecompressionAlgorithms = map[string]bool{
+	"gzip":    true,
+	"deflate": true,
+	"br":      true,
+	"zstd":    true,
+}
+
+// validateDecompressionConfig validates a request decompression config for a given scope.
+func (l *Loader) validateDecompressionConfig(scope string, cfg RequestDecompressionConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	if cfg.MaxDecompressedSize < 0 {
+		return fmt.Errorf("%s: request_decompression.max_decompressed_size must be >= 0", scope)
+	}
+	for _, algo := range cfg.Algorithms {
+		if !validDecompressionAlgorithms[algo] {
+			return fmt.Errorf("%s: request_decompression.algorithms: unsupported algorithm %q (valid: gzip, deflate, br, zstd)", scope, algo)
 		}
 	}
 	return nil

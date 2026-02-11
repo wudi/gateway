@@ -50,8 +50,9 @@ type Config struct {
 	CSRF           CSRFConfig           `yaml:"csrf"`            // Global CSRF protection
 	Geo            GeoConfig            `yaml:"geo"`             // Global geo filtering
 	Idempotency    IdempotencyConfig    `yaml:"idempotency"`     // Global idempotency key support
-	BackendSigning BackendSigningConfig `yaml:"backend_signing"` // Global backend request signing
-	Transport      TransportConfig      `yaml:"transport"`       // Global upstream transport settings
+	BackendSigning         BackendSigningConfig         `yaml:"backend_signing"`          // Global backend request signing
+	Transport              TransportConfig              `yaml:"transport"`                // Global upstream transport settings
+	RequestDecompression   RequestDecompressionConfig   `yaml:"request_decompression"`    // Global request decompression
 }
 
 // ListenerConfig defines a listener configuration
@@ -273,8 +274,9 @@ type RouteConfig struct {
 	Idempotency       IdempotencyConfig       `yaml:"idempotency"`        // Per-route idempotency key support
 	OutlierDetection OutlierDetectionConfig  `yaml:"outlier_detection"`  // Per-route outlier detection
 	Geo              GeoConfig               `yaml:"geo"`                // Per-route geo filtering
-	BackendSigning   BackendSigningConfig    `yaml:"backend_signing"`    // Per-route backend request signing
-	Echo             bool                    `yaml:"echo"`               // Echo handler (no backend needed)
+	BackendSigning       BackendSigningConfig       `yaml:"backend_signing"`       // Per-route backend request signing
+	RequestDecompression RequestDecompressionConfig `yaml:"request_decompression"` // Per-route request decompression
+	Echo                 bool                       `yaml:"echo"`                  // Echo handler (no backend needed)
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -392,6 +394,13 @@ type CompressionConfig struct {
 	MinSize      int      `yaml:"min_size"`      // default 1024 bytes
 	ContentTypes []string `yaml:"content_types"` // MIME types to compress
 	Algorithms   []string `yaml:"algorithms"`    // "gzip", "br", "zstd"; default all three
+}
+
+// RequestDecompressionConfig controls automatic request body decompression.
+type RequestDecompressionConfig struct {
+	Enabled             bool     `yaml:"enabled"`
+	Algorithms          []string `yaml:"algorithms"`            // "gzip", "deflate", "br", "zstd"; default all four
+	MaxDecompressedSize int64    `yaml:"max_decompressed_size"` // zip bomb protection; default 52428800 (50MB)
 }
 
 // MetricsConfig defines Prometheus metrics settings (Feature 5)

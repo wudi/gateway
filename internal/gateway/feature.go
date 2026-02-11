@@ -17,6 +17,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/extauth"
 	"github.com/wudi/gateway/internal/middleware/geo"
 	"github.com/wudi/gateway/internal/middleware/idempotency"
+	"github.com/wudi/gateway/internal/middleware/decompress"
 	"github.com/wudi/gateway/internal/middleware/signing"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	"github.com/wudi/gateway/internal/middleware/nonce"
@@ -478,6 +479,25 @@ func (f *geoFeature) Setup(routeID string, cfg config.RouteConfig) error {
 }
 func (f *geoFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *geoFeature) AdminStats() any    { return f.m.Stats() }
+
+// decompressFeature wraps DecompressorByRoute.
+type decompressFeature struct {
+	m      *decompress.DecompressorByRoute
+	global *config.RequestDecompressionConfig
+}
+
+func (f *decompressFeature) Name() string { return "request_decompression" }
+func (f *decompressFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.RequestDecompression.Enabled {
+		merged := decompress.MergeDecompressionConfig(cfg.RequestDecompression, *f.global)
+		f.m.AddRoute(routeID, merged)
+	} else if f.global.Enabled {
+		f.m.AddRoute(routeID, *f.global)
+	}
+	return nil
+}
+func (f *decompressFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *decompressFeature) AdminStats() any    { return f.m.Stats() }
 
 // signingFeature wraps SigningByRoute.
 type signingFeature struct {

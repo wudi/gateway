@@ -1223,6 +1223,23 @@ See [Security](security.md#backend-request-signing) for signing protocol details
 
 ---
 
+## Request Decompression
+
+```yaml
+request_decompression:
+  enabled: bool               # enable request body decompression (default false)
+  algorithms: [string]        # "gzip", "deflate", "br", "zstd" (default: all four)
+  max_decompressed_size: int  # max decompressed body size in bytes (default 52428800 = 50MB)
+```
+
+Per-route request decompression config is merged with the global `request_decompression:` block. Per-route fields override global fields.
+
+**Validation:** `algorithms` must contain only valid values (`gzip`, `deflate`, `br`, `zstd`). `max_decompressed_size` must be >= 0.
+
+See [Transformations](transformations.md#request-decompression) for details.
+
+---
+
 ## Health Check
 
 ```yaml

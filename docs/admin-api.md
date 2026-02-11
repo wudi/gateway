@@ -115,6 +115,7 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /upstreams` | Named upstream pool definitions (backends, LB algorithm, health check config) |
 | `GET /transport` | Transport pool configuration (default settings, per-upstream overrides) |
 | `GET /error-pages` | Custom error page configuration per route (configured pages, render metrics) |
+| `GET /decompression` | Request decompression stats per route (total, decompressed, errors, per-algorithm counts) |
 
 ### Example: Querying Feature Endpoints
 
@@ -498,6 +499,32 @@ curl http://localhost:8081/compression
         "bytes_out": 32768,
         "count": 40
       }
+    }
+  }
+}
+```
+
+## Request Decompression
+
+### GET `/decompression`
+
+Returns per-route request decompression statistics including per-algorithm counts.
+
+```bash
+curl http://localhost:8081/decompression
+```
+
+**Response:**
+```json
+{
+  "api": {
+    "total_requests": 500,
+    "decompressed": 120,
+    "errors": 2,
+    "algorithm_count": {
+      "gzip": 80,
+      "br": 30,
+      "zstd": 10
     }
   }
 }

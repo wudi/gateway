@@ -31,6 +31,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/geo"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	"github.com/wudi/gateway/internal/middleware/nonce"
+	"github.com/wudi/gateway/internal/middleware/decompress"
 	"github.com/wudi/gateway/internal/middleware/signing"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
 	"github.com/wudi/gateway/internal/middleware/ratelimit"
@@ -283,6 +284,21 @@ func bodyLimitMW(max int64) middleware.Middleware {
 				return
 			}
 			r.Body = http.MaxBytesReader(w, r.Body, max)
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// 6.5. requestDecompressMW decompresses request bodies with Content-Encoding.
+func requestDecompressMW(d *decompress.Decompressor) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if algo, ok := d.ShouldDecompress(r); ok {
+				if err := d.Decompress(r, algo); err != nil {
+					http.Error(w, `{"error":"request decompression failed"}`, http.StatusBadRequest)
+					return
+				}
+			}
 			next.ServeHTTP(w, r)
 		})
 	}

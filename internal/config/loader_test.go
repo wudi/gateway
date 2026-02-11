@@ -2814,6 +2814,106 @@ transport:
 	}
 }
 
+func TestLoaderValidateRequestDecompression(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid global decompression",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+request_decompression:
+  enabled: true
+  algorithms: ["gzip", "br"]
+`,
+			wantErr: false,
+		},
+		{
+			name: "invalid algorithm rejected",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+request_decompression:
+  enabled: true
+  algorithms: ["gzip", "lz4"]
+`,
+			wantErr: true,
+			errMsg:  "unsupported algorithm",
+		},
+		{
+			name: "negative max size rejected",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+request_decompression:
+  enabled: true
+  max_decompressed_size: -1
+`,
+			wantErr: true,
+			errMsg:  "max_decompressed_size must be >= 0",
+		},
+		{
+			name: "per-route decompression valid",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    request_decompression:
+      enabled: true
+      algorithms: ["zstd", "deflate"]
+`,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				} else if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("expected error containing %q, got %q", tt.errMsg, err.Error())
+				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestLoaderValidateTransportCertFiles(t *testing.T) {
 	base := `
 listeners:

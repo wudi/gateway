@@ -26,6 +26,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/idempotency"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	"github.com/wudi/gateway/internal/middleware/nonce"
+	"github.com/wudi/gateway/internal/middleware/decompress"
 	"github.com/wudi/gateway/internal/middleware/signing"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
 	"github.com/wudi/gateway/internal/middleware/ratelimit"
@@ -95,6 +96,7 @@ type gatewayState struct {
 	csrfProtectors      *csrf.CSRFByRoute
 	idempotencyHandlers *idempotency.IdempotencyByRoute
 	backendSigners      *signing.SigningByRoute
+	decompressors       *decompress.DecompressorByRoute
 	outlierDetectors    *outlier.DetectorByRoute
 	translators       *protocol.TranslatorByRoute
 	rateLimiters      *ratelimit.RateLimitByRoute
@@ -143,6 +145,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		csrfProtectors:      csrf.NewCSRFByRoute(),
 		idempotencyHandlers: idempotency.NewIdempotencyByRoute(),
 		backendSigners:      signing.NewSigningByRoute(),
+		decompressors:       decompress.NewDecompressorByRoute(),
 		outlierDetectors:    outlier.NewDetectorByRoute(),
 		translators:       protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
@@ -184,6 +187,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		&idempotencyFeature{m: s.idempotencyHandlers, global: &cfg.Idempotency, redis: g.redisClient},
 		&outlierDetectionFeature{s.outlierDetectors},
 		&signingFeature{m: s.backendSigners, global: &cfg.BackendSigning},
+		&decompressFeature{m: s.decompressors, global: &cfg.RequestDecompression},
 	}
 
 	// Wire webhook callbacks on new state's managers
@@ -533,6 +537,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldOutlierDetectors := g.outlierDetectors
 	oldIdempotencyHandlers := g.idempotencyHandlers
 	oldBackendSigners := g.backendSigners
+	oldDecompressors := g.decompressors
 
 	// Install new state
 	g.ipFilters = s.ipFilters
@@ -568,6 +573,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.outlierDetectors = s.outlierDetectors
 	g.idempotencyHandlers = s.idempotencyHandlers
 	g.backendSigners = s.backendSigners
+	g.decompressors = s.decompressors
 
 	handler := g.buildRouteHandler(routeID, cfg, route, rp)
 
@@ -605,6 +611,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.outlierDetectors = oldOutlierDetectors
 	g.idempotencyHandlers = oldIdempotencyHandlers
 	g.backendSigners = oldBackendSigners
+	g.decompressors = oldDecompressors
 
 	return handler
 }
@@ -683,6 +690,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.outlierDetectors = newState.outlierDetectors
 	g.idempotencyHandlers = newState.idempotencyHandlers
 	g.backendSigners = newState.backendSigners
+	g.decompressors = newState.decompressors
 	g.translators = newState.translators
 	g.rateLimiters = newState.rateLimiters
 	g.grpcHandlers = newState.grpcHandlers

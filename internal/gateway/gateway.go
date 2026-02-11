@@ -28,6 +28,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/auth"
 	"github.com/wudi/gateway/internal/middleware/compression"
 	"github.com/wudi/gateway/internal/middleware/cors"
+	"github.com/wudi/gateway/internal/middleware/decompress"
 	"github.com/wudi/gateway/internal/middleware/csrf"
 	"github.com/wudi/gateway/internal/middleware/errorpages"
 	"github.com/wudi/gateway/internal/middleware/extauth"
@@ -120,6 +121,7 @@ type Gateway struct {
 	geoProvider         geo.Provider
 	idempotencyHandlers *idempotency.IdempotencyByRoute
 	backendSigners      *signing.SigningByRoute
+	decompressors       *decompress.DecompressorByRoute
 	globalGeo         *geo.CompiledGeo
 	webhookDispatcher *webhook.Dispatcher
 	http3AltSvcPort   string // port for Alt-Svc header; empty = no HTTP/3
@@ -197,6 +199,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		geoFilters:          geo.NewGeoByRoute(),
 		idempotencyHandlers: idempotency.NewIdempotencyByRoute(),
 		backendSigners:      signing.NewSigningByRoute(),
+		decompressors:       decompress.NewDecompressorByRoute(),
 		routeProxies:        make(map[string]*proxy.RouteProxy),
 		routeHandlers:     make(map[string]http.Handler),
 		watchCancels:      make(map[string]context.CancelFunc),
@@ -238,6 +241,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&outlierDetectionFeature{g.outlierDetectors},
 		&geoFeature{m: g.geoFilters, global: &cfg.Geo, provider: g.geoProvider},
 		&signingFeature{m: g.backendSigners, global: &cfg.BackendSigning},
+		&decompressFeature{m: g.decompressors, global: &cfg.RequestDecompression},
 	}
 
 	// Initialize global IP filter
@@ -843,6 +847,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 	// 8. bodyLimitMW — MaxBodySize (Step 4.5)
 	if route.MaxBodySize > 0 {
 		chain = chain.Use(bodyLimitMW(route.MaxBodySize))
+	}
+
+	// 8.25 requestDecompressMW — decompress Content-Encoding (after body limit, before bandwidth)
+	if d := g.decompressors.GetDecompressor(routeID); d != nil && d.IsEnabled() {
+		chain = chain.Use(requestDecompressMW(d))
 	}
 
 	// 8.5 bandwidthMW — wrap body + writer (after body limit, before validation)
@@ -1469,6 +1478,11 @@ func (g *Gateway) GetGeoFilters() *geo.GeoByRoute {
 // GetCompressors returns the compression manager.
 func (g *Gateway) GetCompressors() *compression.CompressorByRoute {
 	return g.compressors
+}
+
+// GetDecompressors returns the request decompression manager.
+func (g *Gateway) GetDecompressors() *decompress.DecompressorByRoute {
+	return g.decompressors
 }
 
 // GetWebhookDispatcher returns the webhook dispatcher (may be nil).
