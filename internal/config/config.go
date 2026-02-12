@@ -284,6 +284,7 @@ type RouteConfig struct {
 	ResponseLimit        ResponseLimitConfig        `yaml:"response_limit"`        // Per-route response size limit
 	SecurityHeaders      SecurityHeadersConfig      `yaml:"security_headers"`      // Per-route security response headers
 	Maintenance          MaintenanceConfig          `yaml:"maintenance"`           // Per-route maintenance mode
+	Rewrite              RewriteConfig              `yaml:"rewrite"`               // URL rewriting (prefix, regex, host override)
 	Echo                 bool                       `yaml:"echo"`                  // Echo handler (no backend needed)
 }
 
@@ -457,6 +458,14 @@ type TrustedProxiesConfig struct {
 type ShutdownConfig struct {
 	Timeout    time.Duration `yaml:"timeout"`     // total shutdown timeout (default 30s)
 	DrainDelay time.Duration `yaml:"drain_delay"` // delay before stopping listeners (default 0s)
+}
+
+// RewriteConfig defines URL rewriting rules for a route.
+type RewriteConfig struct {
+	Prefix      string `yaml:"prefix"`      // replace matched path prefix with this value
+	Regex       string `yaml:"regex"`       // regex pattern to match on request path
+	Replacement string `yaml:"replacement"` // replacement string for regex (supports $1, $2 capture groups)
+	Host        string `yaml:"host"`        // override Host header sent to backend
 }
 
 // MetricsConfig defines Prometheus metrics settings (Feature 5)

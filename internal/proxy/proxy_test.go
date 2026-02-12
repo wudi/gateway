@@ -281,3 +281,154 @@ func TestStripPrefix(t *testing.T) {
 		})
 	}
 }
+
+func TestProxyRewritePrefix(t *testing.T) {
+	var receivedPath string
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	proxy := New(Config{})
+
+	route := &router.Route{
+		ID:         "test-prefix-rewrite",
+		Path:       "/api/v1",
+		PathPrefix: true,
+		Rewrite: config.RewriteConfig{
+			Prefix: "/v2",
+		},
+		Transform: config.TransformConfig{},
+	}
+
+	backends := []*loadbalancer.Backend{
+		{URL: backend.URL, Weight: 1, Healthy: true},
+	}
+	balancer := loadbalancer.NewRoundRobin(backends)
+
+	handler := proxy.Handler(route, balancer)
+
+	req := httptest.NewRequest("GET", "/api/v1/users/123", nil)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if receivedPath != "/v2/users/123" {
+		t.Errorf("Expected path /v2/users/123, got %s", receivedPath)
+	}
+}
+
+func TestProxyRewriteRegex(t *testing.T) {
+	var receivedPath string
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	proxy := New(Config{})
+
+	route := &router.Route{
+		ID:   "test-regex-rewrite",
+		Path: "/users",
+		Rewrite: config.RewriteConfig{
+			Regex:       `^/users/(\d+)/posts$`,
+			Replacement: "/api/v2/posts/$1",
+		},
+		Transform: config.TransformConfig{},
+	}
+	// Simulate compiled regex (normally done in router.AddRoute)
+	route.SetRewriteRegex(route.Rewrite.Regex)
+
+	backends := []*loadbalancer.Backend{
+		{URL: backend.URL, Weight: 1, Healthy: true},
+	}
+	balancer := loadbalancer.NewRoundRobin(backends)
+
+	handler := proxy.Handler(route, balancer)
+
+	req := httptest.NewRequest("GET", "/users/42/posts", nil)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if receivedPath != "/api/v2/posts/42" {
+		t.Errorf("Expected path /api/v2/posts/42, got %s", receivedPath)
+	}
+}
+
+func TestProxyRewriteHost(t *testing.T) {
+	var receivedHost string
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedHost = r.Host
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	proxy := New(Config{})
+
+	route := &router.Route{
+		ID:   "test-host-rewrite",
+		Path: "/api",
+		Rewrite: config.RewriteConfig{
+			Host: "backend.internal",
+		},
+		Transform: config.TransformConfig{},
+	}
+
+	backends := []*loadbalancer.Backend{
+		{URL: backend.URL, Weight: 1, Healthy: true},
+	}
+	balancer := loadbalancer.NewRoundRobin(backends)
+
+	handler := proxy.Handler(route, balancer)
+
+	req := httptest.NewRequest("GET", "/api/test", nil)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if receivedHost != "backend.internal" {
+		t.Errorf("Expected host backend.internal, got %s", receivedHost)
+	}
+}
+
+func TestProxyStripPrefixStillWorks(t *testing.T) {
+	var receivedPath string
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	proxy := New(Config{})
+
+	route := &router.Route{
+		ID:          "test-strip",
+		Path:        "/api/v1",
+		PathPrefix:  true,
+		StripPrefix: true,
+		Transform:   config.TransformConfig{},
+	}
+
+	backends := []*loadbalancer.Backend{
+		{URL: backend.URL, Weight: 1, Healthy: true},
+	}
+	balancer := loadbalancer.NewRoundRobin(backends)
+
+	handler := proxy.Handler(route, balancer)
+
+	req := httptest.NewRequest("GET", "/api/v1/users/456", nil)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if receivedPath != "/users/456" {
+		t.Errorf("Expected path /users/456, got %s", receivedPath)
+	}
+}

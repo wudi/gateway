@@ -254,12 +254,16 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 func (p *Proxy) createProxyRequest(r *http.Request, target *url.URL, route *router.Route, varCtx *variables.Context) *http.Request {
 	// Build target URL
 	targetURL := *target
-	targetURL.Path = singleJoiningSlash(target.Path, r.URL.Path)
 
-	// Strip prefix if configured
-	if route.StripPrefix && route.PathPrefix {
+	// Apply URL rewrite rules (prefix or regex), falling back to strip_prefix
+	if route.Rewrite.Prefix != "" || route.HasRewriteRegex() {
+		rewritten := route.RewritePath(r.URL.Path)
+		targetURL.Path = singleJoiningSlash(target.Path, rewritten)
+	} else if route.StripPrefix && route.PathPrefix {
 		suffix := stripPrefix(route.Path, r.URL.Path)
 		targetURL.Path = singleJoiningSlash(target.Path, suffix)
+	} else {
+		targetURL.Path = singleJoiningSlash(target.Path, r.URL.Path)
 	}
 
 	targetURL.RawQuery = r.URL.RawQuery
@@ -275,6 +279,11 @@ func (p *Proxy) createProxyRequest(r *http.Request, target *url.URL, route *rout
 
 	// Set Host header
 	proxyReq.Host = target.Host
+
+	// Apply host override from rewrite config
+	if route.Rewrite.Host != "" {
+		proxyReq.Host = route.Rewrite.Host
+	}
 
 	// Set X-Forwarded headers
 	if clientIP := variables.ExtractClientIP(r); clientIP != "" {

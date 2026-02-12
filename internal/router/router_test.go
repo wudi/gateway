@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"testing"
 
 	"github.com/wudi/gateway/internal/config"
@@ -856,6 +857,131 @@ func TestRootPrefixMatchesAll(t *testing.T) {
 		if match == nil {
 			t.Errorf("expected match for path %s with root prefix", p)
 		}
+	}
+}
+
+func TestRewritePathPrefix(t *testing.T) {
+	route := &Route{
+		Path:       "/api/v1",
+		PathPrefix: true,
+		Rewrite: config.RewriteConfig{
+			Prefix: "/v2",
+		},
+	}
+
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"/api/v1/users", "/v2/users"},
+		{"/api/v1/users/123", "/v2/users/123"},
+		{"/api/v1", "/v2/"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := route.RewritePath(tt.input)
+			if got != tt.want {
+				t.Errorf("RewritePath(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRewritePathRegex(t *testing.T) {
+	route := &Route{
+		Path: "/users",
+		Rewrite: config.RewriteConfig{
+			Regex:       `^/users/(\d+)/posts$`,
+			Replacement: "/posts?uid=$1",
+		},
+	}
+	// Simulate the compiled regex (normally done in AddRoute)
+	route.rewriteRegex = regexp.MustCompile(route.Rewrite.Regex)
+
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"/users/42/posts", "/posts?uid=42"},
+		{"/users/999/posts", "/posts?uid=999"},
+		// non-matching path passes through unchanged
+		{"/users/42/comments", "/users/42/comments"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := route.RewritePath(tt.input)
+			if got != tt.want {
+				t.Errorf("RewritePath(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRewritePathNoRewrite(t *testing.T) {
+	route := &Route{
+		Path: "/api",
+	}
+
+	input := "/api/test"
+	got := route.RewritePath(input)
+	if got != input {
+		t.Errorf("RewritePath(%q) = %q, want passthrough %q", input, got, input)
+	}
+}
+
+func TestRewritePathRegexMultiCapture(t *testing.T) {
+	route := &Route{
+		Path: "/",
+		Rewrite: config.RewriteConfig{
+			Regex:       `^/api/(\w+)/(\d+)$`,
+			Replacement: "/v2/$1/item/$2",
+		},
+	}
+	route.rewriteRegex = regexp.MustCompile(route.Rewrite.Regex)
+
+	got := route.RewritePath("/api/products/42")
+	want := "/v2/products/item/42"
+	if got != want {
+		t.Errorf("RewritePath = %q, want %q", got, want)
+	}
+}
+
+func TestHasRewriteRegex(t *testing.T) {
+	route := &Route{Path: "/api"}
+	if route.HasRewriteRegex() {
+		t.Error("expected HasRewriteRegex() = false for route without regex")
+	}
+
+	route.rewriteRegex = regexp.MustCompile(`^/test$`)
+	if !route.HasRewriteRegex() {
+		t.Error("expected HasRewriteRegex() = true for route with regex")
+	}
+}
+
+func TestAddRouteCompilesRewriteRegex(t *testing.T) {
+	r := New()
+
+	err := r.AddRoute(config.RouteConfig{
+		ID:       "rewrite-regex",
+		Path:     "/api",
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+		Rewrite: config.RewriteConfig{
+			Regex:       `^/api/(\d+)$`,
+			Replacement: "/v2/$1",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	route := r.GetRoute("rewrite-regex")
+	if route == nil {
+		t.Fatal("route not found")
+	}
+	if !route.HasRewriteRegex() {
+		t.Error("expected rewrite regex to be compiled in AddRoute")
 	}
 }
 

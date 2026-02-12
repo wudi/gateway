@@ -225,6 +225,11 @@ routes:
     timeout: duration
     retries: int              # simple retry count (use retry_policy for advanced)
     strip_prefix: bool
+    rewrite:
+      prefix: string          # replace matched path prefix (requires path_prefix, mutually exclusive with strip_prefix and regex)
+      regex: string           # regex pattern on request path (mutually exclusive with prefix)
+      replacement: string     # regex substitution (supports $1, $2 capture groups; required with regex)
+      host: string            # override Host header sent to backend (independent of path rewrite)
     max_body_size: int64      # max request body (bytes)
     load_balancer: string     # "round_robin", "least_conn", "consistent_hash", "least_response_time"
     consistent_hash:

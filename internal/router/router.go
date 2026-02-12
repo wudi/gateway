@@ -2,6 +2,7 @@ package router
 
 import (
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -40,10 +41,12 @@ type Route struct {
 	Mirror         config.MirrorConfig
 	GRPC           config.GRPCConfig
 	MatchCfg       config.MatchConfig
+	Rewrite        config.RewriteConfig
 	Echo           bool
 
-	matcher   *CompiledMatcher
-	configIdx int // insertion order for tie-breaking
+	rewriteRegex *regexp.Regexp // compiled regex for rewrite (nil if no regex rewrite)
+	matcher      *CompiledMatcher
+	configIdx    int // insertion order for tie-breaking
 }
 
 // Backend represents a backend server
@@ -135,6 +138,68 @@ func (cw *captureWriter) Header() http.Header       { return cw.header }
 func (cw *captureWriter) Write([]byte) (int, error) { return 0, nil }
 func (cw *captureWriter) WriteHeader(int)           {}
 
+// HasRewriteRegex returns true if this route has a compiled regex rewrite pattern.
+func (route *Route) HasRewriteRegex() bool {
+	return route.rewriteRegex != nil
+}
+
+// SetRewriteRegex compiles and sets the rewrite regex from the given pattern.
+func (route *Route) SetRewriteRegex(pattern string) {
+	route.rewriteRegex = regexp.MustCompile(pattern)
+}
+
+// RewritePath applies the route's rewrite rules to transform the request path.
+// For prefix rewrite: strips the route prefix and prepends the rewrite prefix.
+// For regex rewrite: applies regex substitution on the full request path.
+// Returns the path unchanged if no rewrite is configured.
+func (route *Route) RewritePath(requestPath string) string {
+	if route.Rewrite.Prefix != "" {
+		// Strip route prefix from request path, prepend rewrite prefix
+		suffix := stripRoutePrefix(route.Path, requestPath)
+		return singleJoinSlash(route.Rewrite.Prefix, suffix)
+	}
+	if route.rewriteRegex != nil {
+		return route.rewriteRegex.ReplaceAllString(requestPath, route.Rewrite.Replacement)
+	}
+	return requestPath
+}
+
+// stripRoutePrefix removes the route's path prefix from the request path.
+func stripRoutePrefix(pattern, path string) string {
+	pattern = strings.Trim(pattern, "/")
+	path = strings.Trim(path, "/")
+
+	if pattern == "" {
+		return "/" + path
+	}
+
+	patternParts := strings.Split(pattern, "/")
+	pathParts := strings.Split(path, "/")
+
+	if len(pathParts) <= len(patternParts) {
+		return "/"
+	}
+
+	suffix := strings.Join(pathParts[len(patternParts):], "/")
+	if suffix == "" {
+		return "/"
+	}
+	return "/" + suffix
+}
+
+// singleJoinSlash joins two URL path segments with exactly one slash.
+func singleJoinSlash(a, b string) string {
+	aslash := strings.HasSuffix(a, "/")
+	bslash := strings.HasPrefix(b, "/")
+	switch {
+	case aslash && bslash:
+		return a + b[1:]
+	case !aslash && !bslash:
+		return a + "/" + b
+	}
+	return a + b
+}
+
 // prefixRoute holds a prefix route with its compiled segments for matching.
 type prefixRoute struct {
 	route    *Route
@@ -212,10 +277,16 @@ func (rt *Router) AddRoute(routeCfg config.RouteConfig) error {
 		Mirror:         routeCfg.Mirror,
 		GRPC:           routeCfg.GRPC,
 		MatchCfg:       routeCfg.Match,
+		Rewrite:        routeCfg.Rewrite,
 		Echo:           routeCfg.Echo,
 		configIdx:      rt.nextIdx,
 	}
 	rt.nextIdx++
+
+	// Compile rewrite regex if configured
+	if routeCfg.Rewrite.Regex != "" {
+		route.rewriteRegex = regexp.MustCompile(routeCfg.Rewrite.Regex)
+	}
 
 	// Convert backends
 	for _, b := range routeCfg.Backends {

@@ -738,6 +738,11 @@ func (l *Loader) validate(cfg *Config) error {
 			return fmt.Errorf("route %s: validation response_schema and response_schema_file are mutually exclusive", route.ID)
 		}
 
+		// Validate rewrite config
+		if err := l.validateRewriteConfig(route.ID, route.Rewrite, route.PathPrefix, route.StripPrefix); err != nil {
+			return err
+		}
+
 		// Validate timeout policy
 		if route.TimeoutPolicy.IsActive() {
 			if route.TimeoutPolicy.Request < 0 {
@@ -2182,6 +2187,50 @@ func (l *Loader) validateShutdownConfig(cfg ShutdownConfig) error {
 	if cfg.Timeout > 0 && cfg.DrainDelay > 0 && cfg.DrainDelay >= cfg.Timeout {
 		return fmt.Errorf("shutdown.drain_delay (%s) must be less than shutdown.timeout (%s)", cfg.DrainDelay, cfg.Timeout)
 	}
+	return nil
+}
+
+// validateRewriteConfig validates URL rewrite settings for a route.
+func (l *Loader) validateRewriteConfig(routeID string, rc RewriteConfig, pathPrefix, stripPrefix bool) error {
+	hasPrefix := rc.Prefix != ""
+	hasRegex := rc.Regex != ""
+	hasReplacement := rc.Replacement != ""
+
+	// Empty config is valid (no-op)
+	if !hasPrefix && !hasRegex && !hasReplacement && rc.Host == "" {
+		return nil
+	}
+
+	// prefix and regex are mutually exclusive
+	if hasPrefix && hasRegex {
+		return fmt.Errorf("route %s: rewrite.prefix and rewrite.regex are mutually exclusive", routeID)
+	}
+
+	// prefix requires path_prefix on route
+	if hasPrefix && !pathPrefix {
+		return fmt.Errorf("route %s: rewrite.prefix requires path_prefix: true", routeID)
+	}
+
+	// prefix and strip_prefix are mutually exclusive
+	if hasPrefix && stripPrefix {
+		return fmt.Errorf("route %s: rewrite.prefix and strip_prefix are mutually exclusive", routeID)
+	}
+
+	// regex and replacement must be specified together
+	if hasRegex && !hasReplacement {
+		return fmt.Errorf("route %s: rewrite.regex requires rewrite.replacement", routeID)
+	}
+	if hasReplacement && !hasRegex {
+		return fmt.Errorf("route %s: rewrite.replacement requires rewrite.regex", routeID)
+	}
+
+	// regex must compile
+	if hasRegex {
+		if _, err := regexp.Compile(rc.Regex); err != nil {
+			return fmt.Errorf("route %s: rewrite.regex is invalid: %w", routeID, err)
+		}
+	}
+
 	return nil
 }
 

@@ -3702,3 +3702,221 @@ upstreams:
 		})
 	}
 }
+
+func TestLoaderValidateRewrite(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+	}{
+		{
+			name: "valid prefix rewrite",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /api/v1
+    path_prefix: true
+    rewrite:
+      prefix: /v2
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid regex rewrite",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /api
+    rewrite:
+      regex: "^/api/(\\d+)$"
+      replacement: "/v2/$1"
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid host-only rewrite",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /api
+    rewrite:
+      host: backend.internal
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid prefix with host rewrite",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /api/v1
+    path_prefix: true
+    rewrite:
+      prefix: /v2
+      host: backend.internal
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: false,
+		},
+		{
+			name: "prefix and regex mutually exclusive",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /api
+    path_prefix: true
+    rewrite:
+      prefix: /v2
+      regex: "^/api$"
+      replacement: "/v2"
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: true,
+		},
+		{
+			name: "prefix requires path_prefix",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /api/v1
+    rewrite:
+      prefix: /v2
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: true,
+		},
+		{
+			name: "prefix and strip_prefix mutually exclusive",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /api/v1
+    path_prefix: true
+    strip_prefix: true
+    rewrite:
+      prefix: /v2
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: true,
+		},
+		{
+			name: "regex without replacement",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /api
+    rewrite:
+      regex: "^/api$"
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: true,
+		},
+		{
+			name: "replacement without regex",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /api
+    rewrite:
+      replacement: "/v2"
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: true,
+		},
+		{
+			name: "invalid regex",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /api
+    rewrite:
+      regex: "[invalid"
+      replacement: "/v2"
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: true,
+		},
+		{
+			name: "empty rewrite is valid no-op",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /api
+    rewrite: {}
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
