@@ -28,6 +28,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/altsvc"
 	"github.com/wudi/gateway/internal/middleware/auth"
 	"github.com/wudi/gateway/internal/middleware/backendauth"
+	"github.com/wudi/gateway/internal/middleware/bodygen"
 	"github.com/wudi/gateway/internal/middleware/botdetect"
 	"github.com/wudi/gateway/internal/middleware/claimsprop"
 	"github.com/wudi/gateway/internal/middleware/compression"
@@ -47,6 +48,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/maintenance"
 	"github.com/wudi/gateway/internal/middleware/mock"
 	"github.com/wudi/gateway/internal/middleware/proxyratelimit"
+	"github.com/wudi/gateway/internal/middleware/quota"
 	"github.com/wudi/gateway/internal/middleware/realip"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/serviceratelimit"
@@ -67,6 +69,7 @@ import (
 	"github.com/wudi/gateway/internal/proxy"
 	grpcproxy "github.com/wudi/gateway/internal/proxy/grpc"
 	"github.com/wudi/gateway/internal/proxy/protocol"
+	"github.com/wudi/gateway/internal/proxy/sequential"
 	"github.com/wudi/gateway/internal/registry"
 	"github.com/wudi/gateway/internal/registry/consul"
 	"github.com/wudi/gateway/internal/registry/etcd"
@@ -152,6 +155,9 @@ type Gateway struct {
 	staticFiles         *staticfiles.StaticByRoute
 	spikeArresters      *spikearrest.SpikeArrestByRoute
 	contentReplacers    *contentreplacer.ContentReplacerByRoute
+	bodyGenerators      *bodygen.BodyGenByRoute
+	quotaEnforcers      *quota.QuotaByRoute
+	sequentialHandlers  *sequential.SequentialByRoute
 	serviceLimiter      *serviceratelimit.ServiceLimiter
 	debugHandler        *debug.Handler
 	realIPExtractor     *realip.CompiledRealIP
@@ -248,6 +254,9 @@ func New(cfg *config.Config) (*Gateway, error) {
 		staticFiles:         staticfiles.NewStaticByRoute(),
 		spikeArresters:      spikearrest.NewSpikeArrestByRoute(),
 		contentReplacers:    contentreplacer.NewContentReplacerByRoute(),
+		bodyGenerators:      bodygen.NewBodyGenByRoute(),
+		quotaEnforcers:      quota.NewQuotaByRoute(),
+		sequentialHandlers:  sequential.NewSequentialByRoute(),
 		routeProxies:        make(map[string]*proxy.RouteProxy),
 		routeHandlers:     make(map[string]http.Handler),
 		watchCancels:      make(map[string]context.CancelFunc),
@@ -302,6 +311,9 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&staticFeature{g.staticFiles},
 		&spikeArrestFeature{m: g.spikeArresters, global: &cfg.SpikeArrest},
 		&contentReplacerFeature{g.contentReplacers},
+		&bodyGenFeature{g.bodyGenerators},
+		&quotaFeature{m: g.quotaEnforcers, redis: g.redisClient},
+		&sequentialFeature{m: g.sequentialHandlers},
 	}
 
 	// Initialize global IP filter
@@ -645,8 +657,8 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 	// Set upstream name on route for transport pool resolution
 	route.UpstreamName = routeCfg.Upstream
 
-	// Set up backends (skip for echo routes — no backend needed)
-	if !routeCfg.Echo {
+	// Set up backends (skip for echo and sequential routes — no backend needed)
+	if !routeCfg.Echo && !routeCfg.Sequential.Enabled {
 		var backends []*loadbalancer.Backend
 
 		// Check if using service discovery
@@ -805,6 +817,14 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 		}
 	}
 
+	// Set up sequential handler (needs transport from proxy's transport pool)
+	if routeCfg.Sequential.Enabled {
+		transport := g.proxy.GetTransportPool().Get(routeCfg.Upstream)
+		if err := g.sequentialHandlers.AddRoute(routeCfg.ID, routeCfg.Sequential, transport); err != nil {
+			return fmt.Errorf("sequential: route %s: %w", routeCfg.ID, err)
+		}
+	}
+
 	// Override per-try timeout with backend timeout when configured
 	if routeCfg.TimeoutPolicy.Backend > 0 && g.routeProxies[routeCfg.ID] != nil {
 		g.routeProxies[routeCfg.ID].SetPerTryTimeout(routeCfg.TimeoutPolicy.Backend)
@@ -923,6 +943,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 	// 5.25 spikeArrestMW — continuous rate enforcement with immediate rejection
 	if sa := g.spikeArresters.GetArrester(routeID); sa != nil {
 		chain = chain.Use(spikeArrestMW(sa))
+	}
+
+	// 5.3 quotaMW — per-client usage quota enforcement (billing periods)
+	if qe := g.quotaEnforcers.GetEnforcer(routeID); qe != nil {
+		chain = chain.Use(quotaMW(qe))
 	}
 
 	// 5.5 throttleMW — delay/queue (after reject, before auth)
@@ -1125,6 +1150,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 	// 16. requestTransformMW — headers + body + gRPC (Step 9)
 	chain = chain.Use(requestTransformMW(route, g.grpcHandlers[routeID], reqBodyTransform))
 
+	// 16.05. bodyGenMW — generate request body from template
+	if bg := g.bodyGenerators.GetGenerator(routeID); bg != nil {
+		chain = chain.Use(bodyGenMW(bg))
+	}
+
 	// 16.25. backendAuthMW — inject OAuth2 access token into backend requests
 	if ba := g.backendAuths.GetProvider(routeID); ba != nil {
 		chain = chain.Use(backendAuthMW(ba))
@@ -1152,9 +1182,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		}
 	}
 
-	// Innermost handler: echo, static, translator, or proxy (Step 10)
+	// Innermost handler: sequential, echo, static, translator, or proxy (Step 10)
 	var innermost http.Handler
-	if cfg.Echo {
+	if seqH := g.sequentialHandlers.GetHandler(routeID); seqH != nil {
+		innermost = seqH
+	} else if cfg.Echo {
 		innermost = proxy.NewEchoHandler(routeID)
 	} else if sh := g.staticFiles.GetHandler(routeID); sh != nil {
 		innermost = sh
@@ -1814,6 +1846,34 @@ func (g *Gateway) GetSpikeArresters() *spikearrest.SpikeArrestByRoute {
 // GetContentReplacers returns the content replacer manager.
 func (g *Gateway) GetContentReplacers() *contentreplacer.ContentReplacerByRoute {
 	return g.contentReplacers
+}
+
+// GetBodyGenerators returns the body generator manager.
+func (g *Gateway) GetBodyGenerators() *bodygen.BodyGenByRoute {
+	return g.bodyGenerators
+}
+
+// GetQuotaEnforcers returns the quota enforcer manager.
+func (g *Gateway) GetQuotaEnforcers() *quota.QuotaByRoute {
+	return g.quotaEnforcers
+}
+
+// GetSequentialHandlers returns the sequential handler manager.
+func (g *Gateway) GetSequentialHandlers() *sequential.SequentialByRoute {
+	return g.sequentialHandlers
+}
+
+// GetFollowRedirectStats returns per-route redirect transport stats.
+func (g *Gateway) GetFollowRedirectStats() map[string]interface{} {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	result := make(map[string]interface{})
+	for routeID, rp := range g.routeProxies {
+		if rt := rp.GetRedirectTransport(); rt != nil {
+			result[routeID] = rt.Stats()
+		}
+	}
+	return result
 }
 
 // GetDebugHandler returns the debug endpoint handler (may be nil).

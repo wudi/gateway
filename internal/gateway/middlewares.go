@@ -23,6 +23,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware"
 	"github.com/wudi/gateway/internal/middleware/accesslog"
 	"github.com/wudi/gateway/internal/middleware/backendauth"
+	"github.com/wudi/gateway/internal/middleware/bodygen"
 	"github.com/wudi/gateway/internal/middleware/botdetect"
 	"github.com/wudi/gateway/internal/middleware/claimsprop"
 	"github.com/wudi/gateway/internal/middleware/compression"
@@ -39,6 +40,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/decompress"
 	"github.com/wudi/gateway/internal/middleware/maintenance"
 	"github.com/wudi/gateway/internal/middleware/proxyratelimit"
+	"github.com/wudi/gateway/internal/middleware/quota"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/signing"
 	"github.com/wudi/gateway/internal/middleware/spikearrest"
@@ -1102,6 +1104,16 @@ func spikeArrestMW(sa *spikearrest.SpikeArrester) middleware.Middleware {
 // contentReplacerMW applies regex replacements to response body/headers.
 func contentReplacerMW(cr *contentreplacer.ContentReplacer) middleware.Middleware {
 	return cr.Middleware()
+}
+
+// bodyGenMW generates request body from a Go template.
+func bodyGenMW(bg *bodygen.BodyGen) middleware.Middleware {
+	return bg.Middleware()
+}
+
+// quotaMW enforces per-client usage quotas over billing periods.
+func quotaMW(qe *quota.QuotaEnforcer) middleware.Middleware {
+	return qe.Middleware()
 }
 
 // routeMatchKey is the context key for storing the route match.

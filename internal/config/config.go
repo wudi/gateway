@@ -303,6 +303,10 @@ type RouteConfig struct {
 	Echo                 bool                       `yaml:"echo"`                  // Echo handler (no backend needed)
 	SpikeArrest          SpikeArrestConfig          `yaml:"spike_arrest"`          // Per-route spike arrest
 	ContentReplacer      ContentReplacerConfig      `yaml:"content_replacer"`      // Per-route response content replacement
+	FollowRedirects      FollowRedirectsConfig      `yaml:"follow_redirects"`      // Follow backend 3xx redirects
+	BodyGenerator        BodyGeneratorConfig         `yaml:"body_generator"`        // Generate request body from template
+	Sequential           SequentialConfig            `yaml:"sequential"`            // Chain multiple backend calls
+	Quota                QuotaConfig                 `yaml:"quota"`                 // Per-client usage quota enforcement
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -1299,6 +1303,43 @@ type ReplacementRule struct {
 type DebugEndpointConfig struct {
 	Enabled bool   `yaml:"enabled"`
 	Path    string `yaml:"path"` // default "/__debug"
+}
+
+// FollowRedirectsConfig enables following backend 3xx redirects.
+type FollowRedirectsConfig struct {
+	Enabled      bool `yaml:"enabled"`
+	MaxRedirects int  `yaml:"max_redirects"` // default 10
+}
+
+// BodyGeneratorConfig defines a Go template that generates request bodies.
+type BodyGeneratorConfig struct {
+	Enabled     bool   `yaml:"enabled"`
+	Template    string `yaml:"template"`      // Go text/template string
+	ContentType string `yaml:"content_type"`  // default "application/json"
+}
+
+// SequentialConfig enables chaining multiple backend calls.
+type SequentialConfig struct {
+	Enabled bool             `yaml:"enabled"`
+	Steps   []SequentialStep `yaml:"steps"`
+}
+
+// SequentialStep defines a single step in a sequential proxy chain.
+type SequentialStep struct {
+	URL          string            `yaml:"url"`            // Go template
+	Method       string            `yaml:"method"`         // default: GET
+	Headers      map[string]string `yaml:"headers"`        // Go template values
+	BodyTemplate string            `yaml:"body_template"`  // Go template for request body
+	Timeout      time.Duration     `yaml:"timeout"`        // per-step timeout (default 5s)
+}
+
+// QuotaConfig defines per-client usage quota enforcement.
+type QuotaConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Limit   int64  `yaml:"limit"`   // max requests per period
+	Period  string `yaml:"period"`  // "hourly", "daily", "monthly"
+	Key     string `yaml:"key"`     // "ip", "client_id", "header:<name>", "jwt_claim:<name>"
+	Redis   bool   `yaml:"redis"`   // use Redis for distributed tracking
 }
 
 // DefaultConfig returns a configuration with sensible defaults

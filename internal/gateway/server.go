@@ -598,6 +598,18 @@ func (s *Server) adminHandler() http.Handler {
 	// Content replacer
 	mux.HandleFunc("/content-replacer", s.handleContentReplacer)
 
+	// Follow redirects
+	mux.HandleFunc("/follow-redirects", s.handleFollowRedirects)
+
+	// Body generator
+	mux.HandleFunc("/body-generator", s.handleBodyGenerator)
+
+	// Sequential proxy
+	mux.HandleFunc("/sequential", s.handleSequential)
+
+	// Quotas
+	mux.HandleFunc("/quotas", s.handleQuotas)
+
 	// Aggregated dashboard
 	mux.HandleFunc("/dashboard", s.handleDashboard)
 
@@ -1212,6 +1224,26 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["debug_endpoint"] = dh.Stats()
 	}
 
+	// Follow redirects
+	if frStats := s.gateway.GetFollowRedirectStats(); len(frStats) > 0 {
+		dashboard["follow_redirects"] = frStats
+	}
+
+	// Body generator
+	if bgStats := s.gateway.GetBodyGenerators().Stats(); len(bgStats) > 0 {
+		dashboard["body_generator"] = bgStats
+	}
+
+	// Sequential proxy
+	if seqStats := s.gateway.GetSequentialHandlers().Stats(); len(seqStats) > 0 {
+		dashboard["sequential"] = seqStats
+	}
+
+	// Quotas
+	if quotaStats := s.gateway.GetQuotaEnforcers().Stats(); len(quotaStats) > 0 {
+		dashboard["quotas"] = quotaStats
+	}
+
 	// Transport pool
 	pool := s.gateway.GetTransportPool()
 	dashboard["transport"] = pool.DefaultConfig()
@@ -1755,6 +1787,26 @@ func (s *Server) handleSpikeArrest(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleContentReplacer(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.gateway.GetContentReplacers().Stats())
+}
+
+func (s *Server) handleFollowRedirects(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetFollowRedirectStats())
+}
+
+func (s *Server) handleBodyGenerator(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetBodyGenerators().Stats())
+}
+
+func (s *Server) handleSequential(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetSequentialHandlers().Stats())
+}
+
+func (s *Server) handleQuotas(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetQuotaEnforcers().Stats())
 }
 
 // Gateway returns the underlying gateway

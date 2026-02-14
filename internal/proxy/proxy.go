@@ -88,7 +88,8 @@ func (p *Proxy) Handler(route *router.Route, balancer loadbalancer.Balancer) htt
 
 // HandlerWithPolicy returns an http.Handler that proxies requests using an externally
 // provided retry policy. If retryPolicy is nil, a new one is created from route config.
-func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Balancer, retryPolicy *retry.Policy) http.Handler {
+// transportOverride, if non-nil, replaces the default transport (e.g., for redirect following).
+func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Balancer, retryPolicy *retry.Policy, transportOverride ...http.RoundTripper) http.Handler {
 	// Create response header transformer once per handler
 	transformer := transform.NewHeaderTransformer()
 
@@ -102,7 +103,12 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 	}
 
 	// Resolve transport for this route's upstream once per handler creation
-	transport := p.transportPool.Get(route.UpstreamName)
+	var transport http.RoundTripper
+	if len(transportOverride) > 0 && transportOverride[0] != nil {
+		transport = transportOverride[0]
+	} else {
+		transport = p.transportPool.Get(route.UpstreamName)
+	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		varCtx := variables.GetFromRequest(r)
@@ -411,12 +417,13 @@ func stripPrefix(pattern, path string) string {
 
 // RouteProxy holds proxy configuration per route
 type RouteProxy struct {
-	proxy       *Proxy
-	balancer    loadbalancer.Balancer
-	route       *router.Route
-	transformer *transform.PrecompiledTransform
-	retryPolicy *retry.Policy
-	handler     http.Handler
+	proxy              *Proxy
+	balancer           loadbalancer.Balancer
+	route              *router.Route
+	transformer        *transform.PrecompiledTransform
+	retryPolicy        *retry.Policy
+	handler            http.Handler
+	redirectTransport  *RedirectTransport // non-nil when follow_redirects is enabled
 }
 
 // NewRouteProxy creates a proxy handler for a specific route
@@ -435,8 +442,20 @@ func NewRouteProxy(proxy *Proxy, route *router.Route, backends []*loadbalancer.B
 		rp.retryPolicy = retry.NewPolicyFromLegacy(route.Retries, time.Duration(route.Timeout))
 	}
 
+	// Create redirect transport if follow_redirects is enabled
+	var transportOverride http.RoundTripper
+	if route.FollowRedirects.Enabled {
+		maxRedirects := route.FollowRedirects.MaxRedirects
+		if maxRedirects == 0 {
+			maxRedirects = 10
+		}
+		rt := NewRedirectTransport(proxy.transportPool.Get(route.UpstreamName), maxRedirects)
+		rp.redirectTransport = rt
+		transportOverride = rt
+	}
+
 	// Cache the handler, passing in the same retry policy so metrics are shared
-	rp.handler = proxy.HandlerWithPolicy(route, rp.balancer, rp.retryPolicy)
+	rp.handler = proxy.HandlerWithPolicy(route, rp.balancer, rp.retryPolicy, transportOverride)
 
 	return rp
 }
@@ -457,8 +476,20 @@ func NewRouteProxyWithBalancer(proxy *Proxy, route *router.Route, balancer loadb
 		rp.retryPolicy = retry.NewPolicyFromLegacy(route.Retries, time.Duration(route.Timeout))
 	}
 
+	// Create redirect transport if follow_redirects is enabled
+	var transportOverride http.RoundTripper
+	if route.FollowRedirects.Enabled {
+		maxRedirects := route.FollowRedirects.MaxRedirects
+		if maxRedirects == 0 {
+			maxRedirects = 10
+		}
+		rt := NewRedirectTransport(proxy.transportPool.Get(route.UpstreamName), maxRedirects)
+		rp.redirectTransport = rt
+		transportOverride = rt
+	}
+
 	// Cache the handler, passing in the same retry policy so metrics are shared
-	rp.handler = proxy.HandlerWithPolicy(route, rp.balancer, rp.retryPolicy)
+	rp.handler = proxy.HandlerWithPolicy(route, rp.balancer, rp.retryPolicy, transportOverride)
 
 	return rp
 }
@@ -476,6 +507,11 @@ func (rp *RouteProxy) UpdateBackends(backends []*loadbalancer.Backend) {
 // GetBalancer returns the load balancer
 func (rp *RouteProxy) GetBalancer() loadbalancer.Balancer {
 	return rp.balancer
+}
+
+// GetRedirectTransport returns the redirect transport if follow_redirects is enabled.
+func (rp *RouteProxy) GetRedirectTransport() *RedirectTransport {
+	return rp.redirectTransport
 }
 
 // SetPerTryTimeout overrides the per-try timeout on the retry policy.

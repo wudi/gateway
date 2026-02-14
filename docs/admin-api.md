@@ -874,6 +874,86 @@ curl http://localhost:8081/content-replacer
 }
 ```
 
+### GET `/follow-redirects`
+
+Returns per-route follow redirect stats.
+
+```bash
+curl http://localhost:8081/follow-redirects
+```
+
+**Response:**
+```json
+{
+  "legacy-api": {
+    "redirects_followed": 150,
+    "max_exceeded": 2,
+    "max_redirects": 5
+  }
+}
+```
+
+### GET `/body-generator`
+
+Returns per-route body generator stats.
+
+```bash
+curl http://localhost:8081/body-generator
+```
+
+**Response:**
+```json
+{
+  "search": {
+    "generated": 5000,
+    "content_type": "application/json"
+  }
+}
+```
+
+### GET `/sequential`
+
+Returns per-route sequential proxy stats.
+
+```bash
+curl http://localhost:8081/sequential
+```
+
+**Response:**
+```json
+{
+  "user-enriched": {
+    "total_requests": 1000,
+    "total_errors": 5,
+    "steps": [
+      {"errors": 2, "total_latency_us": 500000},
+      {"errors": 3, "total_latency_us": 1200000}
+    ]
+  }
+}
+```
+
+### GET `/quotas`
+
+Returns per-route quota enforcement stats.
+
+```bash
+curl http://localhost:8081/quotas
+```
+
+**Response:**
+```json
+{
+  "api": {
+    "limit": 10000,
+    "period": "daily",
+    "allowed": 8500,
+    "rejected": 42,
+    "redis": false
+  }
+}
+```
+
 ## Key Config Fields
 
 | Field | Type | Description |

@@ -1641,6 +1641,72 @@ routes:
 
 See [Content Replacer](content-replacer.md) for details.
 
+## Follow Redirects (per-route)
+
+```yaml
+routes:
+  - id: example
+    follow_redirects:
+      enabled: bool              # enable following backend redirects (default false)
+      max_redirects: int         # maximum redirect hops (default 10)
+```
+
+**Validation:** `max_redirects` must be >= 0 when enabled.
+
+See [Follow Redirects](follow-redirects.md) for details.
+
+## Body Generator (per-route)
+
+```yaml
+routes:
+  - id: example
+    body_generator:
+      enabled: bool              # enable body generation (default false)
+      template: string           # Go text/template string (required)
+      content_type: string       # Content-Type for generated body (default "application/json")
+```
+
+**Validation:** `template` is required when enabled and must be a valid Go template. Mutually exclusive with `passthrough`.
+
+See [Body Generator](body-generator.md) for details.
+
+## Sequential Proxy (per-route)
+
+```yaml
+routes:
+  - id: example
+    sequential:
+      enabled: bool              # enable sequential proxy (default false)
+      steps:                     # ordered backend steps (min 2 required)
+        - url: string            # Go template for backend URL (required)
+          method: string         # HTTP method (default GET)
+          headers:               # map of header name → Go template value
+            Header-Name: string
+          body_template: string  # Go template for request body
+          timeout: duration      # per-step timeout (default 5s)
+```
+
+**Validation:** At least 2 steps required. Each step must have a `url`. Mutually exclusive with `echo`, `static`, and `passthrough`. No `backends` required.
+
+See [Sequential Proxy](sequential-proxy.md) for details.
+
+## Quota (per-route)
+
+```yaml
+routes:
+  - id: example
+    quota:
+      enabled: bool              # enable quota enforcement (default false)
+      limit: int                 # max requests per period (required, > 0)
+      period: string             # "hourly", "daily", or "monthly" (required)
+      key: string                # client key: "ip", "client_id", "header:<name>", "jwt_claim:<name>" (required)
+      redis: bool                # use Redis for distributed counting (default false)
+```
+
+**Validation:** `limit` must be > 0. `period` must be one of `hourly`, `daily`, `monthly`. `key` must be a valid key format.
+
+See [Quota](quota.md) for details.
+
 ## Debug Endpoint (global)
 
 ```yaml

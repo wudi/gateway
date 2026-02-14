@@ -174,8 +174,8 @@ func (l *Loader) validate(cfg *Config) error {
 			return fmt.Errorf("route %s: path is required", route.ID)
 		}
 
-		// Must have either backends, service discovery, versioning, upstream ref, echo, or static
-		if len(route.Backends) == 0 && route.Service.Name == "" && !route.Versioning.Enabled && route.Upstream == "" && !route.Echo && !route.Static.Enabled {
+		// Must have either backends, service discovery, versioning, upstream ref, echo, static, or sequential
+		if len(route.Backends) == 0 && route.Service.Name == "" && !route.Versioning.Enabled && route.Upstream == "" && !route.Echo && !route.Static.Enabled && !route.Sequential.Enabled {
 			return fmt.Errorf("route %s: must have either backends, service name, or upstream", route.ID)
 		}
 
@@ -318,6 +318,56 @@ func (l *Loader) validate(cfg *Config) error {
 		// Passthrough + content_replacer mutual exclusion
 		if route.Passthrough && route.ContentReplacer.Enabled {
 			return fmt.Errorf("route %s: passthrough is mutually exclusive with content_replacer", route.ID)
+		}
+
+		// Validate follow_redirects
+		if route.FollowRedirects.Enabled && route.FollowRedirects.MaxRedirects < 0 {
+			return fmt.Errorf("route %s: follow_redirects max_redirects must be >= 0", route.ID)
+		}
+
+		// Validate body_generator
+		if route.BodyGenerator.Enabled {
+			if route.BodyGenerator.Template == "" {
+				return fmt.Errorf("route %s: body_generator requires a template", route.ID)
+			}
+			if route.Passthrough {
+				return fmt.Errorf("route %s: body_generator is mutually exclusive with passthrough", route.ID)
+			}
+		}
+
+		// Validate sequential proxy
+		if route.Sequential.Enabled {
+			if len(route.Sequential.Steps) < 2 {
+				return fmt.Errorf("route %s: sequential requires at least 2 steps", route.ID)
+			}
+			for j, step := range route.Sequential.Steps {
+				if step.URL == "" {
+					return fmt.Errorf("route %s: sequential step %d requires a URL", route.ID, j)
+				}
+			}
+			if route.Echo {
+				return fmt.Errorf("route %s: sequential is mutually exclusive with echo", route.ID)
+			}
+			if route.Static.Enabled {
+				return fmt.Errorf("route %s: sequential is mutually exclusive with static", route.ID)
+			}
+			if route.Passthrough {
+				return fmt.Errorf("route %s: sequential is mutually exclusive with passthrough", route.ID)
+			}
+		}
+
+		// Validate quota
+		if route.Quota.Enabled {
+			if route.Quota.Limit <= 0 {
+				return fmt.Errorf("route %s: quota limit must be > 0", route.ID)
+			}
+			validPeriods := map[string]bool{"hourly": true, "daily": true, "monthly": true}
+			if !validPeriods[route.Quota.Period] {
+				return fmt.Errorf("route %s: quota period must be hourly, daily, or monthly", route.ID)
+			}
+			if route.Quota.Key == "" {
+				return fmt.Errorf("route %s: quota key is required", route.ID)
+			}
 		}
 
 		// Mutual exclusion: upstream vs inline backends/service

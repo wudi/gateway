@@ -41,8 +41,9 @@ type Route struct {
 	Mirror         config.MirrorConfig
 	GRPC           config.GRPCConfig
 	MatchCfg       config.MatchConfig
-	Rewrite        config.RewriteConfig
-	Echo           bool
+	Rewrite          config.RewriteConfig
+	FollowRedirects  config.FollowRedirectsConfig
+	Echo             bool
 
 	rewriteRegex *regexp.Regexp // compiled regex for rewrite (nil if no regex rewrite)
 	matcher      *CompiledMatcher
@@ -277,8 +278,9 @@ func (rt *Router) AddRoute(routeCfg config.RouteConfig) error {
 		Mirror:         routeCfg.Mirror,
 		GRPC:           routeCfg.GRPC,
 		MatchCfg:       routeCfg.Match,
-		Rewrite:        routeCfg.Rewrite,
-		Echo:           routeCfg.Echo,
+		Rewrite:          routeCfg.Rewrite,
+		FollowRedirects:  routeCfg.FollowRedirects,
+		Echo:             routeCfg.Echo,
 		configIdx:      rt.nextIdx,
 	}
 	rt.nextIdx++

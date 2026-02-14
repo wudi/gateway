@@ -3,6 +3,7 @@ package gateway
 import (
 	"github.com/redis/go-redis/v9"
 	"github.com/wudi/gateway/internal/cache"
+	"github.com/wudi/gateway/internal/middleware/bodygen"
 	"github.com/wudi/gateway/internal/canary"
 	"github.com/wudi/gateway/internal/circuitbreaker"
 	"github.com/wudi/gateway/internal/coalesce"
@@ -25,6 +26,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/maintenance"
 	"github.com/wudi/gateway/internal/middleware/mock"
 	"github.com/wudi/gateway/internal/middleware/proxyratelimit"
+	"github.com/wudi/gateway/internal/middleware/quota"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/signing"
 	"github.com/wudi/gateway/internal/middleware/spikearrest"
@@ -39,6 +41,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/versioning"
 	"github.com/wudi/gateway/internal/middleware/waf"
 	"github.com/wudi/gateway/internal/mirror"
+	"github.com/wudi/gateway/internal/proxy/sequential"
 	"github.com/wudi/gateway/internal/rules"
 	"github.com/wudi/gateway/internal/trafficshape"
 )
@@ -717,3 +720,42 @@ func (f *contentReplacerFeature) Setup(routeID string, cfg config.RouteConfig) e
 }
 func (f *contentReplacerFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *contentReplacerFeature) AdminStats() any    { return f.m.Stats() }
+
+// bodyGenFeature wraps BodyGenByRoute.
+type bodyGenFeature struct{ m *bodygen.BodyGenByRoute }
+
+func (f *bodyGenFeature) Name() string { return "body_generator" }
+func (f *bodyGenFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.BodyGenerator.Enabled {
+		return f.m.AddRoute(routeID, cfg.BodyGenerator)
+	}
+	return nil
+}
+func (f *bodyGenFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *bodyGenFeature) AdminStats() any    { return f.m.Stats() }
+
+// quotaFeature wraps QuotaByRoute.
+type quotaFeature struct {
+	m     *quota.QuotaByRoute
+	redis *redis.Client
+}
+
+func (f *quotaFeature) Name() string { return "quota" }
+func (f *quotaFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.Quota.Enabled {
+		f.m.AddRoute(routeID, cfg.Quota, f.redis)
+	}
+	return nil
+}
+func (f *quotaFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *quotaFeature) AdminStats() any    { return f.m.Stats() }
+
+// sequentialFeature wraps SequentialByRoute.
+// Setup is a no-op because sequential handler needs the transport from the proxy,
+// which is set up in addRoute() after proxy creation.
+type sequentialFeature struct{ m *sequential.SequentialByRoute }
+
+func (f *sequentialFeature) Name() string                                       { return "sequential" }
+func (f *sequentialFeature) Setup(routeID string, cfg config.RouteConfig) error { return nil }
+func (f *sequentialFeature) RouteIDs() []string                                 { return f.m.RouteIDs() }
+func (f *sequentialFeature) AdminStats() any                                    { return f.m.Stats() }

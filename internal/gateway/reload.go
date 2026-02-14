@@ -20,6 +20,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/allowedhosts"
 	"github.com/wudi/gateway/internal/middleware/auth"
 	"github.com/wudi/gateway/internal/middleware/backendauth"
+	"github.com/wudi/gateway/internal/middleware/bodygen"
 	"github.com/wudi/gateway/internal/middleware/compression"
 	"github.com/wudi/gateway/internal/middleware/contentreplacer"
 	"github.com/wudi/gateway/internal/middleware/cors"
@@ -37,6 +38,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/maintenance"
 	"github.com/wudi/gateway/internal/middleware/mock"
 	"github.com/wudi/gateway/internal/middleware/proxyratelimit"
+	"github.com/wudi/gateway/internal/middleware/quota"
 	"github.com/wudi/gateway/internal/middleware/realip"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/serviceratelimit"
@@ -56,6 +58,7 @@ import (
 	"github.com/wudi/gateway/internal/proxy"
 	grpcproxy "github.com/wudi/gateway/internal/proxy/grpc"
 	"github.com/wudi/gateway/internal/proxy/protocol"
+	"github.com/wudi/gateway/internal/proxy/sequential"
 	"github.com/wudi/gateway/internal/registry"
 	"github.com/wudi/gateway/internal/router"
 	"github.com/wudi/gateway/internal/rules"
@@ -127,6 +130,9 @@ type gatewayState struct {
 	staticFiles         *staticfiles.StaticByRoute
 	spikeArresters      *spikearrest.SpikeArrestByRoute
 	contentReplacers    *contentreplacer.ContentReplacerByRoute
+	bodyGenerators      *bodygen.BodyGenByRoute
+	quotaEnforcers      *quota.QuotaByRoute
+	sequentialHandlers  *sequential.SequentialByRoute
 	realIPExtractor     *realip.CompiledRealIP
 	tokenChecker        *tokenrevoke.TokenChecker
 	outlierDetectors    *outlier.DetectorByRoute
@@ -190,6 +196,9 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		staticFiles:         staticfiles.NewStaticByRoute(),
 		spikeArresters:      spikearrest.NewSpikeArrestByRoute(),
 		contentReplacers:    contentreplacer.NewContentReplacerByRoute(),
+		bodyGenerators:      bodygen.NewBodyGenByRoute(),
+		quotaEnforcers:      quota.NewQuotaByRoute(),
+		sequentialHandlers:  sequential.NewSequentialByRoute(),
 		outlierDetectors:    outlier.NewDetectorByRoute(),
 		translators:       protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
@@ -244,6 +253,9 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		&staticFeature{s.staticFiles},
 		&spikeArrestFeature{m: s.spikeArresters, global: &cfg.SpikeArrest},
 		&contentReplacerFeature{s.contentReplacers},
+		&bodyGenFeature{s.bodyGenerators},
+		&quotaFeature{m: s.quotaEnforcers, redis: g.redisClient},
+		&sequentialFeature{s.sequentialHandlers},
 	}
 
 	// Initialize token revocation checker
@@ -511,6 +523,14 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 		}
 	}
 
+	// Sequential handler (needs transport from proxy pool)
+	if routeCfg.Sequential.Enabled {
+		transport := g.proxy.GetTransportPool().Get(routeCfg.Upstream)
+		if err := s.sequentialHandlers.AddRoute(routeCfg.ID, routeCfg.Sequential, transport); err != nil {
+			return fmt.Errorf("sequential: route %s: %w", routeCfg.ID, err)
+		}
+	}
+
 	// Override per-try timeout with backend timeout when configured
 	if routeCfg.TimeoutPolicy.Backend > 0 {
 		s.routeProxies[routeCfg.ID].SetPerTryTimeout(routeCfg.TimeoutPolicy.Backend)
@@ -642,6 +662,9 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldStaticFiles := g.staticFiles
 	oldSpikeArresters := g.spikeArresters
 	oldContentReplacers := g.contentReplacers
+	oldBodyGenerators := g.bodyGenerators
+	oldQuotaEnforcers := g.quotaEnforcers
+	oldSequentialHandlers := g.sequentialHandlers
 	oldRealIPExtractor := g.realIPExtractor
 	oldTokenChecker := g.tokenChecker
 
@@ -692,6 +715,9 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.staticFiles = s.staticFiles
 	g.spikeArresters = s.spikeArresters
 	g.contentReplacers = s.contentReplacers
+	g.bodyGenerators = s.bodyGenerators
+	g.quotaEnforcers = s.quotaEnforcers
+	g.sequentialHandlers = s.sequentialHandlers
 	g.realIPExtractor = s.realIPExtractor
 	g.tokenChecker = s.tokenChecker
 
@@ -744,6 +770,9 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.staticFiles = oldStaticFiles
 	g.spikeArresters = oldSpikeArresters
 	g.contentReplacers = oldContentReplacers
+	g.bodyGenerators = oldBodyGenerators
+	g.quotaEnforcers = oldQuotaEnforcers
+	g.sequentialHandlers = oldSequentialHandlers
 	g.realIPExtractor = oldRealIPExtractor
 	g.tokenChecker = oldTokenChecker
 
@@ -785,6 +814,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	oldIdempotencyHandlers := g.idempotencyHandlers
 	oldBackendSigners := g.backendSigners
 	oldTokenChecker := g.tokenChecker
+	oldQuotaEnforcers := g.quotaEnforcers
 
 	// Swap all state under write lock
 	g.mu.Lock()
@@ -838,6 +868,9 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.staticFiles = newState.staticFiles
 	g.spikeArresters = newState.spikeArresters
 	g.contentReplacers = newState.contentReplacers
+	g.bodyGenerators = newState.bodyGenerators
+	g.quotaEnforcers = newState.quotaEnforcers
+	g.sequentialHandlers = newState.sequentialHandlers
 	g.realIPExtractor = newState.realIPExtractor
 	g.tokenChecker = newState.tokenChecker
 	g.translators = newState.translators
@@ -882,6 +915,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	oldOutlierDetectors.StopAll()
 	oldIdempotencyHandlers.CloseAll()
 	_ = oldBackendSigners // no cleanup needed (stateless)
+	oldQuotaEnforcers.CloseAll()
 	if oldTokenChecker != nil {
 		oldTokenChecker.Close()
 	}
