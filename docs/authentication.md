@@ -280,4 +280,39 @@ With `mode: distributed`, the revocation store uses Redis (requires `redis.addre
 | `token_revocation.mode` | string | `local` or `distributed` |
 | `token_revocation.default_ttl` | duration | Max revocation TTL (default 24h) |
 
+| `backend_auth.enabled` | bool | Enable backend auth token injection (per-route) |
+| `backend_auth.type` | string | `oauth2_client_credentials` (required) |
+| `backend_auth.token_url` | string | Token endpoint URL |
+
 See [Configuration Reference](configuration-reference.md#authentication) for all fields.
+
+## Backend Auth (OAuth2 Client Credentials)
+
+The gateway can act as an OAuth2 client, fetching access tokens from an identity server using the `client_credentials` grant and injecting them as `Authorization: Bearer <token>` headers into backend requests.
+
+Tokens are cached in memory and auto-refreshed 10 seconds before expiry. If a token refresh fails, the request proceeds without an Authorization header (logged as a warning).
+
+```yaml
+routes:
+  - id: protected-api
+    path: /api/
+    path_prefix: true
+    backends:
+      - url: http://backend:8080
+    backend_auth:
+      enabled: true
+      type: oauth2_client_credentials
+      token_url: https://auth.example.com/oauth/token
+      client_id: "${GATEWAY_CLIENT_ID}"
+      client_secret: "${GATEWAY_CLIENT_SECRET}"
+      scopes:
+        - read
+        - write
+      extra_params:
+        audience: https://api.example.com
+      timeout: 5s
+```
+
+The middleware is positioned at step 16.25 in the chain — after request transforms and before backend signing. This ensures the `Authorization` header is included in HMAC signature computation when backend signing is also enabled.
+
+**Admin endpoint:** `GET /backend-auth` returns per-route token refresh stats.

@@ -160,8 +160,8 @@ func (l *Loader) validate(cfg *Config) error {
 			return fmt.Errorf("route %s: path is required", route.ID)
 		}
 
-		// Must have either backends, service discovery, versioning, upstream ref, or echo
-		if len(route.Backends) == 0 && route.Service.Name == "" && !route.Versioning.Enabled && route.Upstream == "" && !route.Echo {
+		// Must have either backends, service discovery, versioning, upstream ref, echo, or static
+		if len(route.Backends) == 0 && route.Service.Name == "" && !route.Versioning.Enabled && route.Upstream == "" && !route.Echo && !route.Static.Enabled {
 			return fmt.Errorf("route %s: must have either backends, service name, or upstream", route.ID)
 		}
 
@@ -212,6 +212,75 @@ func (l *Loader) validate(cfg *Config) error {
 		if route.MockResponse.Enabled {
 			if route.MockResponse.StatusCode != 0 && (route.MockResponse.StatusCode < 100 || route.MockResponse.StatusCode > 599) {
 				return fmt.Errorf("route %s: mock_response.status_code must be 100-599", route.ID)
+			}
+		}
+
+		// Backend auth validation
+		if route.BackendAuth.Enabled {
+			if route.BackendAuth.Type != "oauth2_client_credentials" {
+				return fmt.Errorf("route %s: backend_auth.type must be 'oauth2_client_credentials'", route.ID)
+			}
+			if route.BackendAuth.TokenURL == "" {
+				return fmt.Errorf("route %s: backend_auth.token_url is required", route.ID)
+			}
+			if route.BackendAuth.ClientID == "" {
+				return fmt.Errorf("route %s: backend_auth.client_id is required", route.ID)
+			}
+			if route.BackendAuth.ClientSecret == "" {
+				return fmt.Errorf("route %s: backend_auth.client_secret is required", route.ID)
+			}
+		}
+
+		// Status mapping validation
+		if route.StatusMapping.Enabled {
+			for from, to := range route.StatusMapping.Mappings {
+				if from < 100 || from > 599 {
+					return fmt.Errorf("route %s: status_mapping.mappings key %d is not a valid HTTP status code (100-599)", route.ID, from)
+				}
+				if to < 100 || to > 599 {
+					return fmt.Errorf("route %s: status_mapping.mappings value %d is not a valid HTTP status code (100-599)", route.ID, to)
+				}
+			}
+		}
+
+		// Static file serving validation
+		if route.Static.Enabled {
+			if route.Static.Root == "" {
+				return fmt.Errorf("route %s: static.root is required", route.ID)
+			}
+			if route.Echo {
+				return fmt.Errorf("route %s: static is mutually exclusive with echo", route.ID)
+			}
+			if len(route.Backends) > 0 || route.Service.Name != "" || route.Upstream != "" {
+				return fmt.Errorf("route %s: static is mutually exclusive with backends, service, and upstream", route.ID)
+			}
+		}
+
+		// Passthrough validation
+		if route.Passthrough {
+			if route.Transform.Request.Body.IsActive() || route.Transform.Response.Body.IsActive() {
+				return fmt.Errorf("route %s: passthrough is mutually exclusive with body transforms", route.ID)
+			}
+			if route.Validation.Enabled {
+				return fmt.Errorf("route %s: passthrough is mutually exclusive with validation", route.ID)
+			}
+			if route.Compression.Enabled {
+				return fmt.Errorf("route %s: passthrough is mutually exclusive with compression", route.ID)
+			}
+			if route.Cache.Enabled {
+				return fmt.Errorf("route %s: passthrough is mutually exclusive with cache", route.ID)
+			}
+			if route.GraphQL.Enabled {
+				return fmt.Errorf("route %s: passthrough is mutually exclusive with graphql", route.ID)
+			}
+			if route.OpenAPI.SpecFile != "" || route.OpenAPI.SpecID != "" {
+				return fmt.Errorf("route %s: passthrough is mutually exclusive with openapi", route.ID)
+			}
+			if route.RequestDecompression.Enabled {
+				return fmt.Errorf("route %s: passthrough is mutually exclusive with request_decompression", route.ID)
+			}
+			if route.ResponseLimit.Enabled {
+				return fmt.Errorf("route %s: passthrough is mutually exclusive with response_limit", route.ID)
 			}
 		}
 

@@ -18,6 +18,7 @@ import (
 	"github.com/wudi/gateway/internal/logging"
 	"github.com/wudi/gateway/internal/middleware/accesslog"
 	"github.com/wudi/gateway/internal/middleware/auth"
+	"github.com/wudi/gateway/internal/middleware/backendauth"
 	"github.com/wudi/gateway/internal/middleware/compression"
 	"github.com/wudi/gateway/internal/middleware/cors"
 	"github.com/wudi/gateway/internal/middleware/csrf"
@@ -35,6 +36,8 @@ import (
 	"github.com/wudi/gateway/internal/middleware/realip"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/signing"
+	"github.com/wudi/gateway/internal/middleware/staticfiles"
+	"github.com/wudi/gateway/internal/middleware/statusmap"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
 	"github.com/wudi/gateway/internal/middleware/ratelimit"
 	"github.com/wudi/gateway/internal/middleware/responselimit"
@@ -113,6 +116,9 @@ type gatewayState struct {
 	proxyRateLimiters   *proxyratelimit.ProxyRateLimitByRoute
 	mockHandlers        *mock.MockByRoute
 	claimsPropagators   *claimsprop.ClaimsPropByRoute
+	backendAuths        *backendauth.BackendAuthByRoute
+	statusMappers       *statusmap.StatusMapByRoute
+	staticFiles         *staticfiles.StaticByRoute
 	realIPExtractor     *realip.CompiledRealIP
 	tokenChecker        *tokenrevoke.TokenChecker
 	outlierDetectors    *outlier.DetectorByRoute
@@ -171,6 +177,9 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		proxyRateLimiters:   proxyratelimit.NewProxyRateLimitByRoute(),
 		mockHandlers:        mock.NewMockByRoute(),
 		claimsPropagators:   claimsprop.NewClaimsPropByRoute(),
+		backendAuths:        backendauth.NewBackendAuthByRoute(),
+		statusMappers:       statusmap.NewStatusMapByRoute(),
+		staticFiles:         staticfiles.NewStaticByRoute(),
 		outlierDetectors:    outlier.NewDetectorByRoute(),
 		translators:       protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
@@ -220,6 +229,9 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		&proxyRateLimitFeature{s.proxyRateLimiters},
 		&mockFeature{s.mockHandlers},
 		&claimsPropFeature{s.claimsPropagators},
+		&backendAuthFeature{s.backendAuths},
+		&statusMapFeature{s.statusMappers},
+		&staticFeature{s.staticFiles},
 	}
 
 	// Initialize token revocation checker
@@ -613,6 +625,9 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldProxyRateLimiters := g.proxyRateLimiters
 	oldMockHandlers := g.mockHandlers
 	oldClaimsPropagators := g.claimsPropagators
+	oldBackendAuths := g.backendAuths
+	oldStatusMappers := g.statusMappers
+	oldStaticFiles := g.staticFiles
 	oldRealIPExtractor := g.realIPExtractor
 	oldTokenChecker := g.tokenChecker
 
@@ -658,6 +673,9 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.proxyRateLimiters = s.proxyRateLimiters
 	g.mockHandlers = s.mockHandlers
 	g.claimsPropagators = s.claimsPropagators
+	g.backendAuths = s.backendAuths
+	g.statusMappers = s.statusMappers
+	g.staticFiles = s.staticFiles
 	g.realIPExtractor = s.realIPExtractor
 	g.tokenChecker = s.tokenChecker
 
@@ -705,6 +723,9 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.proxyRateLimiters = oldProxyRateLimiters
 	g.mockHandlers = oldMockHandlers
 	g.claimsPropagators = oldClaimsPropagators
+	g.backendAuths = oldBackendAuths
+	g.statusMappers = oldStatusMappers
+	g.staticFiles = oldStaticFiles
 	g.realIPExtractor = oldRealIPExtractor
 	g.tokenChecker = oldTokenChecker
 
@@ -794,6 +815,9 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.proxyRateLimiters = newState.proxyRateLimiters
 	g.mockHandlers = newState.mockHandlers
 	g.claimsPropagators = newState.claimsPropagators
+	g.backendAuths = newState.backendAuths
+	g.statusMappers = newState.statusMappers
+	g.staticFiles = newState.staticFiles
 	g.realIPExtractor = newState.realIPExtractor
 	g.tokenChecker = newState.tokenChecker
 	g.translators = newState.translators

@@ -580,6 +580,15 @@ func (s *Server) adminHandler() http.Handler {
 	mux.HandleFunc("/token-revocation", s.handleTokenRevocation)
 	mux.HandleFunc("/token-revocation/", s.handleTokenRevocationAction)
 
+	// Backend auth
+	mux.HandleFunc("/backend-auth", s.handleBackendAuth)
+
+	// Status mapping
+	mux.HandleFunc("/status-mapping", s.handleStatusMapping)
+
+	// Static files
+	mux.HandleFunc("/static-files", s.handleStaticFiles)
+
 	// Aggregated dashboard
 	mux.HandleFunc("/dashboard", s.handleDashboard)
 
@@ -1682,6 +1691,21 @@ func (s *Server) handleCanaryAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": actionName, "route": routeID})
+}
+
+func (s *Server) handleBackendAuth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetBackendAuths().Stats())
+}
+
+func (s *Server) handleStatusMapping(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetStatusMappers().Stats())
+}
+
+func (s *Server) handleStaticFiles(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetStaticFiles().Stats())
 }
 
 // Gateway returns the underlying gateway

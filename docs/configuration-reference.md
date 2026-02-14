@@ -239,7 +239,7 @@ routes:
     echo: bool                # built-in echo handler, no backend needed (default false)
 ```
 
-**Validation:** Each route requires `path` and one of `backends`, `service.name`, `upstream`, or `echo: true`. A route cannot have both `upstream` and `backends` (or `service`). When `echo: true`, the route cannot use `backends`, `service`, `upstream`, `versioning`, `protocol`, `websocket`, `circuit_breaker`, `cache`, `coalesce`, `outlier_detection`, `canary`, `retry_policy`, `traffic_split`, or `mirror`. Header/query matchers require exactly one of `value`, `present`, or `regex`.
+**Validation:** Each route requires `path` and one of `backends`, `service.name`, `upstream`, `echo: true`, or `static.enabled: true`. A route cannot have both `upstream` and `backends` (or `service`). When `echo: true`, the route cannot use `backends`, `service`, `upstream`, `versioning`, `protocol`, `websocket`, `circuit_breaker`, `cache`, `coalesce`, `outlier_detection`, `canary`, `retry_policy`, `traffic_split`, or `mirror`. Header/query matchers require exactly one of `value`, `present`, or `regex`.
 
 ### Rate Limiting
 
@@ -313,6 +313,58 @@ See [Mock Responses](mock-responses.md) for use cases.
 ```
 
 **Validation:** At least one `deny` pattern required when enabled. All patterns must be valid regexes.
+
+### Backend Auth (OAuth2 Client Credentials)
+
+```yaml
+    backend_auth:
+      enabled: bool
+      type: string              # "oauth2_client_credentials" (required)
+      token_url: string         # token endpoint URL (required)
+      client_id: string         # OAuth2 client ID (required)
+      client_secret: string     # OAuth2 client secret (required)
+      scopes: [string]          # optional scopes
+      extra_params:             # optional extra form parameters
+        audience: string
+      timeout: duration         # token fetch timeout (default 10s)
+```
+
+**Validation:** `type` must be `"oauth2_client_credentials"`. `token_url`, `client_id`, and `client_secret` are required when enabled. Tokens are cached and auto-refreshed 10 seconds before expiry.
+
+See [Authentication](authentication.md#backend-auth-oauth2-client-credentials) for details.
+
+### Status Mapping
+
+```yaml
+    status_mapping:
+      enabled: bool
+      mappings:                 # backend_code -> client_code
+        404: 200
+        500: 503
+```
+
+**Validation:** All mapping keys and values must be valid HTTP status codes (100-599).
+
+### Static File Serving
+
+```yaml
+    static:
+      enabled: bool
+      root: string              # directory path (required)
+      index: string             # index file name (default "index.html")
+      browse: bool              # enable directory listing (default false)
+      cache_control: string     # Cache-Control header value
+```
+
+**Validation:** `root` is required and must exist. Mutually exclusive with `echo`, `backends`, `service`, and `upstream`. When enabled, the static file handler replaces the proxy as the innermost handler.
+
+### Passthrough
+
+```yaml
+    passthrough: bool           # skip body-processing middleware (default false)
+```
+
+**Validation:** Mutually exclusive with `validation`, `compression`, `cache`, `graphql`, `openapi`, `request_decompression`, `response_limit`, and body transforms. Use for binary protocols or zero-overhead routes.
 
 ### Retry Policy
 

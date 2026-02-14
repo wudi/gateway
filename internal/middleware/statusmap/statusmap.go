@@ -1,0 +1,140 @@
+package statusmap
+
+import (
+	"net/http"
+	"sync"
+	"sync/atomic"
+
+	"github.com/wudi/gateway/internal/middleware"
+)
+
+// StatusMapper remaps backend response status codes to different client-facing codes.
+type StatusMapper struct {
+	routeID  string
+	mappings map[int]int
+	total    atomic.Int64
+	remapped atomic.Int64
+}
+
+// New creates a StatusMapper from a mappings config.
+func New(routeID string, mappings map[int]int) *StatusMapper {
+	// Copy the map to prevent external mutation.
+	m := make(map[int]int, len(mappings))
+	for k, v := range mappings {
+		m[k] = v
+	}
+	return &StatusMapper{
+		routeID:  routeID,
+		mappings: m,
+	}
+}
+
+// Middleware returns a middleware that remaps response status codes.
+func (s *StatusMapper) Middleware() middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mw := &mappingWriter{
+				ResponseWriter: w,
+				mapper:         s,
+			}
+			next.ServeHTTP(mw, r)
+		})
+	}
+}
+
+// Stats returns status mapping statistics.
+func (s *StatusMapper) Stats() map[string]interface{} {
+	return map[string]interface{}{
+		"total":    s.total.Load(),
+		"remapped": s.remapped.Load(),
+		"mappings": s.mappings,
+	}
+}
+
+// mappingWriter wraps http.ResponseWriter to remap status codes.
+type mappingWriter struct {
+	http.ResponseWriter
+	mapper      *StatusMapper
+	wroteHeader bool
+}
+
+func (w *mappingWriter) WriteHeader(code int) {
+	if w.wroteHeader {
+		return
+	}
+	w.wroteHeader = true
+	w.mapper.total.Add(1)
+	if mapped, ok := w.mapper.mappings[code]; ok {
+		w.mapper.remapped.Add(1)
+		w.ResponseWriter.WriteHeader(mapped)
+		return
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *mappingWriter) Write(b []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *mappingWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (w *mappingWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
+// StatusMapByRoute manages per-route status mappers.
+type StatusMapByRoute struct {
+	mappers map[string]*StatusMapper
+	mu      sync.RWMutex
+}
+
+// NewStatusMapByRoute creates a new per-route status map manager.
+func NewStatusMapByRoute() *StatusMapByRoute {
+	return &StatusMapByRoute{
+		mappers: make(map[string]*StatusMapper),
+	}
+}
+
+// AddRoute adds a status mapper for a route.
+func (m *StatusMapByRoute) AddRoute(routeID string, mappings map[int]int) {
+	sm := New(routeID, mappings)
+	m.mu.Lock()
+	m.mappers[routeID] = sm
+	m.mu.Unlock()
+}
+
+// GetMapper returns the status mapper for a route.
+func (m *StatusMapByRoute) GetMapper(routeID string) *StatusMapper {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.mappers[routeID]
+}
+
+// RouteIDs returns all route IDs with status mapping configured.
+func (m *StatusMapByRoute) RouteIDs() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	ids := make([]string, 0, len(m.mappers))
+	for id := range m.mappers {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// Stats returns per-route status mapping stats.
+func (m *StatusMapByRoute) Stats() map[string]interface{} {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	stats := make(map[string]interface{}, len(m.mappers))
+	for id, sm := range m.mappers {
+		stats[id] = sm.Stats()
+	}
+	return stats
+}

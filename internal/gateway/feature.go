@@ -10,6 +10,7 @@ import (
 	"github.com/wudi/gateway/internal/graphql"
 	"github.com/wudi/gateway/internal/loadbalancer/outlier"
 	"github.com/wudi/gateway/internal/middleware/accesslog"
+	"github.com/wudi/gateway/internal/middleware/backendauth"
 	"github.com/wudi/gateway/internal/middleware/botdetect"
 	"github.com/wudi/gateway/internal/middleware/claimsprop"
 	"github.com/wudi/gateway/internal/middleware/compression"
@@ -25,6 +26,8 @@ import (
 	"github.com/wudi/gateway/internal/middleware/proxyratelimit"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/signing"
+	"github.com/wudi/gateway/internal/middleware/staticfiles"
+	"github.com/wudi/gateway/internal/middleware/statusmap"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	"github.com/wudi/gateway/internal/middleware/nonce"
 	"github.com/wudi/gateway/internal/middleware/openapi"
@@ -641,3 +644,42 @@ func (f *mockFeature) Setup(routeID string, cfg config.RouteConfig) error {
 }
 func (f *mockFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *mockFeature) AdminStats() any    { return f.m.Stats() }
+
+// backendAuthFeature wraps BackendAuthByRoute.
+type backendAuthFeature struct{ m *backendauth.BackendAuthByRoute }
+
+func (f *backendAuthFeature) Name() string { return "backend_auth" }
+func (f *backendAuthFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.BackendAuth.Enabled {
+		return f.m.AddRoute(routeID, cfg.BackendAuth)
+	}
+	return nil
+}
+func (f *backendAuthFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *backendAuthFeature) AdminStats() any    { return f.m.Stats() }
+
+// statusMapFeature wraps StatusMapByRoute.
+type statusMapFeature struct{ m *statusmap.StatusMapByRoute }
+
+func (f *statusMapFeature) Name() string { return "status_mapping" }
+func (f *statusMapFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.StatusMapping.Enabled && len(cfg.StatusMapping.Mappings) > 0 {
+		f.m.AddRoute(routeID, cfg.StatusMapping.Mappings)
+	}
+	return nil
+}
+func (f *statusMapFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *statusMapFeature) AdminStats() any    { return f.m.Stats() }
+
+// staticFeature wraps StaticByRoute.
+type staticFeature struct{ m *staticfiles.StaticByRoute }
+
+func (f *staticFeature) Name() string { return "static_files" }
+func (f *staticFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.Static.Enabled {
+		return f.m.AddRoute(routeID, cfg.Static.Root, cfg.Static.Index, cfg.Static.Browse, cfg.Static.CacheControl)
+	}
+	return nil
+}
+func (f *staticFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *staticFeature) AdminStats() any    { return f.m.Stats() }

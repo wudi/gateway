@@ -22,6 +22,7 @@ import (
 	"github.com/wudi/gateway/internal/metrics"
 	"github.com/wudi/gateway/internal/middleware"
 	"github.com/wudi/gateway/internal/middleware/accesslog"
+	"github.com/wudi/gateway/internal/middleware/backendauth"
 	"github.com/wudi/gateway/internal/middleware/botdetect"
 	"github.com/wudi/gateway/internal/middleware/claimsprop"
 	"github.com/wudi/gateway/internal/middleware/compression"
@@ -39,6 +40,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/proxyratelimit"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/signing"
+	"github.com/wudi/gateway/internal/middleware/statusmap"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
 	"github.com/wudi/gateway/internal/middleware/ratelimit"
 	"github.com/wudi/gateway/internal/middleware/responselimit"
@@ -1078,6 +1080,16 @@ func tokenRevokeMW(tc *tokenrevoke.TokenChecker) middleware.Middleware {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// backendAuthMW injects an OAuth2 access token into backend requests.
+func backendAuthMW(ba *backendauth.TokenProvider) middleware.Middleware {
+	return ba.Middleware()
+}
+
+// statusMapMW remaps backend response status codes.
+func statusMapMW(sm *statusmap.StatusMapper) middleware.Middleware {
+	return sm.Middleware()
 }
 
 // routeMatchKey is the context key for storing the route match.

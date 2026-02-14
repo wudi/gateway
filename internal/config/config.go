@@ -293,6 +293,10 @@ type RouteConfig struct {
 	ProxyRateLimit       ProxyRateLimitConfig       `yaml:"proxy_rate_limit"`      // Per-route backend rate limiting
 	MockResponse         MockResponseConfig         `yaml:"mock_response"`         // Per-route mock responses
 	ClaimsPropagation    ClaimsPropagationConfig    `yaml:"claims_propagation"`    // JWT claims propagation to backend headers
+	BackendAuth          BackendAuthConfig          `yaml:"backend_auth"`          // OAuth2 client_credentials for backend calls
+	StatusMapping        StatusMappingConfig        `yaml:"status_mapping"`        // Remap backend response status codes
+	Static               StaticConfig               `yaml:"static"`                // Serve static files (replaces proxy)
+	Passthrough          bool                       `yaml:"passthrough"`           // Skip body-processing middleware
 	Echo                 bool                       `yaml:"echo"`                  // Echo handler (no backend needed)
 }
 
@@ -515,6 +519,33 @@ type TokenRevocationConfig struct {
 	Enabled    bool          `yaml:"enabled"`
 	Mode       string        `yaml:"mode"`        // "local" (default) or "distributed"
 	DefaultTTL time.Duration `yaml:"default_ttl"` // default 24h
+}
+
+// BackendAuthConfig defines OAuth2 client_credentials token injection for backend calls.
+type BackendAuthConfig struct {
+	Enabled      bool              `yaml:"enabled"`
+	Type         string            `yaml:"type"`          // "oauth2_client_credentials"
+	TokenURL     string            `yaml:"token_url"`
+	ClientID     string            `yaml:"client_id"`
+	ClientSecret string            `yaml:"client_secret"`
+	Scopes       []string          `yaml:"scopes"`
+	ExtraParams  map[string]string `yaml:"extra_params"`
+	Timeout      time.Duration     `yaml:"timeout"` // default 10s
+}
+
+// StatusMappingConfig defines per-route backend response status code remapping.
+type StatusMappingConfig struct {
+	Enabled  bool        `yaml:"enabled"`
+	Mappings map[int]int `yaml:"mappings"` // backend_code -> client_code
+}
+
+// StaticConfig defines static file serving for a route (replaces proxy).
+type StaticConfig struct {
+	Enabled      bool   `yaml:"enabled"`
+	Root         string `yaml:"root"`          // directory path
+	Index        string `yaml:"index"`         // default "index.html"
+	Browse       bool   `yaml:"browse"`        // directory listing (default false)
+	CacheControl string `yaml:"cache_control"` // Cache-Control header value
 }
 
 // RewriteConfig defines URL rewriting rules for a route.

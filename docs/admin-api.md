@@ -794,6 +794,30 @@ curl -X POST http://localhost:8081/token-revocation/unrevoke \
   -d '{"jti":"abc-123"}'
 ```
 
+### GET `/backend-auth`
+
+Returns per-route backend auth (OAuth2 client_credentials) stats including refresh counts and errors.
+
+```bash
+curl http://localhost:8081/backend-auth
+```
+
+### GET `/status-mapping`
+
+Returns per-route status code mapping stats including total requests and remapped count.
+
+```bash
+curl http://localhost:8081/status-mapping
+```
+
+### GET `/static-files`
+
+Returns per-route static file serving stats including root directory and served count.
+
+```bash
+curl http://localhost:8081/static-files
+```
+
 ## Key Config Fields
 
 | Field | Type | Description |

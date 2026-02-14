@@ -27,6 +27,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/allowedhosts"
 	"github.com/wudi/gateway/internal/middleware/altsvc"
 	"github.com/wudi/gateway/internal/middleware/auth"
+	"github.com/wudi/gateway/internal/middleware/backendauth"
 	"github.com/wudi/gateway/internal/middleware/botdetect"
 	"github.com/wudi/gateway/internal/middleware/claimsprop"
 	"github.com/wudi/gateway/internal/middleware/compression"
@@ -47,6 +48,8 @@ import (
 	"github.com/wudi/gateway/internal/middleware/realip"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/signing"
+	"github.com/wudi/gateway/internal/middleware/staticfiles"
+	"github.com/wudi/gateway/internal/middleware/statusmap"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
 	"github.com/wudi/gateway/internal/middleware/ratelimit"
 	"github.com/wudi/gateway/internal/middleware/responselimit"
@@ -140,6 +143,9 @@ type Gateway struct {
 	proxyRateLimiters   *proxyratelimit.ProxyRateLimitByRoute
 	mockHandlers        *mock.MockByRoute
 	claimsPropagators   *claimsprop.ClaimsPropByRoute
+	backendAuths        *backendauth.BackendAuthByRoute
+	statusMappers       *statusmap.StatusMapByRoute
+	staticFiles         *staticfiles.StaticByRoute
 	realIPExtractor     *realip.CompiledRealIP
 	httpsRedirect       *httpsredirect.CompiledHTTPSRedirect
 	allowedHosts        *allowedhosts.CompiledAllowedHosts
@@ -229,6 +235,9 @@ func New(cfg *config.Config) (*Gateway, error) {
 		proxyRateLimiters:   proxyratelimit.NewProxyRateLimitByRoute(),
 		mockHandlers:        mock.NewMockByRoute(),
 		claimsPropagators:   claimsprop.NewClaimsPropByRoute(),
+		backendAuths:        backendauth.NewBackendAuthByRoute(),
+		statusMappers:       statusmap.NewStatusMapByRoute(),
+		staticFiles:         staticfiles.NewStaticByRoute(),
 		routeProxies:        make(map[string]*proxy.RouteProxy),
 		routeHandlers:     make(map[string]http.Handler),
 		watchCancels:      make(map[string]context.CancelFunc),
@@ -278,6 +287,9 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&proxyRateLimitFeature{g.proxyRateLimiters},
 		&mockFeature{g.mockHandlers},
 		&claimsPropFeature{g.claimsPropagators},
+		&backendAuthFeature{g.backendAuths},
+		&statusMapFeature{g.statusMappers},
+		&staticFeature{g.staticFiles},
 	}
 
 	// Initialize global IP filter
@@ -956,34 +968,46 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		chain = chain.Use(mockMW(mh))
 	}
 
+	skipBody := cfg.Passthrough
+
 	// 8. bodyLimitMW — MaxBodySize (Step 4.5)
-	if route.MaxBodySize > 0 {
+	if !skipBody && route.MaxBodySize > 0 {
 		chain = chain.Use(bodyLimitMW(route.MaxBodySize))
 	}
 
 	// 8.25 requestDecompressMW — decompress Content-Encoding (after body limit, before bandwidth)
-	if d := g.decompressors.GetDecompressor(routeID); d != nil && d.IsEnabled() {
-		chain = chain.Use(requestDecompressMW(d))
+	if !skipBody {
+		if d := g.decompressors.GetDecompressor(routeID); d != nil && d.IsEnabled() {
+			chain = chain.Use(requestDecompressMW(d))
+		}
 	}
 
 	// 8.5 bandwidthMW — wrap body + writer (after body limit, before validation)
-	if bw := g.bandwidthLimiters.GetLimiter(routeID); bw != nil {
-		chain = chain.Use(bandwidthMW(bw))
+	if !skipBody {
+		if bw := g.bandwidthLimiters.GetLimiter(routeID); bw != nil {
+			chain = chain.Use(bandwidthMW(bw))
+		}
 	}
 
 	// 9. validationMW — request validation (Step 4.6)
-	if v := g.validators.GetValidator(routeID); v != nil && v.IsEnabled() {
-		chain = chain.Use(validationMW(v))
+	if !skipBody {
+		if v := g.validators.GetValidator(routeID); v != nil && v.IsEnabled() {
+			chain = chain.Use(validationMW(v))
+		}
 	}
 
 	// 9.1. openapiRequestMW — OpenAPI request validation
-	if ov := g.openapiValidators.GetValidator(routeID); ov != nil {
-		chain = chain.Use(openapiRequestMW(ov))
+	if !skipBody {
+		if ov := g.openapiValidators.GetValidator(routeID); ov != nil {
+			chain = chain.Use(openapiRequestMW(ov))
+		}
 	}
 
 	// 9.5. graphqlMW — parse, validate depth/complexity, rate limit by operation
-	if gql := g.graphqlParsers.GetParser(routeID); gql != nil {
-		chain = chain.Use(gql.Middleware())
+	if !skipBody {
+		if gql := g.graphqlParsers.GetParser(routeID); gql != nil {
+			chain = chain.Use(gql.Middleware())
+		}
 	}
 
 	// 10. websocketMW — WS upgrade bypass (Step 5)
@@ -994,13 +1018,17 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 	}
 
 	// 11. cacheMW — HIT check + store (Steps 6+12)
-	if cacheHandler := g.caches.GetHandler(routeID); cacheHandler != nil {
-		chain = chain.Use(cacheMW(cacheHandler, g.metricsCollector, routeID))
+	if !skipBody {
+		if cacheHandler := g.caches.GetHandler(routeID); cacheHandler != nil {
+			chain = chain.Use(cacheMW(cacheHandler, g.metricsCollector, routeID))
+		}
 	}
 
 	// 11.5. coalesceMW — singleflight dedup (between cache and circuit breaker)
-	if c := g.coalescers.GetCoalescer(routeID); c != nil {
-		chain = chain.Use(coalesceMW(c))
+	if !skipBody {
+		if c := g.coalescers.GetCoalescer(routeID); c != nil {
+			chain = chain.Use(coalesceMW(c))
+		}
 	}
 
 	// 12. circuitBreakerMW — Allow + Done (Steps 7+11)
@@ -1025,13 +1053,17 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 	}
 
 	// 13. compressionMW — wrap writer (Step 8)
-	if compressor := g.compressors.GetCompressor(routeID); compressor != nil && compressor.IsEnabled() {
-		chain = chain.Use(compressionMW(compressor))
+	if !skipBody {
+		if compressor := g.compressors.GetCompressor(routeID); compressor != nil && compressor.IsEnabled() {
+			chain = chain.Use(compressionMW(compressor))
+		}
 	}
 
 	// 13.5. responseLimitMW — enforce max response body size from backend
-	if rl := g.responseLimiters.GetLimiter(routeID); rl != nil && rl.IsEnabled() {
-		chain = chain.Use(responseLimitMW(rl))
+	if !skipBody {
+		if rl := g.responseLimiters.GetLimiter(routeID); rl != nil && rl.IsEnabled() {
+			chain = chain.Use(responseLimitMW(rl))
+		}
 	}
 
 	// 14. responseRulesMW — wrap writer + eval (Steps 8.5+10.2)
@@ -1053,18 +1085,23 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		}
 	}
 
-	// Compile body transforms once
+	// Compile body transforms once (skip for passthrough routes)
 	var reqBodyTransform *transform.CompiledBodyTransform
-	if route.Transform.Request.Body.IsActive() {
+	if !skipBody && route.Transform.Request.Body.IsActive() {
 		reqBodyTransform, _ = transform.NewCompiledBodyTransform(route.Transform.Request.Body)
 	}
 	var respBodyTransform *transform.CompiledBodyTransform
-	if route.Transform.Response.Body.IsActive() {
+	if !skipBody && route.Transform.Response.Body.IsActive() {
 		respBodyTransform, _ = transform.NewCompiledBodyTransform(route.Transform.Response.Body)
 	}
 
 	// 16. requestTransformMW — headers + body + gRPC (Step 9)
 	chain = chain.Use(requestTransformMW(route, g.grpcHandlers[routeID], reqBodyTransform))
+
+	// 16.25. backendAuthMW — inject OAuth2 access token into backend requests
+	if ba := g.backendAuths.GetProvider(routeID); ba != nil {
+		chain = chain.Use(backendAuthMW(ba))
+	}
 
 	// 16.5. backendSigningMW — HMAC sign the final request
 	if signer := g.backendSigners.GetSigner(routeID); signer != nil {
@@ -1072,14 +1109,21 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 	}
 
 	// 17. responseBodyTransformMW — buffer + replay (Steps 9.5+10.1)
-	if respBodyTransform != nil {
+	if !skipBody && respBodyTransform != nil {
 		chain = chain.Use(transform.ResponseBodyTransformMiddleware(respBodyTransform))
 	}
 
-	// Innermost handler: echo, translator, or proxy (Step 10)
+	// 17.25. statusMapMW — remap backend response status codes
+	if sm := g.statusMappers.GetMapper(routeID); sm != nil {
+		chain = chain.Use(statusMapMW(sm))
+	}
+
+	// Innermost handler: echo, static, translator, or proxy (Step 10)
 	var innermost http.Handler
 	if cfg.Echo {
 		innermost = proxy.NewEchoHandler(routeID)
+	} else if sh := g.staticFiles.GetHandler(routeID); sh != nil {
+		innermost = sh
 	} else if translatorHandler := g.translators.GetHandler(routeID); translatorHandler != nil {
 		innermost = translatorHandler
 	} else {
@@ -1087,12 +1131,14 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 	}
 
 	// 17.5 responseValidationMW — validate raw backend response (closest to proxy)
-	respValidator := g.validators.GetValidator(routeID)
-	openapiV := g.openapiValidators.GetValidator(routeID)
-	hasRespValidation := (respValidator != nil && respValidator.HasResponseSchema()) ||
-		(openapiV != nil && openapiV.ValidatesResponse())
-	if hasRespValidation {
-		innermost = responseValidationMW(respValidator, openapiV)(innermost)
+	if !skipBody {
+		respValidator := g.validators.GetValidator(routeID)
+		openapiV := g.openapiValidators.GetValidator(routeID)
+		hasRespValidation := (respValidator != nil && respValidator.HasResponseSchema()) ||
+			(openapiV != nil && openapiV.ValidatesResponse())
+		if hasRespValidation {
+			innermost = responseValidationMW(respValidator, openapiV)(innermost)
+		}
 	}
 
 	return chain.Handler(innermost)
@@ -1681,6 +1727,21 @@ func (g *Gateway) GetClaimsPropagators() *claimsprop.ClaimsPropByRoute {
 // GetTokenChecker returns the token revocation checker (may be nil).
 func (g *Gateway) GetTokenChecker() *tokenrevoke.TokenChecker {
 	return g.tokenChecker
+}
+
+// GetBackendAuths returns the backend auth manager.
+func (g *Gateway) GetBackendAuths() *backendauth.BackendAuthByRoute {
+	return g.backendAuths
+}
+
+// GetStatusMappers returns the status mapping manager.
+func (g *Gateway) GetStatusMappers() *statusmap.StatusMapByRoute {
+	return g.statusMappers
+}
+
+// GetStaticFiles returns the static file manager.
+func (g *Gateway) GetStaticFiles() *staticfiles.StaticByRoute {
+	return g.staticFiles
 }
 
 // GetWebhookDispatcher returns the webhook dispatcher (may be nil).
