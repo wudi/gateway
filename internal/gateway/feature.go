@@ -11,6 +11,7 @@ import (
 	"github.com/wudi/gateway/internal/loadbalancer/outlier"
 	"github.com/wudi/gateway/internal/middleware/accesslog"
 	"github.com/wudi/gateway/internal/middleware/botdetect"
+	"github.com/wudi/gateway/internal/middleware/claimsprop"
 	"github.com/wudi/gateway/internal/middleware/compression"
 	"github.com/wudi/gateway/internal/middleware/cors"
 	"github.com/wudi/gateway/internal/middleware/csrf"
@@ -614,6 +615,19 @@ func (f *proxyRateLimitFeature) Setup(routeID string, cfg config.RouteConfig) er
 }
 func (f *proxyRateLimitFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *proxyRateLimitFeature) AdminStats() any    { return f.m.Stats() }
+
+// claimsPropFeature wraps ClaimsPropByRoute.
+type claimsPropFeature struct{ m *claimsprop.ClaimsPropByRoute }
+
+func (f *claimsPropFeature) Name() string { return "claims_propagation" }
+func (f *claimsPropFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.ClaimsPropagation.Enabled {
+		f.m.AddRoute(routeID, cfg.ClaimsPropagation)
+	}
+	return nil
+}
+func (f *claimsPropFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *claimsPropFeature) AdminStats() any    { return f.m.Stats() }
 
 // mockFeature wraps MockByRoute.
 type mockFeature struct{ m *mock.MockByRoute }

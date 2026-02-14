@@ -59,6 +59,9 @@ type Config struct {
 	Shutdown               ShutdownConfig               `yaml:"shutdown"`                 // Graceful shutdown settings
 	TrustedProxies         TrustedProxiesConfig         `yaml:"trusted_proxies"`          // Trusted proxy IP extraction
 	BotDetection           BotDetectionConfig           `yaml:"bot_detection"`            // Global bot detection
+	HTTPSRedirect          HTTPSRedirectConfig          `yaml:"https_redirect"`           // Automatic HTTP→HTTPS redirect
+	AllowedHosts           AllowedHostsConfig           `yaml:"allowed_hosts"`            // Host header validation
+	TokenRevocation        TokenRevocationConfig        `yaml:"token_revocation"`         // JWT token revocation / blocklist
 }
 
 // ListenerConfig defines a listener configuration
@@ -289,6 +292,7 @@ type RouteConfig struct {
 	BotDetection         BotDetectionConfig         `yaml:"bot_detection"`         // Per-route bot detection
 	ProxyRateLimit       ProxyRateLimitConfig       `yaml:"proxy_rate_limit"`      // Per-route backend rate limiting
 	MockResponse         MockResponseConfig         `yaml:"mock_response"`         // Per-route mock responses
+	ClaimsPropagation    ClaimsPropagationConfig    `yaml:"claims_propagation"`    // JWT claims propagation to backend headers
 	Echo                 bool                       `yaml:"echo"`                  // Echo handler (no backend needed)
 }
 
@@ -485,6 +489,32 @@ type MockResponseConfig struct {
 	StatusCode int               `yaml:"status_code"`
 	Headers    map[string]string `yaml:"headers"`
 	Body       string            `yaml:"body"`
+}
+
+// HTTPSRedirectConfig defines automatic HTTP→HTTPS redirect settings.
+type HTTPSRedirectConfig struct {
+	Enabled   bool `yaml:"enabled"`
+	Port      int  `yaml:"port"`      // target HTTPS port (default 443)
+	Permanent bool `yaml:"permanent"` // true=301, false=302 (default)
+}
+
+// AllowedHostsConfig defines Host header validation settings.
+type AllowedHostsConfig struct {
+	Enabled bool     `yaml:"enabled"`
+	Hosts   []string `yaml:"hosts"` // exact or "*.example.com" wildcard
+}
+
+// ClaimsPropagationConfig defines JWT claims propagation to backend headers.
+type ClaimsPropagationConfig struct {
+	Enabled bool              `yaml:"enabled"`
+	Claims  map[string]string `yaml:"claims"` // claim_name -> header_name
+}
+
+// TokenRevocationConfig defines JWT token revocation / blocklist settings.
+type TokenRevocationConfig struct {
+	Enabled    bool          `yaml:"enabled"`
+	Mode       string        `yaml:"mode"`        // "local" (default) or "distributed"
+	DefaultTTL time.Duration `yaml:"default_ttl"` // default 24h
 }
 
 // RewriteConfig defines URL rewriting rules for a route.

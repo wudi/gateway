@@ -1481,3 +1481,53 @@ Per-route `bot_detection` config overrides the global block when both are enable
 **Validation:** At least one `deny` pattern required when enabled. All patterns must be valid Go regexes.
 
 See [Bot Detection](bot-detection.md) for details.
+
+## HTTPS Redirect (global)
+
+```yaml
+https_redirect:
+  enabled: bool            # enable HTTP→HTTPS redirect (default false)
+  port: int                # target HTTPS port (default 443)
+  permanent: bool          # true=301, false=302 (default false)
+```
+
+**Validation:** `port` must be 0-65535 when set.
+
+See [Security](security.md#https-redirect) for details.
+
+## Allowed Hosts (global)
+
+```yaml
+allowed_hosts:
+  enabled: bool            # enable host validation (default false)
+  hosts: [string]          # exact or "*.example.com" wildcard hosts
+```
+
+**Validation:** At least one host required when enabled. No empty strings.
+
+See [Security](security.md#allowed-hosts) for details.
+
+## Token Revocation (global)
+
+```yaml
+token_revocation:
+  enabled: bool            # enable token revocation (default false)
+  mode: string             # "local" (default) or "distributed"
+  default_ttl: duration    # max revocation TTL (default 24h)
+```
+
+**Validation:** Mode must be `local` or `distributed`. Distributed mode requires `redis.address`.
+
+See [Authentication](authentication.md#token-revocation) for details.
+
+## Claims Propagation (per-route)
+
+```yaml
+claims_propagation:
+  enabled: bool                  # enable claims propagation (default false)
+  claims: map[string]string      # claim_name -> header_name
+```
+
+**Validation:** At least one claim mapping required when enabled. No empty claim names or header names.
+
+See [Authentication](authentication.md#claims-propagation) for details.

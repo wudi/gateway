@@ -471,3 +471,38 @@ routes:
 Per-route metrics (total requests served, header count) are available via the `/security-headers` admin endpoint.
 
 See [Configuration Reference](configuration-reference.md#security) for all fields.
+
+## HTTPS Redirect
+
+Automatically redirects HTTP requests to HTTPS. Runs in the global handler chain, before route matching.
+
+```yaml
+https_redirect:
+  enabled: true
+  port: 443            # target HTTPS port (default 443)
+  permanent: false     # true=301, false=302 (default false)
+```
+
+The middleware checks both `r.TLS` and the `X-Forwarded-Proto` header, so it works correctly behind TLS-terminating load balancers. When `port` is 443, the port is omitted from the redirect URL for cleaner URLs.
+
+Admin endpoint: `GET /https-redirect` returns redirect statistics.
+
+**Note:** HTTPS redirect is part of the global handler chain, which is not rebuilt on config reload. Changes to `https_redirect` require a gateway restart.
+
+## Allowed Hosts
+
+Validates the `Host` header against a whitelist. Rejects requests to unknown hosts with `421 Misdirected Request`.
+
+```yaml
+allowed_hosts:
+  enabled: true
+  hosts:
+    - "api.example.com"
+    - "*.internal.example.com"    # wildcard: matches any subdomain
+```
+
+Exact hosts use O(1) map lookups. Wildcard patterns (`*.example.com`) match any subdomain via suffix comparison. The port is stripped before matching.
+
+Admin endpoint: `GET /allowed-hosts` returns the host list and rejection count.
+
+**Note:** Like HTTPS redirect, allowed hosts is part of the global handler chain and requires a restart to change.

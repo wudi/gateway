@@ -185,6 +185,84 @@ routes:
 
 When `required: true` and no valid credential is provided, the gateway returns `401 Unauthorized`.
 
+## Claims Propagation
+
+Forward JWT claims as request headers to backend services. Configured per-route; runs after authentication succeeds.
+
+```yaml
+routes:
+  - id: my-route
+    path: /api/v1/*
+    auth:
+      required: true
+      methods: [jwt]
+    claims_propagation:
+      enabled: true
+      claims:
+        sub: "X-User-ID"
+        email: "X-User-Email"
+        org_id: "X-Org-ID"
+        user.role: "X-User-Role"     # dot notation for nested claims
+```
+
+Each entry maps a JWT claim name to a request header name. The gateway reads claims from the authenticated identity (populated by the auth middleware) and sets the corresponding headers before forwarding to the backend.
+
+- **Dot notation**: `user.role` extracts `claims["user"]["role"]` from nested claim objects
+- **Non-string values**: Automatically converted via `fmt.Sprintf("%v", val)`
+- **Missing claims**: Silently skipped (no error, no header set)
+- **No identity**: If the request has no authenticated identity, propagation is skipped entirely
+
+Admin endpoint: `GET /claims-propagation` returns per-route propagation statistics.
+
+## Token Revocation
+
+Blocklist revoked JWT tokens by JTI or token hash. Supports both in-memory and distributed (Redis) storage.
+
+```yaml
+token_revocation:
+  enabled: true
+  mode: local              # "local" (default) or "distributed"
+  default_ttl: 24h         # max time to keep revoked tokens (default 24h)
+```
+
+### How It Works
+
+1. After authentication, the gateway extracts the Bearer token from the `Authorization` header
+2. If the token has a `jti` claim, that value is used as the revocation key
+3. If no `jti`, the SHA256 hash of the full token is used (first 32 hex chars)
+4. The key is checked against the revocation store — if found, the request is rejected with `401 Unauthorized`
+
+Token revocation only applies to routes where `auth.required: true`.
+
+### Revoking Tokens via Admin API
+
+```bash
+# Revoke by full JWT token (extracts JTI automatically)
+curl -X POST http://localhost:8081/token-revocation/revoke \
+  -d '{"token":"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyLTEiLCJqdGkiOiJhYmMtMTIzIn0.sig"}'
+
+# Revoke by JTI directly (with custom TTL)
+curl -X POST http://localhost:8081/token-revocation/revoke \
+  -d '{"jti":"abc-123","ttl":"2h"}'
+
+# Unrevoke a token
+curl -X POST http://localhost:8081/token-revocation/unrevoke \
+  -d '{"jti":"abc-123"}'
+
+# Check revocation stats
+curl http://localhost:8081/token-revocation
+```
+
+### TTL Behavior
+
+- If the token has an `exp` claim, the revocation TTL is capped at `exp - now` (no point storing a revocation longer than the token lives)
+- Explicit TTL in the revoke request is also capped at `default_ttl`
+- If no TTL is specified, `default_ttl` is used
+
+### Distributed Mode
+
+With `mode: distributed`, the revocation store uses Redis (requires `redis.address` in config). This ensures revocations are shared across gateway instances. Redis keys are prefixed with `gw:revoked:` and use TTL-based expiration. The store fails open on Redis errors (allows the request through).
+
 ## Key Config Fields
 
 | Field | Type | Description |
@@ -196,5 +274,10 @@ When `required: true` and no valid credential is provided, the gateway returns `
 | `authentication.oauth.scopes` | []string | Required OAuth scopes |
 | `auth.required` | bool | Require auth on this route |
 | `auth.methods` | []string | Allowed methods: `jwt`, `api_key`, `oauth` |
+| `claims_propagation.enabled` | bool | Enable claims propagation (per-route) |
+| `claims_propagation.claims` | map | Claim-to-header mappings |
+| `token_revocation.enabled` | bool | Enable token revocation (global) |
+| `token_revocation.mode` | string | `local` or `distributed` |
+| `token_revocation.default_ttl` | duration | Max revocation TTL (default 24h) |
 
 See [Configuration Reference](configuration-reference.md#authentication) for all fields.

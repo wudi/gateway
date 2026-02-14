@@ -741,6 +741,59 @@ curl http://localhost:8081/webhooks
 }
 ```
 
+### GET `/https-redirect`
+
+Returns HTTPS redirect statistics. Returns `{"enabled": false}` when not configured.
+
+```bash
+curl http://localhost:8081/https-redirect
+```
+
+### GET `/allowed-hosts`
+
+Returns allowed hosts configuration and rejection count. Returns `{"enabled": false}` when not configured.
+
+```bash
+curl http://localhost:8081/allowed-hosts
+```
+
+### GET `/claims-propagation`
+
+Returns per-route claims propagation statistics.
+
+```bash
+curl http://localhost:8081/claims-propagation
+```
+
+### GET `/token-revocation`
+
+Returns token revocation statistics (checked, revoked, store size). Returns `{"enabled": false}` when not configured.
+
+```bash
+curl http://localhost:8081/token-revocation
+```
+
+### POST `/token-revocation/revoke`
+
+Adds a token or JTI to the revocation blocklist.
+
+```bash
+curl -X POST http://localhost:8081/token-revocation/revoke \
+  -d '{"token":"eyJ...","ttl":"2h"}'
+# or
+curl -X POST http://localhost:8081/token-revocation/revoke \
+  -d '{"jti":"abc-123","ttl":"1h"}'
+```
+
+### POST `/token-revocation/unrevoke`
+
+Removes a token or JTI from the revocation blocklist.
+
+```bash
+curl -X POST http://localhost:8081/token-revocation/unrevoke \
+  -d '{"jti":"abc-123"}'
+```
+
 ## Key Config Fields
 
 | Field | Type | Description |

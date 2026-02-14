@@ -24,15 +24,18 @@ import (
 	"github.com/wudi/gateway/internal/metrics"
 	"github.com/wudi/gateway/internal/middleware"
 	"github.com/wudi/gateway/internal/middleware/accesslog"
+	"github.com/wudi/gateway/internal/middleware/allowedhosts"
 	"github.com/wudi/gateway/internal/middleware/altsvc"
 	"github.com/wudi/gateway/internal/middleware/auth"
 	"github.com/wudi/gateway/internal/middleware/botdetect"
+	"github.com/wudi/gateway/internal/middleware/claimsprop"
 	"github.com/wudi/gateway/internal/middleware/compression"
 	"github.com/wudi/gateway/internal/middleware/cors"
 	"github.com/wudi/gateway/internal/middleware/decompress"
 	"github.com/wudi/gateway/internal/middleware/csrf"
 	"github.com/wudi/gateway/internal/middleware/errorpages"
 	"github.com/wudi/gateway/internal/middleware/extauth"
+	"github.com/wudi/gateway/internal/middleware/httpsredirect"
 	"github.com/wudi/gateway/internal/middleware/geo"
 	"github.com/wudi/gateway/internal/middleware/idempotency"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
@@ -48,6 +51,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/ratelimit"
 	"github.com/wudi/gateway/internal/middleware/responselimit"
 	"github.com/wudi/gateway/internal/middleware/timeout"
+	"github.com/wudi/gateway/internal/middleware/tokenrevoke"
 	"github.com/wudi/gateway/internal/middleware/transform"
 	"github.com/wudi/gateway/internal/middleware/validation"
 	"github.com/wudi/gateway/internal/middleware/versioning"
@@ -135,7 +139,11 @@ type Gateway struct {
 	botDetectors        *botdetect.BotDetectByRoute
 	proxyRateLimiters   *proxyratelimit.ProxyRateLimitByRoute
 	mockHandlers        *mock.MockByRoute
+	claimsPropagators   *claimsprop.ClaimsPropByRoute
 	realIPExtractor     *realip.CompiledRealIP
+	httpsRedirect       *httpsredirect.CompiledHTTPSRedirect
+	allowedHosts        *allowedhosts.CompiledAllowedHosts
+	tokenChecker        *tokenrevoke.TokenChecker
 	globalGeo         *geo.CompiledGeo
 	webhookDispatcher *webhook.Dispatcher
 	http3AltSvcPort   string // port for Alt-Svc header; empty = no HTTP/3
@@ -220,6 +228,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		botDetectors:        botdetect.NewBotDetectByRoute(),
 		proxyRateLimiters:   proxyratelimit.NewProxyRateLimitByRoute(),
 		mockHandlers:        mock.NewMockByRoute(),
+		claimsPropagators:   claimsprop.NewClaimsPropByRoute(),
 		routeProxies:        make(map[string]*proxy.RouteProxy),
 		routeHandlers:     make(map[string]http.Handler),
 		watchCancels:      make(map[string]context.CancelFunc),
@@ -268,6 +277,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&botDetectFeature{m: g.botDetectors, global: &cfg.BotDetection},
 		&proxyRateLimitFeature{g.proxyRateLimiters},
 		&mockFeature{g.mockHandlers},
+		&claimsPropFeature{g.claimsPropagators},
 	}
 
 	// Initialize global IP filter
@@ -329,6 +339,21 @@ func New(cfg *config.Config) (*Gateway, error) {
 			DialTimeout: cfg.Redis.DialTimeout,
 		})
 		g.caches.SetRedisClient(g.redisClient)
+	}
+
+	// Initialize HTTPS redirect
+	if cfg.HTTPSRedirect.Enabled {
+		g.httpsRedirect = httpsredirect.New(cfg.HTTPSRedirect)
+	}
+
+	// Initialize allowed hosts
+	if cfg.AllowedHosts.Enabled {
+		g.allowedHosts = allowedhosts.New(cfg.AllowedHosts)
+	}
+
+	// Initialize token revocation checker
+	if cfg.TokenRevocation.Enabled {
+		g.tokenChecker = tokenrevoke.New(cfg.TokenRevocation, g.redisClient)
 	}
 
 	// Detect HTTP/3 port for Alt-Svc header
@@ -871,6 +896,16 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		chain = chain.Use(authMW(g, route.Auth))
 	}
 
+	// 6.05 tokenRevokeMW — reject revoked JWT tokens (after auth, before claims prop)
+	if g.tokenChecker != nil && route.Auth.Required {
+		chain = chain.Use(tokenRevokeMW(g.tokenChecker))
+	}
+
+	// 6.15 claimsPropMW — propagate JWT claims as request headers (after auth, before extAuth)
+	if cp := g.claimsPropagators.GetPropagator(routeID); cp != nil {
+		chain = chain.Use(claimsPropMW(cp))
+	}
+
 	// 6.25 extAuthMW — external auth service (after built-in auth, before priority)
 	if ea := g.extAuths.GetAuth(routeID); ea != nil {
 		chain = chain.Use(extAuthMW(ea))
@@ -1225,6 +1260,16 @@ func (g *Gateway) Handler() http.Handler {
 		chain = chain.Use(g.realIPExtractor.Middleware)
 	}
 
+	// HTTPS redirect (after RealIP, before RequestID)
+	if g.httpsRedirect != nil {
+		chain = chain.Use(g.httpsRedirect.Middleware)
+	}
+
+	// Allowed hosts validation (after HTTPS redirect, before RequestID)
+	if g.allowedHosts != nil {
+		chain = chain.Use(g.allowedHosts.Middleware)
+	}
+
 	chain = chain.Use(middleware.RequestID())
 
 	// Alt-Svc: advertise HTTP/3 on HTTP/1+2 responses
@@ -1369,6 +1414,11 @@ func (g *Gateway) Close() error {
 
 	// Close idempotency handlers
 	g.idempotencyHandlers.CloseAll()
+
+	// Close token revocation checker
+	if g.tokenChecker != nil {
+		g.tokenChecker.Close()
+	}
 
 	// Close ext auth clients
 	g.extAuths.CloseAll()
@@ -1611,6 +1661,26 @@ func (g *Gateway) GetMockHandlers() *mock.MockByRoute {
 // GetRealIPExtractor returns the real IP extractor (may be nil).
 func (g *Gateway) GetRealIPExtractor() *realip.CompiledRealIP {
 	return g.realIPExtractor
+}
+
+// GetHTTPSRedirect returns the HTTPS redirect handler (may be nil).
+func (g *Gateway) GetHTTPSRedirect() *httpsredirect.CompiledHTTPSRedirect {
+	return g.httpsRedirect
+}
+
+// GetAllowedHosts returns the allowed hosts handler (may be nil).
+func (g *Gateway) GetAllowedHosts() *allowedhosts.CompiledAllowedHosts {
+	return g.allowedHosts
+}
+
+// GetClaimsPropagators returns the claims propagation manager.
+func (g *Gateway) GetClaimsPropagators() *claimsprop.ClaimsPropByRoute {
+	return g.claimsPropagators
+}
+
+// GetTokenChecker returns the token revocation checker (may be nil).
+func (g *Gateway) GetTokenChecker() *tokenrevoke.TokenChecker {
+	return g.tokenChecker
 }
 
 // GetWebhookDispatcher returns the webhook dispatcher (may be nil).

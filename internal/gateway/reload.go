@@ -28,6 +28,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/nonce"
 	"github.com/wudi/gateway/internal/middleware/decompress"
 	"github.com/wudi/gateway/internal/middleware/botdetect"
+	"github.com/wudi/gateway/internal/middleware/claimsprop"
 	"github.com/wudi/gateway/internal/middleware/maintenance"
 	"github.com/wudi/gateway/internal/middleware/mock"
 	"github.com/wudi/gateway/internal/middleware/proxyratelimit"
@@ -38,6 +39,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/ratelimit"
 	"github.com/wudi/gateway/internal/middleware/responselimit"
 	"github.com/wudi/gateway/internal/middleware/timeout"
+	"github.com/wudi/gateway/internal/middleware/tokenrevoke"
 	"github.com/wudi/gateway/internal/middleware/validation"
 	"github.com/wudi/gateway/internal/middleware/versioning"
 	"github.com/wudi/gateway/internal/middleware/waf"
@@ -110,7 +112,9 @@ type gatewayState struct {
 	botDetectors        *botdetect.BotDetectByRoute
 	proxyRateLimiters   *proxyratelimit.ProxyRateLimitByRoute
 	mockHandlers        *mock.MockByRoute
+	claimsPropagators   *claimsprop.ClaimsPropByRoute
 	realIPExtractor     *realip.CompiledRealIP
+	tokenChecker        *tokenrevoke.TokenChecker
 	outlierDetectors    *outlier.DetectorByRoute
 	translators       *protocol.TranslatorByRoute
 	rateLimiters      *ratelimit.RateLimitByRoute
@@ -166,6 +170,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		botDetectors:        botdetect.NewBotDetectByRoute(),
 		proxyRateLimiters:   proxyratelimit.NewProxyRateLimitByRoute(),
 		mockHandlers:        mock.NewMockByRoute(),
+		claimsPropagators:   claimsprop.NewClaimsPropByRoute(),
 		outlierDetectors:    outlier.NewDetectorByRoute(),
 		translators:       protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
@@ -214,6 +219,12 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		&botDetectFeature{m: s.botDetectors, global: &cfg.BotDetection},
 		&proxyRateLimitFeature{s.proxyRateLimiters},
 		&mockFeature{s.mockHandlers},
+		&claimsPropFeature{s.claimsPropagators},
+	}
+
+	// Initialize token revocation checker
+	if cfg.TokenRevocation.Enabled {
+		s.tokenChecker = tokenrevoke.New(cfg.TokenRevocation, g.redisClient)
 	}
 
 	// Wire webhook callbacks on new state's managers
@@ -601,7 +612,9 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldBotDetectors := g.botDetectors
 	oldProxyRateLimiters := g.proxyRateLimiters
 	oldMockHandlers := g.mockHandlers
+	oldClaimsPropagators := g.claimsPropagators
 	oldRealIPExtractor := g.realIPExtractor
+	oldTokenChecker := g.tokenChecker
 
 	// Install new state
 	g.ipFilters = s.ipFilters
@@ -644,7 +657,9 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.botDetectors = s.botDetectors
 	g.proxyRateLimiters = s.proxyRateLimiters
 	g.mockHandlers = s.mockHandlers
+	g.claimsPropagators = s.claimsPropagators
 	g.realIPExtractor = s.realIPExtractor
+	g.tokenChecker = s.tokenChecker
 
 	handler := g.buildRouteHandler(routeID, cfg, route, rp)
 
@@ -689,7 +704,9 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.botDetectors = oldBotDetectors
 	g.proxyRateLimiters = oldProxyRateLimiters
 	g.mockHandlers = oldMockHandlers
+	g.claimsPropagators = oldClaimsPropagators
 	g.realIPExtractor = oldRealIPExtractor
+	g.tokenChecker = oldTokenChecker
 
 	return handler
 }
@@ -728,6 +745,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	oldOutlierDetectors := g.outlierDetectors
 	oldIdempotencyHandlers := g.idempotencyHandlers
 	oldBackendSigners := g.backendSigners
+	oldTokenChecker := g.tokenChecker
 
 	// Swap all state under write lock
 	g.mu.Lock()
@@ -775,7 +793,9 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.botDetectors = newState.botDetectors
 	g.proxyRateLimiters = newState.proxyRateLimiters
 	g.mockHandlers = newState.mockHandlers
+	g.claimsPropagators = newState.claimsPropagators
 	g.realIPExtractor = newState.realIPExtractor
+	g.tokenChecker = newState.tokenChecker
 	g.translators = newState.translators
 	g.rateLimiters = newState.rateLimiters
 	g.grpcHandlers = newState.grpcHandlers
@@ -796,6 +816,9 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	oldOutlierDetectors.StopAll()
 	oldIdempotencyHandlers.CloseAll()
 	_ = oldBackendSigners // no cleanup needed (stateless)
+	if oldTokenChecker != nil {
+		oldTokenChecker.Close()
+	}
 	if oldJWT != nil {
 		oldJWT.Close()
 	}

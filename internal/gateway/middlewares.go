@@ -23,6 +23,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware"
 	"github.com/wudi/gateway/internal/middleware/accesslog"
 	"github.com/wudi/gateway/internal/middleware/botdetect"
+	"github.com/wudi/gateway/internal/middleware/claimsprop"
 	"github.com/wudi/gateway/internal/middleware/compression"
 	"github.com/wudi/gateway/internal/middleware/cors"
 	"github.com/wudi/gateway/internal/middleware/csrf"
@@ -42,6 +43,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/ratelimit"
 	"github.com/wudi/gateway/internal/middleware/responselimit"
 	"github.com/wudi/gateway/internal/middleware/timeout"
+	"github.com/wudi/gateway/internal/middleware/tokenrevoke"
 	"github.com/wudi/gateway/internal/middleware/transform"
 	"github.com/wudi/gateway/internal/middleware/validation"
 	"github.com/wudi/gateway/internal/middleware/versioning"
@@ -1053,6 +1055,29 @@ func proxyRateLimitMW(pl *proxyratelimit.ProxyLimiter) middleware.Middleware {
 // mockMW returns a static response without calling the backend.
 func mockMW(mh *mock.MockHandler) middleware.Middleware {
 	return mh.Middleware()
+}
+
+// claimsPropMW propagates JWT claims as request headers to backends.
+func claimsPropMW(cp *claimsprop.ClaimsPropagator) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			cp.Apply(r)
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// tokenRevokeMW rejects requests with revoked JWT tokens.
+func tokenRevokeMW(tc *tokenrevoke.TokenChecker) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !tc.Check(r) {
+				errors.New(http.StatusUnauthorized, "Token has been revoked").WriteJSON(w)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // routeMatchKey is the context key for storing the route match.

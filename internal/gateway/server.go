@@ -567,6 +567,19 @@ func (s *Server) adminHandler() http.Handler {
 	mux.HandleFunc("/canary", s.handleCanary)
 	mux.HandleFunc("/canary/", s.handleCanaryAction)
 
+	// HTTPS redirect
+	mux.HandleFunc("/https-redirect", s.handleHTTPSRedirect)
+
+	// Allowed hosts
+	mux.HandleFunc("/allowed-hosts", s.handleAllowedHosts)
+
+	// Claims propagation
+	mux.HandleFunc("/claims-propagation", s.handleClaimsPropagation)
+
+	// Token revocation
+	mux.HandleFunc("/token-revocation", s.handleTokenRevocation)
+	mux.HandleFunc("/token-revocation/", s.handleTokenRevocationAction)
+
 	// Aggregated dashboard
 	mux.HandleFunc("/dashboard", s.handleDashboard)
 
@@ -1420,6 +1433,120 @@ func (s *Server) handleTrustedProxies(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(extractor.Stats())
 	} else {
 		json.NewEncoder(w).Encode(map[string]interface{}{"enabled": false})
+	}
+}
+
+// handleHTTPSRedirect handles HTTPS redirect stats requests.
+func (s *Server) handleHTTPSRedirect(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	redir := s.gateway.GetHTTPSRedirect()
+	if redir != nil {
+		json.NewEncoder(w).Encode(redir.Stats())
+	} else {
+		json.NewEncoder(w).Encode(map[string]interface{}{"enabled": false})
+	}
+}
+
+// handleAllowedHosts handles allowed hosts stats requests.
+func (s *Server) handleAllowedHosts(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	ah := s.gateway.GetAllowedHosts()
+	if ah != nil {
+		json.NewEncoder(w).Encode(ah.Stats())
+	} else {
+		json.NewEncoder(w).Encode(map[string]interface{}{"enabled": false})
+	}
+}
+
+// handleClaimsPropagation handles claims propagation stats requests.
+func (s *Server) handleClaimsPropagation(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetClaimsPropagators().Stats())
+}
+
+// handleTokenRevocation handles token revocation stats requests.
+func (s *Server) handleTokenRevocation(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	tc := s.gateway.GetTokenChecker()
+	if tc != nil {
+		json.NewEncoder(w).Encode(tc.Stats())
+	} else {
+		json.NewEncoder(w).Encode(map[string]interface{}{"enabled": false})
+	}
+}
+
+// handleTokenRevocationAction handles revoke/unrevoke API actions.
+func (s *Server) handleTokenRevocationAction(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	tc := s.gateway.GetTokenChecker()
+	if tc == nil {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "token revocation not enabled"})
+		return
+	}
+
+	// Parse action from path: /token-revocation/revoke or /token-revocation/unrevoke
+	path := strings.TrimPrefix(r.URL.Path, "/token-revocation/")
+	action := strings.TrimSuffix(path, "/")
+
+	var body struct {
+		Token string `json:"token"`
+		JTI   string `json:"jti"`
+		TTL   string `json:"ttl"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid JSON body"})
+		return
+	}
+
+	tokenOrJTI := body.Token
+	if tokenOrJTI == "" {
+		tokenOrJTI = body.JTI
+	}
+	if tokenOrJTI == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "token or jti is required"})
+		return
+	}
+
+	switch action {
+	case "revoke":
+		var ttl time.Duration
+		if body.TTL != "" {
+			var err error
+			ttl, err = time.ParseDuration(body.TTL)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": "invalid ttl: " + err.Error()})
+				return
+			}
+		}
+		if err := tc.Revoke(tokenOrJTI, ttl); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "revoked"})
+
+	case "unrevoke":
+		if err := tc.Unrevoke(tokenOrJTI); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "unrevoked"})
+
+	default:
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("unknown action %q (valid: revoke, unrevoke)", action)})
 	}
 }
 

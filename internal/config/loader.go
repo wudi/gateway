@@ -1151,6 +1151,56 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate HTTPS redirect
+	if cfg.HTTPSRedirect.Enabled {
+		if cfg.HTTPSRedirect.Port < 0 || cfg.HTTPSRedirect.Port > 65535 {
+			return fmt.Errorf("https_redirect: port must be 0-65535")
+		}
+	}
+
+	// Validate allowed hosts
+	if cfg.AllowedHosts.Enabled {
+		if len(cfg.AllowedHosts.Hosts) == 0 {
+			return fmt.Errorf("allowed_hosts: at least one host is required when enabled")
+		}
+		for i, h := range cfg.AllowedHosts.Hosts {
+			if h == "" {
+				return fmt.Errorf("allowed_hosts: host at index %d is empty", i)
+			}
+		}
+	}
+
+	// Validate claims propagation (per-route)
+	for _, route := range cfg.Routes {
+		if route.ClaimsPropagation.Enabled {
+			if len(route.ClaimsPropagation.Claims) == 0 {
+				return fmt.Errorf("route %s: claims_propagation: at least one claim mapping is required when enabled", route.ID)
+			}
+			for claimName, headerName := range route.ClaimsPropagation.Claims {
+				if claimName == "" {
+					return fmt.Errorf("route %s: claims_propagation: empty claim name", route.ID)
+				}
+				if headerName == "" {
+					return fmt.Errorf("route %s: claims_propagation: empty header name for claim %q", route.ID, claimName)
+				}
+			}
+		}
+	}
+
+	// Validate token revocation
+	if cfg.TokenRevocation.Enabled {
+		switch cfg.TokenRevocation.Mode {
+		case "", "local":
+			// valid
+		case "distributed":
+			if cfg.Redis.Address == "" {
+				return fmt.Errorf("token_revocation: distributed mode requires redis configuration")
+			}
+		default:
+			return fmt.Errorf("token_revocation: mode must be \"local\" or \"distributed\", got %q", cfg.TokenRevocation.Mode)
+		}
+	}
+
 	// Validate webhooks
 	if cfg.Webhooks.Enabled {
 		if len(cfg.Webhooks.Endpoints) == 0 {
