@@ -22,6 +22,7 @@ import (
 	"github.com/wudi/gateway/internal/metrics"
 	"github.com/wudi/gateway/internal/middleware"
 	"github.com/wudi/gateway/internal/middleware/accesslog"
+	"github.com/wudi/gateway/internal/middleware/botdetect"
 	"github.com/wudi/gateway/internal/middleware/compression"
 	"github.com/wudi/gateway/internal/middleware/cors"
 	"github.com/wudi/gateway/internal/middleware/csrf"
@@ -30,9 +31,11 @@ import (
 	"github.com/wudi/gateway/internal/middleware/extauth"
 	"github.com/wudi/gateway/internal/middleware/geo"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
+	"github.com/wudi/gateway/internal/middleware/mock"
 	"github.com/wudi/gateway/internal/middleware/nonce"
 	"github.com/wudi/gateway/internal/middleware/decompress"
 	"github.com/wudi/gateway/internal/middleware/maintenance"
+	"github.com/wudi/gateway/internal/middleware/proxyratelimit"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/signing"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
@@ -1035,6 +1038,21 @@ func backendSigningMW(signer *signing.CompiledSigner) middleware.Middleware {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// botDetectMW blocks requests from denied User-Agent patterns.
+func botDetectMW(bd *botdetect.BotDetector) middleware.Middleware {
+	return bd.Middleware()
+}
+
+// proxyRateLimitMW limits outbound requests per route to protect backends.
+func proxyRateLimitMW(pl *proxyratelimit.ProxyLimiter) middleware.Middleware {
+	return pl.Middleware()
+}
+
+// mockMW returns a static response without calling the backend.
+func mockMW(mh *mock.MockHandler) middleware.Middleware {
+	return mh.Middleware()
 }
 
 // routeMatchKey is the context key for storing the route match.

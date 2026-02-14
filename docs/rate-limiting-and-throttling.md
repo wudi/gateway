@@ -72,6 +72,61 @@ routes:
 
 Distributed mode uses Lua-scripted sorted set operations for atomicity. If Redis is unreachable, the limiter fails open (allows requests).
 
+### Custom Rate Limit Keys
+
+By default, the rate limiter keys on authenticated client ID (falling back to client IP). The `key` field allows rate limiting by a custom identifier extracted from the request.
+
+**Rate limit by request header:**
+
+```yaml
+routes:
+  - id: "api"
+    path: "/api"
+    path_prefix: true
+    backends:
+      - url: "http://backend:9000"
+    rate_limit:
+      enabled: true
+      rate: 100
+      period: 1m
+      key: "header:X-Tenant-ID"
+```
+
+**Rate limit by cookie:**
+
+```yaml
+    rate_limit:
+      enabled: true
+      rate: 50
+      period: 1m
+      key: "cookie:session"
+```
+
+**Rate limit by JWT claim:**
+
+```yaml
+    rate_limit:
+      enabled: true
+      rate: 100
+      period: 1m
+      key: "jwt_claim:sub"
+```
+
+**Supported key values:**
+
+| Key | Description |
+|-----|-------------|
+| `""` (empty) | Default: authenticated client ID if available, else client IP |
+| `"ip"` | Always use client IP (equivalent to `per_ip: true`) |
+| `"client_id"` | Explicitly use authenticated client ID |
+| `"header:<name>"` | Use value of the named request header |
+| `"cookie:<name>"` | Use value of the named cookie |
+| `"jwt_claim:<name>"` | Use value of a JWT claim from auth context |
+
+All key strategies fall back to client IP when the specified value is absent (e.g., header missing, cookie absent, no JWT claim). This prevents unauthenticated requests from sharing a single empty-key bucket.
+
+**Validation:** `key` and `per_ip` are mutually exclusive. The `key` value must match one of the supported prefixes.
+
 ## Throttle
 
 Throttling queues excess requests instead of rejecting them. Requests wait in a token bucket queue until capacity is available, or are rejected with `503` if the wait exceeds `max_wait`.
@@ -189,6 +244,68 @@ routes:
 
 Abort is evaluated first — if a request is aborted, the delay is skipped. Both use independent random rolls, so a request could theoretically match both (abort takes precedence).
 
+## Tiered Rate Limits
+
+Tiered rate limiting applies different rate limits based on a request attribute (e.g., subscription plan). Each tier has independent rate/period/burst settings.
+
+```yaml
+routes:
+  - id: "api"
+    path: "/api"
+    path_prefix: true
+    backends:
+      - url: "http://backend:9000"
+    rate_limit:
+      tier_key: "header:X-Plan"      # extract tier from request header
+      default_tier: "free"           # fallback when tier not found
+      key: "header:X-API-Key"       # per-client key within each tier
+      tiers:
+        free:
+          rate: 10
+          period: 1m
+          burst: 5
+        pro:
+          rate: 100
+          period: 1m
+          burst: 20
+        enterprise:
+          rate: 1000
+          period: 1m
+          burst: 100
+```
+
+**Supported tier_key values:** `header:<name>`, `jwt_claim:<name>`.
+
+**Validation:**
+- `tiers` and top-level `rate`/`period` are mutually exclusive
+- `default_tier` must exist in the `tiers` map
+- `tier_key` is required when tiers are configured
+- Each tier must have `rate > 0`
+
+The `X-RateLimit-Tier` response header indicates which tier was applied.
+
+## Proxy Rate Limiting (Backend Protection)
+
+Proxy rate limiting protects backends by limiting outbound request rate per route. This is separate from client-side rate limiting — it limits how fast the gateway sends requests to backends, regardless of how many clients are requesting.
+
+```yaml
+routes:
+  - id: "api"
+    path: "/api"
+    path_prefix: true
+    backends:
+      - url: "http://backend:9000"
+    proxy_rate_limit:
+      enabled: true
+      rate: 500       # max requests per period to backend
+      period: 1s
+      burst: 50       # token bucket burst capacity
+```
+
+When the limit is exceeded, the gateway returns `503 Service Unavailable` with a `Retry-After` header. The default period is 1 second if not specified. Burst defaults to `rate` if not set.
+
+**Admin endpoint:** `GET /proxy-rate-limits` returns allowed/rejected counts per route.
+
 ## Key Config Fields
 
 | Field | Type | Description |
@@ -196,6 +313,13 @@ Abort is evaluated first — if a request is aborted, the delay is skipped. Both
 | `rate_limit.mode` | string | `local` (default) or `distributed` |
 | `rate_limit.algorithm` | string | `token_bucket` (default) or `sliding_window` |
 | `rate_limit.per_ip` | bool | Per-IP or per-route limiting |
+| `rate_limit.key` | string | Custom key extraction (e.g., `header:X-Tenant-ID`) |
+| `rate_limit.tiers` | map | Per-tier rate limit configs (mutually exclusive with `rate`) |
+| `rate_limit.tier_key` | string | Tier extraction (e.g., `header:X-Plan`, `jwt_claim:tier`) |
+| `rate_limit.default_tier` | string | Fallback tier when tier not found in request |
+| `proxy_rate_limit.rate` | int | Backend requests per period |
+| `proxy_rate_limit.period` | duration | Rate limit window (default 1s) |
+| `proxy_rate_limit.burst` | int | Token bucket burst capacity |
 | `traffic_shaping.throttle.rate` | int | Tokens per second |
 | `traffic_shaping.throttle.max_wait` | duration | Max queue time before 503 |
 | `traffic_shaping.bandwidth.request_rate` | int64 | Upload bytes/sec (0 = unlimited) |

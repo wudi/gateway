@@ -10,6 +10,7 @@ import (
 	"github.com/wudi/gateway/internal/graphql"
 	"github.com/wudi/gateway/internal/loadbalancer/outlier"
 	"github.com/wudi/gateway/internal/middleware/accesslog"
+	"github.com/wudi/gateway/internal/middleware/botdetect"
 	"github.com/wudi/gateway/internal/middleware/compression"
 	"github.com/wudi/gateway/internal/middleware/cors"
 	"github.com/wudi/gateway/internal/middleware/csrf"
@@ -19,6 +20,8 @@ import (
 	"github.com/wudi/gateway/internal/middleware/idempotency"
 	"github.com/wudi/gateway/internal/middleware/decompress"
 	"github.com/wudi/gateway/internal/middleware/maintenance"
+	"github.com/wudi/gateway/internal/middleware/mock"
+	"github.com/wudi/gateway/internal/middleware/proxyratelimit"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/signing"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
@@ -578,3 +581,49 @@ func (f *signingFeature) Setup(routeID string, cfg config.RouteConfig) error {
 }
 func (f *signingFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *signingFeature) AdminStats() any    { return f.m.Stats() }
+
+// botDetectFeature wraps BotDetectByRoute.
+type botDetectFeature struct {
+	m      *botdetect.BotDetectByRoute
+	global *config.BotDetectionConfig
+}
+
+func (f *botDetectFeature) Name() string { return "bot_detection" }
+func (f *botDetectFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.BotDetection.Enabled {
+		merged := botdetect.MergeBotDetectionConfig(cfg.BotDetection, *f.global)
+		return f.m.AddRoute(routeID, merged)
+	}
+	if f.global.Enabled {
+		return f.m.AddRoute(routeID, *f.global)
+	}
+	return nil
+}
+func (f *botDetectFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *botDetectFeature) AdminStats() any    { return f.m.Stats() }
+
+// proxyRateLimitFeature wraps ProxyRateLimitByRoute.
+type proxyRateLimitFeature struct{ m *proxyratelimit.ProxyRateLimitByRoute }
+
+func (f *proxyRateLimitFeature) Name() string { return "proxy_rate_limit" }
+func (f *proxyRateLimitFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.ProxyRateLimit.Enabled {
+		f.m.AddRoute(routeID, cfg.ProxyRateLimit)
+	}
+	return nil
+}
+func (f *proxyRateLimitFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *proxyRateLimitFeature) AdminStats() any    { return f.m.Stats() }
+
+// mockFeature wraps MockByRoute.
+type mockFeature struct{ m *mock.MockByRoute }
+
+func (f *mockFeature) Name() string { return "mock_response" }
+func (f *mockFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.MockResponse.Enabled {
+		f.m.AddRoute(routeID, cfg.MockResponse)
+	}
+	return nil
+}
+func (f *mockFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *mockFeature) AdminStats() any    { return f.m.Stats() }

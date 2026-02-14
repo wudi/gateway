@@ -130,7 +130,7 @@ func NewSlidingWindowLimiter(cfg Config) *SlidingWindowLimiter {
 	return &SlidingWindowLimiter{
 		sw:    NewSlidingWindowCounter(cfg),
 		perIP: cfg.PerIP,
-		keyFn: defaultKeyFunc(cfg.PerIP),
+		keyFn: BuildKeyFunc(cfg.PerIP, cfg.Key),
 	}
 }
 

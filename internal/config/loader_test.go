@@ -3920,3 +3920,653 @@ routes:
 		})
 	}
 }
+
+func TestLoaderValidateRateLimitKey(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid header key",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    rate_limit:
+      enabled: true
+      rate: 100
+      period: 1m
+      key: "header:X-Tenant-ID"
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid cookie key",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    rate_limit:
+      enabled: true
+      rate: 100
+      period: 1m
+      key: "cookie:session"
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid jwt_claim key",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    rate_limit:
+      enabled: true
+      rate: 100
+      period: 1m
+      key: "jwt_claim:sub"
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid ip key",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    rate_limit:
+      enabled: true
+      rate: 100
+      period: 1m
+      key: "ip"
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid client_id key",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    rate_limit:
+      enabled: true
+      rate: 100
+      period: 1m
+      key: "client_id"
+`,
+			wantErr: false,
+		},
+		{
+			name: "key and per_ip mutually exclusive",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    rate_limit:
+      enabled: true
+      rate: 100
+      period: 1m
+      key: "header:X-Tenant-ID"
+      per_ip: true
+`,
+			wantErr: true,
+			errMsg:  "mutually exclusive",
+		},
+		{
+			name: "invalid key prefix",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    rate_limit:
+      enabled: true
+      rate: 100
+      period: 1m
+      key: "query:user_id"
+`,
+			wantErr: true,
+			errMsg:  "invalid rate_limit.key",
+		},
+		{
+			name: "header key with empty name",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    rate_limit:
+      enabled: true
+      rate: 100
+      period: 1m
+      key: "header:"
+`,
+			wantErr: true,
+			errMsg:  "non-empty header name",
+		},
+		{
+			name: "cookie key with empty name",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    rate_limit:
+      enabled: true
+      rate: 100
+      period: 1m
+      key: "cookie:"
+`,
+			wantErr: true,
+			errMsg:  "non-empty cookie name",
+		},
+		{
+			name: "jwt_claim key with empty name",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    rate_limit:
+      enabled: true
+      rate: 100
+      period: 1m
+      key: "jwt_claim:"
+`,
+			wantErr: true,
+			errMsg:  "non-empty claim name",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+			if tt.wantErr && err != nil && tt.errMsg != "" {
+				if !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("error %q should contain %q", err.Error(), tt.errMsg)
+				}
+			}
+		})
+	}
+}
+
+func TestLoaderValidateBotDetection(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid bot detection",
+			yaml: `
+listeners:
+  - id: http
+    address: ":8080"
+    protocol: http
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    bot_detection:
+      enabled: true
+      deny: ["(?i)googlebot"]
+`,
+			wantErr: false,
+		},
+		{
+			name: "invalid regex in deny",
+			yaml: `
+listeners:
+  - id: http
+    address: ":8080"
+    protocol: http
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    bot_detection:
+      enabled: true
+      deny: ["[invalid"]
+`,
+			wantErr: true,
+			errMsg:  "invalid regex",
+		},
+		{
+			name: "empty deny list",
+			yaml: `
+listeners:
+  - id: http
+    address: ":8080"
+    protocol: http
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    bot_detection:
+      enabled: true
+`,
+			wantErr: true,
+			errMsg:  "requires at least one pattern",
+		},
+		{
+			name: "global bot detection",
+			yaml: `
+listeners:
+  - id: http
+    address: ":8080"
+    protocol: http
+bot_detection:
+  enabled: true
+  deny: ["bot"]
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+`,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+			if tt.wantErr && err != nil && tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+				t.Errorf("error %q should contain %q", err.Error(), tt.errMsg)
+			}
+		})
+	}
+}
+
+func TestLoaderValidateProxyRateLimit(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid proxy rate limit",
+			yaml: `
+listeners:
+  - id: http
+    address: ":8080"
+    protocol: http
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    proxy_rate_limit:
+      enabled: true
+      rate: 100
+      period: 1s
+`,
+			wantErr: false,
+		},
+		{
+			name: "invalid rate zero",
+			yaml: `
+listeners:
+  - id: http
+    address: ":8080"
+    protocol: http
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    proxy_rate_limit:
+      enabled: true
+      rate: 0
+`,
+			wantErr: true,
+			errMsg:  "proxy_rate_limit.rate must be > 0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+			if tt.wantErr && err != nil && tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+				t.Errorf("error %q should contain %q", err.Error(), tt.errMsg)
+			}
+		})
+	}
+}
+
+func TestLoaderValidateMockResponse(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid mock response",
+			yaml: `
+listeners:
+  - id: http
+    address: ":8080"
+    protocol: http
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    mock_response:
+      enabled: true
+      status_code: 200
+      body: '{"test": true}'
+`,
+			wantErr: false,
+		},
+		{
+			name: "invalid status code",
+			yaml: `
+listeners:
+  - id: http
+    address: ":8080"
+    protocol: http
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    mock_response:
+      enabled: true
+      status_code: 999
+`,
+			wantErr: true,
+			errMsg:  "mock_response.status_code must be 100-599",
+		},
+		{
+			name: "echo and mock mutually exclusive",
+			yaml: `
+listeners:
+  - id: http
+    address: ":8080"
+    protocol: http
+routes:
+  - id: test
+    path: /test
+    echo: true
+    mock_response:
+      enabled: true
+`,
+			wantErr: true,
+			errMsg:  "echo is mutually exclusive with mock_response",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+			if tt.wantErr && err != nil && tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+				t.Errorf("error %q should contain %q", err.Error(), tt.errMsg)
+			}
+		})
+	}
+}
+
+func TestLoaderValidateTieredRateLimits(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid tiered rate limits",
+			yaml: `
+listeners:
+  - id: http
+    address: ":8080"
+    protocol: http
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    rate_limit:
+      enabled: true
+      tier_key: "header:X-Tier"
+      default_tier: free
+      tiers:
+        free:
+          rate: 10
+          period: 1s
+        premium:
+          rate: 100
+          period: 1s
+`,
+			wantErr: false,
+		},
+		{
+			name: "tiers and rate mutually exclusive",
+			yaml: `
+listeners:
+  - id: http
+    address: ":8080"
+    protocol: http
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    rate_limit:
+      enabled: true
+      rate: 10
+      tiers:
+        free:
+          rate: 10
+          period: 1s
+      default_tier: free
+      tier_key: "header:X-Tier"
+`,
+			wantErr: true,
+			errMsg:  "tiers and rate_limit.rate are mutually exclusive",
+		},
+		{
+			name: "default tier missing from tiers",
+			yaml: `
+listeners:
+  - id: http
+    address: ":8080"
+    protocol: http
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    rate_limit:
+      enabled: true
+      tier_key: "header:X-Tier"
+      default_tier: nonexistent
+      tiers:
+        free:
+          rate: 10
+          period: 1s
+`,
+			wantErr: true,
+			errMsg:  "must exist in tiers",
+		},
+		{
+			name: "tier_key missing",
+			yaml: `
+listeners:
+  - id: http
+    address: ":8080"
+    protocol: http
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    rate_limit:
+      enabled: true
+      default_tier: free
+      tiers:
+        free:
+          rate: 10
+          period: 1s
+`,
+			wantErr: true,
+			errMsg:  "tier_key is required",
+		},
+		{
+			name: "invalid tier_key prefix",
+			yaml: `
+listeners:
+  - id: http
+    address: ":8080"
+    protocol: http
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    rate_limit:
+      enabled: true
+      tier_key: "cookie:tier"
+      default_tier: free
+      tiers:
+        free:
+          rate: 10
+          period: 1s
+`,
+			wantErr: true,
+			errMsg:  "tier_key must be",
+		},
+		{
+			name: "tier with zero rate",
+			yaml: `
+listeners:
+  - id: http
+    address: ":8080"
+    protocol: http
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    rate_limit:
+      enabled: true
+      tier_key: "header:X-Tier"
+      default_tier: free
+      tiers:
+        free:
+          rate: 0
+          period: 1s
+`,
+			wantErr: true,
+			errMsg:  "rate must be > 0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+			if tt.wantErr && err != nil && tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+				t.Errorf("error %q should contain %q", err.Error(), tt.errMsg)
+			}
+		})
+	}
+}

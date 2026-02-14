@@ -539,6 +539,15 @@ func (s *Server) adminHandler() http.Handler {
 	mux.HandleFunc("/maintenance", s.handleMaintenance)
 	mux.HandleFunc("/maintenance/", s.handleMaintenanceAction)
 
+	// Bot detection
+	mux.HandleFunc("/bot-detection", s.handleBotDetection)
+
+	// Proxy rate limits
+	mux.HandleFunc("/proxy-rate-limits", s.handleProxyRateLimits)
+
+	// Mock responses
+	mux.HandleFunc("/mock-responses", s.handleMockResponses)
+
 	// Trusted proxies / real IP
 	mux.HandleFunc("/trusted-proxies", s.handleTrustedProxies)
 
@@ -1383,6 +1392,24 @@ func (s *Server) handleMaintenanceAction(w http.ResponseWriter, r *http.Request)
 	default:
 		http.Error(w, `{"error":"action must be 'enable' or 'disable'"}`, http.StatusBadRequest)
 	}
+}
+
+// handleBotDetection handles bot detection stats requests.
+func (s *Server) handleBotDetection(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetBotDetectors().Stats())
+}
+
+// handleProxyRateLimits handles proxy rate limit stats requests.
+func (s *Server) handleProxyRateLimits(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetProxyRateLimiters().Stats())
+}
+
+// handleMockResponses handles mock response stats requests.
+func (s *Server) handleMockResponses(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetMockHandlers().Stats())
 }
 
 // handleTrustedProxies handles trusted proxies stats requests.

@@ -27,7 +27,10 @@ import (
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	"github.com/wudi/gateway/internal/middleware/nonce"
 	"github.com/wudi/gateway/internal/middleware/decompress"
+	"github.com/wudi/gateway/internal/middleware/botdetect"
 	"github.com/wudi/gateway/internal/middleware/maintenance"
+	"github.com/wudi/gateway/internal/middleware/mock"
+	"github.com/wudi/gateway/internal/middleware/proxyratelimit"
 	"github.com/wudi/gateway/internal/middleware/realip"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/signing"
@@ -104,6 +107,9 @@ type gatewayState struct {
 	responseLimiters    *responselimit.ResponseLimitByRoute
 	securityHeaders     *securityheaders.SecurityHeadersByRoute
 	maintenanceHandlers *maintenance.MaintenanceByRoute
+	botDetectors        *botdetect.BotDetectByRoute
+	proxyRateLimiters   *proxyratelimit.ProxyRateLimitByRoute
+	mockHandlers        *mock.MockByRoute
 	realIPExtractor     *realip.CompiledRealIP
 	outlierDetectors    *outlier.DetectorByRoute
 	translators       *protocol.TranslatorByRoute
@@ -157,6 +163,9 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		responseLimiters:    responselimit.NewResponseLimitByRoute(),
 		securityHeaders:     securityheaders.NewSecurityHeadersByRoute(),
 		maintenanceHandlers: maintenance.NewMaintenanceByRoute(),
+		botDetectors:        botdetect.NewBotDetectByRoute(),
+		proxyRateLimiters:   proxyratelimit.NewProxyRateLimitByRoute(),
+		mockHandlers:        mock.NewMockByRoute(),
 		outlierDetectors:    outlier.NewDetectorByRoute(),
 		translators:       protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
@@ -202,6 +211,9 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		&responseLimitFeature{m: s.responseLimiters, global: &cfg.ResponseLimit},
 		&securityHeadersFeature{m: s.securityHeaders, global: &cfg.SecurityHeaders},
 		&maintenanceFeature{m: s.maintenanceHandlers, global: &cfg.Maintenance},
+		&botDetectFeature{m: s.botDetectors, global: &cfg.BotDetection},
+		&proxyRateLimitFeature{s.proxyRateLimiters},
+		&mockFeature{s.mockHandlers},
 	}
 
 	// Wire webhook callbacks on new state's managers
@@ -395,7 +407,26 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 	}
 
 	// Rate limiting
-	if routeCfg.RateLimit.Enabled || routeCfg.RateLimit.Rate > 0 {
+	if len(routeCfg.RateLimit.Tiers) > 0 {
+		tiers := make(map[string]ratelimit.Config, len(routeCfg.RateLimit.Tiers))
+		for name, tc := range routeCfg.RateLimit.Tiers {
+			tiers[name] = ratelimit.Config{
+				Rate:   tc.Rate,
+				Period: tc.Period,
+				Burst:  tc.Burst,
+			}
+		}
+		var keyFn func(*http.Request) string
+		if routeCfg.RateLimit.Key != "" {
+			keyFn = ratelimit.BuildKeyFunc(false, routeCfg.RateLimit.Key)
+		}
+		s.rateLimiters.AddRouteTiered(routeCfg.ID, ratelimit.TieredConfig{
+			Tiers:       tiers,
+			TierKey:     routeCfg.RateLimit.TierKey,
+			DefaultTier: routeCfg.RateLimit.DefaultTier,
+			KeyFn:       keyFn,
+		})
+	} else if routeCfg.RateLimit.Enabled || routeCfg.RateLimit.Rate > 0 {
 		if routeCfg.RateLimit.Mode == "distributed" && g.redisClient != nil {
 			s.rateLimiters.AddRouteDistributed(routeCfg.ID, ratelimit.RedisLimiterConfig{
 				Client: g.redisClient,
@@ -404,6 +435,7 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 				Period: routeCfg.RateLimit.Period,
 				Burst:  routeCfg.RateLimit.Burst,
 				PerIP:  routeCfg.RateLimit.PerIP,
+				Key:    routeCfg.RateLimit.Key,
 			})
 		} else if routeCfg.RateLimit.Algorithm == "sliding_window" {
 			s.rateLimiters.AddRouteSlidingWindow(routeCfg.ID, ratelimit.Config{
@@ -411,6 +443,7 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 				Period: routeCfg.RateLimit.Period,
 				Burst:  routeCfg.RateLimit.Burst,
 				PerIP:  routeCfg.RateLimit.PerIP,
+				Key:    routeCfg.RateLimit.Key,
 			})
 		} else {
 			s.rateLimiters.AddRoute(routeCfg.ID, ratelimit.Config{
@@ -418,6 +451,7 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 				Period: routeCfg.RateLimit.Period,
 				Burst:  routeCfg.RateLimit.Burst,
 				PerIP:  routeCfg.RateLimit.PerIP,
+				Key:    routeCfg.RateLimit.Key,
 			})
 		}
 	}
@@ -564,6 +598,9 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldResponseLimiters := g.responseLimiters
 	oldSecurityHeaders := g.securityHeaders
 	oldMaintenanceHandlers := g.maintenanceHandlers
+	oldBotDetectors := g.botDetectors
+	oldProxyRateLimiters := g.proxyRateLimiters
+	oldMockHandlers := g.mockHandlers
 	oldRealIPExtractor := g.realIPExtractor
 
 	// Install new state
@@ -604,6 +641,9 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.responseLimiters = s.responseLimiters
 	g.securityHeaders = s.securityHeaders
 	g.maintenanceHandlers = s.maintenanceHandlers
+	g.botDetectors = s.botDetectors
+	g.proxyRateLimiters = s.proxyRateLimiters
+	g.mockHandlers = s.mockHandlers
 	g.realIPExtractor = s.realIPExtractor
 
 	handler := g.buildRouteHandler(routeID, cfg, route, rp)
@@ -646,6 +686,9 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.responseLimiters = oldResponseLimiters
 	g.securityHeaders = oldSecurityHeaders
 	g.maintenanceHandlers = oldMaintenanceHandlers
+	g.botDetectors = oldBotDetectors
+	g.proxyRateLimiters = oldProxyRateLimiters
+	g.mockHandlers = oldMockHandlers
 	g.realIPExtractor = oldRealIPExtractor
 
 	return handler
@@ -729,6 +772,9 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.responseLimiters = newState.responseLimiters
 	g.securityHeaders = newState.securityHeaders
 	g.maintenanceHandlers = newState.maintenanceHandlers
+	g.botDetectors = newState.botDetectors
+	g.proxyRateLimiters = newState.proxyRateLimiters
+	g.mockHandlers = newState.mockHandlers
 	g.realIPExtractor = newState.realIPExtractor
 	g.translators = newState.translators
 	g.rateLimiters = newState.rateLimiters

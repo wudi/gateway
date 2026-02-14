@@ -26,6 +26,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/accesslog"
 	"github.com/wudi/gateway/internal/middleware/altsvc"
 	"github.com/wudi/gateway/internal/middleware/auth"
+	"github.com/wudi/gateway/internal/middleware/botdetect"
 	"github.com/wudi/gateway/internal/middleware/compression"
 	"github.com/wudi/gateway/internal/middleware/cors"
 	"github.com/wudi/gateway/internal/middleware/decompress"
@@ -38,6 +39,8 @@ import (
 	"github.com/wudi/gateway/internal/middleware/mtls"
 	"github.com/wudi/gateway/internal/middleware/nonce"
 	"github.com/wudi/gateway/internal/middleware/maintenance"
+	"github.com/wudi/gateway/internal/middleware/mock"
+	"github.com/wudi/gateway/internal/middleware/proxyratelimit"
 	"github.com/wudi/gateway/internal/middleware/realip"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/signing"
@@ -129,6 +132,9 @@ type Gateway struct {
 	responseLimiters    *responselimit.ResponseLimitByRoute
 	securityHeaders     *securityheaders.SecurityHeadersByRoute
 	maintenanceHandlers *maintenance.MaintenanceByRoute
+	botDetectors        *botdetect.BotDetectByRoute
+	proxyRateLimiters   *proxyratelimit.ProxyRateLimitByRoute
+	mockHandlers        *mock.MockByRoute
 	realIPExtractor     *realip.CompiledRealIP
 	globalGeo         *geo.CompiledGeo
 	webhookDispatcher *webhook.Dispatcher
@@ -211,6 +217,9 @@ func New(cfg *config.Config) (*Gateway, error) {
 		responseLimiters:    responselimit.NewResponseLimitByRoute(),
 		securityHeaders:     securityheaders.NewSecurityHeadersByRoute(),
 		maintenanceHandlers: maintenance.NewMaintenanceByRoute(),
+		botDetectors:        botdetect.NewBotDetectByRoute(),
+		proxyRateLimiters:   proxyratelimit.NewProxyRateLimitByRoute(),
+		mockHandlers:        mock.NewMockByRoute(),
 		routeProxies:        make(map[string]*proxy.RouteProxy),
 		routeHandlers:     make(map[string]http.Handler),
 		watchCancels:      make(map[string]context.CancelFunc),
@@ -256,6 +265,9 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&responseLimitFeature{m: g.responseLimiters, global: &cfg.ResponseLimit},
 		&securityHeadersFeature{m: g.securityHeaders, global: &cfg.SecurityHeaders},
 		&maintenanceFeature{m: g.maintenanceHandlers, global: &cfg.Maintenance},
+		&botDetectFeature{m: g.botDetectors, global: &cfg.BotDetection},
+		&proxyRateLimitFeature{g.proxyRateLimiters},
+		&mockFeature{g.mockHandlers},
 	}
 
 	// Initialize global IP filter
@@ -665,7 +677,26 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 	}
 
 	// Set up rate limiting (unique setup signature, not in feature loop)
-	if routeCfg.RateLimit.Enabled || routeCfg.RateLimit.Rate > 0 {
+	if len(routeCfg.RateLimit.Tiers) > 0 {
+		tiers := make(map[string]ratelimit.Config, len(routeCfg.RateLimit.Tiers))
+		for name, tc := range routeCfg.RateLimit.Tiers {
+			tiers[name] = ratelimit.Config{
+				Rate:   tc.Rate,
+				Period: tc.Period,
+				Burst:  tc.Burst,
+			}
+		}
+		var keyFn func(*http.Request) string
+		if routeCfg.RateLimit.Key != "" {
+			keyFn = ratelimit.BuildKeyFunc(false, routeCfg.RateLimit.Key)
+		}
+		g.rateLimiters.AddRouteTiered(routeCfg.ID, ratelimit.TieredConfig{
+			Tiers:       tiers,
+			TierKey:     routeCfg.RateLimit.TierKey,
+			DefaultTier: routeCfg.RateLimit.DefaultTier,
+			KeyFn:       keyFn,
+		})
+	} else if routeCfg.RateLimit.Enabled || routeCfg.RateLimit.Rate > 0 {
 		if routeCfg.RateLimit.Mode == "distributed" && g.redisClient != nil {
 			g.rateLimiters.AddRouteDistributed(routeCfg.ID, ratelimit.RedisLimiterConfig{
 				Client: g.redisClient,
@@ -674,6 +705,7 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 				Period: routeCfg.RateLimit.Period,
 				Burst:  routeCfg.RateLimit.Burst,
 				PerIP:  routeCfg.RateLimit.PerIP,
+				Key:    routeCfg.RateLimit.Key,
 			})
 		} else if routeCfg.RateLimit.Algorithm == "sliding_window" {
 			g.rateLimiters.AddRouteSlidingWindow(routeCfg.ID, ratelimit.Config{
@@ -681,6 +713,7 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 				Period: routeCfg.RateLimit.Period,
 				Burst:  routeCfg.RateLimit.Burst,
 				PerIP:  routeCfg.RateLimit.PerIP,
+				Key:    routeCfg.RateLimit.Key,
 			})
 		} else {
 			g.rateLimiters.AddRoute(routeCfg.ID, ratelimit.Config{
@@ -688,6 +721,7 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 				Period: routeCfg.RateLimit.Period,
 				Burst:  routeCfg.RateLimit.Burst,
 				PerIP:  routeCfg.RateLimit.PerIP,
+				Key:    routeCfg.RateLimit.Key,
 			})
 		}
 	}
@@ -784,6 +818,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		chain = chain.Use(maintenanceMW(maint))
 	}
 
+	// 2.8. botDetectMW — block denied User-Agent patterns
+	if bd := g.botDetectors.GetDetector(routeID); bd != nil {
+		chain = chain.Use(botDetectMW(bd))
+	}
+
 	// 3. corsMW — preflight + headers (Step 1.5)
 	if corsHandler := g.corsHandlers.GetHandler(routeID); corsHandler != nil && corsHandler.IsEnabled() {
 		chain = chain.Use(corsMW(corsHandler))
@@ -877,6 +916,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		chain = chain.Use(faultInjectionMW(fi))
 	}
 
+	// 7.75. mockMW — return static mock response (never reaches backend)
+	if mh := g.mockHandlers.GetHandler(routeID); mh != nil {
+		chain = chain.Use(mockMW(mh))
+	}
+
 	// 8. bodyLimitMW — MaxBodySize (Step 4.5)
 	if route.MaxBodySize > 0 {
 		chain = chain.Use(bodyLimitMW(route.MaxBodySize))
@@ -938,6 +982,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 	// 12.5. adaptiveConcurrencyMW — AIMD concurrency limiting
 	if al := g.adaptiveLimiters.GetLimiter(routeID); al != nil {
 		chain = chain.Use(adaptiveConcurrencyMW(al))
+	}
+
+	// 12.6. proxyRateLimitMW — protect backends from overload
+	if pl := g.proxyRateLimiters.GetLimiter(routeID); pl != nil {
+		chain = chain.Use(proxyRateLimitMW(pl))
 	}
 
 	// 13. compressionMW — wrap writer (Step 8)
@@ -1542,6 +1591,21 @@ func (g *Gateway) GetMaintenanceHandlers() *maintenance.MaintenanceByRoute {
 // GetSecurityHeaders returns the security headers ByRoute manager.
 func (g *Gateway) GetSecurityHeaders() *securityheaders.SecurityHeadersByRoute {
 	return g.securityHeaders
+}
+
+// GetBotDetectors returns the bot detection manager.
+func (g *Gateway) GetBotDetectors() *botdetect.BotDetectByRoute {
+	return g.botDetectors
+}
+
+// GetProxyRateLimiters returns the proxy rate limit manager.
+func (g *Gateway) GetProxyRateLimiters() *proxyratelimit.ProxyRateLimitByRoute {
+	return g.proxyRateLimiters
+}
+
+// GetMockHandlers returns the mock response manager.
+func (g *Gateway) GetMockHandlers() *mock.MockByRoute {
+	return g.mockHandlers
 }
 
 // GetRealIPExtractor returns the real IP extractor (may be nil).

@@ -58,6 +58,7 @@ type Config struct {
 	Maintenance            MaintenanceConfig            `yaml:"maintenance"`              // Global maintenance mode
 	Shutdown               ShutdownConfig               `yaml:"shutdown"`                 // Graceful shutdown settings
 	TrustedProxies         TrustedProxiesConfig         `yaml:"trusted_proxies"`          // Trusted proxy IP extraction
+	BotDetection           BotDetectionConfig           `yaml:"bot_detection"`            // Global bot detection
 }
 
 // ListenerConfig defines a listener configuration
@@ -285,6 +286,9 @@ type RouteConfig struct {
 	SecurityHeaders      SecurityHeadersConfig      `yaml:"security_headers"`      // Per-route security response headers
 	Maintenance          MaintenanceConfig          `yaml:"maintenance"`           // Per-route maintenance mode
 	Rewrite              RewriteConfig              `yaml:"rewrite"`               // URL rewriting (prefix, regex, host override)
+	BotDetection         BotDetectionConfig         `yaml:"bot_detection"`         // Per-route bot detection
+	ProxyRateLimit       ProxyRateLimitConfig       `yaml:"proxy_rate_limit"`      // Per-route backend rate limiting
+	MockResponse         MockResponseConfig         `yaml:"mock_response"`         // Per-route mock responses
 	Echo                 bool                       `yaml:"echo"`                  // Echo handler (no backend needed)
 }
 
@@ -458,6 +462,29 @@ type TrustedProxiesConfig struct {
 type ShutdownConfig struct {
 	Timeout    time.Duration `yaml:"timeout"`     // total shutdown timeout (default 30s)
 	DrainDelay time.Duration `yaml:"drain_delay"` // delay before stopping listeners (default 0s)
+}
+
+// BotDetectionConfig defines User-Agent based bot blocking.
+type BotDetectionConfig struct {
+	Enabled bool     `yaml:"enabled"`
+	Deny    []string `yaml:"deny"`  // regex patterns to block
+	Allow   []string `yaml:"allow"` // regex patterns to allow (bypass deny)
+}
+
+// ProxyRateLimitConfig defines backend-side rate limiting.
+type ProxyRateLimitConfig struct {
+	Enabled bool          `yaml:"enabled"`
+	Rate    int           `yaml:"rate"`   // requests per period to backend
+	Period  time.Duration `yaml:"period"` // time period
+	Burst   int           `yaml:"burst"`
+}
+
+// MockResponseConfig defines static mock responses.
+type MockResponseConfig struct {
+	Enabled    bool              `yaml:"enabled"`
+	StatusCode int               `yaml:"status_code"`
+	Headers    map[string]string `yaml:"headers"`
+	Body       string            `yaml:"body"`
 }
 
 // RewriteConfig defines URL rewriting rules for a route.
@@ -826,13 +853,24 @@ type RouteAuthConfig struct {
 
 // RateLimitConfig defines rate limiting settings
 type RateLimitConfig struct {
-	Enabled   bool          `yaml:"enabled"`
-	Rate      int           `yaml:"rate"`
-	Period    time.Duration `yaml:"period"`
-	Burst     int           `yaml:"burst"`
-	PerIP     bool          `yaml:"per_ip"`
-	Mode      string        `yaml:"mode"`      // "local" (default) or "distributed"
-	Algorithm string        `yaml:"algorithm"` // "token_bucket" (default) or "sliding_window"
+	Enabled     bool                    `yaml:"enabled"`
+	Rate        int                     `yaml:"rate"`
+	Period      time.Duration           `yaml:"period"`
+	Burst       int                     `yaml:"burst"`
+	PerIP       bool                    `yaml:"per_ip"`
+	Key         string                  `yaml:"key"`          // Custom key extraction: "ip", "client_id", "header:<name>", "cookie:<name>", "jwt_claim:<name>"
+	Mode        string                  `yaml:"mode"`         // "local" (default) or "distributed"
+	Algorithm   string                  `yaml:"algorithm"`    // "token_bucket" (default) or "sliding_window"
+	Tiers       map[string]TierConfig   `yaml:"tiers"`        // per-tier rate limits
+	TierKey     string                  `yaml:"tier_key"`     // "header:<name>" or "jwt_claim:<name>"
+	DefaultTier string                  `yaml:"default_tier"` // fallback tier name
+}
+
+// TierConfig defines rate limits for a single tier.
+type TierConfig struct {
+	Rate   int           `yaml:"rate"`
+	Period time.Duration `yaml:"period"`
+	Burst  int           `yaml:"burst"`
 }
 
 // RedisConfig defines Redis connection settings for distributed features.

@@ -62,6 +62,7 @@ type RedisLimiterConfig struct {
 	Period time.Duration
 	Burst  int
 	PerIP  bool
+	Key    string
 }
 
 // NewRedisLimiter creates a new Redis-backed rate limiter.
@@ -82,7 +83,7 @@ func NewRedisLimiter(cfg RedisLimiterConfig) *RedisLimiter {
 		window: cfg.Period,
 		burst:  cfg.Burst,
 		perIP:  cfg.PerIP,
-		keyFn:  defaultKeyFunc(cfg.PerIP),
+		keyFn:  BuildKeyFunc(cfg.PerIP, cfg.Key),
 	}
 }
 

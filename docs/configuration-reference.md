@@ -250,11 +250,69 @@ routes:
       period: duration
       burst: int              # token bucket burst
       per_ip: bool            # per-IP or per-route
+      key: string             # custom key: "ip", "client_id", "header:<name>", "cookie:<name>", "jwt_claim:<name>"
       mode: string            # "local" (default) or "distributed"
       algorithm: string       # "token_bucket" (default) or "sliding_window"
 ```
 
-**Validation:** Distributed mode requires top-level `redis.address`. Algorithm `"sliding_window"` is incompatible with mode `"distributed"` (distributed already uses a sliding window via Redis).
+**Validation:** Distributed mode requires top-level `redis.address`. Algorithm `"sliding_window"` is incompatible with mode `"distributed"` (distributed already uses a sliding window via Redis). `key` and `per_ip` are mutually exclusive. `key` must match a supported prefix (`ip`, `client_id`, `header:<name>`, `cookie:<name>`, `jwt_claim:<name>`). Falls back to client IP when the extracted value is absent.
+
+#### Tiered Rate Limits
+
+```yaml
+    rate_limit:
+      tier_key: string          # "header:<name>" or "jwt_claim:<name>"
+      default_tier: string      # must exist in tiers map
+      key: string               # per-client key within each tier
+      tiers:
+        <name>:
+          rate: int
+          period: duration
+          burst: int
+```
+
+**Validation:** `tiers` and top-level `rate`/`period` are mutually exclusive. `default_tier` must exist in `tiers`. `tier_key` is required and must use `header:` or `jwt_claim:` prefix. Each tier requires `rate > 0`.
+
+See [Rate Limiting & Throttling](rate-limiting-and-throttling.md#tiered-rate-limits) for examples.
+
+### Proxy Rate Limit
+
+```yaml
+    proxy_rate_limit:
+      enabled: bool
+      rate: int               # max requests per period to backend
+      period: duration        # default: 1s
+      burst: int              # token bucket burst (default: rate)
+```
+
+**Validation:** `rate` must be > 0 when enabled.
+
+See [Rate Limiting & Throttling](rate-limiting-and-throttling.md#proxy-rate-limiting-backend-protection) for details.
+
+### Mock Response
+
+```yaml
+    mock_response:
+      enabled: bool
+      status_code: int              # default: 200
+      headers: map[string]string
+      body: string
+```
+
+**Validation:** `status_code` must be 100-599. Cannot combine with `echo: true`.
+
+See [Mock Responses](mock-responses.md) for use cases.
+
+### Bot Detection (per-route)
+
+```yaml
+    bot_detection:
+      enabled: bool
+      deny: [string]          # regex patterns to block
+      allow: [string]         # regex patterns to allow (bypass deny)
+```
+
+**Validation:** At least one `deny` pattern required when enabled. All patterns must be valid regexes.
 
 ### Retry Policy
 
@@ -1408,3 +1466,18 @@ trusted_proxies:
 **Validation:** All `cidrs` entries must be valid CIDR or IP. `max_hops` >= 0.
 
 See [Security](security.md#trusted-proxies) for how IP extraction works and its security impact.
+
+## Bot Detection (global)
+
+```yaml
+bot_detection:
+  enabled: bool
+  deny: [string]            # regex patterns to block
+  allow: [string]           # regex patterns to allow (bypass deny)
+```
+
+Per-route `bot_detection` config overrides the global block when both are enabled.
+
+**Validation:** At least one `deny` pattern required when enabled. All patterns must be valid Go regexes.
+
+See [Bot Detection](bot-detection.md) for details.

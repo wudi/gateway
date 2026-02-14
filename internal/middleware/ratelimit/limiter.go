@@ -1,8 +1,10 @@
 package ratelimit
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,6 +35,7 @@ type Config struct {
 	Period time.Duration // time period
 	Burst  int           // max burst size
 	PerIP  bool          // rate limit per IP instead of globally
+	Key    string        // custom key extraction strategy
 }
 
 // NewTokenBucket creates a new token bucket rate limiter
@@ -128,21 +131,71 @@ func NewLimiter(cfg Config) *Limiter {
 	return &Limiter{
 		tb:    NewTokenBucket(cfg),
 		perIP: cfg.PerIP,
-		keyFn: defaultKeyFunc(cfg.PerIP),
+		keyFn: BuildKeyFunc(cfg.PerIP, cfg.Key),
 	}
 }
 
-func defaultKeyFunc(perIP bool) func(*http.Request) string {
-	return func(r *http.Request) string {
-		if perIP {
+// BuildKeyFunc returns a key extraction function based on configuration.
+// All strategies fall back to client IP when the specified value is absent.
+func BuildKeyFunc(perIP bool, key string) func(*http.Request) string {
+	if perIP || key == "ip" {
+		return func(r *http.Request) string {
 			return variables.ExtractClientIP(r)
 		}
-		// Try to use authenticated client ID
+	}
+
+	if key == "client_id" {
+		return func(r *http.Request) string {
+			varCtx := variables.GetFromRequest(r)
+			if varCtx.Identity != nil && varCtx.Identity.ClientID != "" {
+				return varCtx.Identity.ClientID
+			}
+			return variables.ExtractClientIP(r)
+		}
+	}
+
+	if strings.HasPrefix(key, "header:") {
+		name := key[len("header:"):]
+		return func(r *http.Request) string {
+			if v := r.Header.Get(name); v != "" {
+				return fmt.Sprintf("header:%s:%s", name, v)
+			}
+			return variables.ExtractClientIP(r)
+		}
+	}
+
+	if strings.HasPrefix(key, "cookie:") {
+		name := key[len("cookie:"):]
+		return func(r *http.Request) string {
+			if c, err := r.Cookie(name); err == nil && c.Value != "" {
+				return fmt.Sprintf("cookie:%s:%s", name, c.Value)
+			}
+			return variables.ExtractClientIP(r)
+		}
+	}
+
+	if strings.HasPrefix(key, "jwt_claim:") {
+		claim := key[len("jwt_claim:"):]
+		return func(r *http.Request) string {
+			varCtx := variables.GetFromRequest(r)
+			if varCtx.Identity != nil && varCtx.Identity.Claims != nil {
+				if val, ok := varCtx.Identity.Claims[claim]; ok {
+					s := fmt.Sprintf("%v", val)
+					if s != "" {
+						return fmt.Sprintf("jwt_claim:%s:%s", claim, s)
+					}
+				}
+			}
+			return variables.ExtractClientIP(r)
+		}
+	}
+
+	// Default: client ID if authenticated, else IP
+	return func(r *http.Request) string {
 		varCtx := variables.GetFromRequest(r)
 		if varCtx.Identity != nil && varCtx.Identity.ClientID != "" {
 			return varCtx.Identity.ClientID
 		}
-		// Fall back to IP
 		return variables.ExtractClientIP(r)
 	}
 }
@@ -192,11 +245,109 @@ type RateLimitMiddleware interface {
 	Middleware() middleware.Middleware
 }
 
+// TieredLimiter provides per-tier rate limiting, each tier having independent limits.
+type TieredLimiter struct {
+	tiers       map[string]*TokenBucket
+	tierKeyFn   func(*http.Request) string
+	keyFn       func(*http.Request) string
+	defaultTier string
+}
+
+// TieredConfig holds tiered rate limiter configuration.
+type TieredConfig struct {
+	Tiers       map[string]Config // per-tier limits
+	TierKey     string            // "header:<name>" or "jwt_claim:<name>"
+	DefaultTier string            // fallback tier
+	KeyFn       func(*http.Request) string // per-client key function
+}
+
+// NewTieredLimiter creates a new tiered rate limiter.
+func NewTieredLimiter(cfg TieredConfig) *TieredLimiter {
+	tl := &TieredLimiter{
+		tiers:       make(map[string]*TokenBucket, len(cfg.Tiers)),
+		tierKeyFn:   buildTierKeyFunc(cfg.TierKey),
+		keyFn:       cfg.KeyFn,
+		defaultTier: cfg.DefaultTier,
+	}
+	if tl.keyFn == nil {
+		tl.keyFn = func(r *http.Request) string {
+			return variables.ExtractClientIP(r)
+		}
+	}
+	for name, tc := range cfg.Tiers {
+		tl.tiers[name] = NewTokenBucket(tc)
+	}
+	return tl
+}
+
+// buildTierKeyFunc returns a function that extracts the tier name from a request.
+func buildTierKeyFunc(tierKey string) func(*http.Request) string {
+	if strings.HasPrefix(tierKey, "header:") {
+		name := tierKey[len("header:"):]
+		return func(r *http.Request) string {
+			return r.Header.Get(name)
+		}
+	}
+	if strings.HasPrefix(tierKey, "jwt_claim:") {
+		claim := tierKey[len("jwt_claim:"):]
+		return func(r *http.Request) string {
+			varCtx := variables.GetFromRequest(r)
+			if varCtx.Identity != nil && varCtx.Identity.Claims != nil {
+				if val, ok := varCtx.Identity.Claims[claim]; ok {
+					return fmt.Sprintf("%v", val)
+				}
+			}
+			return ""
+		}
+	}
+	return func(r *http.Request) string { return "" }
+}
+
+// Middleware returns a middleware that applies tiered rate limiting.
+func (tl *TieredLimiter) Middleware() middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Determine tier
+			tierName := tl.tierKeyFn(r)
+			tb, ok := tl.tiers[tierName]
+			if !ok {
+				tb = tl.tiers[tl.defaultTier]
+			}
+			if tb == nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Rate limit within tier using the per-client key
+			key := tl.keyFn(r)
+			allowed, remaining, resetTime := tb.Allow(key)
+
+			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(tb.burst))
+			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(remaining))
+			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(resetTime.Unix(), 10))
+			w.Header().Set("X-RateLimit-Tier", tierName)
+
+			if !allowed {
+				retryAfter := int(time.Until(resetTime).Seconds())
+				if retryAfter < 1 {
+					retryAfter = 1
+				}
+				w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+				errors.ErrTooManyRequests.WriteJSON(w)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // RateLimitByRoute creates a map of rate limiters per route
 type RateLimitByRoute struct {
 	limiters      map[string]*Limiter
 	distributed   map[string]*RedisLimiter
 	slidingWindow map[string]*SlidingWindowLimiter
+	tiered        map[string]*TieredLimiter
 	mu            sync.RWMutex
 }
 
@@ -206,6 +357,7 @@ func NewRateLimitByRoute() *RateLimitByRoute {
 		limiters:      make(map[string]*Limiter),
 		distributed:   make(map[string]*RedisLimiter),
 		slidingWindow: make(map[string]*SlidingWindowLimiter),
+		tiered:        make(map[string]*TieredLimiter),
 	}
 }
 
@@ -230,6 +382,13 @@ func (rl *RateLimitByRoute) AddRouteSlidingWindow(routeID string, cfg Config) {
 	rl.slidingWindow[routeID] = NewSlidingWindowLimiter(cfg)
 }
 
+// AddRouteTiered adds a tiered rate limiter for a specific route.
+func (rl *RateLimitByRoute) AddRouteTiered(routeID string, cfg TieredConfig) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	rl.tiered[routeID] = NewTieredLimiter(cfg)
+}
+
 // RouteIDs returns all route IDs with rate limiters.
 func (rl *RateLimitByRoute) RouteIDs() []string {
 	rl.mu.RLock()
@@ -249,6 +408,12 @@ func (rl *RateLimitByRoute) RouteIDs() []string {
 		}
 	}
 	for id := range rl.slidingWindow {
+		if !seen[id] {
+			ids = append(ids, id)
+			seen[id] = true
+		}
+	}
+	for id := range rl.tiered {
 		if !seen[id] {
 			ids = append(ids, id)
 			seen[id] = true
@@ -278,10 +443,20 @@ func (rl *RateLimitByRoute) GetDistributedLimiter(routeID string) *RedisLimiter 
 	return rl.distributed[routeID]
 }
 
-// GetMiddleware returns the appropriate middleware for a route (distributed > sliding_window > token_bucket).
+// GetTieredLimiter returns the tiered rate limiter for a route.
+func (rl *RateLimitByRoute) GetTieredLimiter(routeID string) *TieredLimiter {
+	rl.mu.RLock()
+	defer rl.mu.RUnlock()
+	return rl.tiered[routeID]
+}
+
+// GetMiddleware returns the appropriate middleware for a route (tiered > distributed > sliding_window > token_bucket).
 func (rl *RateLimitByRoute) GetMiddleware(routeID string) middleware.Middleware {
 	rl.mu.RLock()
 	defer rl.mu.RUnlock()
+	if tl, ok := rl.tiered[routeID]; ok {
+		return tl.Middleware()
+	}
 	if dl, ok := rl.distributed[routeID]; ok {
 		return dl.Middleware()
 	}

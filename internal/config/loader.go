@@ -203,6 +203,16 @@ func (l *Loader) validate(cfg *Config) error {
 			if route.Mirror.Enabled {
 				return fmt.Errorf("route %s: echo is mutually exclusive with mirror", route.ID)
 			}
+			if route.MockResponse.Enabled {
+				return fmt.Errorf("route %s: echo is mutually exclusive with mock_response", route.ID)
+			}
+		}
+
+		// Mock response is mutually exclusive with echo (already checked above)
+		if route.MockResponse.Enabled {
+			if route.MockResponse.StatusCode != 0 && (route.MockResponse.StatusCode < 100 || route.MockResponse.StatusCode > 599) {
+				return fmt.Errorf("route %s: mock_response.status_code must be 100-599", route.ID)
+			}
 		}
 
 		// Mutual exclusion: upstream vs inline backends/service
@@ -298,6 +308,30 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 		if route.RateLimit.Algorithm == "sliding_window" && route.RateLimit.Mode == "distributed" {
 			return fmt.Errorf("route %s: algorithm \"sliding_window\" is incompatible with mode \"distributed\" (distributed already uses a sliding window)", route.ID)
+		}
+		if route.RateLimit.Key != "" && route.RateLimit.PerIP {
+			return fmt.Errorf("route %s: rate_limit.key and rate_limit.per_ip are mutually exclusive", route.ID)
+		}
+		if route.RateLimit.Key != "" {
+			key := route.RateLimit.Key
+			switch {
+			case key == "ip", key == "client_id":
+				// valid
+			case strings.HasPrefix(key, "header:"):
+				if key[len("header:"):] == "" {
+					return fmt.Errorf("route %s: rate_limit.key \"header:\" requires a non-empty header name", route.ID)
+				}
+			case strings.HasPrefix(key, "cookie:"):
+				if key[len("cookie:"):] == "" {
+					return fmt.Errorf("route %s: rate_limit.key \"cookie:\" requires a non-empty cookie name", route.ID)
+				}
+			case strings.HasPrefix(key, "jwt_claim:"):
+				if key[len("jwt_claim:"):] == "" {
+					return fmt.Errorf("route %s: rate_limit.key \"jwt_claim:\" requires a non-empty claim name", route.ID)
+				}
+			default:
+				return fmt.Errorf("route %s: invalid rate_limit.key %q (must be \"ip\", \"client_id\", \"header:<name>\", \"cookie:<name>\", or \"jwt_claim:<name>\")", route.ID, key)
+			}
 		}
 	}
 
@@ -1068,6 +1102,55 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate bot detection config (global + per-route)
+	if cfg.BotDetection.Enabled {
+		if err := l.validateBotDetectionConfig("global", cfg.BotDetection); err != nil {
+			return err
+		}
+	}
+	for _, route := range cfg.Routes {
+		if route.BotDetection.Enabled {
+			if err := l.validateBotDetectionConfig(fmt.Sprintf("route %s", route.ID), route.BotDetection); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Validate proxy rate limit config (per-route only)
+	for _, route := range cfg.Routes {
+		if route.ProxyRateLimit.Enabled {
+			if route.ProxyRateLimit.Rate <= 0 {
+				return fmt.Errorf("route %s: proxy_rate_limit.rate must be > 0", route.ID)
+			}
+		}
+	}
+
+	// Validate tiered rate limits
+	for _, route := range cfg.Routes {
+		if len(route.RateLimit.Tiers) > 0 {
+			if route.RateLimit.Rate > 0 {
+				return fmt.Errorf("route %s: rate_limit.tiers and rate_limit.rate are mutually exclusive", route.ID)
+			}
+			if route.RateLimit.DefaultTier == "" {
+				return fmt.Errorf("route %s: rate_limit.default_tier is required when tiers are set", route.ID)
+			}
+			if _, ok := route.RateLimit.Tiers[route.RateLimit.DefaultTier]; !ok {
+				return fmt.Errorf("route %s: rate_limit.default_tier %q must exist in tiers", route.ID, route.RateLimit.DefaultTier)
+			}
+			if route.RateLimit.TierKey == "" {
+				return fmt.Errorf("route %s: rate_limit.tier_key is required when tiers are set", route.ID)
+			}
+			if !strings.HasPrefix(route.RateLimit.TierKey, "header:") && !strings.HasPrefix(route.RateLimit.TierKey, "jwt_claim:") {
+				return fmt.Errorf("route %s: rate_limit.tier_key must be \"header:<name>\" or \"jwt_claim:<name>\"", route.ID)
+			}
+			for name, tier := range route.RateLimit.Tiers {
+				if tier.Rate <= 0 {
+					return fmt.Errorf("route %s: rate_limit.tiers[%s].rate must be > 0", route.ID, name)
+				}
+			}
+		}
+	}
+
 	// Validate webhooks
 	if cfg.Webhooks.Enabled {
 		if len(cfg.Webhooks.Endpoints) == 0 {
@@ -1137,6 +1220,24 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	return nil
+}
+
+// validateBotDetectionConfig validates bot detection regex patterns.
+func (l *Loader) validateBotDetectionConfig(scope string, cfg BotDetectionConfig) error {
+	for i, p := range cfg.Deny {
+		if _, err := regexp.Compile(p); err != nil {
+			return fmt.Errorf("%s: bot_detection.deny[%d]: invalid regex %q: %w", scope, i, p, err)
+		}
+	}
+	for i, p := range cfg.Allow {
+		if _, err := regexp.Compile(p); err != nil {
+			return fmt.Errorf("%s: bot_detection.allow[%d]: invalid regex %q: %w", scope, i, p, err)
+		}
+	}
+	if len(cfg.Deny) == 0 {
+		return fmt.Errorf("%s: bot_detection.deny requires at least one pattern", scope)
+	}
 	return nil
 }
 
