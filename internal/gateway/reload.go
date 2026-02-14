@@ -22,6 +22,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/backendauth"
 	"github.com/wudi/gateway/internal/middleware/bodygen"
 	"github.com/wudi/gateway/internal/middleware/compression"
+	"github.com/wudi/gateway/internal/middleware/contentneg"
 	"github.com/wudi/gateway/internal/middleware/contentreplacer"
 	"github.com/wudi/gateway/internal/middleware/cors"
 	"github.com/wudi/gateway/internal/middleware/debug"
@@ -37,9 +38,11 @@ import (
 	"github.com/wudi/gateway/internal/middleware/claimsprop"
 	"github.com/wudi/gateway/internal/middleware/maintenance"
 	"github.com/wudi/gateway/internal/middleware/mock"
+	"github.com/wudi/gateway/internal/middleware/paramforward"
 	"github.com/wudi/gateway/internal/middleware/proxyratelimit"
 	"github.com/wudi/gateway/internal/middleware/quota"
 	"github.com/wudi/gateway/internal/middleware/realip"
+	"github.com/wudi/gateway/internal/middleware/respbodygen"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/serviceratelimit"
 	"github.com/wudi/gateway/internal/middleware/signing"
@@ -58,6 +61,7 @@ import (
 	"github.com/wudi/gateway/internal/proxy"
 	grpcproxy "github.com/wudi/gateway/internal/proxy/grpc"
 	"github.com/wudi/gateway/internal/proxy/protocol"
+	"github.com/wudi/gateway/internal/proxy/aggregate"
 	"github.com/wudi/gateway/internal/proxy/sequential"
 	"github.com/wudi/gateway/internal/registry"
 	"github.com/wudi/gateway/internal/router"
@@ -133,6 +137,10 @@ type gatewayState struct {
 	bodyGenerators      *bodygen.BodyGenByRoute
 	quotaEnforcers      *quota.QuotaByRoute
 	sequentialHandlers  *sequential.SequentialByRoute
+	aggregateHandlers   *aggregate.AggregateByRoute
+	respBodyGenerators  *respbodygen.RespBodyGenByRoute
+	paramForwarders     *paramforward.ParamForwardByRoute
+	contentNegotiators  *contentneg.NegotiatorByRoute
 	realIPExtractor     *realip.CompiledRealIP
 	tokenChecker        *tokenrevoke.TokenChecker
 	outlierDetectors    *outlier.DetectorByRoute
@@ -199,6 +207,10 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		bodyGenerators:      bodygen.NewBodyGenByRoute(),
 		quotaEnforcers:      quota.NewQuotaByRoute(),
 		sequentialHandlers:  sequential.NewSequentialByRoute(),
+		aggregateHandlers:   aggregate.NewAggregateByRoute(),
+		respBodyGenerators:  respbodygen.NewRespBodyGenByRoute(),
+		paramForwarders:     paramforward.NewParamForwardByRoute(),
+		contentNegotiators:  contentneg.NewNegotiatorByRoute(),
 		outlierDetectors:    outlier.NewDetectorByRoute(),
 		translators:       protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
@@ -256,6 +268,10 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		&bodyGenFeature{s.bodyGenerators},
 		&quotaFeature{m: s.quotaEnforcers, redis: g.redisClient},
 		&sequentialFeature{s.sequentialHandlers},
+		&aggregateFeature{m: s.aggregateHandlers},
+		&respBodyGenFeature{s.respBodyGenerators},
+		&paramForwardFeature{s.paramForwarders},
+		&contentNegFeature{s.contentNegotiators},
 	}
 
 	// Initialize token revocation checker
@@ -531,6 +547,14 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 		}
 	}
 
+	// Aggregate handler (needs transport from proxy pool)
+	if routeCfg.Aggregate.Enabled {
+		transport := g.proxy.GetTransportPool().Get(routeCfg.Upstream)
+		if err := s.aggregateHandlers.AddRoute(routeCfg.ID, routeCfg.Aggregate, transport); err != nil {
+			return fmt.Errorf("aggregate: route %s: %w", routeCfg.ID, err)
+		}
+	}
+
 	// Override per-try timeout with backend timeout when configured
 	if routeCfg.TimeoutPolicy.Backend > 0 {
 		s.routeProxies[routeCfg.ID].SetPerTryTimeout(routeCfg.TimeoutPolicy.Backend)
@@ -665,6 +689,10 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldBodyGenerators := g.bodyGenerators
 	oldQuotaEnforcers := g.quotaEnforcers
 	oldSequentialHandlers := g.sequentialHandlers
+	oldAggregateHandlers := g.aggregateHandlers
+	oldRespBodyGenerators := g.respBodyGenerators
+	oldParamForwarders := g.paramForwarders
+	oldContentNegotiators := g.contentNegotiators
 	oldRealIPExtractor := g.realIPExtractor
 	oldTokenChecker := g.tokenChecker
 
@@ -718,6 +746,10 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.bodyGenerators = s.bodyGenerators
 	g.quotaEnforcers = s.quotaEnforcers
 	g.sequentialHandlers = s.sequentialHandlers
+	g.aggregateHandlers = s.aggregateHandlers
+	g.respBodyGenerators = s.respBodyGenerators
+	g.paramForwarders = s.paramForwarders
+	g.contentNegotiators = s.contentNegotiators
 	g.realIPExtractor = s.realIPExtractor
 	g.tokenChecker = s.tokenChecker
 
@@ -773,6 +805,10 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.bodyGenerators = oldBodyGenerators
 	g.quotaEnforcers = oldQuotaEnforcers
 	g.sequentialHandlers = oldSequentialHandlers
+	g.aggregateHandlers = oldAggregateHandlers
+	g.respBodyGenerators = oldRespBodyGenerators
+	g.paramForwarders = oldParamForwarders
+	g.contentNegotiators = oldContentNegotiators
 	g.realIPExtractor = oldRealIPExtractor
 	g.tokenChecker = oldTokenChecker
 
@@ -871,6 +907,10 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.bodyGenerators = newState.bodyGenerators
 	g.quotaEnforcers = newState.quotaEnforcers
 	g.sequentialHandlers = newState.sequentialHandlers
+	g.aggregateHandlers = newState.aggregateHandlers
+	g.respBodyGenerators = newState.respBodyGenerators
+	g.paramForwarders = newState.paramForwarders
+	g.contentNegotiators = newState.contentNegotiators
 	g.realIPExtractor = newState.realIPExtractor
 	g.tokenChecker = newState.tokenChecker
 	g.translators = newState.translators

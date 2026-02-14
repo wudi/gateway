@@ -954,6 +954,87 @@ curl http://localhost:8081/quotas
 }
 ```
 
+### GET `/aggregate`
+
+Returns per-route response aggregation stats.
+
+```bash
+curl http://localhost:8081/aggregate
+```
+
+**Response:**
+```json
+{
+  "user-profile": {
+    "total_requests": 1500,
+    "total_errors": 3,
+    "fail_strategy": "partial",
+    "backends": [
+      {"name": "user", "errors": 0, "total_latency_us": 45000},
+      {"name": "orders", "errors": 3, "total_latency_us": 120000}
+    ]
+  }
+}
+```
+
+### GET `/response-body-generator`
+
+Returns per-route response body generator stats.
+
+```bash
+curl http://localhost:8081/response-body-generator
+```
+
+**Response:**
+```json
+{
+  "api-wrapper": {
+    "generated": 1500,
+    "content_type": "application/json"
+  }
+}
+```
+
+### GET `/param-forwarding`
+
+Returns per-route parameter forwarding stats.
+
+```bash
+curl http://localhost:8081/param-forwarding
+```
+
+**Response:**
+```json
+{
+  "secure-api": {
+    "stripped": 340,
+    "allowed_headers": 3,
+    "allowed_query": 3,
+    "allowed_cookies": 1
+  }
+}
+```
+
+### GET `/content-negotiation`
+
+Returns per-route content negotiation stats.
+
+```bash
+curl http://localhost:8081/content-negotiation
+```
+
+**Response:**
+```json
+{
+  "api-flexible": {
+    "json_count": 1200,
+    "xml_count": 150,
+    "yaml_count": 50,
+    "not_acceptable": 5
+  }
+}
+```
+
 ## Key Config Fields
 
 | Field | Type | Description |

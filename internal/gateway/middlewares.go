@@ -27,6 +27,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/botdetect"
 	"github.com/wudi/gateway/internal/middleware/claimsprop"
 	"github.com/wudi/gateway/internal/middleware/compression"
+	"github.com/wudi/gateway/internal/middleware/contentneg"
 	"github.com/wudi/gateway/internal/middleware/contentreplacer"
 	"github.com/wudi/gateway/internal/middleware/cors"
 	"github.com/wudi/gateway/internal/middleware/csrf"
@@ -39,8 +40,10 @@ import (
 	"github.com/wudi/gateway/internal/middleware/nonce"
 	"github.com/wudi/gateway/internal/middleware/decompress"
 	"github.com/wudi/gateway/internal/middleware/maintenance"
+	"github.com/wudi/gateway/internal/middleware/paramforward"
 	"github.com/wudi/gateway/internal/middleware/proxyratelimit"
 	"github.com/wudi/gateway/internal/middleware/quota"
+	"github.com/wudi/gateway/internal/middleware/respbodygen"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/signing"
 	"github.com/wudi/gateway/internal/middleware/spikearrest"
@@ -1114,6 +1117,21 @@ func bodyGenMW(bg *bodygen.BodyGen) middleware.Middleware {
 // quotaMW enforces per-client usage quotas over billing periods.
 func quotaMW(qe *quota.QuotaEnforcer) middleware.Middleware {
 	return qe.Middleware()
+}
+
+// respBodyGenMW generates response body from a Go template.
+func respBodyGenMW(rbg *respbodygen.RespBodyGen) middleware.Middleware {
+	return rbg.Middleware()
+}
+
+// paramForwardMW strips disallowed headers/query/cookies.
+func paramForwardMW(pf *paramforward.ParamForwarder) middleware.Middleware {
+	return pf.Middleware()
+}
+
+// contentNegMW re-encodes response based on Accept header.
+func contentNegMW(cn *contentneg.Negotiator) middleware.Middleware {
+	return cn.Middleware()
 }
 
 // routeMatchKey is the context key for storing the route match.

@@ -307,6 +307,10 @@ type RouteConfig struct {
 	BodyGenerator        BodyGeneratorConfig         `yaml:"body_generator"`        // Generate request body from template
 	Sequential           SequentialConfig            `yaml:"sequential"`            // Chain multiple backend calls
 	Quota                QuotaConfig                 `yaml:"quota"`                 // Per-client usage quota enforcement
+	Aggregate            AggregateConfig             `yaml:"aggregate"`             // Parallel multi-backend response aggregation
+	ResponseBodyGenerator ResponseBodyGeneratorConfig `yaml:"response_body_generator"` // Rewrite response body with Go template
+	ParamForwarding      ParamForwardingConfig       `yaml:"param_forwarding"`      // Zero-trust parameter forwarding
+	ContentNegotiation   ContentNegotiationConfig    `yaml:"content_negotiation"`   // Accept header → response encoding
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -1340,6 +1344,47 @@ type QuotaConfig struct {
 	Period  string `yaml:"period"`  // "hourly", "daily", "monthly"
 	Key     string `yaml:"key"`     // "ip", "client_id", "header:<name>", "jwt_claim:<name>"
 	Redis   bool   `yaml:"redis"`   // use Redis for distributed tracking
+}
+
+// AggregateConfig enables parallel multi-backend calls with JSON response merging.
+type AggregateConfig struct {
+	Enabled      bool               `yaml:"enabled"`
+	Timeout      time.Duration      `yaml:"timeout"`        // default 5s
+	FailStrategy string             `yaml:"fail_strategy"`  // "abort" (default) or "partial"
+	Backends     []AggregateBackend `yaml:"backends"`
+}
+
+// AggregateBackend defines one backend in an aggregate call.
+type AggregateBackend struct {
+	Name     string            `yaml:"name"`      // unique name (required)
+	URL      string            `yaml:"url"`       // Go template
+	Method   string            `yaml:"method"`    // default GET
+	Headers  map[string]string `yaml:"headers"`   // Go template values
+	Group    string            `yaml:"group"`     // wrap response under this JSON key
+	Required bool              `yaml:"required"`  // abort if fails (relevant for partial)
+	Timeout  time.Duration     `yaml:"timeout"`   // per-backend override
+}
+
+// ResponseBodyGeneratorConfig defines a Go template that rewrites the entire response body.
+type ResponseBodyGeneratorConfig struct {
+	Enabled     bool   `yaml:"enabled"`
+	Template    string `yaml:"template"`      // Go text/template string
+	ContentType string `yaml:"content_type"`  // default "application/json"
+}
+
+// ParamForwardingConfig defines zero-trust parameter forwarding control.
+type ParamForwardingConfig struct {
+	Enabled     bool     `yaml:"enabled"`
+	Headers     []string `yaml:"headers"`       // allowed request headers (case-insensitive)
+	QueryParams []string `yaml:"query_params"`  // allowed query parameter names
+	Cookies     []string `yaml:"cookies"`       // allowed cookie names
+}
+
+// ContentNegotiationConfig defines content negotiation settings.
+type ContentNegotiationConfig struct {
+	Enabled   bool     `yaml:"enabled"`
+	Supported []string `yaml:"supported"` // "json", "xml", "yaml"
+	Default   string   `yaml:"default"`   // default "json"
 }
 
 // DefaultConfig returns a configuration with sensible defaults

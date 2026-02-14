@@ -1707,6 +1707,80 @@ routes:
 
 See [Quota](quota.md) for details.
 
+## Response Aggregation (per-route)
+
+```yaml
+routes:
+  - id: example
+    aggregate:
+      enabled: bool              # enable response aggregation (default false)
+      timeout: duration          # global timeout for all backends (default 5s)
+      fail_strategy: string      # "abort" (default) or "partial"
+      backends:
+        - name: string           # unique backend name (required)
+          url: string            # URL template (required, Go text/template)
+          method: string         # HTTP method (default GET)
+          headers:               # header templates (optional)
+            Header-Name: string
+          group: string          # wrap response under this JSON key (optional)
+          required: bool         # abort if fails even in partial mode (default false)
+          timeout: duration      # per-backend timeout override (optional)
+```
+
+**Validation:** Requires ≥ 2 backends. Each backend needs `name` and `url`. Names must be unique. `fail_strategy` must be `abort` or `partial`. Mutually exclusive with `echo`, `sequential`, `static`, `passthrough`.
+
+See [Response Aggregation](response-aggregation.md) for details.
+
+## Response Body Generator (per-route)
+
+```yaml
+routes:
+  - id: example
+    response_body_generator:
+      enabled: bool              # enable response body generation (default false)
+      template: string           # Go text/template string (required)
+      content_type: string       # Content-Type for generated response (default "application/json")
+```
+
+**Validation:** `template` is required when enabled. Mutually exclusive with `passthrough`.
+
+See [Response Body Generator](response-body-generator.md) for details.
+
+## Parameter Forwarding (per-route)
+
+```yaml
+routes:
+  - id: example
+    param_forwarding:
+      enabled: bool              # enable parameter forwarding control (default false)
+      headers:                   # allowed request headers (case-insensitive)
+        - string
+      query_params:              # allowed query parameter names
+        - string
+      cookies:                   # allowed cookie names
+        - string
+```
+
+**Validation:** At least one of `headers`, `query_params`, or `cookies` must be non-empty when enabled.
+
+See [Parameter Forwarding](parameter-forwarding.md) for details.
+
+## Content Negotiation (per-route)
+
+```yaml
+routes:
+  - id: example
+    content_negotiation:
+      enabled: bool              # enable content negotiation (default false)
+      supported:                 # supported formats: "json", "xml", "yaml"
+        - string
+      default: string            # default format (default "json")
+```
+
+**Validation:** Each supported format must be `json`, `xml`, or `yaml`. Default must be a valid format. Mutually exclusive with `passthrough`.
+
+See [Content Negotiation](content-negotiation.md) for details.
+
 ## Debug Endpoint (global)
 
 ```yaml

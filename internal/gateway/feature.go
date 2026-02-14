@@ -41,6 +41,10 @@ import (
 	"github.com/wudi/gateway/internal/middleware/versioning"
 	"github.com/wudi/gateway/internal/middleware/waf"
 	"github.com/wudi/gateway/internal/mirror"
+	"github.com/wudi/gateway/internal/middleware/contentneg"
+	"github.com/wudi/gateway/internal/middleware/paramforward"
+	"github.com/wudi/gateway/internal/middleware/respbodygen"
+	"github.com/wudi/gateway/internal/proxy/aggregate"
 	"github.com/wudi/gateway/internal/proxy/sequential"
 	"github.com/wudi/gateway/internal/rules"
 	"github.com/wudi/gateway/internal/trafficshape"
@@ -759,3 +763,52 @@ func (f *sequentialFeature) Name() string                                       
 func (f *sequentialFeature) Setup(routeID string, cfg config.RouteConfig) error { return nil }
 func (f *sequentialFeature) RouteIDs() []string                                 { return f.m.RouteIDs() }
 func (f *sequentialFeature) AdminStats() any                                    { return f.m.Stats() }
+
+// aggregateFeature wraps AggregateByRoute.
+// Setup is a no-op because aggregate handler needs the transport from the proxy,
+// which is set up in addRoute() after proxy creation.
+type aggregateFeature struct{ m *aggregate.AggregateByRoute }
+
+func (f *aggregateFeature) Name() string                                       { return "aggregate" }
+func (f *aggregateFeature) Setup(routeID string, cfg config.RouteConfig) error { return nil }
+func (f *aggregateFeature) RouteIDs() []string                                 { return f.m.RouteIDs() }
+func (f *aggregateFeature) AdminStats() any                                    { return f.m.Stats() }
+
+// respBodyGenFeature wraps RespBodyGenByRoute.
+type respBodyGenFeature struct{ m *respbodygen.RespBodyGenByRoute }
+
+func (f *respBodyGenFeature) Name() string { return "response_body_generator" }
+func (f *respBodyGenFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.ResponseBodyGenerator.Enabled {
+		return f.m.AddRoute(routeID, cfg.ResponseBodyGenerator)
+	}
+	return nil
+}
+func (f *respBodyGenFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *respBodyGenFeature) AdminStats() any    { return f.m.Stats() }
+
+// paramForwardFeature wraps ParamForwardByRoute.
+type paramForwardFeature struct{ m *paramforward.ParamForwardByRoute }
+
+func (f *paramForwardFeature) Name() string { return "param_forwarding" }
+func (f *paramForwardFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.ParamForwarding.Enabled {
+		f.m.AddRoute(routeID, cfg.ParamForwarding)
+	}
+	return nil
+}
+func (f *paramForwardFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *paramForwardFeature) AdminStats() any    { return f.m.Stats() }
+
+// contentNegFeature wraps NegotiatorByRoute.
+type contentNegFeature struct{ m *contentneg.NegotiatorByRoute }
+
+func (f *contentNegFeature) Name() string { return "content_negotiation" }
+func (f *contentNegFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.ContentNegotiation.Enabled {
+		return f.m.AddRoute(routeID, cfg.ContentNegotiation)
+	}
+	return nil
+}
+func (f *contentNegFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *contentNegFeature) AdminStats() any    { return f.m.Stats() }

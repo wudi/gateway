@@ -610,6 +610,18 @@ func (s *Server) adminHandler() http.Handler {
 	// Quotas
 	mux.HandleFunc("/quotas", s.handleQuotas)
 
+	// Aggregate handlers
+	mux.HandleFunc("/aggregate", s.handleAggregate)
+
+	// Response body generator
+	mux.HandleFunc("/response-body-generator", s.handleRespBodyGenerator)
+
+	// Parameter forwarding
+	mux.HandleFunc("/param-forwarding", s.handleParamForwarding)
+
+	// Content negotiation
+	mux.HandleFunc("/content-negotiation", s.handleContentNegotiation)
+
 	// Aggregated dashboard
 	mux.HandleFunc("/dashboard", s.handleDashboard)
 
@@ -1244,6 +1256,26 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["quotas"] = quotaStats
 	}
 
+	// Aggregate handlers
+	if aggStats := s.gateway.GetAggregateHandlers().Stats(); len(aggStats) > 0 {
+		dashboard["aggregate"] = aggStats
+	}
+
+	// Response body generator
+	if rbgStats := s.gateway.GetRespBodyGenerators().Stats(); len(rbgStats) > 0 {
+		dashboard["response_body_generator"] = rbgStats
+	}
+
+	// Parameter forwarding
+	if pfStats := s.gateway.GetParamForwarders().Stats(); len(pfStats) > 0 {
+		dashboard["param_forwarding"] = pfStats
+	}
+
+	// Content negotiation
+	if cnStats := s.gateway.GetContentNegotiators().Stats(); len(cnStats) > 0 {
+		dashboard["content_negotiation"] = cnStats
+	}
+
 	// Transport pool
 	pool := s.gateway.GetTransportPool()
 	dashboard["transport"] = pool.DefaultConfig()
@@ -1807,6 +1839,26 @@ func (s *Server) handleSequential(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleQuotas(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.gateway.GetQuotaEnforcers().Stats())
+}
+
+func (s *Server) handleAggregate(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetAggregateHandlers().Stats())
+}
+
+func (s *Server) handleRespBodyGenerator(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetRespBodyGenerators().Stats())
+}
+
+func (s *Server) handleParamForwarding(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetParamForwarders().Stats())
+}
+
+func (s *Server) handleContentNegotiation(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetContentNegotiators().Stats())
 }
 
 // Gateway returns the underlying gateway

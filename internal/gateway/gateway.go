@@ -69,6 +69,10 @@ import (
 	"github.com/wudi/gateway/internal/proxy"
 	grpcproxy "github.com/wudi/gateway/internal/proxy/grpc"
 	"github.com/wudi/gateway/internal/proxy/protocol"
+	"github.com/wudi/gateway/internal/middleware/contentneg"
+	"github.com/wudi/gateway/internal/middleware/paramforward"
+	"github.com/wudi/gateway/internal/middleware/respbodygen"
+	"github.com/wudi/gateway/internal/proxy/aggregate"
 	"github.com/wudi/gateway/internal/proxy/sequential"
 	"github.com/wudi/gateway/internal/registry"
 	"github.com/wudi/gateway/internal/registry/consul"
@@ -158,6 +162,10 @@ type Gateway struct {
 	bodyGenerators      *bodygen.BodyGenByRoute
 	quotaEnforcers      *quota.QuotaByRoute
 	sequentialHandlers  *sequential.SequentialByRoute
+	aggregateHandlers   *aggregate.AggregateByRoute
+	respBodyGenerators  *respbodygen.RespBodyGenByRoute
+	paramForwarders     *paramforward.ParamForwardByRoute
+	contentNegotiators  *contentneg.NegotiatorByRoute
 	serviceLimiter      *serviceratelimit.ServiceLimiter
 	debugHandler        *debug.Handler
 	realIPExtractor     *realip.CompiledRealIP
@@ -257,6 +265,10 @@ func New(cfg *config.Config) (*Gateway, error) {
 		bodyGenerators:      bodygen.NewBodyGenByRoute(),
 		quotaEnforcers:      quota.NewQuotaByRoute(),
 		sequentialHandlers:  sequential.NewSequentialByRoute(),
+		aggregateHandlers:   aggregate.NewAggregateByRoute(),
+		respBodyGenerators:  respbodygen.NewRespBodyGenByRoute(),
+		paramForwarders:     paramforward.NewParamForwardByRoute(),
+		contentNegotiators:  contentneg.NewNegotiatorByRoute(),
 		routeProxies:        make(map[string]*proxy.RouteProxy),
 		routeHandlers:     make(map[string]http.Handler),
 		watchCancels:      make(map[string]context.CancelFunc),
@@ -314,6 +326,10 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&bodyGenFeature{g.bodyGenerators},
 		&quotaFeature{m: g.quotaEnforcers, redis: g.redisClient},
 		&sequentialFeature{m: g.sequentialHandlers},
+		&aggregateFeature{m: g.aggregateHandlers},
+		&respBodyGenFeature{g.respBodyGenerators},
+		&paramForwardFeature{g.paramForwarders},
+		&contentNegFeature{g.contentNegotiators},
 	}
 
 	// Initialize global IP filter
@@ -657,8 +673,8 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 	// Set upstream name on route for transport pool resolution
 	route.UpstreamName = routeCfg.Upstream
 
-	// Set up backends (skip for echo and sequential routes — no backend needed)
-	if !routeCfg.Echo && !routeCfg.Sequential.Enabled {
+	// Set up backends (skip for echo, sequential, and aggregate routes — no backend needed)
+	if !routeCfg.Echo && !routeCfg.Sequential.Enabled && !routeCfg.Aggregate.Enabled {
 		var backends []*loadbalancer.Backend
 
 		// Check if using service discovery
@@ -822,6 +838,14 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 		transport := g.proxy.GetTransportPool().Get(routeCfg.Upstream)
 		if err := g.sequentialHandlers.AddRoute(routeCfg.ID, routeCfg.Sequential, transport); err != nil {
 			return fmt.Errorf("sequential: route %s: %w", routeCfg.ID, err)
+		}
+	}
+
+	// Set up aggregate handler (needs transport from proxy's transport pool)
+	if routeCfg.Aggregate.Enabled {
+		transport := g.proxy.GetTransportPool().Get(routeCfg.Upstream)
+		if err := g.aggregateHandlers.AddRoute(routeCfg.ID, routeCfg.Aggregate, transport); err != nil {
+			return fmt.Errorf("aggregate: route %s: %w", routeCfg.ID, err)
 		}
 	}
 
@@ -1155,6 +1179,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		chain = chain.Use(bodyGenMW(bg))
 	}
 
+	// 16.1. paramForwardMW — strip disallowed headers/query/cookies
+	if pf := g.paramForwarders.GetForwarder(routeID); pf != nil {
+		chain = chain.Use(paramForwardMW(pf))
+	}
+
 	// 16.25. backendAuthMW — inject OAuth2 access token into backend requests
 	if ba := g.backendAuths.GetProvider(routeID); ba != nil {
 		chain = chain.Use(backendAuthMW(ba))
@@ -1182,9 +1211,25 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		}
 	}
 
-	// Innermost handler: sequential, echo, static, translator, or proxy (Step 10)
+	// 17.35. respBodyGenMW — generate response body from template
+	if !skipBody {
+		if rbg := g.respBodyGenerators.GetGenerator(routeID); rbg != nil {
+			chain = chain.Use(respBodyGenMW(rbg))
+		}
+	}
+
+	// 17.4. contentNegMW — re-encode response based on Accept header
+	if !skipBody {
+		if cn := g.contentNegotiators.GetNegotiator(routeID); cn != nil {
+			chain = chain.Use(contentNegMW(cn))
+		}
+	}
+
+	// Innermost handler: aggregate, sequential, echo, static, translator, or proxy (Step 10)
 	var innermost http.Handler
-	if seqH := g.sequentialHandlers.GetHandler(routeID); seqH != nil {
+	if aggH := g.aggregateHandlers.GetHandler(routeID); aggH != nil {
+		innermost = aggH
+	} else if seqH := g.sequentialHandlers.GetHandler(routeID); seqH != nil {
 		innermost = seqH
 	} else if cfg.Echo {
 		innermost = proxy.NewEchoHandler(routeID)
@@ -1874,6 +1919,26 @@ func (g *Gateway) GetFollowRedirectStats() map[string]interface{} {
 		}
 	}
 	return result
+}
+
+// GetAggregateHandlers returns the aggregate handler manager.
+func (g *Gateway) GetAggregateHandlers() *aggregate.AggregateByRoute {
+	return g.aggregateHandlers
+}
+
+// GetRespBodyGenerators returns the response body generator manager.
+func (g *Gateway) GetRespBodyGenerators() *respbodygen.RespBodyGenByRoute {
+	return g.respBodyGenerators
+}
+
+// GetParamForwarders returns the param forwarding manager.
+func (g *Gateway) GetParamForwarders() *paramforward.ParamForwardByRoute {
+	return g.paramForwarders
+}
+
+// GetContentNegotiators returns the content negotiation manager.
+func (g *Gateway) GetContentNegotiators() *contentneg.NegotiatorByRoute {
+	return g.contentNegotiators
 }
 
 // GetDebugHandler returns the debug endpoint handler (may be nil).

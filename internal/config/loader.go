@@ -174,8 +174,8 @@ func (l *Loader) validate(cfg *Config) error {
 			return fmt.Errorf("route %s: path is required", route.ID)
 		}
 
-		// Must have either backends, service discovery, versioning, upstream ref, echo, static, or sequential
-		if len(route.Backends) == 0 && route.Service.Name == "" && !route.Versioning.Enabled && route.Upstream == "" && !route.Echo && !route.Static.Enabled && !route.Sequential.Enabled {
+		// Must have either backends, service discovery, versioning, upstream ref, echo, static, sequential, or aggregate
+		if len(route.Backends) == 0 && route.Service.Name == "" && !route.Versioning.Enabled && route.Upstream == "" && !route.Echo && !route.Static.Enabled && !route.Sequential.Enabled && !route.Aggregate.Enabled {
 			return fmt.Errorf("route %s: must have either backends, service name, or upstream", route.ID)
 		}
 
@@ -367,6 +367,75 @@ func (l *Loader) validate(cfg *Config) error {
 			}
 			if route.Quota.Key == "" {
 				return fmt.Errorf("route %s: quota key is required", route.ID)
+			}
+		}
+
+		// Validate aggregate
+		if route.Aggregate.Enabled {
+			if len(route.Aggregate.Backends) < 2 {
+				return fmt.Errorf("route %s: aggregate requires at least 2 backends", route.ID)
+			}
+			names := make(map[string]bool)
+			for j, ab := range route.Aggregate.Backends {
+				if ab.Name == "" {
+					return fmt.Errorf("route %s: aggregate backend %d requires a name", route.ID, j)
+				}
+				if names[ab.Name] {
+					return fmt.Errorf("route %s: duplicate aggregate backend name: %s", route.ID, ab.Name)
+				}
+				names[ab.Name] = true
+				if ab.URL == "" {
+					return fmt.Errorf("route %s: aggregate backend %s requires a URL", route.ID, ab.Name)
+				}
+			}
+			fs := route.Aggregate.FailStrategy
+			if fs != "" && fs != "abort" && fs != "partial" {
+				return fmt.Errorf("route %s: aggregate fail_strategy must be 'abort' or 'partial'", route.ID)
+			}
+			if route.Echo {
+				return fmt.Errorf("route %s: aggregate is mutually exclusive with echo", route.ID)
+			}
+			if route.Sequential.Enabled {
+				return fmt.Errorf("route %s: aggregate is mutually exclusive with sequential", route.ID)
+			}
+			if route.Static.Enabled {
+				return fmt.Errorf("route %s: aggregate is mutually exclusive with static", route.ID)
+			}
+			if route.Passthrough {
+				return fmt.Errorf("route %s: aggregate is mutually exclusive with passthrough", route.ID)
+			}
+		}
+
+		// Validate response_body_generator
+		if route.ResponseBodyGenerator.Enabled {
+			if route.ResponseBodyGenerator.Template == "" {
+				return fmt.Errorf("route %s: response_body_generator requires a template", route.ID)
+			}
+			if route.Passthrough {
+				return fmt.Errorf("route %s: response_body_generator is mutually exclusive with passthrough", route.ID)
+			}
+		}
+
+		// Validate param_forwarding
+		if route.ParamForwarding.Enabled {
+			if len(route.ParamForwarding.Headers) == 0 && len(route.ParamForwarding.QueryParams) == 0 && len(route.ParamForwarding.Cookies) == 0 {
+				return fmt.Errorf("route %s: param_forwarding requires at least one of headers, query_params, or cookies", route.ID)
+			}
+		}
+
+		// Validate content_negotiation
+		if route.ContentNegotiation.Enabled {
+			validFormats := map[string]bool{"json": true, "xml": true, "yaml": true}
+			for _, f := range route.ContentNegotiation.Supported {
+				if !validFormats[f] {
+					return fmt.Errorf("route %s: content_negotiation supported format %q must be json, xml, or yaml", route.ID, f)
+				}
+			}
+			if route.ContentNegotiation.Default != "" && !validFormats[route.ContentNegotiation.Default] {
+				return fmt.Errorf("route %s: content_negotiation default %q must be json, xml, or yaml", route.ID, route.ContentNegotiation.Default)
+			}
+			if route.Passthrough {
+				return fmt.Errorf("route %s: content_negotiation is mutually exclusive with passthrough", route.ID)
 			}
 		}
 
