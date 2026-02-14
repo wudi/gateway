@@ -14,6 +14,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/botdetect"
 	"github.com/wudi/gateway/internal/middleware/claimsprop"
 	"github.com/wudi/gateway/internal/middleware/compression"
+	"github.com/wudi/gateway/internal/middleware/contentreplacer"
 	"github.com/wudi/gateway/internal/middleware/cors"
 	"github.com/wudi/gateway/internal/middleware/csrf"
 	"github.com/wudi/gateway/internal/middleware/errorpages"
@@ -26,6 +27,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/proxyratelimit"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/signing"
+	"github.com/wudi/gateway/internal/middleware/spikearrest"
 	"github.com/wudi/gateway/internal/middleware/staticfiles"
 	"github.com/wudi/gateway/internal/middleware/statusmap"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
@@ -683,3 +685,35 @@ func (f *staticFeature) Setup(routeID string, cfg config.RouteConfig) error {
 }
 func (f *staticFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *staticFeature) AdminStats() any    { return f.m.Stats() }
+
+// spikeArrestFeature wraps SpikeArrestByRoute with global merge.
+type spikeArrestFeature struct {
+	m      *spikearrest.SpikeArrestByRoute
+	global *config.SpikeArrestConfig
+}
+
+func (f *spikeArrestFeature) Name() string { return "spike_arrest" }
+func (f *spikeArrestFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	rc := cfg.SpikeArrest
+	if !rc.Enabled && !f.global.Enabled {
+		return nil
+	}
+	merged := spikearrest.MergeSpikeArrestConfig(rc, *f.global)
+	f.m.AddRoute(routeID, merged)
+	return nil
+}
+func (f *spikeArrestFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *spikeArrestFeature) AdminStats() any    { return f.m.Stats() }
+
+// contentReplacerFeature wraps ContentReplacerByRoute.
+type contentReplacerFeature struct{ m *contentreplacer.ContentReplacerByRoute }
+
+func (f *contentReplacerFeature) Name() string { return "content_replacer" }
+func (f *contentReplacerFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.ContentReplacer.Enabled && len(cfg.ContentReplacer.Replacements) > 0 {
+		return f.m.AddRoute(routeID, cfg.ContentReplacer)
+	}
+	return nil
+}
+func (f *contentReplacerFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *contentReplacerFeature) AdminStats() any    { return f.m.Stats() }

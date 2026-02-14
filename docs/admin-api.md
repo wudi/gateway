@@ -818,6 +818,62 @@ Returns per-route static file serving stats including root directory and served 
 curl http://localhost:8081/static-files
 ```
 
+### GET `/service-rate-limit`
+
+Returns service-level rate limit stats (global throughput cap).
+
+```bash
+curl http://localhost:8081/service-rate-limit
+```
+
+**Response:**
+```json
+{
+  "enabled": true,
+  "allowed": 150000,
+  "rejected": 42
+}
+```
+
+### GET `/spike-arrest`
+
+Returns per-route spike arrest stats.
+
+```bash
+curl http://localhost:8081/spike-arrest
+```
+
+**Response:**
+```json
+{
+  "api": {
+    "allowed": 5000,
+    "rejected": 120,
+    "per_ip": true,
+    "tracked_ips": 45
+  }
+}
+```
+
+### GET `/content-replacer`
+
+Returns per-route content replacer stats.
+
+```bash
+curl http://localhost:8081/content-replacer
+```
+
+**Response:**
+```json
+{
+  "api": {
+    "total": 1000,
+    "replaced": 342,
+    "rules": 3
+  }
+}
+```
+
 ## Key Config Fields
 
 | Field | Type | Description |

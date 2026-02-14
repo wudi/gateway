@@ -31,7 +31,9 @@ import (
 	"github.com/wudi/gateway/internal/middleware/botdetect"
 	"github.com/wudi/gateway/internal/middleware/claimsprop"
 	"github.com/wudi/gateway/internal/middleware/compression"
+	"github.com/wudi/gateway/internal/middleware/contentreplacer"
 	"github.com/wudi/gateway/internal/middleware/cors"
+	"github.com/wudi/gateway/internal/middleware/debug"
 	"github.com/wudi/gateway/internal/middleware/decompress"
 	"github.com/wudi/gateway/internal/middleware/csrf"
 	"github.com/wudi/gateway/internal/middleware/errorpages"
@@ -47,7 +49,9 @@ import (
 	"github.com/wudi/gateway/internal/middleware/proxyratelimit"
 	"github.com/wudi/gateway/internal/middleware/realip"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
+	"github.com/wudi/gateway/internal/middleware/serviceratelimit"
 	"github.com/wudi/gateway/internal/middleware/signing"
+	"github.com/wudi/gateway/internal/middleware/spikearrest"
 	"github.com/wudi/gateway/internal/middleware/staticfiles"
 	"github.com/wudi/gateway/internal/middleware/statusmap"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
@@ -146,6 +150,10 @@ type Gateway struct {
 	backendAuths        *backendauth.BackendAuthByRoute
 	statusMappers       *statusmap.StatusMapByRoute
 	staticFiles         *staticfiles.StaticByRoute
+	spikeArresters      *spikearrest.SpikeArrestByRoute
+	contentReplacers    *contentreplacer.ContentReplacerByRoute
+	serviceLimiter      *serviceratelimit.ServiceLimiter
+	debugHandler        *debug.Handler
 	realIPExtractor     *realip.CompiledRealIP
 	httpsRedirect       *httpsredirect.CompiledHTTPSRedirect
 	allowedHosts        *allowedhosts.CompiledAllowedHosts
@@ -238,6 +246,8 @@ func New(cfg *config.Config) (*Gateway, error) {
 		backendAuths:        backendauth.NewBackendAuthByRoute(),
 		statusMappers:       statusmap.NewStatusMapByRoute(),
 		staticFiles:         staticfiles.NewStaticByRoute(),
+		spikeArresters:      spikearrest.NewSpikeArrestByRoute(),
+		contentReplacers:    contentreplacer.NewContentReplacerByRoute(),
 		routeProxies:        make(map[string]*proxy.RouteProxy),
 		routeHandlers:     make(map[string]http.Handler),
 		watchCancels:      make(map[string]context.CancelFunc),
@@ -290,6 +300,8 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&backendAuthFeature{g.backendAuths},
 		&statusMapFeature{g.statusMappers},
 		&staticFeature{g.staticFiles},
+		&spikeArrestFeature{m: g.spikeArresters, global: &cfg.SpikeArrest},
+		&contentReplacerFeature{g.contentReplacers},
 	}
 
 	// Initialize global IP filter
@@ -366,6 +378,16 @@ func New(cfg *config.Config) (*Gateway, error) {
 	// Initialize token revocation checker
 	if cfg.TokenRevocation.Enabled {
 		g.tokenChecker = tokenrevoke.New(cfg.TokenRevocation, g.redisClient)
+	}
+
+	// Initialize service-level rate limiter
+	if cfg.ServiceRateLimit.Enabled {
+		g.serviceLimiter = serviceratelimit.New(cfg.ServiceRateLimit)
+	}
+
+	// Initialize debug endpoint
+	if cfg.DebugEndpoint.Enabled {
+		g.debugHandler = debug.New(cfg.DebugEndpoint, cfg)
 	}
 
 	// Detect HTTP/3 port for Alt-Svc header
@@ -898,6 +920,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		chain = chain.Use(mw)
 	}
 
+	// 5.25 spikeArrestMW — continuous rate enforcement with immediate rejection
+	if sa := g.spikeArresters.GetArrester(routeID); sa != nil {
+		chain = chain.Use(spikeArrestMW(sa))
+	}
+
 	// 5.5 throttleMW — delay/queue (after reject, before auth)
 	if t := g.throttlers.GetThrottler(routeID); t != nil {
 		chain = chain.Use(throttleMW(t))
@@ -1118,6 +1145,13 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		chain = chain.Use(statusMapMW(sm))
 	}
 
+	// 17.3. contentReplacerMW — regex replacement on response body/headers
+	if !skipBody {
+		if cr := g.contentReplacers.GetReplacer(routeID); cr != nil {
+			chain = chain.Use(contentReplacerMW(cr))
+		}
+	}
+
 	// Innermost handler: echo, static, translator, or proxy (Step 10)
 	var innermost http.Handler
 	if cfg.Echo {
@@ -1318,6 +1352,11 @@ func (g *Gateway) Handler() http.Handler {
 
 	chain = chain.Use(middleware.RequestID())
 
+	// Service-level rate limit (after RequestID, before Alt-Svc)
+	if g.serviceLimiter != nil {
+		chain = chain.Use(g.serviceLimiter.Middleware())
+	}
+
 	// Alt-Svc: advertise HTTP/3 on HTTP/1+2 responses
 	if g.http3AltSvcPort != "" {
 		chain = chain.Use(altsvc.Middleware(g.http3AltSvcPort))
@@ -1339,6 +1378,12 @@ func (g *Gateway) Handler() http.Handler {
 
 // serveHTTP handles incoming requests by dispatching to the per-route handler pipeline.
 func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	// Debug endpoint intercept (before route matching)
+	if g.debugHandler != nil && g.debugHandler.Matches(r.URL.Path) {
+		g.debugHandler.ServeHTTP(w, r)
+		return
+	}
+
 	match := g.router.Match(r)
 	if match == nil {
 		errors.ErrNotFound.WriteJSON(w)
@@ -1754,6 +1799,26 @@ func (g *Gateway) GetUpstreams() map[string]config.UpstreamConfig {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.config.Upstreams
+}
+
+// GetServiceLimiter returns the service-level rate limiter (may be nil).
+func (g *Gateway) GetServiceLimiter() *serviceratelimit.ServiceLimiter {
+	return g.serviceLimiter
+}
+
+// GetSpikeArresters returns the spike arrest manager.
+func (g *Gateway) GetSpikeArresters() *spikearrest.SpikeArrestByRoute {
+	return g.spikeArresters
+}
+
+// GetContentReplacers returns the content replacer manager.
+func (g *Gateway) GetContentReplacers() *contentreplacer.ContentReplacerByRoute {
+	return g.contentReplacers
+}
+
+// GetDebugHandler returns the debug endpoint handler (may be nil).
+func (g *Gateway) GetDebugHandler() *debug.Handler {
+	return g.debugHandler
 }
 
 // GetTransportPool returns the proxy's transport pool.

@@ -145,6 +145,20 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate service rate limit
+	if cfg.ServiceRateLimit.Enabled {
+		if cfg.ServiceRateLimit.Rate <= 0 {
+			return fmt.Errorf("service_rate_limit: rate must be > 0 when enabled")
+		}
+	}
+
+	// Validate debug endpoint
+	if cfg.DebugEndpoint.Enabled && cfg.DebugEndpoint.Path != "" {
+		if !strings.HasPrefix(cfg.DebugEndpoint.Path, "/") {
+			return fmt.Errorf("debug_endpoint: path must start with /")
+		}
+	}
+
 	// Validate routes
 	routeIDs := make(map[string]bool)
 	for i, route := range cfg.Routes {
@@ -282,6 +296,28 @@ func (l *Loader) validate(cfg *Config) error {
 			if route.ResponseLimit.Enabled {
 				return fmt.Errorf("route %s: passthrough is mutually exclusive with response_limit", route.ID)
 			}
+		}
+
+		// Validate spike arrest
+		if route.SpikeArrest.Enabled && route.SpikeArrest.Rate <= 0 {
+			return fmt.Errorf("route %s: spike_arrest rate must be > 0 when enabled", route.ID)
+		}
+
+		// Validate content replacer
+		if route.ContentReplacer.Enabled {
+			if len(route.ContentReplacer.Replacements) == 0 {
+				return fmt.Errorf("route %s: content_replacer requires at least one replacement", route.ID)
+			}
+			for j, rule := range route.ContentReplacer.Replacements {
+				if _, err := regexp.Compile(rule.Pattern); err != nil {
+					return fmt.Errorf("route %s: content_replacer replacement %d: invalid pattern: %w", route.ID, j, err)
+				}
+			}
+		}
+
+		// Passthrough + content_replacer mutual exclusion
+		if route.Passthrough && route.ContentReplacer.Enabled {
+			return fmt.Errorf("route %s: passthrough is mutually exclusive with content_replacer", route.ID)
 		}
 
 		// Mutual exclusion: upstream vs inline backends/service

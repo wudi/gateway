@@ -26,6 +26,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/botdetect"
 	"github.com/wudi/gateway/internal/middleware/claimsprop"
 	"github.com/wudi/gateway/internal/middleware/compression"
+	"github.com/wudi/gateway/internal/middleware/contentreplacer"
 	"github.com/wudi/gateway/internal/middleware/cors"
 	"github.com/wudi/gateway/internal/middleware/csrf"
 	"github.com/wudi/gateway/internal/middleware/idempotency"
@@ -40,6 +41,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/proxyratelimit"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/signing"
+	"github.com/wudi/gateway/internal/middleware/spikearrest"
 	"github.com/wudi/gateway/internal/middleware/statusmap"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
 	"github.com/wudi/gateway/internal/middleware/ratelimit"
@@ -1090,6 +1092,16 @@ func backendAuthMW(ba *backendauth.TokenProvider) middleware.Middleware {
 // statusMapMW remaps backend response status codes.
 func statusMapMW(sm *statusmap.StatusMapper) middleware.Middleware {
 	return sm.Middleware()
+}
+
+// spikeArrestMW enforces continuous rate limiting with immediate rejection.
+func spikeArrestMW(sa *spikearrest.SpikeArrester) middleware.Middleware {
+	return sa.Middleware()
+}
+
+// contentReplacerMW applies regex replacements to response body/headers.
+func contentReplacerMW(cr *contentreplacer.ContentReplacer) middleware.Middleware {
+	return cr.Middleware()
 }
 
 // routeMatchKey is the context key for storing the route match.

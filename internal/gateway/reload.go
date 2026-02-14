@@ -17,13 +17,17 @@ import (
 	"github.com/wudi/gateway/internal/loadbalancer/outlier"
 	"github.com/wudi/gateway/internal/logging"
 	"github.com/wudi/gateway/internal/middleware/accesslog"
+	"github.com/wudi/gateway/internal/middleware/allowedhosts"
 	"github.com/wudi/gateway/internal/middleware/auth"
 	"github.com/wudi/gateway/internal/middleware/backendauth"
 	"github.com/wudi/gateway/internal/middleware/compression"
+	"github.com/wudi/gateway/internal/middleware/contentreplacer"
 	"github.com/wudi/gateway/internal/middleware/cors"
+	"github.com/wudi/gateway/internal/middleware/debug"
 	"github.com/wudi/gateway/internal/middleware/csrf"
 	"github.com/wudi/gateway/internal/middleware/errorpages"
 	"github.com/wudi/gateway/internal/middleware/extauth"
+	"github.com/wudi/gateway/internal/middleware/httpsredirect"
 	"github.com/wudi/gateway/internal/middleware/idempotency"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	"github.com/wudi/gateway/internal/middleware/nonce"
@@ -35,7 +39,9 @@ import (
 	"github.com/wudi/gateway/internal/middleware/proxyratelimit"
 	"github.com/wudi/gateway/internal/middleware/realip"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
+	"github.com/wudi/gateway/internal/middleware/serviceratelimit"
 	"github.com/wudi/gateway/internal/middleware/signing"
+	"github.com/wudi/gateway/internal/middleware/spikearrest"
 	"github.com/wudi/gateway/internal/middleware/staticfiles"
 	"github.com/wudi/gateway/internal/middleware/statusmap"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
@@ -119,6 +125,8 @@ type gatewayState struct {
 	backendAuths        *backendauth.BackendAuthByRoute
 	statusMappers       *statusmap.StatusMapByRoute
 	staticFiles         *staticfiles.StaticByRoute
+	spikeArresters      *spikearrest.SpikeArrestByRoute
+	contentReplacers    *contentreplacer.ContentReplacerByRoute
 	realIPExtractor     *realip.CompiledRealIP
 	tokenChecker        *tokenrevoke.TokenChecker
 	outlierDetectors    *outlier.DetectorByRoute
@@ -180,6 +188,8 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		backendAuths:        backendauth.NewBackendAuthByRoute(),
 		statusMappers:       statusmap.NewStatusMapByRoute(),
 		staticFiles:         staticfiles.NewStaticByRoute(),
+		spikeArresters:      spikearrest.NewSpikeArrestByRoute(),
+		contentReplacers:    contentreplacer.NewContentReplacerByRoute(),
 		outlierDetectors:    outlier.NewDetectorByRoute(),
 		translators:       protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
@@ -232,6 +242,8 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		&backendAuthFeature{s.backendAuths},
 		&statusMapFeature{s.statusMappers},
 		&staticFeature{s.staticFiles},
+		&spikeArrestFeature{m: s.spikeArresters, global: &cfg.SpikeArrest},
+		&contentReplacerFeature{s.contentReplacers},
 	}
 
 	// Initialize token revocation checker
@@ -628,6 +640,8 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldBackendAuths := g.backendAuths
 	oldStatusMappers := g.statusMappers
 	oldStaticFiles := g.staticFiles
+	oldSpikeArresters := g.spikeArresters
+	oldContentReplacers := g.contentReplacers
 	oldRealIPExtractor := g.realIPExtractor
 	oldTokenChecker := g.tokenChecker
 
@@ -676,6 +690,8 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.backendAuths = s.backendAuths
 	g.statusMappers = s.statusMappers
 	g.staticFiles = s.staticFiles
+	g.spikeArresters = s.spikeArresters
+	g.contentReplacers = s.contentReplacers
 	g.realIPExtractor = s.realIPExtractor
 	g.tokenChecker = s.tokenChecker
 
@@ -726,6 +742,8 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.backendAuths = oldBackendAuths
 	g.statusMappers = oldStatusMappers
 	g.staticFiles = oldStaticFiles
+	g.spikeArresters = oldSpikeArresters
+	g.contentReplacers = oldContentReplacers
 	g.realIPExtractor = oldRealIPExtractor
 	g.tokenChecker = oldTokenChecker
 
@@ -818,6 +836,8 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.backendAuths = newState.backendAuths
 	g.statusMappers = newState.statusMappers
 	g.staticFiles = newState.staticFiles
+	g.spikeArresters = newState.spikeArresters
+	g.contentReplacers = newState.contentReplacers
 	g.realIPExtractor = newState.realIPExtractor
 	g.tokenChecker = newState.tokenChecker
 	g.translators = newState.translators
@@ -826,6 +846,28 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.apiKeyAuth = newState.apiKeyAuth
 	g.jwtAuth = newState.jwtAuth
 	g.oauthAuth = newState.oauthAuth
+	// Rebuild global singletons from new config
+	if newCfg.ServiceRateLimit.Enabled {
+		g.serviceLimiter = serviceratelimit.New(newCfg.ServiceRateLimit)
+	} else {
+		g.serviceLimiter = nil
+	}
+	if newCfg.DebugEndpoint.Enabled {
+		g.debugHandler = debug.New(newCfg.DebugEndpoint, newCfg)
+	} else {
+		g.debugHandler = nil
+	}
+	// Rebuild HTTPS redirect and allowed hosts from new config
+	if newCfg.HTTPSRedirect.Enabled {
+		g.httpsRedirect = httpsredirect.New(newCfg.HTTPSRedirect)
+	} else {
+		g.httpsRedirect = nil
+	}
+	if newCfg.AllowedHosts.Enabled {
+		g.allowedHosts = allowedhosts.New(newCfg.AllowedHosts)
+	} else {
+		g.allowedHosts = nil
+	}
 	g.mu.Unlock()
 
 	// Clean up old state (after releasing lock — in-flight requests already hold handler refs)

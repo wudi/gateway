@@ -1583,3 +1583,72 @@ claims_propagation:
 **Validation:** At least one claim mapping required when enabled. No empty claim names or header names.
 
 See [Authentication](authentication.md#claims-propagation) for details.
+
+## Service Rate Limit (global)
+
+```yaml
+service_rate_limit:
+  enabled: bool            # enable service-level rate limiting (default false)
+  rate: int                # requests per period (required when enabled)
+  period: duration         # time window (default 1s)
+  burst: int               # burst capacity (default = rate)
+```
+
+**Validation:** `rate` must be > 0 when enabled.
+
+See [Service Rate Limiting](service-rate-limiting.md) for details.
+
+## Spike Arrest (global + per-route)
+
+```yaml
+# Global defaults
+spike_arrest:
+  enabled: bool            # enable spike arrest (default false)
+  rate: int                # max requests per period
+  period: duration         # time window (default 1s)
+  burst: int               # burst capacity (default = rate)
+  per_ip: bool             # per-client-IP tracking (default false)
+
+# Per-route (same fields, overrides global)
+routes:
+  - id: example
+    spike_arrest:
+      enabled: bool
+      rate: int
+      period: duration
+      burst: int
+      per_ip: bool
+```
+
+**Validation:** `rate` must be > 0 when enabled.
+
+See [Spike Arrest](spike-arrest.md) for details.
+
+## Content Replacer (per-route)
+
+```yaml
+routes:
+  - id: example
+    content_replacer:
+      enabled: bool                    # enable content replacement (default false)
+      replacements:
+        - pattern: string              # Go regex pattern (required)
+          replacement: string          # replacement string ($1, $2 groups)
+          scope: string                # "body" (default) or "header:<name>"
+```
+
+**Validation:** At least one replacement required when enabled. All patterns must be valid Go regexes. Mutually exclusive with `passthrough`.
+
+See [Content Replacer](content-replacer.md) for details.
+
+## Debug Endpoint (global)
+
+```yaml
+debug_endpoint:
+  enabled: bool            # enable debug endpoint (default false)
+  path: string             # URL path prefix (default /__debug)
+```
+
+**Validation:** `path` must start with `/` when specified.
+
+See [Debug Endpoint](debug-endpoint.md) for details.

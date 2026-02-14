@@ -589,6 +589,15 @@ func (s *Server) adminHandler() http.Handler {
 	// Static files
 	mux.HandleFunc("/static-files", s.handleStaticFiles)
 
+	// Service rate limit
+	mux.HandleFunc("/service-rate-limit", s.handleServiceRateLimit)
+
+	// Spike arrest
+	mux.HandleFunc("/spike-arrest", s.handleSpikeArrest)
+
+	// Content replacer
+	mux.HandleFunc("/content-replacer", s.handleContentReplacer)
+
 	// Aggregated dashboard
 	mux.HandleFunc("/dashboard", s.handleDashboard)
 
@@ -1183,6 +1192,26 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["upstreams"] = upstreams
 	}
 
+	// Service rate limit
+	if sl := s.gateway.GetServiceLimiter(); sl != nil {
+		dashboard["service_rate_limit"] = sl.Stats()
+	}
+
+	// Spike arrest
+	if saStats := s.gateway.GetSpikeArresters().Stats(); len(saStats) > 0 {
+		dashboard["spike_arrest"] = saStats
+	}
+
+	// Content replacer
+	if crStats := s.gateway.GetContentReplacers().Stats(); len(crStats) > 0 {
+		dashboard["content_replacer"] = crStats
+	}
+
+	// Debug endpoint
+	if dh := s.gateway.GetDebugHandler(); dh != nil {
+		dashboard["debug_endpoint"] = dh.Stats()
+	}
+
 	// Transport pool
 	pool := s.gateway.GetTransportPool()
 	dashboard["transport"] = pool.DefaultConfig()
@@ -1706,6 +1735,26 @@ func (s *Server) handleStatusMapping(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleStaticFiles(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.gateway.GetStaticFiles().Stats())
+}
+
+func (s *Server) handleServiceRateLimit(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	sl := s.gateway.GetServiceLimiter()
+	if sl == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"enabled": false})
+		return
+	}
+	json.NewEncoder(w).Encode(sl.Stats())
+}
+
+func (s *Server) handleSpikeArrest(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetSpikeArresters().Stats())
+}
+
+func (s *Server) handleContentReplacer(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetContentReplacers().Stats())
 }
 
 // Gateway returns the underlying gateway

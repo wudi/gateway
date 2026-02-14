@@ -62,6 +62,9 @@ type Config struct {
 	HTTPSRedirect          HTTPSRedirectConfig          `yaml:"https_redirect"`           // Automatic HTTP→HTTPS redirect
 	AllowedHosts           AllowedHostsConfig           `yaml:"allowed_hosts"`            // Host header validation
 	TokenRevocation        TokenRevocationConfig        `yaml:"token_revocation"`         // JWT token revocation / blocklist
+	ServiceRateLimit       ServiceRateLimitConfig       `yaml:"service_rate_limit"`        // Global service-level rate limit
+	SpikeArrest            SpikeArrestConfig            `yaml:"spike_arrest"`              // Global spike arrest defaults
+	DebugEndpoint          DebugEndpointConfig          `yaml:"debug_endpoint"`            // Debug endpoint for request inspection
 }
 
 // ListenerConfig defines a listener configuration
@@ -298,6 +301,8 @@ type RouteConfig struct {
 	Static               StaticConfig               `yaml:"static"`                // Serve static files (replaces proxy)
 	Passthrough          bool                       `yaml:"passthrough"`           // Skip body-processing middleware
 	Echo                 bool                       `yaml:"echo"`                  // Echo handler (no backend needed)
+	SpikeArrest          SpikeArrestConfig          `yaml:"spike_arrest"`          // Per-route spike arrest
+	ContentReplacer      ContentReplacerConfig      `yaml:"content_replacer"`      // Per-route response content replacement
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -1258,6 +1263,42 @@ type TransportConfig struct {
 	KeyFile               string        `yaml:"key_file"`
 	ForceHTTP2            *bool         `yaml:"force_http2"`
 	EnableHTTP3           *bool         `yaml:"enable_http3"` // connect via QUIC to upstream
+}
+
+// ServiceRateLimitConfig defines global gateway-wide throughput cap.
+type ServiceRateLimitConfig struct {
+	Enabled bool          `yaml:"enabled"`
+	Rate    int           `yaml:"rate"`   // requests per period
+	Period  time.Duration `yaml:"period"` // default 1s
+	Burst   int           `yaml:"burst"`  // burst capacity (default = rate)
+}
+
+// SpikeArrestConfig defines continuous rate enforcement with immediate rejection.
+type SpikeArrestConfig struct {
+	Enabled bool          `yaml:"enabled"`
+	Rate    int           `yaml:"rate"`   // max requests per period
+	Period  time.Duration `yaml:"period"` // default 1s
+	Burst   int           `yaml:"burst"`  // requests before arrest (default = rate)
+	PerIP   bool          `yaml:"per_ip"`
+}
+
+// ContentReplacerConfig defines response content replacement rules.
+type ContentReplacerConfig struct {
+	Enabled      bool              `yaml:"enabled"`
+	Replacements []ReplacementRule `yaml:"replacements"`
+}
+
+// ReplacementRule defines a single regex-based replacement.
+type ReplacementRule struct {
+	Pattern     string `yaml:"pattern"`     // regex pattern
+	Replacement string `yaml:"replacement"` // replacement string ($1, $2 capture groups)
+	Scope       string `yaml:"scope"`       // "body" (default) or "header:<name>"
+}
+
+// DebugEndpointConfig defines the debug endpoint settings.
+type DebugEndpointConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Path    string `yaml:"path"` // default "/__debug"
 }
 
 // DefaultConfig returns a configuration with sensible defaults
