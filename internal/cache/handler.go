@@ -349,17 +349,21 @@ func WriteCachedResponse(w http.ResponseWriter, r *http.Request, entry *Entry, c
 
 // CacheByRoute manages cache handlers per route.
 type CacheByRoute struct {
-	handlers    map[string]*Handler
-	redisClient *redis.Client
-	mu          sync.RWMutex
+	handlers     map[string]*Handler
+	bucketStores map[string]Store
+	buckets      map[string]string // routeID → bucket name
+	redisClient  *redis.Client
+	mu           sync.RWMutex
 }
 
 // NewCacheByRoute creates a new route-based cache manager.
 // Pass a non-nil redisClient to enable distributed caching for routes with mode "distributed".
 func NewCacheByRoute(redisClient *redis.Client) *CacheByRoute {
 	return &CacheByRoute{
-		handlers:    make(map[string]*Handler),
-		redisClient: redisClient,
+		handlers:     make(map[string]*Handler),
+		bucketStores: make(map[string]Store),
+		buckets:      make(map[string]string),
+		redisClient:  redisClient,
 	}
 }
 
@@ -381,17 +385,32 @@ func (cbr *CacheByRoute) AddRoute(routeID string, cfg config.CacheConfig) {
 	}
 
 	var store Store
-	if cfg.Mode == "distributed" && cbr.redisClient != nil {
-		store = NewRedisStore(cbr.redisClient, "gw:cache:"+routeID+":", ttl)
-	} else {
-		maxSize := cfg.MaxSize
-		if maxSize <= 0 {
-			maxSize = 1000
+	if cfg.Bucket != "" {
+		// Shared bucket mode — reuse store if already created
+		if existing, ok := cbr.bucketStores[cfg.Bucket]; ok {
+			store = existing
+		} else {
+			store = cbr.createStore(cfg, "gw:cache:bucket:"+cfg.Bucket+":", ttl)
+			cbr.bucketStores[cfg.Bucket] = store
 		}
-		store = NewMemoryStore(maxSize, ttl)
+		cbr.buckets[routeID] = cfg.Bucket
+	} else {
+		store = cbr.createStore(cfg, "gw:cache:"+routeID+":", ttl)
 	}
 
 	cbr.handlers[routeID] = NewHandler(cfg, store)
+}
+
+// createStore creates a Store based on config mode.
+func (cbr *CacheByRoute) createStore(cfg config.CacheConfig, redisPrefix string, ttl time.Duration) Store {
+	if cfg.Mode == "distributed" && cbr.redisClient != nil {
+		return NewRedisStore(cbr.redisClient, redisPrefix, ttl)
+	}
+	maxSize := cfg.MaxSize
+	if maxSize <= 0 {
+		maxSize = 1000
+	}
+	return NewMemoryStore(maxSize, ttl)
 }
 
 // GetHandler returns the cache handler for a route.
@@ -419,7 +438,11 @@ func (cbr *CacheByRoute) Stats() map[string]CacheStats {
 
 	result := make(map[string]CacheStats, len(cbr.handlers))
 	for id, h := range cbr.handlers {
-		result[id] = h.Stats()
+		stats := h.Stats()
+		if bucket, ok := cbr.buckets[id]; ok {
+			stats.Bucket = bucket
+		}
+		result[id] = stats
 	}
 	return result
 }

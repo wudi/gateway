@@ -20,6 +20,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/allowedhosts"
 	"github.com/wudi/gateway/internal/middleware/auth"
 	"github.com/wudi/gateway/internal/middleware/backendauth"
+	"github.com/wudi/gateway/internal/middleware/backendenc"
 	"github.com/wudi/gateway/internal/middleware/bodygen"
 	"github.com/wudi/gateway/internal/middleware/compression"
 	"github.com/wudi/gateway/internal/middleware/contentneg"
@@ -35,6 +36,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/nonce"
 	"github.com/wudi/gateway/internal/middleware/decompress"
 	"github.com/wudi/gateway/internal/middleware/botdetect"
+	"github.com/wudi/gateway/internal/middleware/cdnheaders"
 	"github.com/wudi/gateway/internal/middleware/claimsprop"
 	"github.com/wudi/gateway/internal/middleware/maintenance"
 	"github.com/wudi/gateway/internal/middleware/mock"
@@ -141,6 +143,8 @@ type gatewayState struct {
 	respBodyGenerators  *respbodygen.RespBodyGenByRoute
 	paramForwarders     *paramforward.ParamForwardByRoute
 	contentNegotiators  *contentneg.NegotiatorByRoute
+	cdnHeaders          *cdnheaders.CDNHeadersByRoute
+	backendEncoders     *backendenc.EncoderByRoute
 	realIPExtractor     *realip.CompiledRealIP
 	tokenChecker        *tokenrevoke.TokenChecker
 	outlierDetectors    *outlier.DetectorByRoute
@@ -211,6 +215,8 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		respBodyGenerators:  respbodygen.NewRespBodyGenByRoute(),
 		paramForwarders:     paramforward.NewParamForwardByRoute(),
 		contentNegotiators:  contentneg.NewNegotiatorByRoute(),
+		cdnHeaders:          cdnheaders.NewCDNHeadersByRoute(),
+		backendEncoders:     backendenc.NewEncoderByRoute(),
 		outlierDetectors:    outlier.NewDetectorByRoute(),
 		translators:       protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
@@ -272,6 +278,8 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		&respBodyGenFeature{s.respBodyGenerators},
 		&paramForwardFeature{s.paramForwarders},
 		&contentNegFeature{s.contentNegotiators},
+		&cdnHeadersFeature{m: s.cdnHeaders, global: &cfg.CDNCacheHeaders},
+		&backendEncodingFeature{s.backendEncoders},
 	}
 
 	// Initialize token revocation checker
@@ -693,6 +701,8 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldRespBodyGenerators := g.respBodyGenerators
 	oldParamForwarders := g.paramForwarders
 	oldContentNegotiators := g.contentNegotiators
+	oldCdnHeaders := g.cdnHeaders
+	oldBackendEncoders := g.backendEncoders
 	oldRealIPExtractor := g.realIPExtractor
 	oldTokenChecker := g.tokenChecker
 
@@ -750,6 +760,8 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.respBodyGenerators = s.respBodyGenerators
 	g.paramForwarders = s.paramForwarders
 	g.contentNegotiators = s.contentNegotiators
+	g.cdnHeaders = s.cdnHeaders
+	g.backendEncoders = s.backendEncoders
 	g.realIPExtractor = s.realIPExtractor
 	g.tokenChecker = s.tokenChecker
 
@@ -809,6 +821,8 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.respBodyGenerators = oldRespBodyGenerators
 	g.paramForwarders = oldParamForwarders
 	g.contentNegotiators = oldContentNegotiators
+	g.cdnHeaders = oldCdnHeaders
+	g.backendEncoders = oldBackendEncoders
 	g.realIPExtractor = oldRealIPExtractor
 	g.tokenChecker = oldTokenChecker
 

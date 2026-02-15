@@ -1035,6 +1035,46 @@ curl http://localhost:8081/content-negotiation
 }
 ```
 
+### GET `/cdn-cache-headers`
+
+Returns per-route CDN cache header injection stats.
+
+```bash
+curl http://localhost:8081/cdn-cache-headers
+```
+
+**Response:**
+```json
+{
+  "public-api": {
+    "applied": 1500,
+    "cache_control": "public, max-age=3600, s-maxage=86400",
+    "vary": "Accept, Accept-Encoding",
+    "surrogate_control": "max-age=86400",
+    "override": true
+  }
+}
+```
+
+### GET `/backend-encoding`
+
+Returns per-route backend encoding stats.
+
+```bash
+curl http://localhost:8081/backend-encoding
+```
+
+**Response:**
+```json
+{
+  "legacy-xml-api": {
+    "encoding": "xml",
+    "encoded": 1500,
+    "errors": 3
+  }
+}
+```
+
 ## Key Config Fields
 
 | Field | Type | Description |

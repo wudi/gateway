@@ -23,8 +23,10 @@ import (
 	"github.com/wudi/gateway/internal/middleware"
 	"github.com/wudi/gateway/internal/middleware/accesslog"
 	"github.com/wudi/gateway/internal/middleware/backendauth"
+	"github.com/wudi/gateway/internal/middleware/backendenc"
 	"github.com/wudi/gateway/internal/middleware/bodygen"
 	"github.com/wudi/gateway/internal/middleware/botdetect"
+	"github.com/wudi/gateway/internal/middleware/cdnheaders"
 	"github.com/wudi/gateway/internal/middleware/claimsprop"
 	"github.com/wudi/gateway/internal/middleware/compression"
 	"github.com/wudi/gateway/internal/middleware/contentneg"
@@ -1133,6 +1135,93 @@ func paramForwardMW(pf *paramforward.ParamForwarder) middleware.Middleware {
 func contentNegMW(cn *contentneg.Negotiator) middleware.Middleware {
 	return cn.Middleware()
 }
+
+// cdnHeadersMW injects CDN cache control headers into responses.
+func cdnHeadersMW(cdn *cdnheaders.CDNHeaders) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			cw := &cdnHeadersWriter{
+				ResponseWriter: w,
+				cdn:            cdn,
+			}
+			next.ServeHTTP(cw, r)
+		})
+	}
+}
+
+// cdnHeadersWriter injects CDN headers on WriteHeader.
+type cdnHeadersWriter struct {
+	http.ResponseWriter
+	cdn         *cdnheaders.CDNHeaders
+	wroteHeader bool
+}
+
+func (w *cdnHeadersWriter) WriteHeader(code int) {
+	if !w.wroteHeader {
+		w.wroteHeader = true
+		w.cdn.Apply(w.ResponseWriter.Header(), w.cdn.IsOverride())
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *cdnHeadersWriter) Write(b []byte) (int, error) {
+	if !w.wroteHeader {
+		w.wroteHeader = true
+		w.cdn.Apply(w.ResponseWriter.Header(), w.cdn.IsOverride())
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *cdnHeadersWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// backendEncodingMW decodes XML/YAML backend responses to JSON.
+func backendEncodingMW(enc *backendenc.Encoder) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			bw := &backendEncWriter{
+				ResponseWriter: w,
+				header:         make(http.Header),
+				statusCode:     200,
+			}
+			next.ServeHTTP(bw, r)
+
+			body := bw.body.Bytes()
+			ct := bw.header.Get("Content-Type")
+
+			decoded, ok := enc.Decode(body, ct)
+			if ok {
+				bw.header.Set("Content-Type", "application/json")
+				body = decoded
+			}
+
+			// Copy captured headers to real writer
+			for k, vv := range bw.header {
+				for _, v := range vv {
+					w.Header().Add(k, v)
+				}
+			}
+			w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+			w.WriteHeader(bw.statusCode)
+			w.Write(body)
+		})
+	}
+}
+
+// backendEncWriter buffers the response for backend encoding conversion.
+type backendEncWriter struct {
+	http.ResponseWriter
+	statusCode int
+	body       bytes.Buffer
+	header     http.Header
+}
+
+func (w *backendEncWriter) Header() http.Header { return w.header }
+func (w *backendEncWriter) WriteHeader(code int) { w.statusCode = code }
+func (w *backendEncWriter) Write(b []byte) (int, error) { return w.body.Write(b) }
 
 // routeMatchKey is the context key for storing the route match.
 type routeMatchKey struct{}

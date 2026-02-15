@@ -18,6 +18,12 @@ import (
 	"github.com/wudi/gateway/internal/variables"
 )
 
+// compiledFlatmapOp is a pre-validated flatmap operation.
+type compiledFlatmapOp struct {
+	opType string
+	args   []string
+}
+
 // CompiledBodyTransform is a pre-compiled body transformation engine.
 // Created once per route at init, safe for concurrent use.
 type CompiledBodyTransform struct {
@@ -29,6 +35,8 @@ type CompiledBodyTransform struct {
 	denyFields   []string
 	tmpl         *template.Template
 	resolver     *variables.Resolver
+	target       string              // gjson path to extract as root
+	flatmapOps   []compiledFlatmapOp // pre-validated flatmap operations
 }
 
 // NewCompiledBodyTransform creates a new compiled body transform from config.
@@ -58,6 +66,20 @@ func NewCompiledBodyTransform(cfg config.BodyTransformConfig) (*CompiledBodyTran
 		}
 	}
 
+	// Store target path
+	ct.target = cfg.Target
+
+	// Pre-validate flatmap operations
+	if len(cfg.Flatmap) > 0 {
+		ct.flatmapOps = make([]compiledFlatmapOp, len(cfg.Flatmap))
+		for i, op := range cfg.Flatmap {
+			ct.flatmapOps[i] = compiledFlatmapOp{
+				opType: op.Type,
+				args:   op.Args,
+			}
+		}
+	}
+
 	// Parse Go template
 	if cfg.Template != "" {
 		funcMap := template.FuncMap{
@@ -77,10 +99,15 @@ func NewCompiledBodyTransform(cfg config.BodyTransformConfig) (*CompiledBodyTran
 }
 
 // Transform applies all body transformations in order.
-// Processing order: allow/deny → set_fields → add_fields → remove_fields → rename_fields → template
+// Processing order: target → allow/deny → set_fields → add_fields → remove_fields → rename_fields → flatmap → template
 func (ct *CompiledBodyTransform) Transform(body []byte, varCtx *variables.Context) []byte {
 	if len(body) == 0 || !gjson.ValidBytes(body) {
 		return body
+	}
+
+	// 0. target — extract nested path as root
+	if ct.target != "" {
+		body = ct.applyTarget(body)
 	}
 
 	// 1. Allow/deny filter
@@ -135,7 +162,12 @@ func (ct *CompiledBodyTransform) Transform(body []byte, varCtx *variables.Contex
 		body, _ = sjson.DeleteBytes(body, oldKey)
 	}
 
-	// 6. template — terminal operation
+	// 6. flatmap — array manipulation operations
+	if len(ct.flatmapOps) > 0 {
+		body = ct.applyFlatmap(body)
+	}
+
+	// 7. template — terminal operation
 	if ct.tmpl != nil {
 		body = ct.applyTemplate(body, varCtx)
 	}
@@ -214,6 +246,145 @@ func (bw *bodyBufferWriter) WriteHeader(code int) {
 
 func (bw *bodyBufferWriter) Write(b []byte) (int, error) {
 	return bw.body.Write(b)
+}
+
+// applyTarget extracts a nested path as the root response.
+func (ct *CompiledBodyTransform) applyTarget(body []byte) []byte {
+	result := gjson.GetBytes(body, ct.target)
+	if !result.Exists() {
+		return body
+	}
+	raw := []byte(result.Raw)
+	if !gjson.ValidBytes(raw) {
+		return body
+	}
+	return raw
+}
+
+// applyFlatmap applies all flatmap operations in order.
+func (ct *CompiledBodyTransform) applyFlatmap(body []byte) []byte {
+	for _, op := range ct.flatmapOps {
+		switch op.opType {
+		case "move":
+			if len(op.args) >= 2 {
+				body = ct.flatmapMove(body, op.args[0], op.args[1])
+			}
+		case "del":
+			if len(op.args) >= 1 {
+				body, _ = sjson.DeleteBytes(body, op.args[0])
+			}
+		case "extract":
+			if len(op.args) >= 2 {
+				body = ct.flatmapExtract(body, op.args[0], op.args[1])
+			}
+		case "flatten":
+			if len(op.args) >= 1 {
+				body = ct.flatmapFlatten(body, op.args[0])
+			}
+		case "append":
+			if len(op.args) >= 2 {
+				body = ct.flatmapAppend(body, op.args[0], op.args[1:])
+			}
+		}
+	}
+	return body
+}
+
+// flatmapMove moves a value from source path to dest path.
+func (ct *CompiledBodyTransform) flatmapMove(body []byte, src, dst string) []byte {
+	result := gjson.GetBytes(body, src)
+	if !result.Exists() {
+		return body
+	}
+	var err error
+	body, err = sjson.SetRawBytes(body, dst, []byte(result.Raw))
+	if err != nil {
+		return body
+	}
+	body, _ = sjson.DeleteBytes(body, src)
+	return body
+}
+
+// flatmapExtract extracts a field from each object in an array.
+// e.g., [{"id":1,"name":"a"},{"id":2,"name":"b"}] extract "name" → ["a","b"]
+func (ct *CompiledBodyTransform) flatmapExtract(body []byte, arrayPath, fieldName string) []byte {
+	// Use gjson's multipaths: arrayPath.#.fieldName gives us the extracted array
+	extracted := gjson.GetBytes(body, arrayPath+".#."+fieldName)
+	if !extracted.Exists() {
+		return body
+	}
+	var err error
+	body, err = sjson.SetRawBytes(body, arrayPath, []byte(extracted.Raw))
+	if err != nil {
+		return body
+	}
+	return body
+}
+
+// flatmapFlatten flattens nested arrays at the given path.
+// e.g., [[1,2],[3,4]] → [1,2,3,4]
+func (ct *CompiledBodyTransform) flatmapFlatten(body []byte, path string) []byte {
+	result := gjson.GetBytes(body, path)
+	if !result.Exists() || !result.IsArray() {
+		return body
+	}
+
+	var flat []json.RawMessage
+	result.ForEach(func(_, value gjson.Result) bool {
+		if value.IsArray() {
+			value.ForEach(func(_, inner gjson.Result) bool {
+				flat = append(flat, json.RawMessage(inner.Raw))
+				return true
+			})
+		} else {
+			flat = append(flat, json.RawMessage(value.Raw))
+		}
+		return true
+	})
+
+	flatJSON, err := json.Marshal(flat)
+	if err != nil {
+		return body
+	}
+	body, err = sjson.SetRawBytes(body, path, flatJSON)
+	if err != nil {
+		return body
+	}
+	return body
+}
+
+// flatmapAppend concatenates source arrays into the dest array.
+func (ct *CompiledBodyTransform) flatmapAppend(body []byte, dest string, sources []string) []byte {
+	// Start with existing dest array or empty
+	var combined []json.RawMessage
+	destResult := gjson.GetBytes(body, dest)
+	if destResult.Exists() && destResult.IsArray() {
+		destResult.ForEach(func(_, value gjson.Result) bool {
+			combined = append(combined, json.RawMessage(value.Raw))
+			return true
+		})
+	}
+
+	for _, src := range sources {
+		srcResult := gjson.GetBytes(body, src)
+		if !srcResult.Exists() || !srcResult.IsArray() {
+			continue
+		}
+		srcResult.ForEach(func(_, value gjson.Result) bool {
+			combined = append(combined, json.RawMessage(value.Raw))
+			return true
+		})
+	}
+
+	combinedJSON, err := json.Marshal(combined)
+	if err != nil {
+		return body
+	}
+	body, err = sjson.SetRawBytes(body, dest, combinedJSON)
+	if err != nil {
+		return body
+	}
+	return body
 }
 
 // applyAllowFilter builds a new JSON object containing only the allowed fields.

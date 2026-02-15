@@ -12,7 +12,9 @@ import (
 	"github.com/wudi/gateway/internal/loadbalancer/outlier"
 	"github.com/wudi/gateway/internal/middleware/accesslog"
 	"github.com/wudi/gateway/internal/middleware/backendauth"
+	"github.com/wudi/gateway/internal/middleware/backendenc"
 	"github.com/wudi/gateway/internal/middleware/botdetect"
+	"github.com/wudi/gateway/internal/middleware/cdnheaders"
 	"github.com/wudi/gateway/internal/middleware/claimsprop"
 	"github.com/wudi/gateway/internal/middleware/compression"
 	"github.com/wudi/gateway/internal/middleware/contentreplacer"
@@ -812,3 +814,33 @@ func (f *contentNegFeature) Setup(routeID string, cfg config.RouteConfig) error 
 }
 func (f *contentNegFeature) RouteIDs() []string { return f.m.RouteIDs() }
 func (f *contentNegFeature) AdminStats() any    { return f.m.Stats() }
+
+// cdnHeadersFeature wraps CDNHeadersByRoute with global merge.
+type cdnHeadersFeature struct {
+	m      *cdnheaders.CDNHeadersByRoute
+	global *config.CDNCacheConfig
+}
+
+func (f *cdnHeadersFeature) Name() string { return "cdn_cache_headers" }
+func (f *cdnHeadersFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	merged := cdnheaders.MergeCDNCacheConfig(cfg.CDNCacheHeaders, *f.global)
+	if merged.Enabled {
+		f.m.AddRoute(routeID, merged)
+	}
+	return nil
+}
+func (f *cdnHeadersFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *cdnHeadersFeature) AdminStats() any    { return f.m.Stats() }
+
+// backendEncodingFeature wraps EncoderByRoute.
+type backendEncodingFeature struct{ m *backendenc.EncoderByRoute }
+
+func (f *backendEncodingFeature) Name() string { return "backend_encoding" }
+func (f *backendEncodingFeature) Setup(routeID string, cfg config.RouteConfig) error {
+	if cfg.BackendEncoding.Encoding != "" {
+		f.m.AddRoute(routeID, cfg.BackendEncoding)
+	}
+	return nil
+}
+func (f *backendEncodingFeature) RouteIDs() []string { return f.m.RouteIDs() }
+func (f *backendEncodingFeature) AdminStats() any    { return f.m.Stats() }

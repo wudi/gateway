@@ -65,6 +65,7 @@ type Config struct {
 	ServiceRateLimit       ServiceRateLimitConfig       `yaml:"service_rate_limit"`        // Global service-level rate limit
 	SpikeArrest            SpikeArrestConfig            `yaml:"spike_arrest"`              // Global spike arrest defaults
 	DebugEndpoint          DebugEndpointConfig          `yaml:"debug_endpoint"`            // Debug endpoint for request inspection
+	CDNCacheHeaders        CDNCacheConfig               `yaml:"cdn_cache_headers"`         // Global CDN cache header injection
 }
 
 // ListenerConfig defines a listener configuration
@@ -311,6 +312,8 @@ type RouteConfig struct {
 	ResponseBodyGenerator ResponseBodyGeneratorConfig `yaml:"response_body_generator"` // Rewrite response body with Go template
 	ParamForwarding      ParamForwardingConfig       `yaml:"param_forwarding"`      // Zero-trust parameter forwarding
 	ContentNegotiation   ContentNegotiationConfig    `yaml:"content_negotiation"`   // Accept header → response encoding
+	CDNCacheHeaders      CDNCacheConfig              `yaml:"cdn_cache_headers"`     // Per-route CDN cache header injection
+	BackendEncoding      BackendEncodingConfig       `yaml:"backend_encoding"`      // Decode XML/YAML backend responses to JSON
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -387,6 +390,7 @@ type CacheConfig struct {
 	Methods     []string      `yaml:"methods"`
 	Mode        string        `yaml:"mode"`        // "local" (default) or "distributed" (Redis-backed)
 	Conditional bool          `yaml:"conditional"` // enable ETag/Last-Modified/304 support
+	Bucket      string        `yaml:"bucket"`      // named shared cache bucket (routes with same bucket share a store)
 }
 
 // WebSocketConfig defines WebSocket proxy settings
@@ -866,12 +870,21 @@ type BodyTransformConfig struct {
 	AllowFields  []string          `yaml:"allow_fields"`
 	DenyFields   []string          `yaml:"deny_fields"`
 	Template     string            `yaml:"template"`
+	Target       string            `yaml:"target"`  // gjson path to extract as root response
+	Flatmap      []FlatmapOperation `yaml:"flatmap"` // array manipulation operations
+}
+
+// FlatmapOperation defines a single flatmap array manipulation.
+type FlatmapOperation struct {
+	Type string   `yaml:"type"` // "move", "del", "extract", "flatten", "append"
+	Args []string `yaml:"args"` // operation-specific arguments
 }
 
 // IsActive returns true if any body transform operation is configured.
 func (c BodyTransformConfig) IsActive() bool {
 	return len(c.AddFields) > 0 || len(c.RemoveFields) > 0 || len(c.RenameFields) > 0 ||
-		len(c.SetFields) > 0 || len(c.AllowFields) > 0 || len(c.DenyFields) > 0 || c.Template != ""
+		len(c.SetFields) > 0 || len(c.AllowFields) > 0 || len(c.DenyFields) > 0 ||
+		c.Template != "" || c.Target != "" || len(c.Flatmap) > 0
 }
 
 // MatchConfig defines route match criteria for domain/header/query/cookie matching
@@ -1385,6 +1398,24 @@ type ContentNegotiationConfig struct {
 	Enabled   bool     `yaml:"enabled"`
 	Supported []string `yaml:"supported"` // "json", "xml", "yaml"
 	Default   string   `yaml:"default"`   // default "json"
+}
+
+// CDNCacheConfig defines CDN cache header injection settings.
+type CDNCacheConfig struct {
+	Enabled              bool     `yaml:"enabled"`
+	CacheControl         string   `yaml:"cache_control"`         // e.g. "public, max-age=3600, s-maxage=86400"
+	Vary                 []string `yaml:"vary"`                  // e.g. ["Accept", "Accept-Encoding"]
+	SurrogateControl     string   `yaml:"surrogate_control"`     // e.g. "max-age=86400"
+	SurrogateKey         string   `yaml:"surrogate_key"`         // e.g. "product-listing"
+	Expires              string   `yaml:"expires"`               // duration (e.g. "1h") or HTTP-date
+	StaleWhileRevalidate int      `yaml:"stale_while_revalidate"` // seconds (appended to Cache-Control)
+	StaleIfError         int      `yaml:"stale_if_error"`         // seconds (appended to Cache-Control)
+	Override             *bool    `yaml:"override"`               // override backend Cache-Control (default true)
+}
+
+// BackendEncodingConfig defines backend response format decoding to JSON.
+type BackendEncodingConfig struct {
+	Encoding string `yaml:"encoding"` // "xml" or "yaml" — backend response format to decode to JSON
 }
 
 // DefaultConfig returns a configuration with sensible defaults

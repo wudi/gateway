@@ -28,8 +28,10 @@ import (
 	"github.com/wudi/gateway/internal/middleware/altsvc"
 	"github.com/wudi/gateway/internal/middleware/auth"
 	"github.com/wudi/gateway/internal/middleware/backendauth"
+	"github.com/wudi/gateway/internal/middleware/backendenc"
 	"github.com/wudi/gateway/internal/middleware/bodygen"
 	"github.com/wudi/gateway/internal/middleware/botdetect"
+	"github.com/wudi/gateway/internal/middleware/cdnheaders"
 	"github.com/wudi/gateway/internal/middleware/claimsprop"
 	"github.com/wudi/gateway/internal/middleware/compression"
 	"github.com/wudi/gateway/internal/middleware/contentreplacer"
@@ -166,6 +168,8 @@ type Gateway struct {
 	respBodyGenerators  *respbodygen.RespBodyGenByRoute
 	paramForwarders     *paramforward.ParamForwardByRoute
 	contentNegotiators  *contentneg.NegotiatorByRoute
+	cdnHeaders          *cdnheaders.CDNHeadersByRoute
+	backendEncoders     *backendenc.EncoderByRoute
 	serviceLimiter      *serviceratelimit.ServiceLimiter
 	debugHandler        *debug.Handler
 	realIPExtractor     *realip.CompiledRealIP
@@ -269,6 +273,8 @@ func New(cfg *config.Config) (*Gateway, error) {
 		respBodyGenerators:  respbodygen.NewRespBodyGenByRoute(),
 		paramForwarders:     paramforward.NewParamForwardByRoute(),
 		contentNegotiators:  contentneg.NewNegotiatorByRoute(),
+		cdnHeaders:          cdnheaders.NewCDNHeadersByRoute(),
+		backendEncoders:     backendenc.NewEncoderByRoute(),
 		routeProxies:        make(map[string]*proxy.RouteProxy),
 		routeHandlers:     make(map[string]http.Handler),
 		watchCancels:      make(map[string]context.CancelFunc),
@@ -330,6 +336,8 @@ func New(cfg *config.Config) (*Gateway, error) {
 		&respBodyGenFeature{g.respBodyGenerators},
 		&paramForwardFeature{g.paramForwarders},
 		&contentNegFeature{g.contentNegotiators},
+		&cdnHeadersFeature{m: g.cdnHeaders, global: &cfg.CDNCacheHeaders},
+		&backendEncodingFeature{g.backendEncoders},
 	}
 
 	// Initialize global IP filter
@@ -939,6 +947,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		chain = chain.Use(securityHeadersMW(sh))
 	}
 
+	// 4.07. cdnHeadersMW — inject CDN cache control headers
+	if cdn := g.cdnHeaders.GetHandler(routeID); cdn != nil {
+		chain = chain.Use(cdnHeadersMW(cdn))
+	}
+
 	// 4.1. errorPagesMW — custom error page rendering
 	if ep := g.errorPages.GetErrorPages(routeID); ep != nil {
 		chain = chain.Use(errorPagesMW(ep))
@@ -1239,6 +1252,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		innermost = translatorHandler
 	} else {
 		innermost = rp
+	}
+
+	// 17.55. backendEncodingMW — decode XML/YAML backend responses to JSON
+	if be := g.backendEncoders.GetEncoder(routeID); be != nil {
+		innermost = backendEncodingMW(be)(innermost)
 	}
 
 	// 17.5 responseValidationMW — validate raw backend response (closest to proxy)
@@ -2098,4 +2116,14 @@ func (g *Gateway) GetStats() *Stats {
 	}
 
 	return stats
+}
+
+// GetCDNCacheHeadersStats returns CDN cache header stats for all routes.
+func (g *Gateway) GetCDNCacheHeadersStats() map[string]cdnheaders.Snapshot {
+	return g.cdnHeaders.Stats()
+}
+
+// GetBackendEncodingStats returns backend encoding stats for all routes.
+func (g *Gateway) GetBackendEncodingStats() map[string]backendenc.Snapshot {
+	return g.backendEncoders.Stats()
 }

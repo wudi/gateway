@@ -439,6 +439,32 @@ func (l *Loader) validate(cfg *Config) error {
 			}
 		}
 
+		// Validate cdn_cache_headers
+		if route.CDNCacheHeaders.Enabled {
+			if route.CDNCacheHeaders.CacheControl == "" && route.CDNCacheHeaders.SurrogateControl == "" && len(route.CDNCacheHeaders.Vary) == 0 {
+				return fmt.Errorf("route %s: cdn_cache_headers requires at least one of cache_control, surrogate_control, or vary", route.ID)
+			}
+		}
+
+		// Validate cache bucket name
+		if route.Cache.Bucket != "" {
+			for _, c := range route.Cache.Bucket {
+				if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
+					return fmt.Errorf("route %s: cache bucket name must be alphanumeric with hyphens/underscores", route.ID)
+				}
+			}
+		}
+
+		// Validate backend_encoding
+		if route.BackendEncoding.Encoding != "" {
+			if route.BackendEncoding.Encoding != "xml" && route.BackendEncoding.Encoding != "yaml" {
+				return fmt.Errorf("route %s: backend_encoding encoding must be 'xml' or 'yaml', got %q", route.ID, route.BackendEncoding.Encoding)
+			}
+			if route.Passthrough {
+				return fmt.Errorf("route %s: backend_encoding is mutually exclusive with passthrough", route.ID)
+			}
+		}
+
 		// Mutual exclusion: upstream vs inline backends/service
 		if route.Upstream != "" {
 			if len(route.Backends) > 0 {
@@ -1610,6 +1636,33 @@ func (l *Loader) validateBodyTransform(routeID, phase string, cfg BodyTransformC
 		}
 		if _, err := template.New("body").Funcs(funcMap).Parse(cfg.Template); err != nil {
 			return fmt.Errorf("route %s: %s body transform template is invalid: %w", routeID, phase, err)
+		}
+	}
+	// Validate flatmap operations
+	for i, op := range cfg.Flatmap {
+		switch op.Type {
+		case "move":
+			if len(op.Args) < 2 {
+				return fmt.Errorf("route %s: %s body transform flatmap[%d] 'move' requires 2 args (source, dest)", routeID, phase, i)
+			}
+		case "del":
+			if len(op.Args) < 1 {
+				return fmt.Errorf("route %s: %s body transform flatmap[%d] 'del' requires 1 arg (path)", routeID, phase, i)
+			}
+		case "extract":
+			if len(op.Args) < 2 {
+				return fmt.Errorf("route %s: %s body transform flatmap[%d] 'extract' requires 2 args (array_path, field_name)", routeID, phase, i)
+			}
+		case "flatten":
+			if len(op.Args) < 1 {
+				return fmt.Errorf("route %s: %s body transform flatmap[%d] 'flatten' requires 1 arg (path)", routeID, phase, i)
+			}
+		case "append":
+			if len(op.Args) < 2 {
+				return fmt.Errorf("route %s: %s body transform flatmap[%d] 'append' requires at least 2 args (dest, sources...)", routeID, phase, i)
+			}
+		default:
+			return fmt.Errorf("route %s: %s body transform flatmap[%d] unknown type %q (supported: move, del, extract, flatten, append)", routeID, phase, i, op.Type)
 		}
 	}
 	return nil

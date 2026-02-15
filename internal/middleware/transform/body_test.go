@@ -483,3 +483,316 @@ func TestCompiledBodyTransform_InvalidTemplate(t *testing.T) {
 		t.Error("expected error for invalid template")
 	}
 }
+
+func TestTarget_ExtractNestedObject(t *testing.T) {
+	cfg := config.BodyTransformConfig{
+		Target: "data.users",
+	}
+
+	ct, err := NewCompiledBodyTransform(cfg)
+	if err != nil {
+		t.Fatalf("failed to compile: %v", err)
+	}
+
+	body := []byte(`{"status":"ok","data":{"users":[{"id":1,"name":"alice"},{"id":2,"name":"bob"}]}}`)
+	result := ct.Transform(body, nil)
+
+	var arr []interface{}
+	if err := json.Unmarshal(result, &arr); err != nil {
+		t.Fatalf("expected array result, got parse error: %v (body=%s)", err, result)
+	}
+	if len(arr) != 2 {
+		t.Errorf("expected 2 items, got %d", len(arr))
+	}
+}
+
+func TestTarget_ExtractNestedArray(t *testing.T) {
+	cfg := config.BodyTransformConfig{
+		Target: "response",
+	}
+
+	ct, err := NewCompiledBodyTransform(cfg)
+	if err != nil {
+		t.Fatalf("failed to compile: %v", err)
+	}
+
+	body := []byte(`{"meta":{"page":1},"response":{"items":[1,2,3],"total":3}}`)
+	result := ct.Transform(body, nil)
+
+	var data map[string]interface{}
+	if err := json.Unmarshal(result, &data); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+	if data["total"] == nil {
+		t.Error("expected total field in extracted object")
+	}
+}
+
+func TestTarget_InvalidPath(t *testing.T) {
+	cfg := config.BodyTransformConfig{
+		Target: "nonexistent.path",
+	}
+
+	ct, err := NewCompiledBodyTransform(cfg)
+	if err != nil {
+		t.Fatalf("failed to compile: %v", err)
+	}
+
+	body := []byte(`{"name":"alice"}`)
+	result := ct.Transform(body, nil)
+
+	// Should return original body when target path doesn't exist
+	if !bytes.Equal(result, body) {
+		t.Errorf("expected original body for missing target path, got %s", result)
+	}
+}
+
+func TestTarget_WithSubsequentOperations(t *testing.T) {
+	// Target runs first, then other operations work on extracted result
+	cfg := config.BodyTransformConfig{
+		Target:       "data",
+		RemoveFields: []string{"secret"},
+	}
+
+	ct, err := NewCompiledBodyTransform(cfg)
+	if err != nil {
+		t.Fatalf("failed to compile: %v", err)
+	}
+
+	body := []byte(`{"data":{"name":"alice","secret":"xyz"},"meta":"ignored"}`)
+	result := ct.Transform(body, nil)
+
+	var data map[string]interface{}
+	if err := json.Unmarshal(result, &data); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+	if data["name"] != "alice" {
+		t.Errorf("expected name=alice, got %v", data["name"])
+	}
+	if _, ok := data["secret"]; ok {
+		t.Error("expected secret to be removed after target extraction")
+	}
+	if _, ok := data["meta"]; ok {
+		t.Error("expected meta to not be present (target extracted data only)")
+	}
+}
+
+func TestFlatmap_Move(t *testing.T) {
+	cfg := config.BodyTransformConfig{
+		Flatmap: []config.FlatmapOperation{
+			{Type: "move", Args: []string{"data.name", "username"}},
+		},
+	}
+
+	ct, err := NewCompiledBodyTransform(cfg)
+	if err != nil {
+		t.Fatalf("failed to compile: %v", err)
+	}
+
+	body := []byte(`{"data":{"name":"alice","age":30},"id":1}`)
+	result := ct.Transform(body, nil)
+
+	var data map[string]interface{}
+	if err := json.Unmarshal(result, &data); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+	if data["username"] != "alice" {
+		t.Errorf("expected username=alice, got %v", data["username"])
+	}
+	// Original path should be deleted
+	nested, _ := data["data"].(map[string]interface{})
+	if nested != nil {
+		if _, ok := nested["name"]; ok {
+			t.Error("expected data.name to be removed after move")
+		}
+	}
+}
+
+func TestFlatmap_Del(t *testing.T) {
+	cfg := config.BodyTransformConfig{
+		Flatmap: []config.FlatmapOperation{
+			{Type: "del", Args: []string{"internal"}},
+			{Type: "del", Args: []string{"debug"}},
+		},
+	}
+
+	ct, err := NewCompiledBodyTransform(cfg)
+	if err != nil {
+		t.Fatalf("failed to compile: %v", err)
+	}
+
+	body := []byte(`{"name":"alice","internal":"xyz","debug":true}`)
+	result := ct.Transform(body, nil)
+
+	var data map[string]interface{}
+	if err := json.Unmarshal(result, &data); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+	if data["name"] != "alice" {
+		t.Errorf("expected name=alice, got %v", data["name"])
+	}
+	if _, ok := data["internal"]; ok {
+		t.Error("expected internal to be deleted")
+	}
+	if _, ok := data["debug"]; ok {
+		t.Error("expected debug to be deleted")
+	}
+}
+
+func TestFlatmap_Extract(t *testing.T) {
+	cfg := config.BodyTransformConfig{
+		Flatmap: []config.FlatmapOperation{
+			{Type: "extract", Args: []string{"users", "name"}},
+		},
+	}
+
+	ct, err := NewCompiledBodyTransform(cfg)
+	if err != nil {
+		t.Fatalf("failed to compile: %v", err)
+	}
+
+	body := []byte(`{"users":[{"id":1,"name":"alice"},{"id":2,"name":"bob"}]}`)
+	result := ct.Transform(body, nil)
+
+	var data map[string]interface{}
+	if err := json.Unmarshal(result, &data); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+
+	users, ok := data["users"].([]interface{})
+	if !ok {
+		t.Fatalf("expected users to be an array, got %T", data["users"])
+	}
+	if len(users) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(users))
+	}
+	if users[0] != "alice" {
+		t.Errorf("expected users[0]=alice, got %v", users[0])
+	}
+	if users[1] != "bob" {
+		t.Errorf("expected users[1]=bob, got %v", users[1])
+	}
+}
+
+func TestFlatmap_Flatten(t *testing.T) {
+	cfg := config.BodyTransformConfig{
+		Flatmap: []config.FlatmapOperation{
+			{Type: "flatten", Args: []string{"matrix"}},
+		},
+	}
+
+	ct, err := NewCompiledBodyTransform(cfg)
+	if err != nil {
+		t.Fatalf("failed to compile: %v", err)
+	}
+
+	body := []byte(`{"matrix":[[1,2],[3,4],[5]]}`)
+	result := ct.Transform(body, nil)
+
+	var data map[string]interface{}
+	if err := json.Unmarshal(result, &data); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+
+	matrix, ok := data["matrix"].([]interface{})
+	if !ok {
+		t.Fatalf("expected matrix to be an array, got %T", data["matrix"])
+	}
+	if len(matrix) != 5 {
+		t.Errorf("expected 5 items after flatten, got %d", len(matrix))
+	}
+	// Check values
+	expected := []float64{1, 2, 3, 4, 5}
+	for i, exp := range expected {
+		if matrix[i].(float64) != exp {
+			t.Errorf("matrix[%d] = %v, want %v", i, matrix[i], exp)
+		}
+	}
+}
+
+func TestFlatmap_Append(t *testing.T) {
+	cfg := config.BodyTransformConfig{
+		Flatmap: []config.FlatmapOperation{
+			{Type: "append", Args: []string{"all_items", "page1", "page2"}},
+		},
+	}
+
+	ct, err := NewCompiledBodyTransform(cfg)
+	if err != nil {
+		t.Fatalf("failed to compile: %v", err)
+	}
+
+	body := []byte(`{"page1":["a","b"],"page2":["c","d"]}`)
+	result := ct.Transform(body, nil)
+
+	var data map[string]interface{}
+	if err := json.Unmarshal(result, &data); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+
+	allItems, ok := data["all_items"].([]interface{})
+	if !ok {
+		t.Fatalf("expected all_items to be an array, got %T", data["all_items"])
+	}
+	if len(allItems) != 4 {
+		t.Errorf("expected 4 items, got %d", len(allItems))
+	}
+	expected := []string{"a", "b", "c", "d"}
+	for i, exp := range expected {
+		if allItems[i].(string) != exp {
+			t.Errorf("all_items[%d] = %v, want %v", i, allItems[i], exp)
+		}
+	}
+}
+
+func TestFlatmap_Combined(t *testing.T) {
+	cfg := config.BodyTransformConfig{
+		Flatmap: []config.FlatmapOperation{
+			{Type: "extract", Args: []string{"items", "name"}},
+			{Type: "move", Args: []string{"items", "names"}},
+			{Type: "del", Args: []string{"debug"}},
+		},
+	}
+
+	ct, err := NewCompiledBodyTransform(cfg)
+	if err != nil {
+		t.Fatalf("failed to compile: %v", err)
+	}
+
+	body := []byte(`{"items":[{"id":1,"name":"a"},{"id":2,"name":"b"}],"debug":true}`)
+	result := ct.Transform(body, nil)
+
+	var data map[string]interface{}
+	if err := json.Unmarshal(result, &data); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+
+	// items should have been extracted to names only, then moved
+	if _, ok := data["items"]; ok {
+		t.Error("expected items to be moved to names")
+	}
+	names, ok := data["names"].([]interface{})
+	if !ok {
+		t.Fatalf("expected names to be an array, got %T", data["names"])
+	}
+	if len(names) != 2 {
+		t.Errorf("expected 2 names, got %d", len(names))
+	}
+	if _, ok := data["debug"]; ok {
+		t.Error("expected debug to be deleted")
+	}
+}
+
+func TestIsActive_TargetAndFlatmap(t *testing.T) {
+	cfg := config.BodyTransformConfig{Target: "data"}
+	if !cfg.IsActive() {
+		t.Error("expected IsActive for target")
+	}
+
+	cfg2 := config.BodyTransformConfig{
+		Flatmap: []config.FlatmapOperation{{Type: "del", Args: []string{"x"}}},
+	}
+	if !cfg2.IsActive() {
+		t.Error("expected IsActive for flatmap")
+	}
+}

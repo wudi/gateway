@@ -622,6 +622,12 @@ func (s *Server) adminHandler() http.Handler {
 	// Content negotiation
 	mux.HandleFunc("/content-negotiation", s.handleContentNegotiation)
 
+	// CDN cache headers
+	mux.HandleFunc("/cdn-cache-headers", s.handleCDNCacheHeaders)
+
+	// Backend encoding
+	mux.HandleFunc("/backend-encoding", s.handleBackendEncoding)
+
 	// Aggregated dashboard
 	mux.HandleFunc("/dashboard", s.handleDashboard)
 
@@ -1859,6 +1865,16 @@ func (s *Server) handleParamForwarding(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleContentNegotiation(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.gateway.GetContentNegotiators().Stats())
+}
+
+func (s *Server) handleCDNCacheHeaders(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetCDNCacheHeadersStats())
+}
+
+func (s *Server) handleBackendEncoding(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.gateway.GetBackendEncodingStats())
 }
 
 // Gateway returns the underlying gateway

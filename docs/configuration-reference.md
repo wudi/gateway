@@ -1781,6 +1781,72 @@ routes:
 
 See [Content Negotiation](content-negotiation.md) for details.
 
+## Response Flatmap & Target (per-route)
+
+```yaml
+routes:
+  - id: example
+    transform:
+      response:
+        body:
+          target: string           # gjson path to extract as root response
+          flatmap:                  # array manipulation operations
+            - type: string         # "move", "del", "extract", "flatten", "append"
+              args:                # operation-specific arguments
+                - string
+```
+
+**Validation:** Flatmap `type` must be one of `move`, `del`, `extract`, `flatten`, `append`. `move` and `extract` require 2 args, `del` and `flatten` require 1, `append` requires at least 2.
+
+See [Response Flatmap](response-flatmap.md) for details.
+
+## Shared Cache Buckets (per-route)
+
+```yaml
+routes:
+  - id: example
+    cache:
+      enabled: true
+      bucket: string             # named shared cache bucket
+```
+
+**Validation:** Bucket name must be alphanumeric with hyphens/underscores.
+
+See [Shared Cache Buckets](shared-cache-buckets.md) for details.
+
+## CDN Cache Headers (global + per-route)
+
+```yaml
+cdn_cache_headers:
+  enabled: bool                    # enable CDN cache header injection (default false)
+  cache_control: string            # Cache-Control value
+  vary:                            # Vary header values
+    - string
+  surrogate_control: string        # Surrogate-Control header
+  surrogate_key: string            # Surrogate-Key header
+  expires: string                  # duration ("1h") or HTTP-date
+  stale_while_revalidate: int      # seconds, appended to Cache-Control
+  stale_if_error: int              # seconds, appended to Cache-Control
+  override: bool                   # override backend's Cache-Control (default true)
+```
+
+**Validation:** When enabled, at least one of `cache_control`, `surrogate_control`, or `vary` must be set.
+
+See [CDN Cache Headers](cdn-cache-headers.md) for details.
+
+## Backend Encoding (per-route)
+
+```yaml
+routes:
+  - id: example
+    backend_encoding:
+      encoding: string             # "xml" or "yaml"
+```
+
+**Validation:** Must be `xml` or `yaml`. Mutually exclusive with `passthrough`.
+
+See [Backend Encoding](backend-encoding.md) for details.
+
 ## Debug Endpoint (global)
 
 ```yaml

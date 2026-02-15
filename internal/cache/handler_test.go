@@ -554,6 +554,111 @@ func TestCacheStatsNotModified(t *testing.T) {
 	}
 }
 
+func TestSharedBucket_SameStore(t *testing.T) {
+	cbr := NewCacheByRoute(nil)
+
+	cbr.AddRoute("route1", config.CacheConfig{
+		Enabled: true,
+		MaxSize: 100,
+		Bucket:  "shared",
+	})
+	cbr.AddRoute("route2", config.CacheConfig{
+		Enabled: true,
+		MaxSize: 100,
+		Bucket:  "shared",
+	})
+
+	h1 := cbr.GetHandler("route1")
+	h2 := cbr.GetHandler("route2")
+
+	// Store via route1
+	req := httptest.NewRequest("GET", "/api/data", nil)
+	h1.Store(req, &Entry{StatusCode: 200, Body: []byte(`{"from":"route1"}`)})
+
+	// Should be retrievable via route2 (same bucket = same store)
+	got, ok := h2.Get(req)
+	if !ok {
+		t.Fatal("expected cache hit via shared bucket")
+	}
+	if string(got.Body) != `{"from":"route1"}` {
+		t.Errorf("expected body from route1, got %s", got.Body)
+	}
+}
+
+func TestSharedBucket_DifferentBucket(t *testing.T) {
+	cbr := NewCacheByRoute(nil)
+
+	cbr.AddRoute("route1", config.CacheConfig{
+		Enabled: true,
+		MaxSize: 100,
+		Bucket:  "bucket_a",
+	})
+	cbr.AddRoute("route2", config.CacheConfig{
+		Enabled: true,
+		MaxSize: 100,
+		Bucket:  "bucket_b",
+	})
+
+	h1 := cbr.GetHandler("route1")
+	h2 := cbr.GetHandler("route2")
+
+	req := httptest.NewRequest("GET", "/api/data", nil)
+	h1.Store(req, &Entry{StatusCode: 200, Body: []byte(`{"from":"route1"}`)})
+
+	// Different bucket = isolated stores
+	_, ok := h2.Get(req)
+	if ok {
+		t.Error("expected cache miss for different bucket")
+	}
+}
+
+func TestSharedBucket_NoBucket(t *testing.T) {
+	cbr := NewCacheByRoute(nil)
+
+	cbr.AddRoute("route1", config.CacheConfig{
+		Enabled: true,
+		MaxSize: 100,
+	})
+	cbr.AddRoute("route2", config.CacheConfig{
+		Enabled: true,
+		MaxSize: 100,
+	})
+
+	h1 := cbr.GetHandler("route1")
+	h2 := cbr.GetHandler("route2")
+
+	req := httptest.NewRequest("GET", "/api/data", nil)
+	h1.Store(req, &Entry{StatusCode: 200, Body: []byte(`{"from":"route1"}`)})
+
+	// No bucket = per-route isolation (existing behavior)
+	_, ok := h2.Get(req)
+	if ok {
+		t.Error("expected cache miss for per-route isolation")
+	}
+}
+
+func TestSharedBucket_Stats(t *testing.T) {
+	cbr := NewCacheByRoute(nil)
+
+	cbr.AddRoute("route1", config.CacheConfig{
+		Enabled: true,
+		MaxSize: 100,
+		Bucket:  "shared",
+	})
+	cbr.AddRoute("route2", config.CacheConfig{
+		Enabled: true,
+		MaxSize: 100,
+	})
+
+	stats := cbr.Stats()
+	if stats["route1"].Bucket != "shared" {
+		t.Errorf("expected bucket=shared for route1, got %q", stats["route1"].Bucket)
+	}
+	if stats["route2"].Bucket != "" {
+		t.Errorf("expected empty bucket for route2, got %q", stats["route2"].Bucket)
+	}
+}
+
 func TestCacheByRouteDistributedFallback(t *testing.T) {
 	// When no Redis client is configured, distributed mode falls back to local
 	cbr := NewCacheByRoute(nil)

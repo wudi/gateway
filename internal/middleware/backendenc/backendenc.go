@@ -1,0 +1,286 @@
+package backendenc
+
+import (
+	"bytes"
+	"encoding/json"
+	"encoding/xml"
+	"io"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+
+	"github.com/goccy/go-yaml"
+
+	"github.com/wudi/gateway/internal/config"
+)
+
+// Encoder decodes backend responses from a non-JSON format to JSON.
+type Encoder struct {
+	encoding string
+	encoded  atomic.Int64
+	errors   atomic.Int64
+}
+
+// Snapshot is a point-in-time copy of encoder metrics.
+type Snapshot struct {
+	Encoding string `json:"encoding"`
+	Encoded  int64  `json:"encoded"`
+	Errors   int64  `json:"errors"`
+}
+
+// New creates an Encoder for the given encoding type.
+func New(cfg config.BackendEncodingConfig) *Encoder {
+	return &Encoder{
+		encoding: cfg.Encoding,
+	}
+}
+
+// Encoding returns the configured encoding type.
+func (e *Encoder) Encoding() string {
+	return e.encoding
+}
+
+// Decode converts the input bytes from the configured encoding to JSON.
+// Returns the JSON bytes and true on success, or original bytes and false on failure.
+func (e *Encoder) Decode(data []byte, contentType string) ([]byte, bool) {
+	switch e.encoding {
+	case "xml":
+		if !isXML(contentType) {
+			return data, false
+		}
+		result, err := xmlToJSON(data)
+		if err != nil {
+			e.errors.Add(1)
+			return data, false
+		}
+		e.encoded.Add(1)
+		return result, true
+	case "yaml":
+		if !isYAML(contentType) {
+			return data, false
+		}
+		result, err := yamlToJSON(data)
+		if err != nil {
+			e.errors.Add(1)
+			return data, false
+		}
+		e.encoded.Add(1)
+		return result, true
+	default:
+		return data, false
+	}
+}
+
+// Stats returns a snapshot of encoder metrics.
+func (e *Encoder) Stats() Snapshot {
+	return Snapshot{
+		Encoding: e.encoding,
+		Encoded:  e.encoded.Load(),
+		Errors:   e.errors.Load(),
+	}
+}
+
+// xmlToJSON converts XML bytes to JSON.
+func xmlToJSON(data []byte) ([]byte, error) {
+	decoder := xml.NewDecoder(bytes.NewReader(data))
+	result, err := decodeXMLElement(decoder)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(result)
+}
+
+// decodeXMLElement recursively decodes XML into a Go structure suitable for JSON.
+func decodeXMLElement(decoder *xml.Decoder) (interface{}, error) {
+	// Find the root element
+	for {
+		tok, err := decoder.Token()
+		if err != nil {
+			return nil, err
+		}
+		if se, ok := tok.(xml.StartElement); ok {
+			return decodeElement(decoder, se)
+		}
+	}
+}
+
+// decodeElement decodes a single XML element and its children.
+func decodeElement(decoder *xml.Decoder, start xml.StartElement) (interface{}, error) {
+	result := make(map[string]interface{})
+
+	// Add attributes prefixed with @
+	for _, attr := range start.Attr {
+		result["@"+attr.Name.Local] = inferXMLType(attr.Value)
+	}
+
+	var textContent strings.Builder
+	children := make(map[string][]interface{})
+
+	for {
+		tok, err := decoder.Token()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, err
+		}
+
+		switch t := tok.(type) {
+		case xml.StartElement:
+			child, err := decodeElement(decoder, t)
+			if err != nil {
+				return nil, err
+			}
+			children[t.Name.Local] = append(children[t.Name.Local], child)
+
+		case xml.CharData:
+			text := strings.TrimSpace(string(t))
+			if text != "" {
+				textContent.WriteString(text)
+			}
+
+		case xml.EndElement:
+			goto done
+		}
+	}
+
+done:
+	// If there's only text content and no children/attributes, return the text value
+	if len(children) == 0 && len(result) == 0 {
+		text := textContent.String()
+		if text == "" {
+			return "", nil
+		}
+		return inferXMLType(text), nil
+	}
+
+	// Add children to result
+	for name, vals := range children {
+		if len(vals) == 1 {
+			result[name] = vals[0]
+		} else {
+			result[name] = vals
+		}
+	}
+
+	// If there's text content alongside children/attributes, store as #text
+	if text := textContent.String(); text != "" {
+		result["#text"] = inferXMLType(text)
+	}
+
+	return result, nil
+}
+
+// inferXMLType tries to detect numbers and booleans in XML text values.
+func inferXMLType(s string) interface{} {
+	if s == "true" {
+		return true
+	}
+	if s == "false" {
+		return false
+	}
+	if i, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return i
+	}
+	if f, err := strconv.ParseFloat(s, 64); err == nil {
+		return f
+	}
+	return s
+}
+
+// yamlToJSON converts YAML bytes to JSON.
+func yamlToJSON(data []byte) ([]byte, error) {
+	var parsed interface{}
+	if err := yaml.Unmarshal(data, &parsed); err != nil {
+		return nil, err
+	}
+	// Normalize map types from map[interface{}]interface{} to map[string]interface{}
+	normalized := normalizeYAML(parsed)
+	return json.Marshal(normalized)
+}
+
+// normalizeYAML recursively normalizes YAML parsed values for JSON compatibility.
+func normalizeYAML(v interface{}) interface{} {
+	switch val := v.(type) {
+	case map[string]interface{}:
+		result := make(map[string]interface{}, len(val))
+		for k, v := range val {
+			result[k] = normalizeYAML(v)
+		}
+		return result
+	case map[interface{}]interface{}:
+		result := make(map[string]interface{}, len(val))
+		for k, v := range val {
+			key, _ := k.(string)
+			result[key] = normalizeYAML(v)
+		}
+		return result
+	case []interface{}:
+		for i, item := range val {
+			val[i] = normalizeYAML(item)
+		}
+		return val
+	default:
+		return v
+	}
+}
+
+// isXML checks if content type indicates XML.
+func isXML(contentType string) bool {
+	return strings.Contains(contentType, "xml")
+}
+
+// isYAML checks if content type indicates YAML.
+func isYAML(contentType string) bool {
+	return strings.Contains(contentType, "yaml") || strings.Contains(contentType, "x-yaml")
+}
+
+// EncoderByRoute manages encoders per route.
+type EncoderByRoute struct {
+	encoders map[string]*Encoder
+	mu       sync.RWMutex
+}
+
+// NewEncoderByRoute creates a new encoder manager.
+func NewEncoderByRoute() *EncoderByRoute {
+	return &EncoderByRoute{
+		encoders: make(map[string]*Encoder),
+	}
+}
+
+// AddRoute adds an encoder for a route.
+func (br *EncoderByRoute) AddRoute(routeID string, cfg config.BackendEncodingConfig) {
+	br.mu.Lock()
+	defer br.mu.Unlock()
+	br.encoders[routeID] = New(cfg)
+}
+
+// GetEncoder returns the encoder for a route.
+func (br *EncoderByRoute) GetEncoder(routeID string) *Encoder {
+	br.mu.RLock()
+	defer br.mu.RUnlock()
+	return br.encoders[routeID]
+}
+
+// RouteIDs returns all route IDs with encoders.
+func (br *EncoderByRoute) RouteIDs() []string {
+	br.mu.RLock()
+	defer br.mu.RUnlock()
+	ids := make([]string, 0, len(br.encoders))
+	for id := range br.encoders {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// Stats returns encoder statistics for all routes.
+func (br *EncoderByRoute) Stats() map[string]Snapshot {
+	br.mu.RLock()
+	defer br.mu.RUnlock()
+	result := make(map[string]Snapshot, len(br.encoders))
+	for id, e := range br.encoders {
+		result[id] = e.Stats()
+	}
+	return result
+}

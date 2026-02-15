@@ -68,10 +68,11 @@ func (c *Cache) Stats() CacheStats {
 
 // CacheStats contains cache statistics.
 type CacheStats struct {
-	Size         int   `json:"size"`
-	MaxSize      int   `json:"max_size"`
-	Hits         int64 `json:"hits"`
-	Misses       int64 `json:"misses"`
-	Evictions    int64 `json:"evictions"`
-	NotModifieds int64 `json:"not_modifieds"`
+	Size         int    `json:"size"`
+	MaxSize      int    `json:"max_size"`
+	Hits         int64  `json:"hits"`
+	Misses       int64  `json:"misses"`
+	Evictions    int64  `json:"evictions"`
+	NotModifieds int64  `json:"not_modifieds"`
+	Bucket       string `json:"bucket,omitempty"`
 }
