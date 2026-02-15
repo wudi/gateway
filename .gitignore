@@ -7,6 +7,9 @@ coverage.out
 coverage.html
 *.test
 
+# Performance test results
+perf/results/
+
 # IDE
 .idea/
 .vscode/
