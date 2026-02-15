@@ -1,6 +1,7 @@
 # Build artifacts
 /build/
 /dist/
+/gateway
 
 # Test artifacts
 coverage.out
