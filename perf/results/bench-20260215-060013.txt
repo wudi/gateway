@@ -1,0 +1,188 @@
+?   	github.com/wudi/gateway/cmd/gateway	[no test files]
+PASS
+ok  	github.com/wudi/gateway/internal/cache	0.016s
+PASS
+ok  	github.com/wudi/gateway/internal/canary	0.033s
+PASS
+ok  	github.com/wudi/gateway/internal/circuitbreaker	0.006s
+PASS
+ok  	github.com/wudi/gateway/internal/coalesce	0.011s
+PASS
+ok  	github.com/wudi/gateway/internal/config	0.017s
+?   	github.com/wudi/gateway/internal/errors	[no test files]
+PASS
+ok  	github.com/wudi/gateway/internal/gateway	0.035s
+PASS
+ok  	github.com/wudi/gateway/internal/graphql	0.009s
+PASS
+ok  	github.com/wudi/gateway/internal/health	0.007s
+PASS
+ok  	github.com/wudi/gateway/internal/listener	0.008s
+goos: linux
+goarch: amd64
+pkg: github.com/wudi/gateway/internal/loadbalancer
+cpu: AMD EPYC-Genoa Processor
+BenchmarkRoundRobinNext-4   	10828197	       114.2 ns/op	     192 B/op	       2 allocs/op
+PASS
+ok  	github.com/wudi/gateway/internal/loadbalancer	3.025s
+PASS
+ok  	github.com/wudi/gateway/internal/loadbalancer/outlier	0.006s
+PASS
+ok  	github.com/wudi/gateway/internal/logging	0.004s
+PASS
+ok  	github.com/wudi/gateway/internal/metrics	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware	0.004s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/accesslog	0.004s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/allowedhosts	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/altsvc	0.004s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/auth	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/backendauth	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/backendenc	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/bodygen	0.004s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/botdetect	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/cdnheaders	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/claimsprop	0.004s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/compression	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/contentneg	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/contentreplacer	0.004s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/cors	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/csrf	0.006s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/debug	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/decompress	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/errorpages	0.004s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/extauth	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/geo	0.004s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/httpsredirect	0.004s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/idempotency	0.007s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/ipfilter	0.004s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/maintenance	0.004s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/mock	0.004s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/mtls	0.004s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/nonce	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/openapi	0.004s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/paramforward	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/proxyratelimit	0.004s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/quota	0.004s
+goos: linux
+goarch: amd64
+pkg: github.com/wudi/gateway/internal/middleware/ratelimit
+cpu: AMD EPYC-Genoa Processor
+BenchmarkTokenBucketAllow-4            	15293437	        85.89 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSlidingWindowCounterAllow-4   	11642515	       110.7 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/ratelimit	2.798s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/realip	0.004s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/respbodygen	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/responselimit	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/securityheaders	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/serviceratelimit	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/signing	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/spikearrest	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/staticfiles	0.004s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/statusmap	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/timeout	0.006s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/tokenrevoke	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/transform	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/validation	0.009s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/versioning	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/middleware/waf	0.007s
+PASS
+ok  	github.com/wudi/gateway/internal/mirror	0.004s
+PASS
+ok  	github.com/wudi/gateway/internal/proxy	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/proxy/aggregate	0.004s
+PASS
+ok  	github.com/wudi/gateway/internal/proxy/grpc	0.004s
+PASS
+ok  	github.com/wudi/gateway/internal/proxy/protocol	0.004s
+PASS
+ok  	github.com/wudi/gateway/internal/proxy/protocol/grpc	0.006s
+PASS
+ok  	github.com/wudi/gateway/internal/proxy/protocol/thrift	0.006s
+PASS
+ok  	github.com/wudi/gateway/internal/proxy/sequential	0.005s
+PASS
+ok  	github.com/wudi/gateway/internal/proxy/tcp	0.004s
+PASS
+ok  	github.com/wudi/gateway/internal/proxy/udp	0.004s
+?   	github.com/wudi/gateway/internal/registry	[no test files]
+?   	github.com/wudi/gateway/internal/registry/consul	[no test files]
+?   	github.com/wudi/gateway/internal/registry/etcd	[no test files]
+?   	github.com/wudi/gateway/internal/registry/kubernetes	[no test files]
+PASS
+ok  	github.com/wudi/gateway/internal/registry/memory	0.003s
+PASS
+ok  	github.com/wudi/gateway/internal/retry	0.004s
+goos: linux
+goarch: amd64
+pkg: github.com/wudi/gateway/internal/router
+cpu: AMD EPYC-Genoa Processor
+BenchmarkRouterMatch-4               	  846536	      1378 ns/op	     656 B/op	      10 allocs/op
+BenchmarkRouterMatchWithMatchers-4   	  991417	      1235 ns/op	     176 B/op	       5 allocs/op
+PASS
+ok  	github.com/wudi/gateway/internal/router	2.431s
+PASS
+ok  	github.com/wudi/gateway/internal/rules	0.006s
+PASS
+ok  	github.com/wudi/gateway/internal/tracing	0.007s
+PASS
+ok  	github.com/wudi/gateway/internal/trafficshape	0.005s
+goos: linux
+goarch: amd64
+pkg: github.com/wudi/gateway/internal/variables
+cpu: AMD EPYC-Genoa Processor
+BenchmarkResolve-4   	 1757737	       628.9 ns/op	     176 B/op	       5 allocs/op
+PASS
+ok  	github.com/wudi/gateway/internal/variables	1.808s
+PASS
+ok  	github.com/wudi/gateway/internal/webhook	0.004s
+PASS
+ok  	github.com/wudi/gateway/internal/websocket	0.004s
