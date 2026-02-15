@@ -158,7 +158,7 @@ func BuildKeyFunc(perIP bool, key string) func(*http.Request) string {
 		name := key[len("header:"):]
 		return func(r *http.Request) string {
 			if v := r.Header.Get(name); v != "" {
-				return fmt.Sprintf("header:%s:%s", name, v)
+				return "header:" + name + ":" + v
 			}
 			return variables.ExtractClientIP(r)
 		}
@@ -168,7 +168,7 @@ func BuildKeyFunc(perIP bool, key string) func(*http.Request) string {
 		name := key[len("cookie:"):]
 		return func(r *http.Request) string {
 			if c, err := r.Cookie(name); err == nil && c.Value != "" {
-				return fmt.Sprintf("cookie:%s:%s", name, c.Value)
+				return "cookie:" + name + ":" + c.Value
 			}
 			return variables.ExtractClientIP(r)
 		}
@@ -182,7 +182,7 @@ func BuildKeyFunc(perIP bool, key string) func(*http.Request) string {
 				if val, ok := varCtx.Identity.Claims[claim]; ok {
 					s := fmt.Sprintf("%v", val)
 					if s != "" {
-						return fmt.Sprintf("jwt_claim:%s:%s", claim, s)
+						return "jwt_claim:" + claim + ":" + s
 					}
 				}
 			}

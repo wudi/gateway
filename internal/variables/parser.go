@@ -73,18 +73,29 @@ func ParseDynamic(name string) (prefix, suffix string, ok bool) {
 
 // NormalizeHeaderName converts http_x_custom_header to X-Custom-Header
 func NormalizeHeaderName(name string) string {
-	// Replace underscores with hyphens
-	name = strings.ReplaceAll(name, "_", "-")
-
-	// Capitalize each word
-	parts := strings.Split(name, "-")
-	for i, part := range parts {
-		if len(part) > 0 {
-			parts[i] = strings.ToUpper(string(part[0])) + strings.ToLower(part[1:])
+	buf := make([]byte, len(name))
+	upper := true // capitalize first character
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if c == '_' || c == '-' {
+			buf[i] = '-'
+			upper = true
+		} else if upper {
+			if c >= 'a' && c <= 'z' {
+				buf[i] = c - 32
+			} else {
+				buf[i] = c
+			}
+			upper = false
+		} else {
+			if c >= 'A' && c <= 'Z' {
+				buf[i] = c + 32
+			} else {
+				buf[i] = c
+			}
 		}
 	}
-
-	return strings.Join(parts, "-")
+	return string(buf)
 }
 
 // Template represents a parsed template with variables

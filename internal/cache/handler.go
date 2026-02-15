@@ -106,7 +106,7 @@ func (h *Handler) BuildKey(r *http.Request, keyHeaders []string) string {
 
 	// Hash for a fixed-length key
 	hash := sha256.Sum256([]byte(b.String()))
-	return fmt.Sprintf("%x", hash)
+	return hex.EncodeToString(hash[:])
 }
 
 // ShouldCache checks if the request is cacheable.

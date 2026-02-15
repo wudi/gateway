@@ -88,8 +88,9 @@ func NewRequestEnv(r *http.Request, varCtx *variables.Context) RequestEnv {
 	}
 
 	// Build query args map (first value)
-	args := make(map[string]string)
-	for k, v := range r.URL.Query() {
+	q := r.URL.Query()
+	args := make(map[string]string, len(q))
+	for k, v := range q {
 		if len(v) > 0 {
 			args[k] = v[0]
 		}

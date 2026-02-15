@@ -125,7 +125,7 @@ func (b *baseBalancer) HealthyCount() int {
 
 // healthyBackends returns a slice of healthy backends (caller must hold lock)
 func (b *baseBalancer) healthyBackends() []*Backend {
-	var healthy []*Backend
+	healthy := make([]*Backend, 0, len(b.backends))
 	for _, backend := range b.backends {
 		if backend.Healthy {
 			healthy = append(healthy, backend)

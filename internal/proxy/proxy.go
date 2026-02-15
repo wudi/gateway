@@ -278,7 +278,7 @@ func (p *Proxy) createProxyRequest(r *http.Request, target *url.URL, route *rout
 	proxyReq, _ := http.NewRequest(r.Method, targetURL.String(), r.Body)
 
 	// Copy headers
-	proxyReq.Header = make(http.Header)
+	proxyReq.Header = make(http.Header, len(r.Header))
 	for k, vv := range r.Header {
 		proxyReq.Header[k] = vv
 	}
