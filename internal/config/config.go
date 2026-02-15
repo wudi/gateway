@@ -1012,6 +1012,7 @@ type LoggingConfig struct {
 type AdminConfig struct {
 	Enabled   bool            `yaml:"enabled"`
 	Port      int             `yaml:"port"`
+	Pprof     bool            `yaml:"pprof"`     // Enable /debug/pprof/* endpoints
 	Metrics   MetricsConfig   `yaml:"metrics"`   // Feature 5: Prometheus metrics
 	Readiness ReadinessConfig `yaml:"readiness"` // Readiness probe configuration
 }

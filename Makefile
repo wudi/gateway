@@ -1,7 +1,9 @@
 .PHONY: all build run test clean deps lint fmt vet \
 	docker-build docker-buildx docker-buildx-local docker-push docker-run \
 	compose-up compose-down compose-logs \
-	compose-up-redis compose-up-otel compose-up-consul compose-up-etcd compose-up-all
+	compose-up-redis compose-up-otel compose-up-consul compose-up-etcd compose-up-all \
+	bench bench-save bench-compare \
+	perf-stack-up perf-stack-down perf-smoke perf-load perf-stress perf-profile
 
 # Build variables
 BINARY_NAME=gateway
@@ -183,6 +185,63 @@ compose-up-all:
 	VERSION=$(VERSION) BUILD_TIME=$(BUILD_TIME) docker compose \
 		--profile redis --profile otel --profile consul --profile etcd up -d --build
 
+# Benchmarks
+BENCH_FLAGS?=-benchmem -count=1 -run=^$$ -bench=.
+BENCH_DIR=perf/results
+
+bench:
+	@echo "Running benchmarks..."
+	$(GOTEST) $(BENCH_FLAGS) ./...
+
+bench-save:
+	@echo "Running benchmarks and saving results..."
+	@mkdir -p $(BENCH_DIR)
+	$(GOTEST) $(BENCH_FLAGS) ./... | tee $(BENCH_DIR)/bench-$(shell date +%Y%m%d-%H%M%S).txt
+
+bench-compare:
+	@echo "Comparing last two benchmark results..."
+	@if ! command -v benchstat > /dev/null; then \
+		echo "benchstat not installed. Run: go install golang.org/x/perf/cmd/benchstat@latest"; \
+		exit 1; \
+	fi
+	@OLD=$$(ls -t $(BENCH_DIR)/bench-*.txt 2>/dev/null | sed -n '2p'); \
+	NEW=$$(ls -t $(BENCH_DIR)/bench-*.txt 2>/dev/null | sed -n '1p'); \
+	if [ -z "$$OLD" ] || [ -z "$$NEW" ]; then \
+		echo "Need at least 2 saved benchmark runs. Run 'make bench-save' twice."; \
+		exit 1; \
+	fi; \
+	echo "Comparing $$OLD vs $$NEW"; \
+	benchstat "$$OLD" "$$NEW"
+
+# Performance testing stack
+PERF_COMPOSE=docker compose -f perf/docker-compose.perf.yaml
+
+perf-stack-up:
+	@echo "Starting performance testing stack..."
+	VERSION=$(VERSION) BUILD_TIME=$(BUILD_TIME) $(PERF_COMPOSE) --profile monitoring up -d --build
+
+perf-stack-down:
+	$(PERF_COMPOSE) --profile monitoring --profile k6 down
+
+perf-smoke:
+	@echo "Running k6 smoke test..."
+	VERSION=$(VERSION) BUILD_TIME=$(BUILD_TIME) $(PERF_COMPOSE) --profile k6 run --rm \
+		-e K6_OUT=experimental-prometheus-rw k6 run /scripts/smoke.js
+
+perf-load:
+	@echo "Running k6 load test..."
+	VERSION=$(VERSION) BUILD_TIME=$(BUILD_TIME) $(PERF_COMPOSE) --profile k6 run --rm \
+		-e K6_OUT=experimental-prometheus-rw k6 run /scripts/load.js
+
+perf-stress:
+	@echo "Running k6 stress test..."
+	VERSION=$(VERSION) BUILD_TIME=$(BUILD_TIME) $(PERF_COMPOSE) --profile k6 run --rm \
+		-e K6_OUT=experimental-prometheus-rw k6 run /scripts/stress.js
+
+perf-profile:
+	@echo "Capturing pprof profiles..."
+	perf/scripts/capture-profiles.sh perf/results/profiles-$(shell date +%Y%m%d-%H%M%S)
+
 # Start a mock backend server for testing
 mock-backend:
 	@echo "Starting mock backend on port 9001..."
@@ -218,4 +277,16 @@ help:
 	@echo "  compose-up-consul - Start with Consul"
 	@echo "  compose-up-etcd  - Start with etcd"
 	@echo "  compose-up-all   - Start with all infrastructure"
+	@echo ""
+	@echo "Benchmarks & Performance:"
+	@echo "  bench            - Run Go benchmarks"
+	@echo "  bench-save       - Run benchmarks and save results"
+	@echo "  bench-compare    - Compare last two benchmark runs (requires benchstat)"
+	@echo "  perf-stack-up    - Start perf stack (gateway + Prometheus + Grafana)"
+	@echo "  perf-stack-down  - Stop perf stack"
+	@echo "  perf-smoke       - Run k6 smoke test"
+	@echo "  perf-load        - Run k6 load test"
+	@echo "  perf-stress      - Run k6 stress test"
+	@echo "  perf-profile     - Capture pprof profiles from running gateway"
+	@echo ""
 	@echo "  help             - Show this help"

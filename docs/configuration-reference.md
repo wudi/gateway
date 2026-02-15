@@ -1143,6 +1143,7 @@ tracing:
 admin:
   enabled: bool             # default true
   port: int                 # default 8081
+  pprof: bool               # enable /debug/pprof/* endpoints (default false)
   metrics:
     enabled: bool
     path: string            # default "/metrics"

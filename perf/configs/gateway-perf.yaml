@@ -1,0 +1,127 @@
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+    http:
+      read_timeout: 30s
+      write_timeout: 30s
+      idle_timeout: 120s
+
+registry:
+  type: "memory"
+  memory:
+    api_enabled: true
+    api_port: 8082
+
+logging:
+  level: "warn"
+  format: "json"
+
+admin:
+  enabled: true
+  port: 8081
+  pprof: true
+  metrics:
+    enabled: true
+    path: "/metrics"
+
+authentication:
+  api_key:
+    enabled: true
+    header: "X-API-Key"
+    keys:
+      - key: "perf-test-key"
+        client_id: "perf-client"
+        name: "Performance Test Client"
+
+routes:
+  # Baseline: no middleware, minimal processing
+  - id: "perf-minimal"
+    path: "/perf/minimal"
+    path_prefix: true
+    backends:
+      - url: "http://perf-backend1"
+      - url: "http://perf-backend2"
+
+  # Standard: auth + rate limit + request transforms
+  - id: "perf-standard"
+    path: "/perf/standard"
+    path_prefix: true
+    backends:
+      - url: "http://perf-backend1"
+      - url: "http://perf-backend2"
+    auth:
+      required: true
+    rate_limit:
+      requests_per_second: 1000
+      burst: 200
+    transforms:
+      request:
+        set_headers:
+          X-Perf-Route: "standard"
+          X-Request-Start: "{{.Timestamp}}"
+
+  # Cached: caching enabled
+  - id: "perf-cached"
+    path: "/perf/cached"
+    path_prefix: true
+    backends:
+      - url: "http://perf-backend1"
+      - url: "http://perf-backend2"
+    cache:
+      enabled: true
+      ttl: 30s
+      max_size: 1000
+
+  # Rate limited: low limit to test 429 behavior
+  - id: "perf-ratelimited"
+    path: "/perf/ratelimited"
+    path_prefix: true
+    backends:
+      - url: "http://perf-backend1"
+      - url: "http://perf-backend2"
+    rate_limit:
+      requests_per_second: 50
+      burst: 10
+
+  # Full: auth + rate limit + cache + transforms + circuit breaker + retries
+  - id: "perf-full"
+    path: "/perf/full"
+    path_prefix: true
+    backends:
+      - url: "http://perf-backend1"
+      - url: "http://perf-backend2"
+    auth:
+      required: true
+    rate_limit:
+      requests_per_second: 500
+      burst: 100
+    cache:
+      enabled: true
+      ttl: 10s
+      max_size: 500
+    transforms:
+      request:
+        set_headers:
+          X-Perf-Route: "full"
+      response:
+        set_headers:
+          X-Served-By: "gateway-perf"
+    circuit_breaker:
+      enabled: true
+      max_requests: 100
+      interval: 60s
+      timeout: 30s
+      failure_threshold: 5
+    retry:
+      max_retries: 2
+      retry_on:
+        - 502
+        - 503
+
+  # Health check route
+  - id: "perf-health"
+    path: "/perf/health"
+    backends:
+      - url: "http://perf-backend1"
+      - url: "http://perf-backend2"

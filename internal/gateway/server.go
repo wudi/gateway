@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"strings"
@@ -634,6 +635,15 @@ func (s *Server) adminHandler() http.Handler {
 	// Feature 14: API Key management endpoints
 	if s.gateway.GetAPIKeyAuth() != nil {
 		mux.HandleFunc("/admin/keys", s.handleAdminKeys)
+	}
+
+	// pprof endpoints (when enabled)
+	if s.config.Admin.Pprof {
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 	}
 
 	return mux

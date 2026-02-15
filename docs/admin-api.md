@@ -164,6 +164,41 @@ Prometheus scrape endpoint (only available when `admin.metrics.enabled: true`). 
 curl http://localhost:8081/metrics
 ```
 
+## pprof Profiling
+
+### GET `/debug/pprof/*`
+
+Go runtime profiling endpoints (only available when `admin.pprof: true`). Exposes the standard `net/http/pprof` handlers for CPU profiling, heap analysis, goroutine dumps, and more.
+
+```bash
+# Interactive pprof index
+curl http://localhost:8081/debug/pprof/
+
+# CPU profile (30-second default)
+go tool pprof http://localhost:8081/debug/pprof/profile?seconds=30
+
+# Heap profile
+go tool pprof http://localhost:8081/debug/pprof/heap
+
+# Goroutine dump
+curl http://localhost:8081/debug/pprof/goroutine?debug=2
+
+# Allocs profile
+go tool pprof http://localhost:8081/debug/pprof/allocs
+
+# Block profile
+go tool pprof http://localhost:8081/debug/pprof/block
+
+# Mutex profile
+go tool pprof http://localhost:8081/debug/pprof/mutex
+
+# Execution trace (5-second)
+curl -o trace.out http://localhost:8081/debug/pprof/trace?seconds=5
+go tool trace trace.out
+```
+
+Available profiles: `profile` (CPU), `heap`, `goroutine`, `allocs`, `block`, `mutex`, `threadcreate`, `trace`, `cmdline`, `symbol`.
+
 ## Configuration Reload
 
 ### POST `/reload`
