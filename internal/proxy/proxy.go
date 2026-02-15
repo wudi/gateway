@@ -199,10 +199,14 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 			varCtx.UpstreamAddr = backend.URL
 			backendURL = backend.URL
 
-			targetURL, parseErr := url.Parse(backend.URL)
-			if parseErr != nil {
-				errors.ErrBadGateway.WithDetails("Invalid backend URL").WriteJSON(w)
-				return
+			targetURL := backend.ParsedURL
+			if targetURL == nil {
+				var parseErr error
+				targetURL, parseErr = url.Parse(backend.URL)
+				if parseErr != nil {
+					errors.ErrBadGateway.WithDetails("Invalid backend URL").WriteJSON(w)
+					return
+				}
 			}
 
 			proxyReq := p.createProxyRequest(r, targetURL, route, varCtx)
@@ -277,8 +281,8 @@ func (p *Proxy) createProxyRequest(r *http.Request, target *url.URL, route *rout
 	// Create new request
 	proxyReq, _ := http.NewRequest(r.Method, targetURL.String(), r.Body)
 
-	// Copy headers
-	proxyReq.Header = make(http.Header, len(r.Header))
+	// Copy headers (+3 for X-Forwarded-For/Proto/Host added below)
+	proxyReq.Header = make(http.Header, len(r.Header)+3)
 	for k, vv := range r.Header {
 		proxyReq.Header[k] = vv
 	}

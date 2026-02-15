@@ -310,7 +310,6 @@ func NewContext(r *http.Request) *Context {
 	return &Context{
 		Request:   r,
 		StartTime: time.Now(),
-		Custom:    make(map[string]string),
 	}
 }
 
@@ -334,18 +333,20 @@ func (c *Context) Clone() *Context {
 		TrafficGroup:         c.TrafficGroup,
 		APIVersion:           c.APIVersion,
 		AccessLogConfig:      c.AccessLogConfig,
-		Custom:               make(map[string]string),
 	}
 
 	if c.PathParams != nil {
-		newCtx.PathParams = make(map[string]string)
+		newCtx.PathParams = make(map[string]string, len(c.PathParams))
 		for k, v := range c.PathParams {
 			newCtx.PathParams[k] = v
 		}
 	}
 
-	for k, v := range c.Custom {
-		newCtx.Custom[k] = v
+	if len(c.Custom) > 0 {
+		newCtx.Custom = make(map[string]string, len(c.Custom))
+		for k, v := range c.Custom {
+			newCtx.Custom[k] = v
+		}
 	}
 
 	return newCtx
@@ -353,11 +354,17 @@ func (c *Context) Clone() *Context {
 
 // SetCustom sets a custom variable value
 func (c *Context) SetCustom(name, value string) {
+	if c.Custom == nil {
+		c.Custom = make(map[string]string)
+	}
 	c.Custom[name] = value
 }
 
 // GetCustom returns a custom variable value
 func (c *Context) GetCustom(name string) (string, bool) {
+	if c.Custom == nil {
+		return "", false
+	}
 	v, ok := c.Custom[name]
 	return v, ok
 }
@@ -399,10 +406,10 @@ func ExtractClientIP(r *http.Request) string {
 
 	// Fallback: legacy behavior (no trusted proxy config)
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		ips := strings.Split(xff, ",")
-		if len(ips) > 0 {
-			return strings.TrimSpace(ips[0])
+		if i := strings.IndexByte(xff, ','); i > 0 {
+			return strings.TrimSpace(xff[:i])
 		}
+		return strings.TrimSpace(xff)
 	}
 
 	if xri := r.Header.Get("X-Real-IP"); xri != "" {

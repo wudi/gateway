@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"strings"
@@ -58,55 +59,52 @@ func NewHandler(cfg config.CacheConfig, store Store) *Handler {
 		maxBodySize = 1 << 20 // 1MB
 	}
 
+	// Pre-sort keyHeaders so BuildKey doesn't need to copy+sort per request
+	keyHeaders := make([]string, len(cfg.KeyHeaders))
+	copy(keyHeaders, cfg.KeyHeaders)
+	sort.Strings(keyHeaders)
+
 	return &Handler{
 		cache:       New(store),
 		ttl:         ttl,
 		maxBodySize: maxBodySize,
-		keyHeaders:  cfg.KeyHeaders,
+		keyHeaders:  keyHeaders,
 		methods:     methodMap,
 		conditional: cfg.Conditional,
 	}
 }
 
 // BuildKey constructs a cache key from the request.
+// keyHeaders must already be sorted (done at construction time).
 func (h *Handler) BuildKey(r *http.Request, keyHeaders []string) string {
-	var b strings.Builder
-	b.WriteString(r.Method)
-	b.WriteByte('|')
-	b.WriteString(r.URL.Path)
+	hash := sha256.New()
+	io.WriteString(hash, r.Method)
+	hash.Write([]byte{'|'})
+	io.WriteString(hash, r.URL.Path)
 	if r.URL.RawQuery != "" {
-		b.WriteByte('?')
-		b.WriteString(r.URL.RawQuery)
+		hash.Write([]byte{'?'})
+		io.WriteString(hash, r.URL.RawQuery)
 	}
 
-	if len(keyHeaders) > 0 {
-		// Sort headers for consistent key generation
-		sorted := make([]string, len(keyHeaders))
-		copy(sorted, keyHeaders)
-		sort.Strings(sorted)
-
-		for _, hdr := range sorted {
-			val := r.Header.Get(hdr)
-			if val != "" {
-				b.WriteByte('|')
-				b.WriteString(hdr)
-				b.WriteByte('=')
-				b.WriteString(val)
-			}
+	for _, hdr := range keyHeaders {
+		val := r.Header.Get(hdr)
+		if val != "" {
+			hash.Write([]byte{'|'})
+			io.WriteString(hash, hdr)
+			hash.Write([]byte{'='})
+			io.WriteString(hash, val)
 		}
 	}
 
 	// Include GraphQL operation info in cache key if present
 	if gqlInfo := graphql.GetInfo(r.Context()); gqlInfo != nil {
-		b.WriteString("|gql:")
-		b.WriteString(gqlInfo.OperationName)
-		b.WriteString("|vars:")
-		b.WriteString(gqlInfo.VariablesHash)
+		io.WriteString(hash, "|gql:")
+		io.WriteString(hash, gqlInfo.OperationName)
+		io.WriteString(hash, "|vars:")
+		io.WriteString(hash, gqlInfo.VariablesHash)
 	}
 
-	// Hash for a fixed-length key
-	hash := sha256.Sum256([]byte(b.String()))
-	return hex.EncodeToString(hash[:])
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 // ShouldCache checks if the request is cacheable.

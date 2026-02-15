@@ -163,6 +163,7 @@ func (t *Template) Render(getValue func(name string) string) string {
 	}
 
 	var builder strings.Builder
+	builder.Grow(len(t.Raw))
 	for _, part := range t.Parts {
 		if part.IsVariable {
 			builder.WriteString(getValue(part.Value))

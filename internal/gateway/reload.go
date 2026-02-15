@@ -407,11 +407,13 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 			)
 		}
 		for _, svc := range services {
-			backends = append(backends, &loadbalancer.Backend{
+			b := &loadbalancer.Backend{
 				URL:     svc.URL(),
 				Weight:  1,
 				Healthy: svc.Health == registry.HealthPassing,
-			})
+			}
+			b.InitParsedURL()
+			backends = append(backends, b)
 		}
 
 		// Watch service in the context of the new state
@@ -430,11 +432,13 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 			if weight == 0 {
 				weight = 1
 			}
-			backends = append(backends, &loadbalancer.Backend{
+			be := &loadbalancer.Backend{
 				URL:     b.URL,
 				Weight:  weight,
 				Healthy: true,
-			})
+			}
+			be.InitParsedURL()
+			backends = append(backends, be)
 
 			// Register backend with health checker
 			g.healthChecker.UpdateBackend(upstreamHealthCheck(b.URL, s.config.HealthCheck, usHC, b.HealthCheck))
@@ -457,7 +461,9 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 				if weight == 0 {
 					weight = 1
 				}
-				vBacks = append(vBacks, &loadbalancer.Backend{URL: b.URL, Weight: weight, Healthy: true})
+				vbe := &loadbalancer.Backend{URL: b.URL, Weight: weight, Healthy: true}
+				vbe.InitParsedURL()
+				vBacks = append(vBacks, vbe)
 				g.healthChecker.UpdateBackend(upstreamHealthCheck(b.URL, s.config.HealthCheck, verUSHC, b.HealthCheck))
 			}
 			versionBackends[ver] = vBacks
@@ -618,11 +624,13 @@ func (g *Gateway) watchServiceForState(s *gatewayState, ctx context.Context, rou
 
 			var backends []*loadbalancer.Backend
 			for _, svc := range filtered {
-				backends = append(backends, &loadbalancer.Backend{
+				be := &loadbalancer.Backend{
 					URL:     svc.URL(),
 					Weight:  1,
 					Healthy: svc.Health == registry.HealthPassing,
-				})
+				}
+				be.InitParsedURL()
+				backends = append(backends, be)
 			}
 
 			// The state's routeProxies are accessed by the Gateway under g.mu,

@@ -84,9 +84,12 @@ func (rg *RouteGroup) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Extract httprouter params from request context
 	params := httprouter.ParamsFromContext(r.Context())
-	pathParams := make(map[string]string, len(params))
-	for _, p := range params {
-		pathParams[p.Key] = p.Value
+	var pathParams map[string]string
+	if len(params) > 0 {
+		pathParams = make(map[string]string, len(params))
+		for _, p := range params {
+			pathParams[p.Key] = p.Value
+		}
 	}
 
 	for _, route := range rg.routes {
@@ -424,7 +427,7 @@ func (rt *Router) matchPrefix(r *http.Request) *Match {
 			if route.matcher.Matches(r) {
 				return &Match{
 					Route:      route,
-					PathParams: make(map[string]string),
+					PathParams: nil,
 				}
 			}
 		}

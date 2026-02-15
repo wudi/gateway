@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"fmt"
+	"encoding/hex"
+	"io"
 	"net/http"
 	"sort"
 	"strings"
@@ -62,10 +63,15 @@ func New(cfg config.CoalesceConfig) *Coalescer {
 		timeout = 30 * time.Second
 	}
 
+	// Pre-sort keyHeaders so BuildKey doesn't need to copy+sort per request
+	keyHeaders := make([]string, len(cfg.KeyHeaders))
+	copy(keyHeaders, cfg.KeyHeaders)
+	sort.Strings(keyHeaders)
+
 	return &Coalescer{
 		timeout:    timeout,
 		methods:    methods,
-		keyHeaders: cfg.KeyHeaders,
+		keyHeaders: keyHeaders,
 	}
 }
 
@@ -75,26 +81,33 @@ func (c *Coalescer) ShouldCoalesce(r *http.Request) bool {
 }
 
 // BuildKey constructs a deterministic coalesce key from the request.
+// keyHeaders are pre-sorted at construction time.
 func (c *Coalescer) BuildKey(r *http.Request) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s\n%s\n%s\n", r.Method, r.URL.Path, r.URL.RawQuery)
+	io.WriteString(h, r.Method)
+	h.Write([]byte{'\n'})
+	io.WriteString(h, r.URL.Path)
+	h.Write([]byte{'\n'})
+	io.WriteString(h, r.URL.RawQuery)
+	h.Write([]byte{'\n'})
 
-	// Include configured headers in sorted order
-	if len(c.keyHeaders) > 0 {
-		sorted := make([]string, len(c.keyHeaders))
-		copy(sorted, c.keyHeaders)
-		sort.Strings(sorted)
-		for _, hdr := range sorted {
-			fmt.Fprintf(h, "%s:%s\n", hdr, r.Header.Get(hdr))
-		}
+	for _, hdr := range c.keyHeaders {
+		io.WriteString(h, hdr)
+		h.Write([]byte{':'})
+		io.WriteString(h, r.Header.Get(hdr))
+		h.Write([]byte{'\n'})
 	}
 
 	// Include GraphQL info if present
 	if info := graphql.GetInfo(r.Context()); info != nil {
-		fmt.Fprintf(h, "gql:%s|%s\n", info.OperationName, info.VariablesHash)
+		io.WriteString(h, "gql:")
+		io.WriteString(h, info.OperationName)
+		h.Write([]byte{'|'})
+		io.WriteString(h, info.VariablesHash)
+		h.Write([]byte{'\n'})
 	}
 
-	return fmt.Sprintf("%x", h.Sum(nil))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // Execute runs fn via singleflight, sharing the result with concurrent callers.

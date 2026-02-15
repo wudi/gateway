@@ -699,11 +699,13 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 			}
 
 			for _, svc := range services {
-				backends = append(backends, &loadbalancer.Backend{
+				b := &loadbalancer.Backend{
 					URL:     svc.URL(),
 					Weight:  1,
 					Healthy: svc.Health == registry.HealthPassing,
-				})
+				}
+				b.InitParsedURL()
+				backends = append(backends, b)
 			}
 
 			// Start watching for changes
@@ -721,11 +723,13 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 				if weight == 0 {
 					weight = 1
 				}
-				backends = append(backends, &loadbalancer.Backend{
+				be := &loadbalancer.Backend{
 					URL:     b.URL,
 					Weight:  weight,
 					Healthy: true,
-				})
+				}
+				be.InitParsedURL()
+				backends = append(backends, be)
 
 				// Add to health checker (upstream health check sits between global and per-backend)
 				g.healthChecker.AddBackend(upstreamHealthCheck(b.URL, g.config.HealthCheck, usHC, b.HealthCheck))
@@ -749,7 +753,9 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 					if weight == 0 {
 						weight = 1
 					}
-					vBacks = append(vBacks, &loadbalancer.Backend{URL: b.URL, Weight: weight, Healthy: true})
+					vbe := &loadbalancer.Backend{URL: b.URL, Weight: weight, Healthy: true}
+					vbe.InitParsedURL()
+					vBacks = append(vBacks, vbe)
 					g.healthChecker.AddBackend(upstreamHealthCheck(b.URL, g.config.HealthCheck, verUSHC, b.HealthCheck))
 				}
 				versionBackends[ver] = vBacks
@@ -1366,11 +1372,13 @@ func (g *Gateway) watchService(routeID, serviceName string, tags []string) {
 				// Convert to backends
 				var backends []*loadbalancer.Backend
 				for _, svc := range filtered {
-					backends = append(backends, &loadbalancer.Backend{
+					be := &loadbalancer.Backend{
 						URL:     svc.URL(),
 						Weight:  1,
 						Healthy: svc.Health == registry.HealthPassing,
-					})
+					}
+					be.InitParsedURL()
+					backends = append(backends, be)
 				}
 
 				// Update route proxy

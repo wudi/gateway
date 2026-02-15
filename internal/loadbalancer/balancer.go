@@ -1,6 +1,7 @@
 package loadbalancer
 
 import (
+	"net/url"
 	"sync"
 	"sync/atomic"
 )
@@ -11,6 +12,13 @@ type Backend struct {
 	Weight         int
 	Healthy        bool
 	ActiveRequests int64
+	ParsedURL      *url.URL // pre-parsed URL to avoid per-request parsing
+}
+
+// InitParsedURL pre-parses the backend URL for use in the proxy hot path.
+// Errors are silently ignored; the proxy falls back to url.Parse if ParsedURL is nil.
+func (b *Backend) InitParsedURL() {
+	b.ParsedURL, _ = url.Parse(b.URL)
 }
 
 // IncrActive atomically increments the active request count.
