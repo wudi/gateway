@@ -1,43 +1,53 @@
-include:
-  - path: ../docker-compose.yaml
-
 services:
-  # Override gateway to use perf config
+  # Gateway built from project root
   gateway:
+    build:
+      context: ..
+      args:
+        VERSION: ${VERSION:-dev}
+        BUILD_TIME: ${BUILD_TIME:-}
+    image: ghcr.io/wudi/gateway:${VERSION:-dev}
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+      - "8082:8082"
     volumes:
-      - ../configs:/app/configs:ro
       - ./configs/gateway-perf.yaml:/app/configs/gateway.yaml:ro
     depends_on:
       perf-backend1:
         condition: service_healthy
       perf-backend2:
         condition: service_healthy
+    networks:
+      - perf-network
 
-  # Perf-optimized backend 1
+  # Perf backend 1
   perf-backend1:
     image: nginx:alpine
     volumes:
       - ./nginx/perf-backend.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
-      - gateway-network
+      - perf-network
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost/ || exit 1"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1/ || exit 1"]
       interval: 5s
       timeout: 3s
-      retries: 3
+      retries: 5
+      start_period: 5s
 
-  # Perf-optimized backend 2
+  # Perf backend 2
   perf-backend2:
     image: nginx:alpine
     volumes:
       - ./nginx/perf-backend.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
-      - gateway-network
+      - perf-network
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost/ || exit 1"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1/ || exit 1"]
       interval: 5s
       timeout: 3s
-      retries: 3
+      retries: 5
+      start_period: 5s
 
   # Prometheus for metrics collection
   prometheus:
@@ -51,7 +61,7 @@ services:
       - "--web.enable-remote-write-receiver"
       - "--storage.tsdb.retention.time=1h"
     networks:
-      - gateway-network
+      - perf-network
     profiles:
       - monitoring
 
@@ -70,7 +80,7 @@ services:
     depends_on:
       - prometheus
     networks:
-      - gateway-network
+      - perf-network
     profiles:
       - monitoring
 
@@ -84,6 +94,10 @@ services:
       - ./k6:/scripts:ro
       - ./results:/results
     networks:
-      - gateway-network
+      - perf-network
     profiles:
       - k6
+
+networks:
+  perf-network:
+    driver: bridge
