@@ -75,7 +75,7 @@ services:
       compare-backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/__health"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/simple"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -118,9 +118,15 @@ services:
 
   tyk:
     profiles: ["tyk"]
-    image: tykio/tyk-gateway:v5.7
+    image: docker.tyk.io/tyk-gateway/tyk-gateway:v5.7
+    environment:
+      TYK_GW_STORAGE_HOST: tyk-redis
+      TYK_GW_STORAGE_PORT: "6379"
+      TYK_GW_STORAGE_ENABLECLUSTER: "false"
+      TYK_GW_SECRET: tyk-bench-secret
+    command: ["--conf=/etc/tyk/tyk.conf"]
     volumes:
-      - ./configs/tyk/tyk.conf:/opt/tyk-gateway/tyk.conf:ro
+      - ./configs/tyk/tyk.conf:/etc/tyk/tyk.conf:ro
       - ./configs/tyk/apps:/opt/tyk-gateway/apps:ro
     ports:
       - "8080:8080"
@@ -129,12 +135,6 @@ services:
         condition: service_healthy
       compare-backend:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/hello"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 10s
     networks:
       - compare-net
 

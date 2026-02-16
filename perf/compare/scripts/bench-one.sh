@@ -53,11 +53,30 @@ cleanup_gateway() {
 # Start the gateway
 echo "  Starting $GATEWAY..."
 $COMPOSE --profile "$PROFILE" up -d --build 2>/dev/null
-$COMPOSE --profile "$PROFILE" up -d --wait 2>/dev/null || {
-  echo "  ERROR: $GATEWAY failed to become healthy within timeout"
-  cleanup_gateway
-  exit 1
-}
+
+# Wait for readiness: use --wait for gateways with healthchecks, manual poll for others
+if [[ "$GATEWAY" == "tyk" ]]; then
+  # Tyk image is distroless (no curl/wget), poll from hey container
+  echo "  Waiting for $GATEWAY to become ready..."
+  for i in $(seq 1 30); do
+    if $COMPOSE --profile bench exec -T hey /hey -n 1 -c 1 "http://${GATEWAY}:8080/hello" 2>&1 | grep -q '200'; then
+      echo "  $GATEWAY is ready"
+      break
+    fi
+    if [[ $i -eq 30 ]]; then
+      echo "  ERROR: $GATEWAY failed to become healthy within timeout"
+      cleanup_gateway
+      exit 1
+    fi
+    sleep 2
+  done
+else
+  $COMPOSE --profile "$PROFILE" up -d --wait 2>/dev/null || {
+    echo "  ERROR: $GATEWAY failed to become healthy within timeout"
+    cleanup_gateway
+    exit 1
+  }
+fi
 
 # For Tyk auth scenario, provision an API key
 if [[ "$GATEWAY" == "tyk" && "$SCENARIO" == "auth" ]]; then

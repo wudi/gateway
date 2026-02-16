@@ -37,16 +37,6 @@
           "strategy": "ip"
         }
       }
-    },
-    {
-      "endpoint": "/__health",
-      "method": "GET",
-      "backend": [
-        {
-          "url_pattern": "/health",
-          "host": ["http://compare-backend:80"]
-        }
-      ]
     }
   ]
 }
