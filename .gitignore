@@ -10,6 +10,7 @@ coverage.html
 
 # Performance test results
 perf/results/
+perf/compare/results/
 
 # IDE
 .idea/

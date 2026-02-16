@@ -1,0 +1,27 @@
+http:
+  routers:
+    simple:
+      rule: "PathPrefix(`/simple`)"
+      entryPoints:
+        - web
+      service: backend
+
+    ratelimit:
+      rule: "PathPrefix(`/ratelimit`)"
+      entryPoints:
+        - web
+      service: backend
+      middlewares:
+        - ratelimit
+
+  services:
+    backend:
+      loadBalancer:
+        servers:
+          - url: "http://compare-backend:80"
+
+  middlewares:
+    ratelimit:
+      rateLimit:
+        average: 10000
+        burst: 1000

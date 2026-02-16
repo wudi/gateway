@@ -1,0 +1,31 @@
+{
+  "name": "Auth Proxy",
+  "api_id": "auth-proxy",
+  "slug": "auth",
+  "org_id": "default",
+  "use_keyless": false,
+  "active": true,
+  "auth": {
+    "auth_header_name": "X-API-Key",
+    "use_param": false,
+    "use_cookie": false
+  },
+  "definition": {
+    "location": "header",
+    "key": "x-api-version"
+  },
+  "proxy": {
+    "listen_path": "/auth",
+    "target_url": "http://compare-backend:80/auth",
+    "strip_listen_path": false
+  },
+  "version_data": {
+    "not_versioned": true,
+    "versions": {
+      "Default": {
+        "name": "Default",
+        "use_extended_paths": true
+      }
+    }
+  }
+}

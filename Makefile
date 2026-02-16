@@ -3,7 +3,8 @@
 	compose-up compose-down compose-logs \
 	compose-up-redis compose-up-otel compose-up-consul compose-up-etcd compose-up-all \
 	bench bench-save bench-compare \
-	perf-stack-up perf-stack-down perf-smoke perf-load perf-stress perf-profile
+	perf-stack-up perf-stack-down perf-smoke perf-load perf-stress perf-profile \
+	compare-bench compare-bench-quick compare-bench-full compare-down
 
 # Build variables
 BINARY_NAME=gateway
@@ -241,6 +242,27 @@ perf-stress:
 perf-profile:
 	@echo "Capturing pprof profiles..."
 	perf/scripts/capture-profiles.sh perf/results/profiles-$(shell date +%Y%m%d-%H%M%S)
+
+# Gateway comparison benchmarks
+COMPARE_COMPOSE=docker compose -f perf/compare/docker-compose.compare.yaml
+
+compare-bench:
+	@echo "Running comparison benchmark: simple proxy, all gateways, 60s..."
+	GATEWAYS="gw kong krakend traefik tyk" SCENARIOS="simple" DURATION=60 \
+		perf/compare/scripts/run-bench.sh
+
+compare-bench-quick:
+	@echo "Running quick comparison: simple proxy, gw+kong, 30s..."
+	GATEWAYS="gw kong" SCENARIOS="simple" DURATION=30 \
+		perf/compare/scripts/run-bench.sh
+
+compare-bench-full:
+	@echo "Running full comparison: all scenarios, all gateways, 60s..."
+	GATEWAYS="gw kong krakend traefik tyk" SCENARIOS="simple auth ratelimit" DURATION=60 \
+		perf/compare/scripts/run-bench.sh
+
+compare-down:
+	$(COMPARE_COMPOSE) --profile gw --profile kong --profile krakend --profile traefik --profile tyk --profile bench down -v
 
 # Start a mock backend server for testing
 mock-backend:

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://www.krakend.io/schema/krakend.json",
+  "version": 3,
+  "name": "KrakenD Benchmark",
+  "port": 8080,
+  "timeout": "30s",
+  "cache_ttl": "0s",
+  "output_encoding": "no-op",
+  "endpoints": [
+    {
+      "endpoint": "/simple",
+      "method": "GET",
+      "output_encoding": "no-op",
+      "backend": [
+        {
+          "url_pattern": "/simple",
+          "host": ["http://compare-backend:80"],
+          "encoding": "no-op"
+        }
+      ]
+    },
+    {
+      "endpoint": "/ratelimit",
+      "method": "GET",
+      "output_encoding": "no-op",
+      "backend": [
+        {
+          "url_pattern": "/ratelimit",
+          "host": ["http://compare-backend:80"],
+          "encoding": "no-op"
+        }
+      ],
+      "extra_config": {
+        "qos/ratelimit/router": {
+          "max_rate": 10000,
+          "client_max_rate": 0,
+          "strategy": "ip"
+        }
+      }
+    },
+    {
+      "endpoint": "/__health",
+      "method": "GET",
+      "backend": [
+        {
+          "url_pattern": "/health",
+          "host": ["http://compare-backend:80"]
+        }
+      ]
+    }
+  ]
+}

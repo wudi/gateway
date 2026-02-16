@@ -1,0 +1,26 @@
+{
+  "name": "Simple Proxy",
+  "api_id": "simple-proxy",
+  "slug": "simple",
+  "org_id": "default",
+  "use_keyless": true,
+  "active": true,
+  "definition": {
+    "location": "header",
+    "key": "x-api-version"
+  },
+  "proxy": {
+    "listen_path": "/simple",
+    "target_url": "http://compare-backend:80/simple",
+    "strip_listen_path": false
+  },
+  "version_data": {
+    "not_versioned": true,
+    "versions": {
+      "Default": {
+        "name": "Default",
+        "use_extended_paths": true
+      }
+    }
+  }
+}

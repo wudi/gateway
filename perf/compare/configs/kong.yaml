@@ -1,0 +1,41 @@
+_format_version: "3.0"
+
+services:
+  - name: simple-service
+    url: http://compare-backend:80
+    routes:
+      - name: simple-route
+        paths:
+          - /simple
+        strip_path: false
+
+  - name: auth-service
+    url: http://compare-backend:80
+    routes:
+      - name: auth-route
+        paths:
+          - /auth
+        strip_path: false
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - X-API-Key
+
+  - name: ratelimit-service
+    url: http://compare-backend:80
+    routes:
+      - name: ratelimit-route
+        paths:
+          - /ratelimit
+        strip_path: false
+    plugins:
+      - name: rate-limiting
+        config:
+          second: 10000
+          policy: local
+
+consumers:
+  - username: bench-client
+    keyauth_credentials:
+      - key: bench-test-key
