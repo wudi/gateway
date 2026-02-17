@@ -50,18 +50,18 @@ func (p *Parser) Replace(template string, getValue func(name string) string) str
 	})
 }
 
+var dynamicPrefixes = [...]string{
+	"http_",
+	"arg_",
+	"cookie_",
+	"route_param_",
+	"jwt_claim_",
+}
+
 // ParseDynamic extracts dynamic variable parts
 // e.g., "http_x_custom_header" returns ("http", "x_custom_header")
 // e.g., "arg_page" returns ("arg", "page")
 func ParseDynamic(name string) (prefix, suffix string, ok bool) {
-	dynamicPrefixes := []string{
-		"http_",
-		"arg_",
-		"cookie_",
-		"route_param_",
-		"jwt_claim_",
-	}
-
 	for _, p := range dynamicPrefixes {
 		if strings.HasPrefix(name, p) {
 			return p[:len(p)-1], name[len(p):], true

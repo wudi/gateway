@@ -134,8 +134,8 @@ type captureWriter struct {
 	header http.Header
 }
 
-func newCaptureWriter() *captureWriter {
-	return &captureWriter{header: make(http.Header)}
+var captureWriterPool = sync.Pool{
+	New: func() any { return &captureWriter{header: make(http.Header)} },
 }
 
 func (cw *captureWriter) Header() http.Header       { return cw.header }
@@ -402,10 +402,13 @@ func (rt *Router) Match(r *http.Request) *Match {
 	defer rt.mu.RUnlock()
 
 	// Tier 1: Try httprouter for exact/param paths
-	cw := newCaptureWriter()
+	cw := captureWriterPool.Get().(*captureWriter)
 	rt.tree.ServeHTTP(cw, r)
-	if cw.match != nil {
-		return cw.match
+	match := cw.match
+	cw.match = nil
+	captureWriterPool.Put(cw)
+	if match != nil {
+		return match
 	}
 
 	// Tier 2: Try prefix routes for subpaths

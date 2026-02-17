@@ -1493,8 +1493,9 @@ func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := context.WithValue(r.Context(), routeMatchKey{}, match)
-	r = r.WithContext(ctx)
+	// Set path params directly on the existing varCtx (already in context from RequestID middleware).
+	varCtx := variables.GetFromRequest(r)
+	varCtx.PathParams = match.PathParams
 
 	g.mu.RLock()
 	handler, ok := g.routeHandlers[match.Route.ID]

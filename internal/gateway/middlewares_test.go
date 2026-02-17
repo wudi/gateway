@@ -21,7 +21,6 @@ import (
 	"github.com/wudi/gateway/internal/middleware/ratelimit"
 	"github.com/wudi/gateway/internal/middleware/transform"
 	"github.com/wudi/gateway/internal/middleware/validation"
-	"github.com/wudi/gateway/internal/router"
 	"github.com/wudi/gateway/internal/rules"
 	"github.com/wudi/gateway/internal/variables"
 )
@@ -640,10 +639,6 @@ func TestMetricsMW_CapturesStatus(t *testing.T) {
 // --- varContextMW ---
 
 func TestVarContextMW(t *testing.T) {
-	match := &router.Match{
-		PathParams: map[string]string{"id": "42"},
-	}
-
 	var capturedRouteID string
 	var capturedParams map[string]string
 
@@ -658,7 +653,10 @@ func TestVarContextMW(t *testing.T) {
 	handler := mw(next)
 
 	req := httptest.NewRequest("GET", "/test", nil)
-	ctx := context.WithValue(req.Context(), routeMatchKey{}, match)
+	// Simulate serveHTTP: set PathParams on the existing varCtx before handler runs.
+	varCtx := variables.NewContext(req)
+	varCtx.PathParams = map[string]string{"id": "42"}
+	ctx := context.WithValue(req.Context(), variables.RequestContextKey{}, varCtx)
 	req = req.WithContext(ctx)
 
 	w := httptest.NewRecorder()

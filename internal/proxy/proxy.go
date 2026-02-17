@@ -278,8 +278,17 @@ func (p *Proxy) createProxyRequest(r *http.Request, target *url.URL, route *rout
 
 	targetURL.RawQuery = r.URL.RawQuery
 
-	// Create new request
-	proxyReq, _ := http.NewRequest(r.Method, targetURL.String(), r.Body)
+	// Construct request directly — avoids URL.String() + url.Parse() round-trip.
+	proxyReq := (&http.Request{
+		Method:        r.Method,
+		URL:           &targetURL,
+		Proto:         "HTTP/1.1",
+		ProtoMajor:    1,
+		ProtoMinor:    1,
+		Body:          r.Body,
+		ContentLength: r.ContentLength,
+		Host:          target.Host,
+	}).WithContext(r.Context())
 
 	// Copy headers (+3 for X-Forwarded-For/Proto/Host added below)
 	proxyReq.Header = make(http.Header, len(r.Header)+3)
@@ -287,7 +296,7 @@ func (p *Proxy) createProxyRequest(r *http.Request, target *url.URL, route *rout
 		proxyReq.Header[k] = vv
 	}
 
-	// Set Host header
+	// Set Host header (may be overridden below by rewrite config)
 	proxyReq.Host = target.Host
 
 	// Apply host override from rewrite config

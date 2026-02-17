@@ -26,10 +26,15 @@ func (e *GatewayError) Unwrap() error {
 	return e.underlying
 }
 
-// WriteJSON writes the error as JSON to the response
+// WriteJSON writes the error as JSON to the response.
+// For base errors (no details/requestID), uses pre-serialized JSON to avoid allocations.
 func (e *GatewayError) WriteJSON(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(e.Code)
+	if pre, ok := preSerialized[e]; ok {
+		w.Write(pre)
+		return
+	}
 	json.NewEncoder(w).Encode(e)
 }
 
@@ -90,6 +95,24 @@ var (
 		Message: "Request Entity Too Large",
 	}
 )
+
+// preSerialized holds JSON-encoded bytes for base error singletons.
+var preSerialized map[*GatewayError][]byte
+
+func init() {
+	bases := []*GatewayError{
+		ErrNotFound, ErrMethodNotAllowed, ErrUnauthorized, ErrForbidden,
+		ErrTooManyRequests, ErrBadGateway, ErrServiceUnavailable,
+		ErrGatewayTimeout, ErrBadRequest, ErrInternalServer,
+		ErrRequestEntityTooLarge,
+	}
+	preSerialized = make(map[*GatewayError][]byte, len(bases))
+	for _, e := range bases {
+		b, _ := json.Marshal(e)
+		b = append(b, '\n') // match json.Encoder behavior
+		preSerialized[e] = b
+	}
+}
 
 // New creates a new GatewayError
 func New(code int, message string) *GatewayError {

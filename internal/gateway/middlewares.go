@@ -359,7 +359,8 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 	conditional := h.IsConditional()
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if h.ShouldCache(r) {
+			shouldCache := h.ShouldCache(r)
+			if shouldCache {
 				if entry, ok := h.Get(r); ok {
 					mc.RecordCacheHit(routeID)
 					notModified := cache.WriteCachedResponse(w, r, entry, conditional)
@@ -378,7 +379,6 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 			}
 
 			// Wrap writer for cache capture on cacheable requests
-			shouldCache := h.ShouldCache(r)
 			if shouldCache {
 				cachingWriter := cache.NewCachingResponseWriter(w)
 				cachingWriter.Header().Set("X-Cache", "MISS")
@@ -417,6 +417,8 @@ func coalesceMW(c *coalesce.Coalescer) middleware.Middleware {
 	}
 }
 
+var errServerError = fmt.Errorf("server error")
+
 // 10. circuitBreakerMW checks the circuit breaker and records outcomes.
 func circuitBreakerMW(cb *circuitbreaker.Breaker, isGRPC bool) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
@@ -439,7 +441,7 @@ func circuitBreakerMW(cb *circuitbreaker.Breaker, isGRPC bool) middleware.Middle
 				}
 			}
 			if cbStatus >= 500 {
-				done(fmt.Errorf("server error: %d", cbStatus))
+				done(errServerError)
 			} else {
 				done(nil)
 			}
@@ -601,12 +603,13 @@ func (w *abVariantWriter) Flush() {
 
 // 14. requestTransformMW applies header/body transformations and gRPC preparation.
 func requestTransformMW(route *router.Route, grpcH *grpcproxy.Handler, reqBodyTransform *transform.CompiledBodyTransform) middleware.Middleware {
+	// Create transformer once — it is stateless and goroutine-safe.
+	transformer := transform.NewHeaderTransformer()
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			varCtx := variables.GetFromRequest(r)
 
 			// Header transforms
-			transformer := transform.NewHeaderTransformer()
 			transformer.TransformRequest(r, route.Transform.Request.Headers, varCtx)
 
 			// Body transforms
@@ -636,16 +639,14 @@ func metricsMW(mc *metrics.Collector, routeID string) middleware.Middleware {
 	}
 }
 
-// varContextMW sets RouteID and PathParams on the variable context.
+// varContextMW sets RouteID on the variable context.
+// PathParams are already set by serveHTTP before the handler chain runs.
 func varContextMW(routeID string) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			match := r.Context().Value(routeMatchKey{}).(*router.Match)
 			varCtx := variables.GetFromRequest(r)
 			varCtx.RouteID = routeID
-			varCtx.PathParams = match.PathParams
-			ctx := context.WithValue(r.Context(), variables.RequestContextKey{}, varCtx)
-			next.ServeHTTP(w, r.WithContext(ctx))
+			next.ServeHTTP(w, r)
 		})
 	}
 }
@@ -1223,8 +1224,6 @@ func (w *backendEncWriter) Header() http.Header { return w.header }
 func (w *backendEncWriter) WriteHeader(code int) { w.statusCode = code }
 func (w *backendEncWriter) Write(b []byte) (int, error) { return w.body.Write(b) }
 
-// routeMatchKey is the context key for storing the route match.
-type routeMatchKey struct{}
 
 // Ensure unused imports are satisfied.
 var _ = io.Discard
