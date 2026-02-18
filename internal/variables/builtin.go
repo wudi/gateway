@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wudi/gateway/internal/middleware/realip"
@@ -305,12 +306,49 @@ type Context struct {
 	Custom map[string]string
 }
 
+var contextPool = sync.Pool{
+	New: func() any { return &Context{} },
+}
+
+// AcquireContext gets a Context from the pool and initialises it for r.
+func AcquireContext(r *http.Request) *Context {
+	c := contextPool.Get().(*Context)
+	c.Request = r
+	c.StartTime = time.Now()
+	return c
+}
+
+// ReleaseContext zeroes all fields and returns c to the pool.
+// The caller must ensure no goroutine reads from c after this call.
+func ReleaseContext(c *Context) {
+	if c == nil {
+		return
+	}
+	c.Request = nil
+	c.Response = nil
+	c.RequestID = ""
+	c.RouteID = ""
+	c.PathParams = nil
+	c.Identity = nil
+	c.CertInfo = nil
+	c.UpstreamAddr = ""
+	c.UpstreamStatus = 0
+	c.UpstreamResponseTime = 0
+	c.StartTime = time.Time{}
+	c.ResponseTime = 0
+	c.Status = 0
+	c.BodyBytesSent = 0
+	c.ServerPort = 0
+	c.TrafficGroup = ""
+	c.APIVersion = ""
+	c.AccessLogConfig = nil
+	c.Custom = nil
+	contextPool.Put(c)
+}
+
 // NewContext creates a new variable context
 func NewContext(r *http.Request) *Context {
-	return &Context{
-		Request:   r,
-		StartTime: time.Now(),
-	}
+	return AcquireContext(r)
 }
 
 // Clone creates a copy of the context
@@ -377,7 +415,7 @@ func GetFromRequest(r *http.Request) *Context {
 	if ctx, ok := r.Context().Value(RequestContextKey{}).(*Context); ok {
 		return ctx
 	}
-	return NewContext(r)
+	return AcquireContext(r)
 }
 
 // FormatBytes formats bytes as human readable

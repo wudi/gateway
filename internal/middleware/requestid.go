@@ -69,6 +69,7 @@ func RequestIDWithConfig(cfg RequestIDConfig) Middleware {
 			ctx := context.WithValue(r.Context(), variables.RequestContextKey{}, varCtx)
 
 			next.ServeHTTP(w, r.WithContext(ctx))
+			variables.ReleaseContext(varCtx)
 		})
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wudi/gateway/internal/config"
@@ -162,7 +163,7 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 				if bodyBytes != nil {
 					r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 				}
-				req := p.createProxyRequest(r, target, route, varCtx)
+				req := p.createProxyRequest(r.Context(), r, target, route, varCtx, nil)
 				return req, nil
 			}
 			resp, err = retryPolicy.Hedging.Execute(ctx, transport, nextBackend, makeReq, retryPolicy.PerTryTimeout)
@@ -208,8 +209,9 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 				}
 			}
 
-			proxyReq := p.createProxyRequest(r, targetURL, route, varCtx)
-			proxyReq = proxyReq.WithContext(ctx)
+			pooledHeader := acquireProxyHeader()
+			defer releaseProxyHeader(pooledHeader)
+			proxyReq := p.createProxyRequest(ctx, r, targetURL, route, varCtx, pooledHeader)
 
 			if retryPolicy != nil {
 				resp, err = retryPolicy.Execute(ctx, transport, proxyReq)
@@ -257,8 +259,30 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 	})
 }
 
-// createProxyRequest creates the request to send to the backend
-func (p *Proxy) createProxyRequest(r *http.Request, target *url.URL, route *router.Route, varCtx *variables.Context) *http.Request {
+var proxyHeaderPool = sync.Pool{
+	New: func() any { return make(http.Header, 16) },
+}
+
+func acquireProxyHeader() http.Header {
+	h := proxyHeaderPool.Get().(http.Header)
+	clear(h)
+	return h
+}
+
+func releaseProxyHeader(h http.Header) {
+	if h == nil {
+		return
+	}
+	// Only return reasonably-sized maps to avoid holding oversized maps
+	if len(h) <= 64 {
+		proxyHeaderPool.Put(h)
+	}
+}
+
+// createProxyRequest creates the request to send to the backend.
+// ctx is attached to the returned request directly (single WithContext call).
+// If header is non-nil it is reused (caller owns pool lifecycle); otherwise a fresh map is allocated.
+func (p *Proxy) createProxyRequest(ctx context.Context, r *http.Request, target *url.URL, route *router.Route, varCtx *variables.Context, header http.Header) *http.Request {
 	// Build target URL
 	targetURL := *target
 
@@ -285,10 +309,14 @@ func (p *Proxy) createProxyRequest(r *http.Request, target *url.URL, route *rout
 		Body:          r.Body,
 		ContentLength: r.ContentLength,
 		Host:          target.Host,
-	}).WithContext(r.Context())
+	}).WithContext(ctx)
 
 	// Copy headers (+3 for X-Forwarded-For/Proto/Host added below)
-	proxyReq.Header = make(http.Header, len(r.Header)+3)
+	if header != nil {
+		proxyReq.Header = header
+	} else {
+		proxyReq.Header = make(http.Header, len(r.Header)+3)
+	}
 	for k, vv := range r.Header {
 		proxyReq.Header[k] = vv
 	}

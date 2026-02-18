@@ -68,6 +68,20 @@ type Match struct {
 	PathParams map[string]string
 }
 
+var matchPool = sync.Pool{
+	New: func() any { return &Match{} },
+}
+
+// ReleaseMatch returns m to the pool. The caller must not read m after this call.
+func ReleaseMatch(m *Match) {
+	if m == nil {
+		return
+	}
+	m.Route = nil
+	m.PathParams = nil
+	matchPool.Put(m)
+}
+
 // RouteGroup holds an ordered slice of candidate routes sharing a path pattern.
 // Routes are sorted by specificity (descending), with config insertion order as tie-breaker.
 type RouteGroup struct {
@@ -94,10 +108,10 @@ func (rg *RouteGroup) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	for _, route := range rg.routes {
 		if route.matcher.Matches(r) {
-			cw.match = &Match{
-				Route:      route,
-				PathParams: pathParams,
-			}
+			m := matchPool.Get().(*Match)
+			m.Route = route
+			m.PathParams = pathParams
+			cw.match = m
 			return
 		}
 	}
@@ -428,10 +442,10 @@ func (rt *Router) matchPrefix(r *http.Request) *Match {
 		// Check each route in the group
 		for _, route := range pr.group.routes {
 			if route.matcher.Matches(r) {
-				return &Match{
-					Route:      route,
-					PathParams: nil,
-				}
+				m := matchPool.Get().(*Match)
+				m.Route = route
+				m.PathParams = nil
+				return m
 			}
 		}
 	}
