@@ -11,6 +11,12 @@ logging:
   level: "info"        # debug, info, warn, error
   output: "stdout"     # stdout, stderr, or file path
   format: '$remote_addr - [$time_iso8601] "$request_method $request_uri" $status $body_bytes_sent "$http_user_agent" $response_time'
+  rotation:
+    max_size: 100      # MB before rotation (default 100)
+    max_backups: 3     # old files to keep (default 3)
+    max_age: 28        # days to retain (default 28)
+    compress: true     # gzip rotated files (default true)
+    local_time: false  # local time in filenames (default false)
 ```
 
 All [variables](transformations.md#variables) are available in the format string (`$remote_addr`, `$status`, `$upstream_response_time`, etc.).
@@ -23,6 +29,20 @@ All [variables](transformations.md#variables) are available in the format string
 | `info` | Normal operational events (default) |
 | `warn` | Potentially harmful situations |
 | `error` | Error conditions |
+
+### Log Rotation
+
+When `output` is a file path, the gateway automatically rotates log files using [lumberjack](https://github.com/natefinch/lumberjack). Rotation is configured under `logging.rotation`:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `max_size` | int | `100` | Maximum size in megabytes before the log file is rotated |
+| `max_backups` | int | `3` | Number of old log files to retain |
+| `max_age` | int | `28` | Number of days to retain old log files |
+| `compress` | bool | `true` | Gzip-compress rotated log files |
+| `local_time` | bool | `false` | Use local time in rotated file names (UTC by default) |
+
+Rotation settings are ignored when `output` is `stdout` or `stderr`.
 
 ## Prometheus Metrics
 
@@ -176,6 +196,11 @@ curl http://localhost:8081/access-log
 | `logging.level` | string | `debug`, `info`, `warn`, `error` |
 | `logging.output` | string | `stdout`, `stderr`, or file path |
 | `logging.format` | string | Access log format with `$variable` substitution |
+| `logging.rotation.max_size` | int | Max MB before rotation (default 100) |
+| `logging.rotation.max_backups` | int | Old rotated files to keep (default 3) |
+| `logging.rotation.max_age` | int | Days to retain old files (default 28) |
+| `logging.rotation.compress` | bool | Gzip rotated files (default true) |
+| `logging.rotation.local_time` | bool | Local time in filenames (default false) |
 | `admin.metrics.enabled` | bool | Enable Prometheus metrics |
 | `admin.metrics.path` | string | Metrics endpoint path (default `/metrics`) |
 | `tracing.exporter` | string | `otlp` |

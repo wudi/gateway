@@ -46,12 +46,23 @@ func main() {
 	}
 
 	// Initialize structured logger
-	logger, err := logging.New(cfg.Logging.Level)
+	logger, logCloser, err := logging.New(logging.Config{
+		Level:      cfg.Logging.Level,
+		Output:     cfg.Logging.Output,
+		MaxSize:    cfg.Logging.Rotation.MaxSize,
+		MaxBackups: cfg.Logging.Rotation.MaxBackups,
+		MaxAge:     cfg.Logging.Rotation.MaxAge,
+		Compress:   cfg.Logging.Rotation.Compress,
+		LocalTime:  cfg.Logging.Rotation.LocalTime,
+	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
 		os.Exit(1)
 	}
 	defer logger.Sync()
+	if logCloser != nil {
+		defer logCloser.Close()
+	}
 	logging.SetGlobal(logger)
 
 	// Print startup banner

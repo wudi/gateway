@@ -1003,9 +1003,19 @@ type HeaderTransform struct {
 
 // LoggingConfig defines logging settings
 type LoggingConfig struct {
-	Format string `yaml:"format"`
-	Level  string `yaml:"level"`
-	Output string `yaml:"output"`
+	Format   string            `yaml:"format"`
+	Level    string            `yaml:"level"`
+	Output   string            `yaml:"output"`
+	Rotation LogRotationConfig `yaml:"rotation"`
+}
+
+// LogRotationConfig defines log file rotation settings (powered by lumberjack).
+type LogRotationConfig struct {
+	MaxSize    int  `yaml:"max_size"`    // max megabytes before rotation (default 100)
+	MaxBackups int  `yaml:"max_backups"` // old rotated files to keep (default 3)
+	MaxAge     int  `yaml:"max_age"`     // days to retain old files (default 28)
+	Compress   bool `yaml:"compress"`    // gzip rotated files (default true)
+	LocalTime  bool `yaml:"local_time"`  // use local time in backup filenames (default false)
 }
 
 // AdminConfig defines admin API settings
@@ -1463,6 +1473,12 @@ func DefaultConfig() *Config {
 			Format: `$remote_addr - [$time_iso8601] "$request_method $request_uri" $status $body_bytes_sent "$http_user_agent" $response_time`,
 			Level:  "info",
 			Output: "stdout",
+			Rotation: LogRotationConfig{
+				MaxSize:    100,
+				MaxBackups: 3,
+				MaxAge:     28,
+				Compress:   true,
+			},
 		},
 		Admin: AdminConfig{
 			Enabled: true,

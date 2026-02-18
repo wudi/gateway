@@ -1,6 +1,9 @@
 package logging
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"go.uber.org/zap"
@@ -10,8 +13,8 @@ import (
 
 func TestNew(t *testing.T) {
 	tests := []struct {
-		level    string
-		wantLvl  zapcore.Level
+		level   string
+		wantLvl zapcore.Level
 	}{
 		{"debug", zapcore.DebugLevel},
 		{"info", zapcore.InfoLevel},
@@ -23,14 +26,64 @@ func TestNew(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.level, func(t *testing.T) {
-			l, err := New(tt.level)
+			l, closer, err := New(Config{Level: tt.level})
 			if err != nil {
 				t.Fatalf("New(%q) returned error: %v", tt.level, err)
 			}
 			if l == nil {
 				t.Fatalf("New(%q) returned nil logger", tt.level)
 			}
+			if closer != nil {
+				t.Fatalf("New(%q) returned non-nil closer for stdout", tt.level)
+			}
 		})
+	}
+}
+
+func TestNewFileOutput(t *testing.T) {
+	logFile := filepath.Join(t.TempDir(), "test.log")
+
+	l, closer, err := New(Config{
+		Level:      "info",
+		Output:     logFile,
+		MaxSize:    1,
+		MaxBackups: 1,
+		MaxAge:     1,
+	})
+	if err != nil {
+		t.Fatalf("New() returned error: %v", err)
+	}
+	if closer == nil {
+		t.Fatal("expected non-nil closer for file output")
+	}
+	defer closer.Close()
+
+	// Write a log entry through the logger (skip AddCallerSkip by using the logger directly)
+	l.WithOptions(zap.AddCallerSkip(-1)).Info("hello file")
+	l.Sync()
+
+	data, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("failed to read log file: %v", err)
+	}
+	if len(data) == 0 {
+		t.Fatal("log file is empty")
+	}
+	if got := string(data); !strings.Contains(got, "hello file") {
+		t.Errorf("log file does not contain expected message, got: %s", got)
+	}
+}
+
+func TestNewStderrOutput(t *testing.T) {
+	l, closer, err := New(Config{Level: "info", Output: "stderr"})
+	if err != nil {
+		t.Fatalf("New() returned error: %v", err)
+	}
+	if l == nil {
+		t.Fatal("returned nil logger")
+	}
+	if closer != nil {
+		t.Fatal("expected nil closer for stderr output")
 	}
 }
 
@@ -134,3 +187,4 @@ func TestLevelFiltering(t *testing.T) {
 		t.Fatalf("expected 2 entries at warn level, got %d", len(entries))
 	}
 }
+

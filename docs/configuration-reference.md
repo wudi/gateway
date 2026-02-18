@@ -1120,6 +1120,12 @@ logging:
   level: string             # "debug", "info", "warn", "error" (default "info")
   output: string            # "stdout", "stderr", or file path (default "stdout")
   format: string            # access log format with $variable substitution
+  rotation:                 # log file rotation (only applies when output is a file path)
+    max_size: int           # max MB before rotation (default 100)
+    max_backups: int        # old rotated files to keep (default 3)
+    max_age: int            # days to retain old files (default 28)
+    compress: bool          # gzip rotated files (default true)
+    local_time: bool        # local time in filenames (default false)
 ```
 
 ### Tracing

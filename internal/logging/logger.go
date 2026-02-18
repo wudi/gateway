@@ -1,10 +1,13 @@
 package logging
 
 import (
+	"io"
+	"os"
 	"sync"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 var (
@@ -17,14 +20,23 @@ func init() {
 	globalLogger, _ = zap.NewProduction()
 }
 
-// New creates a new zap logger from a level string.
-func New(level string) (*zap.Logger, error) {
-	cfg := zap.NewProductionConfig()
-	cfg.EncoderConfig.TimeKey = "time"
-	cfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+// Config holds parameters for creating a logger.
+type Config struct {
+	Level      string // "debug", "info", "warn", "error"
+	Output     string // "stdout", "stderr", or file path
+	MaxSize    int    // max megabytes before rotation
+	MaxBackups int    // old rotated files to keep
+	MaxAge     int    // days to retain old files
+	Compress   bool   // gzip rotated files
+	LocalTime  bool   // use local time in backup filenames
+}
 
+// New creates a new zap logger from a Config.
+// When Output is a file path, the returned io.Closer must be closed on shutdown
+// to flush and close the underlying log file. For stdout/stderr the closer is nil.
+func New(cfg Config) (*zap.Logger, io.Closer, error) {
 	var lvl zapcore.Level
-	switch level {
+	switch cfg.Level {
 	case "debug":
 		lvl = zapcore.DebugLevel
 	case "warn":
@@ -34,11 +46,40 @@ func New(level string) (*zap.Logger, error) {
 	default:
 		lvl = zapcore.InfoLevel
 	}
-	cfg.Level = zap.NewAtomicLevelAt(lvl)
 
-	return cfg.Build(
-		zap.AddCallerSkip(1), // Skip one level to account for our wrapper functions
+	encCfg := zap.NewProductionEncoderConfig()
+	encCfg.TimeKey = "time"
+	encCfg.EncodeTime = zapcore.ISO8601TimeEncoder
+	encoder := zapcore.NewJSONEncoder(encCfg)
+
+	var ws zapcore.WriteSyncer
+	var closer io.Closer
+
+	switch cfg.Output {
+	case "", "stdout":
+		ws = zapcore.AddSync(os.Stdout)
+	case "stderr":
+		ws = zapcore.AddSync(os.Stderr)
+	default:
+		lj := &lumberjack.Logger{
+			Filename:   cfg.Output,
+			MaxSize:    cfg.MaxSize,
+			MaxBackups: cfg.MaxBackups,
+			MaxAge:     cfg.MaxAge,
+			Compress:   cfg.Compress,
+			LocalTime:  cfg.LocalTime,
+		}
+		ws = zapcore.AddSync(lj)
+		closer = lj
+	}
+
+	core := zapcore.NewCore(encoder, ws, lvl)
+	logger := zap.New(core,
+		zap.AddCaller(),
+		zap.AddCallerSkip(1),
 	)
+
+	return logger, closer, nil
 }
 
 // Global returns the global logger.

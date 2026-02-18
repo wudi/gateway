@@ -159,6 +159,17 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// Validate logging rotation config
+	if cfg.Logging.Rotation.MaxSize < 0 {
+		return fmt.Errorf("logging.rotation.max_size must be >= 0")
+	}
+	if cfg.Logging.Rotation.MaxBackups < 0 {
+		return fmt.Errorf("logging.rotation.max_backups must be >= 0")
+	}
+	if cfg.Logging.Rotation.MaxAge < 0 {
+		return fmt.Errorf("logging.rotation.max_age must be >= 0")
+	}
+
 	// Validate routes
 	routeIDs := make(map[string]bool)
 	for i, route := range cfg.Routes {
