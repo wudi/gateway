@@ -1,6 +1,7 @@
 package ratelimit
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -378,4 +379,26 @@ func BenchmarkSlidingWindowCounterAllow(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		sw.Allow("test-key")
 	}
+}
+
+func BenchmarkSlidingWindowCounterAllowParallel(b *testing.B) {
+	cfg := Config{
+		Rate:   1000000,
+		Period: time.Second,
+	}
+	sw := NewSlidingWindowCounter(cfg)
+
+	keys := make([]string, 256)
+	for i := range keys {
+		keys[i] = fmt.Sprintf("ip-%d", i)
+	}
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			sw.Allow(keys[i%256])
+			i++
+		}
+	})
 }

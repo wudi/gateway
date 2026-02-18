@@ -104,3 +104,47 @@ func TestBudget_DefaultWindow(t *testing.T) {
 		t.Errorf("expected default window of 10s, got %v", b.window)
 	}
 }
+
+func BenchmarkBudgetRecordRequest(b *testing.B) {
+	budget := NewBudget(0.5, 10, 10*time.Second)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		budget.RecordRequest()
+	}
+}
+
+func BenchmarkBudgetRecordRequestParallel(b *testing.B) {
+	budget := NewBudget(0.5, 10, 10*time.Second)
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			budget.RecordRequest()
+		}
+	})
+}
+
+func BenchmarkBudgetAllowRetry(b *testing.B) {
+	budget := NewBudget(0.5, 10, 10*time.Second)
+	// Pre-fill with requests
+	for i := 0; i < 1000; i++ {
+		budget.RecordRequest()
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		budget.AllowRetry()
+	}
+}
+
+func BenchmarkBudgetAllowRetryParallel(b *testing.B) {
+	budget := NewBudget(0.5, 10, 10*time.Second)
+	// Pre-fill with requests
+	for i := 0; i < 1000; i++ {
+		budget.RecordRequest()
+	}
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			budget.AllowRetry()
+		}
+	})
+}

@@ -1,6 +1,7 @@
 package loadbalancer
 
 import (
+	"net/http"
 	"net/url"
 	"sync"
 	"sync/atomic"
@@ -129,6 +130,12 @@ func (b *baseBalancer) HealthyCount() int {
 		}
 	}
 	return count
+}
+
+// RequestAwareBalancer is a balancer that can pick a backend based on the HTTP request
+// (e.g., consistent hashing, sticky sessions, versioned routing).
+type RequestAwareBalancer interface {
+	NextForHTTPRequest(r *http.Request) (*Backend, string)
 }
 
 // healthyBackends returns a slice of healthy backends (caller must hold lock)

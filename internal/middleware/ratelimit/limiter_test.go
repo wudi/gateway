@@ -2,6 +2,7 @@ package ratelimit
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -570,4 +571,28 @@ func BenchmarkTokenBucketAllow(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		tb.Allow("test-key")
 	}
+}
+
+func BenchmarkTokenBucketAllowParallel(b *testing.B) {
+	cfg := Config{
+		Rate:   1000000,
+		Period: time.Second,
+		Burst:  1000000,
+	}
+	tb := NewTokenBucket(cfg)
+
+	// Pre-build keys to avoid measuring fmt.Sprintf in the hot loop
+	keys := make([]string, 256)
+	for i := range keys {
+		keys[i] = fmt.Sprintf("ip-%d", i)
+	}
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			tb.Allow(keys[i%256])
+			i++
+		}
+	})
 }

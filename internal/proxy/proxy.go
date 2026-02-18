@@ -110,6 +110,11 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 		transport = p.transportPool.Get(route.UpstreamName)
 	}
 
+	// Cache interface type assertions once per handler creation (not per-request)
+	reqAwareBalancer, isRequestAware := balancer.(loadbalancer.RequestAwareBalancer)
+	weightedBalancer, _ := balancer.(*loadbalancer.WeightedBalancer)
+	latencyRecorder, _ := balancer.(loadbalancer.LatencyRecorder)
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		varCtx := variables.GetFromRequest(r)
 		varCtx.RouteID = route.ID
@@ -166,23 +171,17 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 			}
 		} else {
 			// Standard path: single backend selection
-			// Check for request-aware balancer (consistent hash, sticky sessions, traffic split)
-			type requestAwareBalancer interface {
-				NextForHTTPRequest(r *http.Request) (*loadbalancer.Backend, string)
-			}
 			var backend *loadbalancer.Backend
-			if ra, ok := balancer.(requestAwareBalancer); ok {
+			if isRequestAware {
 				// Check if rules pre-assigned a traffic group
-				if varCtx.TrafficGroup != "" {
-					if wb, ok := balancer.(*loadbalancer.WeightedBalancer); ok {
-						if tg := wb.GetGroupByName(varCtx.TrafficGroup); tg != nil {
-							backend = tg.Balancer.Next()
-						}
+				if varCtx.TrafficGroup != "" && weightedBalancer != nil {
+					if tg := weightedBalancer.GetGroupByName(varCtx.TrafficGroup); tg != nil {
+						backend = tg.Balancer.Next()
 					}
 				}
 				if backend == nil {
 					var groupName string
-					backend, groupName = ra.NextForHTTPRequest(r)
+					backend, groupName = reqAwareBalancer.NextForHTTPRequest(r)
 					if groupName != "" {
 						varCtx.TrafficGroup = groupName
 					}
@@ -227,10 +226,8 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 		varCtx.UpstreamResponseTime = time.Since(start)
 
 		// Record latency for least-response-time balancer
-		if lr, ok := balancer.(interface {
-			RecordLatency(string, time.Duration)
-		}); ok && backendURL != "" {
-			lr.RecordLatency(backendURL, varCtx.UpstreamResponseTime)
+		if latencyRecorder != nil && backendURL != "" {
+			latencyRecorder.RecordLatency(backendURL, varCtx.UpstreamResponseTime)
 		}
 
 		if err != nil {
@@ -345,9 +342,7 @@ func (p *Proxy) handleError(w http.ResponseWriter, r *http.Request, err error, b
 // copyHeaders copies headers from source to destination
 func (p *Proxy) copyHeaders(dst, src http.Header) {
 	for k, vv := range src {
-		for _, v := range vv {
-			dst.Add(k, v)
-		}
+		dst[k] = append(dst[k][:0:0], vv...)
 	}
 
 	// Remove hop-by-hop headers from response

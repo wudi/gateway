@@ -3,7 +3,6 @@ package ratelimit
 import (
 	"net/http"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/wudi/gateway/internal/errors"
@@ -24,8 +23,7 @@ type window struct {
 type SlidingWindowCounter struct {
 	rate       int
 	period     time.Duration
-	windows    map[string]*window
-	mu         sync.Mutex
+	windows    *shardedMap[*window]
 	cleanupInt time.Duration
 }
 
@@ -42,7 +40,7 @@ func NewSlidingWindowCounter(cfg Config) *SlidingWindowCounter {
 	sw := &SlidingWindowCounter{
 		rate:       rate,
 		period:     cfg.Period,
-		windows:    make(map[string]*window),
+		windows:    newShardedMap[*window](),
 		cleanupInt: 5 * time.Minute,
 	}
 
@@ -53,18 +51,18 @@ func NewSlidingWindowCounter(cfg Config) *SlidingWindowCounter {
 
 // Allow checks if a request should be allowed using sliding window interpolation.
 func (sw *SlidingWindowCounter) Allow(key string) (allowed bool, remaining int, resetTime time.Time) {
-	sw.mu.Lock()
-	defer sw.mu.Unlock()
-
 	now := time.Now()
 	resetTime = now.Add(sw.period)
 
-	w, exists := sw.windows[key]
+	s := sw.windows.getShard(key)
+	s.mu.Lock()
+
+	w, exists := s.items[key]
 	if !exists {
 		w = &window{
 			currStart: now.Truncate(sw.period),
 		}
-		sw.windows[key] = w
+		s.items[key] = w
 	}
 
 	// Rotate windows if we've moved past the current window
@@ -94,10 +92,12 @@ func (sw *SlidingWindowCounter) Allow(key string) (allowed bool, remaining int, 
 		if rem < 0 {
 			rem = 0
 		}
+		s.mu.Unlock()
 		return true, int(rem), resetTime
 	}
 
 	w.lastUsed = now
+	s.mu.Unlock()
 	return false, 0, resetTime
 }
 
@@ -107,14 +107,11 @@ func (sw *SlidingWindowCounter) cleanup() {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		sw.mu.Lock()
 		now := time.Now()
-		for key, w := range sw.windows {
-			if now.Sub(w.lastUsed) > 2*sw.period {
-				delete(sw.windows, key)
-			}
-		}
-		sw.mu.Unlock()
+		cutoff := 2 * sw.period
+		sw.windows.deleteFunc(func(_ string, w *window) bool {
+			return now.Sub(w.lastUsed) > cutoff
+		})
 	}
 }
 

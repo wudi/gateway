@@ -19,8 +19,7 @@ type TokenBucket struct {
 	burst      int           // max tokens
 	burstStr   string        // cached strconv.Itoa(burst) for headers
 	period     time.Duration // refill period
-	buckets    map[string]*bucket
-	mu         sync.Mutex
+	buckets    *shardedMap[*bucket]
 	cleanupInt time.Duration
 }
 
@@ -53,7 +52,7 @@ func NewTokenBucket(cfg Config) *TokenBucket {
 		burst:      cfg.Burst,
 		burstStr:   strconv.Itoa(cfg.Burst),
 		period:     cfg.Period,
-		buckets:    make(map[string]*bucket),
+		buckets:    newShardedMap[*bucket](),
 		cleanupInt: 5 * time.Minute,
 	}
 
@@ -65,19 +64,19 @@ func NewTokenBucket(cfg Config) *TokenBucket {
 
 // Allow checks if a request should be allowed
 func (tb *TokenBucket) Allow(key string) (allowed bool, remaining int, resetTime time.Time) {
-	tb.mu.Lock()
-	defer tb.mu.Unlock()
-
 	now := time.Now()
 
-	b, exists := tb.buckets[key]
+	s := tb.buckets.getShard(key)
+	s.mu.Lock()
+
+	b, exists := s.items[key]
 	if !exists {
 		b = &bucket{
 			tokens:    float64(tb.burst),
 			lastTime:  now,
 			maxTokens: tb.burst,
 		}
-		tb.buckets[key] = b
+		s.items[key] = b
 	}
 
 	// Add tokens based on time elapsed
@@ -93,12 +92,15 @@ func (tb *TokenBucket) Allow(key string) (allowed bool, remaining int, resetTime
 
 	if b.tokens >= 1 {
 		b.tokens--
-		return true, int(b.tokens), resetTime
+		remaining = int(b.tokens)
+		s.mu.Unlock()
+		return true, remaining, resetTime
 	}
 
 	// Calculate time until next token
 	waitTime := time.Duration((1 - b.tokens) / tb.rate * float64(time.Second))
 	resetTime = now.Add(waitTime)
+	s.mu.Unlock()
 
 	return false, 0, resetTime
 }
@@ -109,15 +111,11 @@ func (tb *TokenBucket) cleanup() {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		tb.mu.Lock()
 		now := time.Now()
-		for key, b := range tb.buckets {
-			// Remove buckets that haven't been used in 2x the period
-			if now.Sub(b.lastTime) > 2*tb.period {
-				delete(tb.buckets, key)
-			}
-		}
-		tb.mu.Unlock()
+		cutoff := 2 * tb.period
+		tb.buckets.deleteFunc(func(_ string, b *bucket) bool {
+			return now.Sub(b.lastTime) > cutoff
+		})
 	}
 }
 

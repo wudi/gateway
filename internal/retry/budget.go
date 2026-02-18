@@ -2,14 +2,15 @@ package retry
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 const budgetBuckets = 10
 
-type bucketData struct {
-	requests int64
-	retries  int64
+type atomicBucket struct {
+	requests atomic.Int64
+	retries  atomic.Int64
 }
 
 // Budget tracks the ratio of retries to total requests over a sliding window,
@@ -18,12 +19,19 @@ type Budget struct {
 	ratio          float64
 	minRetriesPerS int
 	window         time.Duration
-	bucketDur      time.Duration
+	bucketDurNano  int64
 
-	mu      sync.Mutex
-	buckets [budgetBuckets]bucketData
-	idx     int
-	lastAdv time.Time
+	buckets [budgetBuckets]atomicBucket
+
+	// epoch is the current bucket index; updated only during advance.
+	epoch atomic.Int64
+
+	// lastAdvNano is the UnixNano timestamp of the last advance.
+	// Used as a fast-path check to avoid locking on every call.
+	lastAdvNano atomic.Int64
+
+	// advMu protects bucket rotation (rare — once per bucketDur).
+	advMu sync.Mutex
 }
 
 // NewBudget creates a retry budget.
@@ -34,33 +42,31 @@ func NewBudget(ratio float64, minRetries int, window time.Duration) *Budget {
 	if window <= 0 {
 		window = 10 * time.Second
 	}
-	return &Budget{
+	b := &Budget{
 		ratio:          ratio,
 		minRetriesPerS: minRetries,
 		window:         window,
-		bucketDur:      window / budgetBuckets,
-		lastAdv:        time.Now(),
+		bucketDurNano:  int64(window / budgetBuckets),
 	}
+	b.lastAdvNano.Store(time.Now().UnixNano())
+	return b
 }
 
 // RecordRequest records an incoming request.
 func (b *Budget) RecordRequest() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.advance()
-	b.buckets[b.idx].requests++
+	b.maybeAdvance()
+	idx := b.epoch.Load() % budgetBuckets
+	b.buckets[idx].requests.Add(1)
 }
 
 // AllowRetry returns true if the budget permits another retry.
 func (b *Budget) AllowRetry() bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.advance()
+	b.maybeAdvance()
 
 	var totalReqs, totalRetries int64
 	for i := 0; i < budgetBuckets; i++ {
-		totalReqs += b.buckets[i].requests
-		totalRetries += b.buckets[i].retries
+		totalReqs += b.buckets[i].requests.Load()
+		totalRetries += b.buckets[i].retries.Load()
 	}
 
 	// Always allow if below minimum retries per second
@@ -78,27 +84,41 @@ func (b *Budget) AllowRetry() bool {
 
 // RecordRetry records that a retry was attempted.
 func (b *Budget) RecordRetry() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.advance()
-	b.buckets[b.idx].retries++
+	b.maybeAdvance()
+	idx := b.epoch.Load() % budgetBuckets
+	b.buckets[idx].retries.Add(1)
 }
 
-// advance moves the window forward, zeroing expired buckets.
-func (b *Budget) advance() {
-	now := time.Now()
-	elapsed := now.Sub(b.lastAdv)
-	if elapsed < b.bucketDur {
+// maybeAdvance checks whether the window needs rotating. The fast path
+// (no rotation needed) is lock-free — only an atomic load + comparison.
+func (b *Budget) maybeAdvance() {
+	now := time.Now().UnixNano()
+	last := b.lastAdvNano.Load()
+	if now-last < b.bucketDurNano {
 		return
 	}
 
-	steps := int(elapsed / b.bucketDur)
+	// Slow path: acquire mutex and rotate buckets.
+	b.advMu.Lock()
+	defer b.advMu.Unlock()
+
+	// Re-check under lock (another goroutine may have advanced).
+	last = b.lastAdvNano.Load()
+	elapsed := now - last
+	if elapsed < b.bucketDurNano {
+		return
+	}
+
+	steps := int(elapsed / b.bucketDurNano)
 	if steps > budgetBuckets {
 		steps = budgetBuckets
 	}
+	cur := b.epoch.Load()
 	for i := 0; i < steps; i++ {
-		b.idx = (b.idx + 1) % budgetBuckets
-		b.buckets[b.idx] = bucketData{}
+		cur = (cur + 1) % budgetBuckets
+		b.buckets[cur].requests.Store(0)
+		b.buckets[cur].retries.Store(0)
 	}
-	b.lastAdv = now
+	b.epoch.Store(cur)
+	b.lastAdvNano.Store(now)
 }

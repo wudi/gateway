@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 
 	"github.com/wudi/gateway/internal/logging"
 	"go.uber.org/zap"
@@ -184,10 +185,32 @@ type Gateway struct {
 
 	redisClient *redis.Client // shared Redis client for distributed features
 
-	routeProxies  map[string]*proxy.RouteProxy
-	routeHandlers map[string]http.Handler
+	routeProxies  atomic.Pointer[map[string]*proxy.RouteProxy]
+	routeHandlers atomic.Pointer[map[string]http.Handler]
 	watchCancels  map[string]context.CancelFunc
 	mu            sync.RWMutex
+}
+
+// storeRouteProxy atomically stores a route proxy using copy-on-write.
+func (g *Gateway) storeRouteProxy(id string, rp *proxy.RouteProxy) {
+	old := *g.routeProxies.Load()
+	m := make(map[string]*proxy.RouteProxy, len(old)+1)
+	for k, v := range old {
+		m[k] = v
+	}
+	m[id] = rp
+	g.routeProxies.Store(&m)
+}
+
+// storeRouteHandler atomically stores a route handler using copy-on-write.
+func (g *Gateway) storeRouteHandler(id string, h http.Handler) {
+	old := *g.routeHandlers.Load()
+	m := make(map[string]http.Handler, len(old)+1)
+	for k, v := range old {
+		m[k] = v
+	}
+	m[id] = h
+	g.routeHandlers.Store(&m)
 }
 
 // statusRecorder wraps http.ResponseWriter to capture the status code
@@ -293,10 +316,14 @@ func New(cfg *config.Config) (*Gateway, error) {
 		contentNegotiators:  contentneg.NewNegotiatorByRoute(),
 		cdnHeaders:          cdnheaders.NewCDNHeadersByRoute(),
 		backendEncoders:     backendenc.NewEncoderByRoute(),
-		routeProxies:        make(map[string]*proxy.RouteProxy),
-		routeHandlers:     make(map[string]http.Handler),
 		watchCancels:      make(map[string]context.CancelFunc),
 	}
+
+	// Initialize atomic pointers for hot-path map access
+	rp := make(map[string]*proxy.RouteProxy)
+	g.routeProxies.Store(&rp)
+	rh := make(map[string]http.Handler)
+	g.routeHandlers.Store(&rh)
 
 	// Initialize shared priority admitter if global priority is enabled
 	if cfg.TrafficShaping.Priority.Enabled {
@@ -700,6 +727,7 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 	route.UpstreamName = routeCfg.Upstream
 
 	// Set up backends (skip for echo, sequential, and aggregate routes — no backend needed)
+	var routeProxy *proxy.RouteProxy
 	if !routeCfg.Echo && !routeCfg.Sequential.Enabled && !routeCfg.Aggregate.Enabled {
 		var backends []*loadbalancer.Backend
 
@@ -755,7 +783,6 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 		}
 
 		// Create route proxy with the appropriate balancer
-		g.mu.Lock()
 		if routeCfg.Versioning.Enabled {
 			versionBackends := make(map[string][]*loadbalancer.Backend)
 			for ver, vcfg := range routeCfg.Versioning.Versions {
@@ -779,7 +806,7 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 				versionBackends[ver] = vBacks
 			}
 			vb := loadbalancer.NewVersionedBalancer(versionBackends, routeCfg.Versioning.DefaultVersion)
-			g.routeProxies[routeCfg.ID] = proxy.NewRouteProxyWithBalancer(g.proxy, route, vb)
+			routeProxy = proxy.NewRouteProxyWithBalancer(g.proxy, route, vb)
 		} else if len(routeCfg.TrafficSplit) > 0 {
 			var wb *loadbalancer.WeightedBalancer
 			if routeCfg.Sticky.Enabled {
@@ -787,12 +814,12 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 			} else {
 				wb = loadbalancer.NewWeightedBalancer(routeCfg.TrafficSplit)
 			}
-			g.routeProxies[routeCfg.ID] = proxy.NewRouteProxyWithBalancer(g.proxy, route, wb)
+			routeProxy = proxy.NewRouteProxyWithBalancer(g.proxy, route, wb)
 		} else {
 			balancer := createBalancer(routeCfg, backends)
-			g.routeProxies[routeCfg.ID] = proxy.NewRouteProxyWithBalancer(g.proxy, route, balancer)
+			routeProxy = proxy.NewRouteProxyWithBalancer(g.proxy, route, balancer)
 		}
-		g.mu.Unlock()
+		g.storeRouteProxy(routeCfg.ID, routeProxy)
 	}
 
 	// Set up rate limiting (unique setup signature, not in feature loop)
@@ -851,9 +878,9 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 	}
 
 	// Set up protocol translator (replaces RouteProxy as innermost handler; blocked by echo validation)
-	if routeCfg.Protocol.Type != "" && g.routeProxies[routeCfg.ID] != nil {
-		balancer := g.routeProxies[routeCfg.ID].GetBalancer()
-		if err := g.translators.AddRoute(routeCfg.ID, routeCfg.Protocol, balancer); err != nil {
+	if routeCfg.Protocol.Type != "" && routeProxy != nil {
+		bal := routeProxy.GetBalancer()
+		if err := g.translators.AddRoute(routeCfg.ID, routeCfg.Protocol, bal); err != nil {
 			return fmt.Errorf("protocol translator: route %s: %w", routeCfg.ID, err)
 		}
 	}
@@ -882,13 +909,13 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 	}
 
 	// Override per-try timeout with backend timeout when configured
-	if routeCfg.TimeoutPolicy.Backend > 0 && g.routeProxies[routeCfg.ID] != nil {
-		g.routeProxies[routeCfg.ID].SetPerTryTimeout(routeCfg.TimeoutPolicy.Backend)
+	if routeCfg.TimeoutPolicy.Backend > 0 && routeProxy != nil {
+		routeProxy.SetPerTryTimeout(routeCfg.TimeoutPolicy.Backend)
 	}
 
 	// Set up canary controller (needs WeightedBalancer, only available after route proxy creation)
 	if routeCfg.Canary.Enabled {
-		if wb, ok := g.routeProxies[routeCfg.ID].GetBalancer().(*loadbalancer.WeightedBalancer); ok {
+		if wb, ok := routeProxy.GetBalancer().(*loadbalancer.WeightedBalancer); ok {
 			if err := g.canaryControllers.AddRoute(routeCfg.ID, routeCfg.Canary, wb); err != nil {
 				return fmt.Errorf("canary: route %s: %w", routeCfg.ID, err)
 			}
@@ -897,14 +924,12 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 
 	// Set up outlier detection (needs Balancer, only available after route proxy creation)
 	if routeCfg.OutlierDetection.Enabled {
-		g.outlierDetectors.AddRoute(routeCfg.ID, routeCfg.OutlierDetection, g.routeProxies[routeCfg.ID].GetBalancer())
+		g.outlierDetectors.AddRoute(routeCfg.ID, routeCfg.OutlierDetection, routeProxy.GetBalancer())
 	}
 
 	// Build the per-route middleware pipeline handler
-	handler := g.buildRouteHandler(routeCfg.ID, routeCfg, route, g.routeProxies[routeCfg.ID])
-	g.mu.Lock()
-	g.routeHandlers[routeCfg.ID] = handler
-	g.mu.Unlock()
+	handler := g.buildRouteHandler(routeCfg.ID, routeCfg, route, routeProxy)
+	g.storeRouteHandler(routeCfg.ID, handler)
 
 	return nil
 }
@@ -1400,10 +1425,7 @@ func (g *Gateway) watchService(routeID, serviceName string, tags []string) {
 				}
 
 				// Update route proxy
-				g.mu.RLock()
-				rp, ok := g.routeProxies[routeID]
-				g.mu.RUnlock()
-
+				rp, ok := (*g.routeProxies.Load())[routeID]
 				if ok {
 					rp.UpdateBackends(backends)
 					logging.Info("Updated backends for route",
@@ -1437,12 +1459,9 @@ func hasAllTags(serviceTags, requiredTags []string) bool {
 
 // updateBackendHealth updates backend health status based on health checker
 func (g *Gateway) updateBackendHealth(url string, status health.Status) {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-
 	healthy := status == health.StatusHealthy
 
-	for _, rp := range g.routeProxies {
+	for _, rp := range *g.routeProxies.Load() {
 		if healthy {
 			rp.GetBalancer().MarkHealthy(url)
 		} else {
@@ -1515,10 +1534,7 @@ func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	varCtx := variables.GetFromRequest(r)
 	varCtx.PathParams = match.PathParams
 
-	g.mu.RLock()
-	handler, ok := g.routeHandlers[match.Route.ID]
-	g.mu.RUnlock()
-
+	handler, ok := (*g.routeHandlers.Load())[match.Route.ID]
 	if !ok {
 		errors.ErrInternalServer.WithDetails("Route handler not found").WriteJSON(w)
 		return
@@ -1679,11 +1695,8 @@ func (g *Gateway) GetCaches() *cache.CacheByRoute {
 
 // GetRetryMetrics returns the retry metrics per route
 func (g *Gateway) GetRetryMetrics() map[string]*retry.RouteRetryMetrics {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-
 	result := make(map[string]*retry.RouteRetryMetrics)
-	for routeID, rp := range g.routeProxies {
+	for routeID, rp := range *g.routeProxies.Load() {
 		if m := rp.GetRetryMetrics(); m != nil {
 			result[routeID] = m
 		}
@@ -1955,10 +1968,8 @@ func (g *Gateway) GetSequentialHandlers() *sequential.SequentialByRoute {
 
 // GetFollowRedirectStats returns per-route redirect transport stats.
 func (g *Gateway) GetFollowRedirectStats() map[string]interface{} {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
 	result := make(map[string]interface{})
-	for routeID, rp := range g.routeProxies {
+	for routeID, rp := range *g.routeProxies.Load() {
 		if rt := rp.GetRedirectTransport(); rt != nil {
 			result[routeID] = rt.Stats()
 		}
@@ -2023,9 +2034,7 @@ func (g *Gateway) buildTransportPool(cfg *config.Config) *proxy.TransportPool {
 
 // GetLoadBalancerInfo returns per-route load balancer algorithm and stats.
 func (g *Gateway) GetLoadBalancerInfo() map[string]interface{} {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-
+	proxies := *g.routeProxies.Load()
 	result := make(map[string]interface{})
 	for _, routeCfg := range g.config.Routes {
 		info := map[string]interface{}{
@@ -2046,7 +2055,7 @@ func (g *Gateway) GetLoadBalancerInfo() map[string]interface{} {
 			}
 		}
 		if routeCfg.LoadBalancer == "least_response_time" {
-			if rp, ok := g.routeProxies[routeCfg.ID]; ok {
+			if rp, ok := proxies[routeCfg.ID]; ok {
 				if lrt, ok := rp.GetBalancer().(*loadbalancer.LeastResponseTime); ok {
 					info["latencies"] = lrt.GetLatencies()
 				}
@@ -2059,11 +2068,8 @@ func (g *Gateway) GetLoadBalancerInfo() map[string]interface{} {
 
 // GetTrafficSplitStats returns per-route traffic split information.
 func (g *Gateway) GetTrafficSplitStats() map[string]interface{} {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-
 	result := make(map[string]interface{})
-	for routeID, rp := range g.routeProxies {
+	for routeID, rp := range *g.routeProxies.Load() {
 		wb, ok := rp.GetBalancer().(*loadbalancer.WeightedBalancer)
 		if !ok {
 			continue
@@ -2119,15 +2125,13 @@ type Stats struct {
 
 // GetStats returns current gateway statistics
 func (g *Gateway) GetStats() *Stats {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-
+	proxies := *g.routeProxies.Load()
 	stats := &Stats{
-		Routes:   len(g.routeProxies),
+		Routes:   len(proxies),
 		Backends: make(map[string]int),
 	}
 
-	for routeID, rp := range g.routeProxies {
+	for routeID, rp := range proxies {
 		backends := rp.GetBalancer().GetBackends()
 		stats.Backends[routeID] = len(backends)
 

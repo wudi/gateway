@@ -878,8 +878,8 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.mu.Lock()
 	g.config = newState.config
 	g.router = newState.router
-	g.routeProxies = newState.routeProxies
-	g.routeHandlers = newState.routeHandlers
+	g.routeProxies.Store(&newState.routeProxies)
+	g.routeHandlers.Store(&newState.routeHandlers)
 	g.watchCancels = newState.watchCancels
 	g.features = newState.features
 	g.circuitBreakers = newState.circuitBreakers
