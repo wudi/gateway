@@ -69,14 +69,15 @@ type ProxyRateLimitByRoute struct {
 
 // NewProxyRateLimitByRoute creates a new per-route proxy rate limiter manager.
 func NewProxyRateLimitByRoute() *ProxyRateLimitByRoute {
-	return &ProxyRateLimitByRoute{
-		limiters: make(map[string]*ProxyLimiter),
-	}
+	return &ProxyRateLimitByRoute{}
 }
 
 // AddRoute adds a proxy rate limiter for a route.
 func (m *ProxyRateLimitByRoute) AddRoute(routeID string, cfg config.ProxyRateLimitConfig) {
 	m.mu.Lock()
+	if m.limiters == nil {
+		m.limiters = make(map[string]*ProxyLimiter)
+	}
 	m.limiters[routeID] = New(cfg)
 	m.mu.Unlock()
 }

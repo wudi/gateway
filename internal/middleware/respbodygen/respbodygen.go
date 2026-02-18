@@ -167,9 +167,7 @@ type RespBodyGenByRoute struct {
 
 // NewRespBodyGenByRoute creates a new per-route response body generator manager.
 func NewRespBodyGenByRoute() *RespBodyGenByRoute {
-	return &RespBodyGenByRoute{
-		generators: make(map[string]*RespBodyGen),
-	}
+	return &RespBodyGenByRoute{}
 }
 
 // AddRoute adds a response body generator for a route.
@@ -179,6 +177,9 @@ func (m *RespBodyGenByRoute) AddRoute(routeID string, cfg config.ResponseBodyGen
 		return err
 	}
 	m.mu.Lock()
+	if m.generators == nil {
+		m.generators = make(map[string]*RespBodyGen)
+	}
 	m.generators[routeID] = rbg
 	m.mu.Unlock()
 	return nil

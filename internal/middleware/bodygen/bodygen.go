@@ -129,9 +129,7 @@ type BodyGenByRoute struct {
 
 // NewBodyGenByRoute creates a new per-route body generator manager.
 func NewBodyGenByRoute() *BodyGenByRoute {
-	return &BodyGenByRoute{
-		generators: make(map[string]*BodyGen),
-	}
+	return &BodyGenByRoute{}
 }
 
 // AddRoute adds a body generator for a route.
@@ -141,6 +139,9 @@ func (m *BodyGenByRoute) AddRoute(routeID string, cfg config.BodyGeneratorConfig
 		return err
 	}
 	m.mu.Lock()
+	if m.generators == nil {
+		m.generators = make(map[string]*BodyGen)
+	}
 	m.generators[routeID] = bg
 	m.mu.Unlock()
 	return nil

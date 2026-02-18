@@ -14,9 +14,7 @@ type CSRFByRoute struct {
 
 // NewCSRFByRoute creates a new CSRFByRoute manager.
 func NewCSRFByRoute() *CSRFByRoute {
-	return &CSRFByRoute{
-		protectors: make(map[string]*CompiledCSRF),
-	}
+	return &CSRFByRoute{}
 }
 
 // AddRoute creates and registers a CSRF protector for the given route.
@@ -31,6 +29,9 @@ func (m *CSRFByRoute) AddRoute(routeID string, cfg config.CSRFConfig) error {
 	}
 
 	m.mu.Lock()
+	if m.protectors == nil {
+		m.protectors = make(map[string]*CompiledCSRF)
+	}
 	m.protectors[routeID] = cp
 	m.mu.Unlock()
 

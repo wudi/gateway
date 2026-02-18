@@ -14,9 +14,7 @@ type GraphQLByRoute struct {
 
 // NewGraphQLByRoute creates a new route-based GraphQL manager.
 func NewGraphQLByRoute() *GraphQLByRoute {
-	return &GraphQLByRoute{
-		parsers: make(map[string]*Parser),
-	}
+	return &GraphQLByRoute{}
 }
 
 // AddRoute adds a GraphQL parser for a route.
@@ -26,6 +24,9 @@ func (m *GraphQLByRoute) AddRoute(routeID string, cfg config.GraphQLConfig) erro
 		return err
 	}
 	m.mu.Lock()
+	if m.parsers == nil {
+		m.parsers = make(map[string]*Parser)
+	}
 	m.parsers[routeID] = p
 	m.mu.Unlock()
 	return nil

@@ -160,9 +160,7 @@ type RulesByRoute struct {
 
 // NewRulesByRoute creates a new per-route rule manager.
 func NewRulesByRoute() *RulesByRoute {
-	return &RulesByRoute{
-		engines: make(map[string]*RuleEngine),
-	}
+	return &RulesByRoute{}
 }
 
 // AddRoute compiles and stores rules for a route.
@@ -173,6 +171,9 @@ func (rbr *RulesByRoute) AddRoute(routeID string, rules config.RulesConfig) erro
 	}
 
 	rbr.mu.Lock()
+	if rbr.engines == nil {
+		rbr.engines = make(map[string]*RuleEngine)
+	}
 	rbr.engines[routeID] = engine
 	rbr.mu.Unlock()
 

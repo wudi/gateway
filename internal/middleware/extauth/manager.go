@@ -14,9 +14,7 @@ type ExtAuthByRoute struct {
 
 // NewExtAuthByRoute creates a new per-route ext auth manager.
 func NewExtAuthByRoute() *ExtAuthByRoute {
-	return &ExtAuthByRoute{
-		auths: make(map[string]*ExtAuth),
-	}
+	return &ExtAuthByRoute{}
 }
 
 // AddRoute adds an ext auth client for a route.
@@ -26,6 +24,9 @@ func (m *ExtAuthByRoute) AddRoute(routeID string, cfg config.ExtAuthConfig) erro
 		return err
 	}
 	m.mu.Lock()
+	if m.auths == nil {
+		m.auths = make(map[string]*ExtAuth)
+	}
 	m.auths[routeID] = ea
 	m.mu.Unlock()
 	return nil

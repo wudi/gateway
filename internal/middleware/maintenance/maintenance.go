@@ -213,15 +213,16 @@ type MaintenanceByRoute struct {
 
 // NewMaintenanceByRoute creates a new manager.
 func NewMaintenanceByRoute() *MaintenanceByRoute {
-	return &MaintenanceByRoute{
-		handlers: make(map[string]*CompiledMaintenance),
-	}
+	return &MaintenanceByRoute{}
 }
 
 // AddRoute adds compiled maintenance mode for a route.
 func (m *MaintenanceByRoute) AddRoute(routeID string, cfg config.MaintenanceConfig) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.handlers == nil {
+		m.handlers = make(map[string]*CompiledMaintenance)
+	}
 	m.handlers[routeID] = New(cfg)
 }
 

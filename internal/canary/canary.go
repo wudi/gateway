@@ -423,9 +423,7 @@ type CanaryByRoute struct {
 
 // NewCanaryByRoute creates a new CanaryByRoute manager.
 func NewCanaryByRoute() *CanaryByRoute {
-	return &CanaryByRoute{
-		controllers: make(map[string]*Controller),
-	}
+	return &CanaryByRoute{}
 }
 
 // SetOnEvent registers a callback invoked on canary state transitions.
@@ -442,6 +440,9 @@ func (m *CanaryByRoute) AddRoute(routeID string, cfg config.CanaryConfig, wb *lo
 
 	ctrl := NewController(routeID, cfg, wb)
 	ctrl.onEvent = m.onEvent
+	if m.controllers == nil {
+		m.controllers = make(map[string]*Controller)
+	}
 	m.controllers[routeID] = ctrl
 	return nil
 }

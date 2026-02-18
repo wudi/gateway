@@ -138,9 +138,7 @@ type IPFilterByRoute struct {
 
 // NewIPFilterByRoute creates a new per-route IP filter manager
 func NewIPFilterByRoute() *IPFilterByRoute {
-	return &IPFilterByRoute{
-		filters: make(map[string]*Filter),
-	}
+	return &IPFilterByRoute{}
 }
 
 // AddRoute adds an IP filter for a route
@@ -150,6 +148,9 @@ func (m *IPFilterByRoute) AddRoute(routeID string, cfg config.IPFilterConfig) er
 		return err
 	}
 	m.mu.Lock()
+	if m.filters == nil {
+		m.filters = make(map[string]*Filter)
+	}
 	m.filters[routeID] = f
 	m.mu.Unlock()
 	return nil

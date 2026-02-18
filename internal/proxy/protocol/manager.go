@@ -23,9 +23,7 @@ type TranslatorByRoute struct {
 
 // NewTranslatorByRoute creates a new TranslatorByRoute manager.
 func NewTranslatorByRoute() *TranslatorByRoute {
-	return &TranslatorByRoute{
-		routes: make(map[string]*translatorRoute),
-	}
+	return &TranslatorByRoute{}
 }
 
 // AddRoute sets up a protocol translator for the given route.
@@ -48,6 +46,9 @@ func (m *TranslatorByRoute) AddRoute(routeID string, cfg config.ProtocolConfig, 
 		existing.translator.Close(routeID)
 	}
 
+	if m.routes == nil {
+		m.routes = make(map[string]*translatorRoute)
+	}
 	m.routes[routeID] = &translatorRoute{
 		handler:    handler,
 		translator: translator,

@@ -77,6 +77,13 @@ func NewBuilder() *Builder {
 	}
 }
 
+// NewBuilderWithCap creates a new middleware builder with pre-allocated capacity.
+func NewBuilderWithCap(n int) *Builder {
+	return &Builder{
+		middlewares: make([]Middleware, 0, n),
+	}
+}
+
 // Use adds a middleware to the builder
 func (b *Builder) Use(m Middleware) *Builder {
 	b.middlewares = append(b.middlewares, m)
@@ -98,7 +105,13 @@ func (b *Builder) Build() *Chain {
 
 // Handler wraps the given handler with all middlewares
 func (b *Builder) Handler(h http.Handler) http.Handler {
-	return b.Build().Then(h)
+	if h == nil {
+		h = http.DefaultServeMux
+	}
+	for i := len(b.middlewares) - 1; i >= 0; i-- {
+		h = b.middlewares[i](h)
+	}
+	return h
 }
 
 // HandlerFunc wraps the given handler function with all middlewares

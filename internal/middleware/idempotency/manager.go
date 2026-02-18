@@ -15,9 +15,7 @@ type IdempotencyByRoute struct {
 
 // NewIdempotencyByRoute creates a new IdempotencyByRoute manager.
 func NewIdempotencyByRoute() *IdempotencyByRoute {
-	return &IdempotencyByRoute{
-		handlers: make(map[string]*CompiledIdempotency),
-	}
+	return &IdempotencyByRoute{}
 }
 
 // AddRoute creates and registers an idempotency handler for the given route.
@@ -32,6 +30,9 @@ func (m *IdempotencyByRoute) AddRoute(routeID string, cfg config.IdempotencyConf
 	}
 
 	m.mu.Lock()
+	if m.handlers == nil {
+		m.handlers = make(map[string]*CompiledIdempotency)
+	}
 	m.handlers[routeID] = ci
 	m.mu.Unlock()
 

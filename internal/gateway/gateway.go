@@ -196,6 +196,24 @@ type statusRecorder struct {
 	statusCode int
 }
 
+var statusRecorderPool = sync.Pool{
+	New: func() any {
+		return &statusRecorder{}
+	},
+}
+
+func getStatusRecorder(w http.ResponseWriter) *statusRecorder {
+	rec := statusRecorderPool.Get().(*statusRecorder)
+	rec.ResponseWriter = w
+	rec.statusCode = 200
+	return rec
+}
+
+func putStatusRecorder(rec *statusRecorder) {
+	rec.ResponseWriter = nil
+	statusRecorderPool.Put(rec)
+}
+
 func (sr *statusRecorder) WriteHeader(code int) {
 	sr.statusCode = code
 	sr.ResponseWriter.WriteHeader(code)
@@ -908,7 +926,7 @@ func createBalancer(cfg config.RouteConfig, backends []*loadbalancer.Backend) lo
 // buildRouteHandler constructs the per-route middleware pipeline.
 // Chain ordering matches CLAUDE.md serveHTTP flow exactly.
 func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, route *router.Route, rp *proxy.RouteProxy) http.Handler {
-	chain := middleware.NewBuilder()
+	chain := middleware.NewBuilderWithCap(48)
 
 	// 1. metricsMW — outermost: timing + status (Step 13)
 	chain = chain.Use(metricsMW(g.metricsCollector, routeID))
@@ -1435,7 +1453,7 @@ func (g *Gateway) updateBackendHealth(url string, status health.Status) {
 
 // Handler returns the main HTTP handler
 func (g *Gateway) Handler() http.Handler {
-	chain := middleware.NewBuilder().
+	chain := middleware.NewBuilderWithCap(16).
 		Use(middleware.Recovery())
 
 	// Real IP extraction from trusted proxies (before everything else)

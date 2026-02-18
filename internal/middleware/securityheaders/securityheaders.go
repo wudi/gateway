@@ -157,15 +157,16 @@ type SecurityHeadersByRoute struct {
 
 // NewSecurityHeadersByRoute creates a new manager.
 func NewSecurityHeadersByRoute() *SecurityHeadersByRoute {
-	return &SecurityHeadersByRoute{
-		handlers: make(map[string]*CompiledSecurityHeaders),
-	}
+	return &SecurityHeadersByRoute{}
 }
 
 // AddRoute adds compiled security headers for a route.
 func (m *SecurityHeadersByRoute) AddRoute(routeID string, cfg config.SecurityHeadersConfig) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.handlers == nil {
+		m.handlers = make(map[string]*CompiledSecurityHeaders)
+	}
 	m.handlers[routeID] = New(cfg)
 }
 

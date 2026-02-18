@@ -429,7 +429,7 @@ func circuitBreakerMW(cb *circuitbreaker.Breaker, isGRPC bool) middleware.Middle
 				return
 			}
 
-			rec := &statusRecorder{ResponseWriter: w, statusCode: 200}
+			rec := getStatusRecorder(w)
 			next.ServeHTTP(rec, r)
 
 			// Report outcome
@@ -445,6 +445,7 @@ func circuitBreakerMW(cb *circuitbreaker.Breaker, isGRPC bool) middleware.Middle
 			} else {
 				done(nil)
 			}
+			putStatusRecorder(rec)
 		})
 	}
 }
@@ -459,9 +460,10 @@ func adaptiveConcurrencyMW(al *trafficshape.AdaptiveLimiter) middleware.Middlewa
 				return
 			}
 			start := time.Now()
-			rec := &statusRecorder{ResponseWriter: w, statusCode: 200}
+			rec := getStatusRecorder(w)
 			next.ServeHTTP(rec, r)
 			release(rec.statusCode, time.Since(start))
+			putStatusRecorder(rec)
 		})
 	}
 }
@@ -603,14 +605,14 @@ func (w *abVariantWriter) Flush() {
 
 // 14. requestTransformMW applies header/body transformations and gRPC preparation.
 func requestTransformMW(route *router.Route, grpcH *grpcproxy.Handler, reqBodyTransform *transform.CompiledBodyTransform) middleware.Middleware {
-	// Create transformer once — it is stateless and goroutine-safe.
-	transformer := transform.NewHeaderTransformer()
+	// Pre-compile header templates once — avoids per-request Resolve() parsing.
+	pt := transform.NewPrecompiledTransform(route.Transform.Request.Headers)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			varCtx := variables.GetFromRequest(r)
 
-			// Header transforms
-			transformer.TransformRequest(r, route.Transform.Request.Headers, varCtx)
+			// Header transforms (pre-compiled)
+			pt.ApplyToRequest(r, varCtx)
 
 			// Body transforms
 			if reqBodyTransform != nil {
@@ -632,9 +634,10 @@ func metricsMW(mc *metrics.Collector, routeID string) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
-			rec := &statusRecorder{ResponseWriter: w, statusCode: 200}
+			rec := getStatusRecorder(w)
 			next.ServeHTTP(rec, r)
 			mc.RecordRequest(routeID, r.Method, rec.statusCode, time.Since(start))
+			putStatusRecorder(rec)
 		})
 	}
 }
@@ -810,13 +813,14 @@ func canaryObserverMW(ctrl *canary.Controller) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
-			rec := &statusRecorder{ResponseWriter: w, statusCode: 200}
+			rec := getStatusRecorder(w)
 			next.ServeHTTP(rec, r)
 
 			varCtx := variables.GetFromRequest(r)
 			if varCtx.TrafficGroup != "" {
 				ctrl.RecordRequest(varCtx.TrafficGroup, rec.statusCode, time.Since(start))
 			}
+			putStatusRecorder(rec)
 		})
 	}
 }

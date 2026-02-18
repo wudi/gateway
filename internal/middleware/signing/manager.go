@@ -14,9 +14,7 @@ type SigningByRoute struct {
 
 // NewSigningByRoute creates a new SigningByRoute manager.
 func NewSigningByRoute() *SigningByRoute {
-	return &SigningByRoute{
-		signers: make(map[string]*CompiledSigner),
-	}
+	return &SigningByRoute{}
 }
 
 // AddRoute registers a signer for a route.
@@ -26,6 +24,9 @@ func (m *SigningByRoute) AddRoute(routeID string, cfg config.BackendSigningConfi
 		return err
 	}
 	m.mu.Lock()
+	if m.signers == nil {
+		m.signers = make(map[string]*CompiledSigner)
+	}
 	m.signers[routeID] = s
 	m.mu.Unlock()
 	return nil

@@ -219,9 +219,7 @@ type ValidatorByRoute struct {
 
 // NewValidatorByRoute creates a new per-route validator manager.
 func NewValidatorByRoute() *ValidatorByRoute {
-	return &ValidatorByRoute{
-		validators: make(map[string]*Validator),
-	}
+	return &ValidatorByRoute{}
 }
 
 // AddRoute adds a validator for a route.
@@ -231,6 +229,9 @@ func (m *ValidatorByRoute) AddRoute(routeID string, cfg config.ValidationConfig)
 		return err
 	}
 	m.mu.Lock()
+	if m.validators == nil {
+		m.validators = make(map[string]*Validator)
+	}
 	m.validators[routeID] = v
 	m.mu.Unlock()
 	return nil

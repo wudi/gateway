@@ -137,9 +137,7 @@ type BreakerByRoute struct {
 
 // NewBreakerByRoute creates a new route-based circuit breaker manager.
 func NewBreakerByRoute() *BreakerByRoute {
-	return &BreakerByRoute{
-		breakers: make(map[string]*Breaker),
-	}
+	return &BreakerByRoute{}
 }
 
 // SetOnStateChange registers a callback invoked when any breaker changes state.
@@ -158,6 +156,9 @@ func (br *BreakerByRoute) AddRoute(routeID string, cfg config.CircuitBreakerConf
 		onSC := br.onStateChange
 		rid := routeID
 		cb = func(from, to string) { onSC(rid, from, to) }
+	}
+	if br.breakers == nil {
+		br.breakers = make(map[string]*Breaker)
 	}
 	br.breakers[routeID] = NewBreaker(cfg, cb)
 }

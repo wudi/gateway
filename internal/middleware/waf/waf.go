@@ -197,9 +197,7 @@ type WAFByRoute struct {
 
 // NewWAFByRoute creates a new per-route WAF manager.
 func NewWAFByRoute() *WAFByRoute {
-	return &WAFByRoute{
-		wafs: make(map[string]*WAF),
-	}
+	return &WAFByRoute{}
 }
 
 // AddRoute adds a WAF for a route. Returns error if WAF init fails.
@@ -209,6 +207,9 @@ func (m *WAFByRoute) AddRoute(routeID string, cfg config.WAFConfig) error {
 		return err
 	}
 	m.mu.Lock()
+	if m.wafs == nil {
+		m.wafs = make(map[string]*WAF)
+	}
 	m.wafs[routeID] = w
 	m.mu.Unlock()
 	return nil

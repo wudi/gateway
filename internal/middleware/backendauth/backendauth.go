@@ -183,9 +183,7 @@ type BackendAuthByRoute struct {
 
 // NewBackendAuthByRoute creates a new per-route backend auth manager.
 func NewBackendAuthByRoute() *BackendAuthByRoute {
-	return &BackendAuthByRoute{
-		providers: make(map[string]*TokenProvider),
-	}
+	return &BackendAuthByRoute{}
 }
 
 // AddRoute adds a backend auth provider for a route.
@@ -195,6 +193,9 @@ func (m *BackendAuthByRoute) AddRoute(routeID string, cfg config.BackendAuthConf
 		return err
 	}
 	m.mu.Lock()
+	if m.providers == nil {
+		m.providers = make(map[string]*TokenProvider)
+	}
 	m.providers[routeID] = p
 	m.mu.Unlock()
 	return nil

@@ -262,9 +262,7 @@ type SequentialByRoute struct {
 
 // NewSequentialByRoute creates a new per-route sequential handler manager.
 func NewSequentialByRoute() *SequentialByRoute {
-	return &SequentialByRoute{
-		handlers: make(map[string]*SequentialHandler),
-	}
+	return &SequentialByRoute{}
 }
 
 // AddRoute adds a sequential handler for a route.
@@ -274,6 +272,9 @@ func (m *SequentialByRoute) AddRoute(routeID string, cfg config.SequentialConfig
 		return err
 	}
 	m.mu.Lock()
+	if m.handlers == nil {
+		m.handlers = make(map[string]*SequentialHandler)
+	}
 	m.handlers[routeID] = sh
 	m.mu.Unlock()
 	return nil

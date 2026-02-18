@@ -133,15 +133,16 @@ type CDNHeadersByRoute struct {
 
 // NewCDNHeadersByRoute creates a new CDN headers manager.
 func NewCDNHeadersByRoute() *CDNHeadersByRoute {
-	return &CDNHeadersByRoute{
-		handlers: make(map[string]*CDNHeaders),
-	}
+	return &CDNHeadersByRoute{}
 }
 
 // AddRoute adds a CDN headers handler for a route.
 func (br *CDNHeadersByRoute) AddRoute(routeID string, cfg config.CDNCacheConfig) {
 	br.mu.Lock()
 	defer br.mu.Unlock()
+	if br.handlers == nil {
+		br.handlers = make(map[string]*CDNHeaders)
+	}
 	br.handlers[routeID] = New(cfg)
 }
 

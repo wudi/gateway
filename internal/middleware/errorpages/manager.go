@@ -16,9 +16,7 @@ type ErrorPagesByRoute struct {
 
 // NewErrorPagesByRoute creates a new error pages manager.
 func NewErrorPagesByRoute() *ErrorPagesByRoute {
-	return &ErrorPagesByRoute{
-		pages: make(map[string]*CompiledErrorPages),
-	}
+	return &ErrorPagesByRoute{}
 }
 
 // AddRoute registers compiled error pages for the given route.
@@ -32,6 +30,9 @@ func (m *ErrorPagesByRoute) AddRoute(routeID string, globalCfg, routeCfg config.
 		return nil
 	}
 	m.mu.Lock()
+	if m.pages == nil {
+		m.pages = make(map[string]*CompiledErrorPages)
+	}
 	m.pages[routeID] = ep
 	m.mu.Unlock()
 	return nil

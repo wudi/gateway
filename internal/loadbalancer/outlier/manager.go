@@ -17,9 +17,7 @@ type DetectorByRoute struct {
 
 // NewDetectorByRoute creates a new manager.
 func NewDetectorByRoute() *DetectorByRoute {
-	return &DetectorByRoute{
-		detectors: make(map[string]*Detector),
-	}
+	return &DetectorByRoute{}
 }
 
 // SetCallbacks sets the ejection and recovery callbacks for all current and future detectors.
@@ -41,6 +39,9 @@ func (m *DetectorByRoute) AddRoute(routeID string, cfg config.OutlierDetectionCo
 	d := NewDetector(routeID, cfg, balancer)
 	if m.onEject != nil || m.onRecover != nil {
 		d.SetCallbacks(m.onEject, m.onRecover)
+	}
+	if m.detectors == nil {
+		m.detectors = make(map[string]*Detector)
 	}
 	m.detectors[routeID] = d
 }

@@ -204,14 +204,15 @@ type ResponseLimitByRoute struct {
 
 // NewResponseLimitByRoute creates a new per-route response limit manager.
 func NewResponseLimitByRoute() *ResponseLimitByRoute {
-	return &ResponseLimitByRoute{
-		limiters: make(map[string]*ResponseLimiter),
-	}
+	return &ResponseLimitByRoute{}
 }
 
 // AddRoute adds a response limiter for a route.
 func (m *ResponseLimitByRoute) AddRoute(routeID string, cfg config.ResponseLimitConfig) {
 	m.mu.Lock()
+	if m.limiters == nil {
+		m.limiters = make(map[string]*ResponseLimiter)
+	}
 	m.limiters[routeID] = New(cfg)
 	m.mu.Unlock()
 }

@@ -465,14 +465,15 @@ type CompressorByRoute struct {
 
 // NewCompressorByRoute creates a new per-route compressor manager.
 func NewCompressorByRoute() *CompressorByRoute {
-	return &CompressorByRoute{
-		compressors: make(map[string]*Compressor),
-	}
+	return &CompressorByRoute{}
 }
 
 // AddRoute adds a compressor for a route.
 func (m *CompressorByRoute) AddRoute(routeID string, cfg config.CompressionConfig) {
 	m.mu.Lock()
+	if m.compressors == nil {
+		m.compressors = make(map[string]*Compressor)
+	}
 	m.compressors[routeID] = New(cfg)
 	m.mu.Unlock()
 }

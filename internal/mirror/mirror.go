@@ -195,9 +195,7 @@ type MirrorByRoute struct {
 
 // NewMirrorByRoute creates a new per-route mirror manager
 func NewMirrorByRoute() *MirrorByRoute {
-	return &MirrorByRoute{
-		mirrors: make(map[string]*Mirror),
-	}
+	return &MirrorByRoute{}
 }
 
 // AddRoute adds a mirror for a route
@@ -207,6 +205,9 @@ func (m *MirrorByRoute) AddRoute(routeID string, cfg config.MirrorConfig) error 
 		return err
 	}
 	m.mu.Lock()
+	if m.mirrors == nil {
+		m.mirrors = make(map[string]*Mirror)
+	}
 	m.mirrors[routeID] = mirror
 	m.mu.Unlock()
 	return nil

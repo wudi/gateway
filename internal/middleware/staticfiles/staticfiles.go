@@ -106,9 +106,7 @@ type StaticByRoute struct {
 
 // NewStaticByRoute creates a new per-route static file manager.
 func NewStaticByRoute() *StaticByRoute {
-	return &StaticByRoute{
-		handlers: make(map[string]*StaticFileHandler),
-	}
+	return &StaticByRoute{}
 }
 
 // AddRoute adds a static file handler for a route.
@@ -118,6 +116,9 @@ func (m *StaticByRoute) AddRoute(routeID string, root, index string, browse bool
 		return err
 	}
 	m.mu.Lock()
+	if m.handlers == nil {
+		m.handlers = make(map[string]*StaticFileHandler)
+	}
 	m.handlers[routeID] = h
 	m.mu.Unlock()
 	return nil

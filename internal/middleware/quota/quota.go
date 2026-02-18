@@ -210,14 +210,15 @@ type QuotaByRoute struct {
 
 // NewQuotaByRoute creates a new per-route quota manager.
 func NewQuotaByRoute() *QuotaByRoute {
-	return &QuotaByRoute{
-		enforcers: make(map[string]*QuotaEnforcer),
-	}
+	return &QuotaByRoute{}
 }
 
 // AddRoute adds a quota enforcer for a route.
 func (m *QuotaByRoute) AddRoute(routeID string, cfg config.QuotaConfig, redisClient *redis.Client) {
 	m.mu.Lock()
+	if m.enforcers == nil {
+		m.enforcers = make(map[string]*QuotaEnforcer)
+	}
 	m.enforcers[routeID] = New(routeID, cfg, redisClient)
 	m.mu.Unlock()
 }

@@ -358,10 +358,7 @@ type CacheByRoute struct {
 // Pass a non-nil redisClient to enable distributed caching for routes with mode "distributed".
 func NewCacheByRoute(redisClient *redis.Client) *CacheByRoute {
 	return &CacheByRoute{
-		handlers:     make(map[string]*Handler),
-		bucketStores: make(map[string]Store),
-		buckets:      make(map[string]string),
-		redisClient:  redisClient,
+		redisClient: redisClient,
 	}
 }
 
@@ -376,6 +373,12 @@ func (cbr *CacheByRoute) SetRedisClient(client *redis.Client) {
 func (cbr *CacheByRoute) AddRoute(routeID string, cfg config.CacheConfig) {
 	cbr.mu.Lock()
 	defer cbr.mu.Unlock()
+
+	if cbr.handlers == nil {
+		cbr.handlers = make(map[string]*Handler)
+		cbr.bucketStores = make(map[string]Store)
+		cbr.buckets = make(map[string]string)
+	}
 
 	ttl := cfg.TTL
 	if ttl <= 0 {

@@ -244,15 +244,16 @@ type EncoderByRoute struct {
 
 // NewEncoderByRoute creates a new encoder manager.
 func NewEncoderByRoute() *EncoderByRoute {
-	return &EncoderByRoute{
-		encoders: make(map[string]*Encoder),
-	}
+	return &EncoderByRoute{}
 }
 
 // AddRoute adds an encoder for a route.
 func (br *EncoderByRoute) AddRoute(routeID string, cfg config.BackendEncodingConfig) {
 	br.mu.Lock()
 	defer br.mu.Unlock()
+	if br.encoders == nil {
+		br.encoders = make(map[string]*Encoder)
+	}
 	br.encoders[routeID] = New(cfg)
 }
 

@@ -14,9 +14,7 @@ type GeoByRoute struct {
 
 // NewGeoByRoute creates a new GeoByRoute manager.
 func NewGeoByRoute() *GeoByRoute {
-	return &GeoByRoute{
-		geos: make(map[string]*CompiledGeo),
-	}
+	return &GeoByRoute{}
 }
 
 // AddRoute creates and registers a geo filter for the given route.
@@ -31,6 +29,9 @@ func (m *GeoByRoute) AddRoute(routeID string, cfg config.GeoConfig, provider Pro
 	}
 
 	m.mu.Lock()
+	if m.geos == nil {
+		m.geos = make(map[string]*CompiledGeo)
+	}
 	m.geos[routeID] = g
 	m.mu.Unlock()
 

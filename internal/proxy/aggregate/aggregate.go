@@ -338,9 +338,7 @@ type AggregateByRoute struct {
 
 // NewAggregateByRoute creates a new per-route aggregate handler manager.
 func NewAggregateByRoute() *AggregateByRoute {
-	return &AggregateByRoute{
-		handlers: make(map[string]*AggregateHandler),
-	}
+	return &AggregateByRoute{}
 }
 
 // AddRoute adds an aggregate handler for a route.
@@ -350,6 +348,9 @@ func (m *AggregateByRoute) AddRoute(routeID string, cfg config.AggregateConfig, 
 		return err
 	}
 	m.mu.Lock()
+	if m.handlers == nil {
+		m.handlers = make(map[string]*AggregateHandler)
+	}
 	m.handlers[routeID] = ah
 	m.mu.Unlock()
 	return nil

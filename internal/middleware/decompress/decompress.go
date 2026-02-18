@@ -245,14 +245,15 @@ type DecompressorByRoute struct {
 
 // NewDecompressorByRoute creates a new per-route decompressor manager.
 func NewDecompressorByRoute() *DecompressorByRoute {
-	return &DecompressorByRoute{
-		decompressors: make(map[string]*Decompressor),
-	}
+	return &DecompressorByRoute{}
 }
 
 // AddRoute adds a decompressor for a route.
 func (m *DecompressorByRoute) AddRoute(routeID string, cfg config.RequestDecompressionConfig) {
 	m.mu.Lock()
+	if m.decompressors == nil {
+		m.decompressors = make(map[string]*Decompressor)
+	}
 	m.decompressors[routeID] = New(cfg)
 	m.mu.Unlock()
 }

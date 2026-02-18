@@ -17,6 +17,7 @@ import (
 type TokenBucket struct {
 	rate       float64       // tokens per second
 	burst      int           // max tokens
+	burstStr   string        // cached strconv.Itoa(burst) for headers
 	period     time.Duration // refill period
 	buckets    map[string]*bucket
 	mu         sync.Mutex
@@ -50,6 +51,7 @@ func NewTokenBucket(cfg Config) *TokenBucket {
 	tb := &TokenBucket{
 		rate:       float64(cfg.Rate) / cfg.Period.Seconds(),
 		burst:      cfg.Burst,
+		burstStr:   strconv.Itoa(cfg.Burst),
 		period:     cfg.Period,
 		buckets:    make(map[string]*bucket),
 		cleanupInt: 5 * time.Minute,
@@ -156,9 +158,10 @@ func BuildKeyFunc(perIP bool, key string) func(*http.Request) string {
 
 	if strings.HasPrefix(key, "header:") {
 		name := key[len("header:"):]
+		prefix := "header:" + name + ":"
 		return func(r *http.Request) string {
 			if v := r.Header.Get(name); v != "" {
-				return "header:" + name + ":" + v
+				return prefix + v
 			}
 			return variables.ExtractClientIP(r)
 		}
@@ -166,9 +169,10 @@ func BuildKeyFunc(perIP bool, key string) func(*http.Request) string {
 
 	if strings.HasPrefix(key, "cookie:") {
 		name := key[len("cookie:"):]
+		prefix := "cookie:" + name + ":"
 		return func(r *http.Request) string {
 			if c, err := r.Cookie(name); err == nil && c.Value != "" {
-				return "cookie:" + name + ":" + c.Value
+				return prefix + c.Value
 			}
 			return variables.ExtractClientIP(r)
 		}
@@ -176,13 +180,26 @@ func BuildKeyFunc(perIP bool, key string) func(*http.Request) string {
 
 	if strings.HasPrefix(key, "jwt_claim:") {
 		claim := key[len("jwt_claim:"):]
+		prefix := "jwt_claim:" + claim + ":"
 		return func(r *http.Request) string {
 			varCtx := variables.GetFromRequest(r)
 			if varCtx.Identity != nil && varCtx.Identity.Claims != nil {
 				if val, ok := varCtx.Identity.Claims[claim]; ok {
-					s := fmt.Sprintf("%v", val)
+					var s string
+					switch v := val.(type) {
+					case string:
+						s = v
+					case float64:
+						s = strconv.FormatFloat(v, 'f', -1, 64)
+					case int:
+						s = strconv.Itoa(v)
+					case bool:
+						s = strconv.FormatBool(v)
+					default:
+						s = fmt.Sprintf("%v", v)
+					}
 					if s != "" {
-						return "jwt_claim:" + claim + ":" + s
+						return prefix + s
 					}
 				}
 			}
@@ -207,6 +224,7 @@ func (l *Limiter) SetKeyFunc(fn func(*http.Request) string) {
 
 // Middleware creates a rate limiting middleware
 func (l *Limiter) Middleware() middleware.Middleware {
+	burstStr := l.tb.burstStr
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			key := l.keyFn(r)
@@ -214,7 +232,7 @@ func (l *Limiter) Middleware() middleware.Middleware {
 			allowed, remaining, resetTime := l.tb.Allow(key)
 
 			// Set rate limit headers
-			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(l.tb.burst))
+			w.Header().Set("X-RateLimit-Limit", burstStr)
 			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(remaining))
 			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(resetTime.Unix(), 10))
 
@@ -294,7 +312,18 @@ func buildTierKeyFunc(tierKey string) func(*http.Request) string {
 			varCtx := variables.GetFromRequest(r)
 			if varCtx.Identity != nil && varCtx.Identity.Claims != nil {
 				if val, ok := varCtx.Identity.Claims[claim]; ok {
-					return fmt.Sprintf("%v", val)
+					switch v := val.(type) {
+					case string:
+						return v
+					case float64:
+						return strconv.FormatFloat(v, 'f', -1, 64)
+					case int:
+						return strconv.Itoa(v)
+					case bool:
+						return strconv.FormatBool(v)
+					default:
+						return fmt.Sprintf("%v", v)
+					}
 				}
 			}
 			return ""
@@ -322,7 +351,7 @@ func (tl *TieredLimiter) Middleware() middleware.Middleware {
 			key := tl.keyFn(r)
 			allowed, remaining, resetTime := tb.Allow(key)
 
-			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(tb.burst))
+			w.Header().Set("X-RateLimit-Limit", tb.burstStr)
 			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(remaining))
 			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(resetTime.Unix(), 10))
 			w.Header().Set("X-RateLimit-Tier", tierName)
@@ -353,18 +382,16 @@ type RateLimitByRoute struct {
 
 // NewRateLimitByRoute creates a new route-based rate limiter
 func NewRateLimitByRoute() *RateLimitByRoute {
-	return &RateLimitByRoute{
-		limiters:      make(map[string]*Limiter),
-		distributed:   make(map[string]*RedisLimiter),
-		slidingWindow: make(map[string]*SlidingWindowLimiter),
-		tiered:        make(map[string]*TieredLimiter),
-	}
+	return &RateLimitByRoute{}
 }
 
 // AddRoute adds a rate limiter for a specific route
 func (rl *RateLimitByRoute) AddRoute(routeID string, cfg Config) {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
+	if rl.limiters == nil {
+		rl.limiters = make(map[string]*Limiter)
+	}
 	rl.limiters[routeID] = NewLimiter(cfg)
 }
 
@@ -372,6 +399,9 @@ func (rl *RateLimitByRoute) AddRoute(routeID string, cfg Config) {
 func (rl *RateLimitByRoute) AddRouteDistributed(routeID string, cfg RedisLimiterConfig) {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
+	if rl.distributed == nil {
+		rl.distributed = make(map[string]*RedisLimiter)
+	}
 	rl.distributed[routeID] = NewRedisLimiter(cfg)
 }
 
@@ -379,6 +409,9 @@ func (rl *RateLimitByRoute) AddRouteDistributed(routeID string, cfg RedisLimiter
 func (rl *RateLimitByRoute) AddRouteSlidingWindow(routeID string, cfg Config) {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
+	if rl.slidingWindow == nil {
+		rl.slidingWindow = make(map[string]*SlidingWindowLimiter)
+	}
 	rl.slidingWindow[routeID] = NewSlidingWindowLimiter(cfg)
 }
 
@@ -386,6 +419,9 @@ func (rl *RateLimitByRoute) AddRouteSlidingWindow(routeID string, cfg Config) {
 func (rl *RateLimitByRoute) AddRouteTiered(routeID string, cfg TieredConfig) {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
+	if rl.tiered == nil {
+		rl.tiered = make(map[string]*TieredLimiter)
+	}
 	rl.tiered[routeID] = NewTieredLimiter(cfg)
 }
 
@@ -488,7 +524,7 @@ func (rl *RateLimitByRoute) Middleware() middleware.Middleware {
 			key := limiter.keyFn(r)
 			allowed, remaining, resetTime := limiter.tb.Allow(key)
 
-			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(limiter.tb.burst))
+			w.Header().Set("X-RateLimit-Limit", limiter.tb.burstStr)
 			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(remaining))
 			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(resetTime.Unix(), 10))
 

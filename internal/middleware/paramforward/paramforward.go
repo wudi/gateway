@@ -137,15 +137,16 @@ type ParamForwardByRoute struct {
 
 // NewParamForwardByRoute creates a new per-route param forwarder manager.
 func NewParamForwardByRoute() *ParamForwardByRoute {
-	return &ParamForwardByRoute{
-		forwarders: make(map[string]*ParamForwarder),
-	}
+	return &ParamForwardByRoute{}
 }
 
 // AddRoute adds a param forwarder for a route.
 func (m *ParamForwardByRoute) AddRoute(routeID string, cfg config.ParamForwardingConfig) {
 	pf := New(cfg)
 	m.mu.Lock()
+	if m.forwarders == nil {
+		m.forwarders = make(map[string]*ParamForwarder)
+	}
 	m.forwarders[routeID] = pf
 	m.mu.Unlock()
 }

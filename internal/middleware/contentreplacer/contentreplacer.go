@@ -179,9 +179,7 @@ type ContentReplacerByRoute struct {
 
 // NewContentReplacerByRoute creates a new per-route content replacer manager.
 func NewContentReplacerByRoute() *ContentReplacerByRoute {
-	return &ContentReplacerByRoute{
-		replacers: make(map[string]*ContentReplacer),
-	}
+	return &ContentReplacerByRoute{}
 }
 
 // AddRoute adds a content replacer for a route.
@@ -191,6 +189,9 @@ func (m *ContentReplacerByRoute) AddRoute(routeID string, cfg config.ContentRepl
 		return err
 	}
 	m.mu.Lock()
+	if m.replacers == nil {
+		m.replacers = make(map[string]*ContentReplacer)
+	}
 	m.replacers[routeID] = cr
 	m.mu.Unlock()
 	return nil

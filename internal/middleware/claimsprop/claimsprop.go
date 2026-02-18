@@ -93,15 +93,16 @@ type ClaimsPropByRoute struct {
 
 // NewClaimsPropByRoute creates a new claims propagation manager.
 func NewClaimsPropByRoute() *ClaimsPropByRoute {
-	return &ClaimsPropByRoute{
-		propagators: make(map[string]*ClaimsPropagator),
-	}
+	return &ClaimsPropByRoute{}
 }
 
 // AddRoute adds a claims propagator for a route.
 func (m *ClaimsPropByRoute) AddRoute(routeID string, cfg config.ClaimsPropagationConfig) {
 	cp := New(cfg)
 	m.mu.Lock()
+	if m.propagators == nil {
+		m.propagators = make(map[string]*ClaimsPropagator)
+	}
 	m.propagators[routeID] = cp
 	m.mu.Unlock()
 }

@@ -15,15 +15,16 @@ type ThrottleByRoute struct {
 
 // NewThrottleByRoute creates a new ThrottleByRoute.
 func NewThrottleByRoute() *ThrottleByRoute {
-	return &ThrottleByRoute{
-		throttlers: make(map[string]*Throttler),
-	}
+	return &ThrottleByRoute{}
 }
 
 // AddRoute creates and stores a throttler for a route.
 func (m *ThrottleByRoute) AddRoute(routeID string, cfg config.ThrottleConfig) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.throttlers == nil {
+		m.throttlers = make(map[string]*Throttler)
+	}
 	m.throttlers[routeID] = NewThrottler(cfg.Rate, cfg.Burst, cfg.MaxWait, cfg.PerIP)
 }
 
@@ -64,15 +65,16 @@ type BandwidthByRoute struct {
 
 // NewBandwidthByRoute creates a new BandwidthByRoute.
 func NewBandwidthByRoute() *BandwidthByRoute {
-	return &BandwidthByRoute{
-		limiters: make(map[string]*BandwidthLimiter),
-	}
+	return &BandwidthByRoute{}
 }
 
 // AddRoute creates and stores a bandwidth limiter for a route.
 func (m *BandwidthByRoute) AddRoute(routeID string, cfg config.BandwidthConfig) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.limiters == nil {
+		m.limiters = make(map[string]*BandwidthLimiter)
+	}
 	m.limiters[routeID] = NewBandwidthLimiter(cfg.RequestRate, cfg.ResponseRate, cfg.RequestBurst, cfg.ResponseBurst)
 }
 
@@ -113,15 +115,16 @@ type PriorityByRoute struct {
 
 // NewPriorityByRoute creates a new PriorityByRoute.
 func NewPriorityByRoute() *PriorityByRoute {
-	return &PriorityByRoute{
-		configs: make(map[string]config.PriorityConfig),
-	}
+	return &PriorityByRoute{}
 }
 
 // AddRoute stores a priority config for a route.
 func (m *PriorityByRoute) AddRoute(routeID string, cfg config.PriorityConfig) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.configs == nil {
+		m.configs = make(map[string]config.PriorityConfig)
+	}
 	m.configs[routeID] = cfg
 }
 
@@ -200,15 +203,16 @@ type FaultInjectionByRoute struct {
 
 // NewFaultInjectionByRoute creates a new FaultInjectionByRoute.
 func NewFaultInjectionByRoute() *FaultInjectionByRoute {
-	return &FaultInjectionByRoute{
-		injectors: make(map[string]*FaultInjector),
-	}
+	return &FaultInjectionByRoute{}
 }
 
 // AddRoute creates and stores a fault injector for a route.
 func (m *FaultInjectionByRoute) AddRoute(routeID string, cfg config.FaultInjectionConfig) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.injectors == nil {
+		m.injectors = make(map[string]*FaultInjector)
+	}
 	m.injectors[routeID] = NewFaultInjector(cfg)
 }
 

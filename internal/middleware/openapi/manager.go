@@ -28,10 +28,7 @@ type OpenAPIByRoute struct {
 
 // NewOpenAPIByRoute creates a new per-route OpenAPI manager.
 func NewOpenAPIByRoute() *OpenAPIByRoute {
-	return &OpenAPIByRoute{
-		validators: make(map[string]*CompiledOpenAPI),
-		specCache:  make(map[string]*openapi3.T),
-	}
+	return &OpenAPIByRoute{}
 }
 
 // AddRoute adds an OpenAPI validator for a route.
@@ -62,6 +59,9 @@ func (m *OpenAPIByRoute) AddRoute(routeID string, cfg config.OpenAPIRouteConfig)
 	}
 
 	m.mu.Lock()
+	if m.validators == nil {
+		m.validators = make(map[string]*CompiledOpenAPI)
+	}
 	m.validators[routeID] = compiled
 	m.mu.Unlock()
 	return nil
@@ -76,6 +76,9 @@ func (m *OpenAPIByRoute) AddRouteWithDoc(routeID, path, method string, doc *open
 	}
 
 	m.mu.Lock()
+	if m.validators == nil {
+		m.validators = make(map[string]*CompiledOpenAPI)
+	}
 	m.validators[routeID] = compiled
 	m.mu.Unlock()
 	return nil
@@ -130,6 +133,9 @@ func (m *OpenAPIByRoute) loadSpec(file string) (*openapi3.T, error) {
 	}
 
 	m.mu.Lock()
+	if m.specCache == nil {
+		m.specCache = make(map[string]*openapi3.T)
+	}
 	m.specCache[file] = doc
 	m.mu.Unlock()
 

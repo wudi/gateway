@@ -23,15 +23,16 @@ type TimeoutByRoute struct {
 
 // NewTimeoutByRoute creates a new timeout manager.
 func NewTimeoutByRoute() *TimeoutByRoute {
-	return &TimeoutByRoute{
-		timeouts: make(map[string]*CompiledTimeout),
-	}
+	return &TimeoutByRoute{}
 }
 
 // AddRoute registers a compiled timeout for the given route.
 func (m *TimeoutByRoute) AddRoute(routeID string, cfg config.TimeoutConfig) {
 	ct := New(cfg)
 	m.mu.Lock()
+	if m.timeouts == nil {
+		m.timeouts = make(map[string]*CompiledTimeout)
+	}
 	m.timeouts[routeID] = ct
 	m.mu.Unlock()
 }

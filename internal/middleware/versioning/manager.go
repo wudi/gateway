@@ -14,9 +14,7 @@ type VersioningByRoute struct {
 
 // NewVersioningByRoute creates a new manager.
 func NewVersioningByRoute() *VersioningByRoute {
-	return &VersioningByRoute{
-		versioners: make(map[string]*Versioner),
-	}
+	return &VersioningByRoute{}
 }
 
 // AddRoute adds a versioner for the given route.
@@ -26,6 +24,9 @@ func (m *VersioningByRoute) AddRoute(routeID string, cfg config.VersioningConfig
 		return err
 	}
 	m.mu.Lock()
+	if m.versioners == nil {
+		m.versioners = make(map[string]*Versioner)
+	}
 	m.versioners[routeID] = v
 	m.mu.Unlock()
 	return nil

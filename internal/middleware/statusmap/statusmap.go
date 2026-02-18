@@ -97,15 +97,16 @@ type StatusMapByRoute struct {
 
 // NewStatusMapByRoute creates a new per-route status map manager.
 func NewStatusMapByRoute() *StatusMapByRoute {
-	return &StatusMapByRoute{
-		mappers: make(map[string]*StatusMapper),
-	}
+	return &StatusMapByRoute{}
 }
 
 // AddRoute adds a status mapper for a route.
 func (m *StatusMapByRoute) AddRoute(routeID string, mappings map[int]int) {
 	sm := New(routeID, mappings)
 	m.mu.Lock()
+	if m.mappers == nil {
+		m.mappers = make(map[string]*StatusMapper)
+	}
 	m.mappers[routeID] = sm
 	m.mu.Unlock()
 }

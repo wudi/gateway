@@ -26,10 +26,7 @@ type AccessLogByRoute struct {
 
 // NewAccessLogByRoute creates a new AccessLogByRoute.
 func NewAccessLogByRoute() *AccessLogByRoute {
-	return &AccessLogByRoute{
-		configs: make(map[string]*CompiledAccessLog),
-		raw:     make(map[string]config.AccessLogConfig),
-	}
+	return &AccessLogByRoute{}
 }
 
 // AddRoute compiles and stores an access log config for the given route.
@@ -39,6 +36,10 @@ func (m *AccessLogByRoute) AddRoute(routeID string, cfg config.AccessLogConfig) 
 		return err
 	}
 	m.mu.Lock()
+	if m.configs == nil {
+		m.configs = make(map[string]*CompiledAccessLog)
+		m.raw = make(map[string]config.AccessLogConfig)
+	}
 	m.configs[routeID] = compiled
 	m.raw[routeID] = cfg
 	m.mu.Unlock()

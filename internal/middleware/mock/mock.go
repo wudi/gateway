@@ -59,14 +59,15 @@ type MockByRoute struct {
 
 // NewMockByRoute creates a new per-route mock handler manager.
 func NewMockByRoute() *MockByRoute {
-	return &MockByRoute{
-		handlers: make(map[string]*MockHandler),
-	}
+	return &MockByRoute{}
 }
 
 // AddRoute adds a mock handler for a route.
 func (m *MockByRoute) AddRoute(routeID string, cfg config.MockResponseConfig) {
 	m.mu.Lock()
+	if m.handlers == nil {
+		m.handlers = make(map[string]*MockHandler)
+	}
 	m.handlers[routeID] = New(cfg)
 	m.mu.Unlock()
 }

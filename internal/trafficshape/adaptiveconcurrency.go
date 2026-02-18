@@ -230,15 +230,16 @@ type AdaptiveConcurrencyByRoute struct {
 
 // NewAdaptiveConcurrencyByRoute creates a new manager.
 func NewAdaptiveConcurrencyByRoute() *AdaptiveConcurrencyByRoute {
-	return &AdaptiveConcurrencyByRoute{
-		limiters: make(map[string]*AdaptiveLimiter),
-	}
+	return &AdaptiveConcurrencyByRoute{}
 }
 
 // AddRoute creates and stores an adaptive limiter for a route.
 func (m *AdaptiveConcurrencyByRoute) AddRoute(routeID string, cfg config.AdaptiveConcurrencyConfig) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.limiters == nil {
+		m.limiters = make(map[string]*AdaptiveLimiter)
+	}
 	m.limiters[routeID] = NewAdaptiveLimiter(cfg)
 }
 

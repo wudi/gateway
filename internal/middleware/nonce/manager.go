@@ -16,9 +16,7 @@ type NonceByRoute struct {
 
 // NewNonceByRoute creates a new NonceByRoute manager.
 func NewNonceByRoute() *NonceByRoute {
-	return &NonceByRoute{
-		checkers: make(map[string]*NonceChecker),
-	}
+	return &NonceByRoute{}
 }
 
 // AddRoute creates and registers a nonce checker for the given route.
@@ -41,6 +39,9 @@ func (m *NonceByRoute) AddRoute(routeID string, cfg config.NonceConfig, redisCli
 	nc := New(routeID, cfg, store)
 
 	m.mu.Lock()
+	if m.checkers == nil {
+		m.checkers = make(map[string]*NonceChecker)
+	}
 	if old, exists := m.checkers[routeID]; exists {
 		old.store.Close()
 	}

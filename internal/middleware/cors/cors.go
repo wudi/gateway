@@ -175,9 +175,7 @@ type CORSByRoute struct {
 
 // NewCORSByRoute creates a new per-route CORS manager
 func NewCORSByRoute() *CORSByRoute {
-	return &CORSByRoute{
-		handlers: make(map[string]*Handler),
-	}
+	return &CORSByRoute{}
 }
 
 // AddRoute adds a CORS handler for a route
@@ -187,6 +185,9 @@ func (m *CORSByRoute) AddRoute(routeID string, cfg config.CORSConfig) error {
 		return err
 	}
 	m.mu.Lock()
+	if m.handlers == nil {
+		m.handlers = make(map[string]*Handler)
+	}
 	m.handlers[routeID] = h
 	m.mu.Unlock()
 	return nil

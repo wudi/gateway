@@ -146,14 +146,15 @@ type SpikeArrestByRoute struct {
 
 // NewSpikeArrestByRoute creates a new per-route spike arrest manager.
 func NewSpikeArrestByRoute() *SpikeArrestByRoute {
-	return &SpikeArrestByRoute{
-		arresters: make(map[string]*SpikeArrester),
-	}
+	return &SpikeArrestByRoute{}
 }
 
 // AddRoute adds a spike arrester for a route.
 func (m *SpikeArrestByRoute) AddRoute(routeID string, cfg config.SpikeArrestConfig) {
 	m.mu.Lock()
+	if m.arresters == nil {
+		m.arresters = make(map[string]*SpikeArrester)
+	}
 	m.arresters[routeID] = New(cfg)
 	m.mu.Unlock()
 }

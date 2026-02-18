@@ -238,15 +238,16 @@ type CoalesceByRoute struct {
 
 // NewCoalesceByRoute creates a new CoalesceByRoute manager.
 func NewCoalesceByRoute() *CoalesceByRoute {
-	return &CoalesceByRoute{
-		coalescers: make(map[string]*Coalescer),
-	}
+	return &CoalesceByRoute{}
 }
 
 // AddRoute adds a Coalescer for the given route.
 func (m *CoalesceByRoute) AddRoute(routeID string, cfg config.CoalesceConfig) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.coalescers == nil {
+		m.coalescers = make(map[string]*Coalescer)
+	}
 	m.coalescers[routeID] = New(cfg)
 }
 

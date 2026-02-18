@@ -305,9 +305,7 @@ type NegotiatorByRoute struct {
 
 // NewNegotiatorByRoute creates a new per-route negotiator manager.
 func NewNegotiatorByRoute() *NegotiatorByRoute {
-	return &NegotiatorByRoute{
-		negotiators: make(map[string]*Negotiator),
-	}
+	return &NegotiatorByRoute{}
 }
 
 // AddRoute adds a negotiator for a route.
@@ -317,6 +315,9 @@ func (m *NegotiatorByRoute) AddRoute(routeID string, cfg config.ContentNegotiati
 		return err
 	}
 	m.mu.Lock()
+	if m.negotiators == nil {
+		m.negotiators = make(map[string]*Negotiator)
+	}
 	m.negotiators[routeID] = n
 	m.mu.Unlock()
 	return nil

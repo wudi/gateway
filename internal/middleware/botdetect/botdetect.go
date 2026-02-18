@@ -107,9 +107,7 @@ type BotDetectByRoute struct {
 
 // NewBotDetectByRoute creates a new per-route bot detection manager.
 func NewBotDetectByRoute() *BotDetectByRoute {
-	return &BotDetectByRoute{
-		detectors: make(map[string]*BotDetector),
-	}
+	return &BotDetectByRoute{}
 }
 
 // AddRoute adds a bot detector for a route.
@@ -119,6 +117,9 @@ func (m *BotDetectByRoute) AddRoute(routeID string, cfg config.BotDetectionConfi
 		return err
 	}
 	m.mu.Lock()
+	if m.detectors == nil {
+		m.detectors = make(map[string]*BotDetector)
+	}
 	m.detectors[routeID] = bd
 	m.mu.Unlock()
 	return nil
