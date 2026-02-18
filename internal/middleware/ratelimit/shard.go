@@ -1,7 +1,6 @@
 package ratelimit
 
 import (
-	"hash/fnv"
 	"sync"
 )
 
@@ -27,9 +26,13 @@ func newShardedMap[V any]() *shardedMap[V] {
 }
 
 func (m *shardedMap[V]) getShard(key string) *shard[V] {
-	h := fnv.New32a()
-	h.Write([]byte(key))
-	return &m.shards[h.Sum32()%numShards]
+	// Inline FNV-1a to avoid allocating a hasher + []byte(key) per call.
+	h := uint32(2166136261)
+	for i := 0; i < len(key); i++ {
+		h ^= uint32(key[i])
+		h *= 16777619
+	}
+	return &m.shards[h%numShards]
 }
 
 // getOrCreate returns the value for key, creating it with init if absent.

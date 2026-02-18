@@ -63,6 +63,7 @@ func NewLeastResponseTime(backends []*Backend) *LeastResponseTime {
 		lrt.latencies[b.URL] = newEWMA(lrt.alpha)
 	}
 	lrt.backends = backends
+	lrt.buildIndex()
 	return lrt
 }
 

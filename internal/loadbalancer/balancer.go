@@ -50,7 +50,16 @@ type Balancer interface {
 // baseBalancer provides common functionality for balancers
 type baseBalancer struct {
 	backends []*Backend
+	urlIndex map[string]int // URL → index in backends for O(1) health mark
 	mu       sync.RWMutex
+}
+
+// buildIndex rebuilds the URL→index map from the current backends slice.
+func (b *baseBalancer) buildIndex() {
+	b.urlIndex = make(map[string]int, len(b.backends))
+	for i, backend := range b.backends {
+		b.urlIndex[backend.URL] = i
+	}
 }
 
 // UpdateBackends updates the list of backends
@@ -58,21 +67,23 @@ func (b *baseBalancer) UpdateBackends(backends []*Backend) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// Preserve health status for existing backends
-	healthStatus := make(map[string]bool)
-	for _, backend := range b.backends {
-		healthStatus[backend.URL] = backend.Healthy
-	}
-
-	b.backends = backends
-	for _, backend := range b.backends {
-		if healthy, exists := healthStatus[backend.URL]; exists {
-			backend.Healthy = healthy
-		} else {
-			// New backends start as healthy
+	// Preserve health status for existing backends (reuse old index for O(1) lookup)
+	if b.urlIndex != nil {
+		for _, backend := range backends {
+			if idx, ok := b.urlIndex[backend.URL]; ok {
+				backend.Healthy = b.backends[idx].Healthy
+			} else {
+				backend.Healthy = true
+			}
+		}
+	} else {
+		for _, backend := range backends {
 			backend.Healthy = true
 		}
 	}
+
+	b.backends = backends
+	b.buildIndex()
 }
 
 // MarkHealthy marks a backend as healthy
@@ -80,11 +91,8 @@ func (b *baseBalancer) MarkHealthy(url string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	for _, backend := range b.backends {
-		if backend.URL == url {
-			backend.Healthy = true
-			return
-		}
+	if idx, ok := b.urlIndex[url]; ok {
+		b.backends[idx].Healthy = true
 	}
 }
 
@@ -93,11 +101,8 @@ func (b *baseBalancer) MarkUnhealthy(url string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	for _, backend := range b.backends {
-		if backend.URL == url {
-			backend.Healthy = false
-			return
-		}
+	if idx, ok := b.urlIndex[url]; ok {
+		b.backends[idx].Healthy = false
 	}
 }
 
@@ -138,13 +143,20 @@ type RequestAwareBalancer interface {
 	NextForHTTPRequest(r *http.Request) (*Backend, string)
 }
 
-// healthyBackends returns a slice of healthy backends (caller must hold lock)
+// healthyBackends returns a slice of healthy backends (caller must hold lock).
+// Returns the backends slice directly when all are healthy (zero allocations).
 func (b *baseBalancer) healthyBackends() []*Backend {
-	healthy := make([]*Backend, 0, len(b.backends))
 	for _, backend := range b.backends {
-		if backend.Healthy {
-			healthy = append(healthy, backend)
+		if !backend.Healthy {
+			// At least one unhealthy: allocate filtered slice.
+			healthy := make([]*Backend, 0, len(b.backends))
+			for _, be := range b.backends {
+				if be.Healthy {
+					healthy = append(healthy, be)
+				}
+			}
+			return healthy
 		}
 	}
-	return healthy
+	return b.backends
 }

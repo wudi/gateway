@@ -19,6 +19,7 @@ func NewLeastConnections(backends []*Backend) *LeastConnections {
 		}
 	}
 	lc.backends = backends
+	lc.buildIndex()
 	return lc
 }
 

@@ -25,6 +25,7 @@ func NewRoundRobin(backends []*Backend) *RoundRobin {
 	}
 
 	rr.backends = backends
+	rr.buildIndex()
 	return rr
 }
 
@@ -66,6 +67,7 @@ func NewWeightedRoundRobin(backends []*Backend) *WeightedRoundRobin {
 	}
 
 	wrr.backends = backends
+	wrr.buildIndex()
 	wrr.calculateGCD()
 	return wrr
 }

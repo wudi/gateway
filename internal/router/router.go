@@ -72,10 +72,18 @@ var matchPool = sync.Pool{
 	New: func() any { return &Match{} },
 }
 
+var pathParamsPool = sync.Pool{
+	New: func() any { return make(map[string]string, 4) },
+}
+
 // ReleaseMatch returns m to the pool. The caller must not read m after this call.
 func ReleaseMatch(m *Match) {
 	if m == nil {
 		return
+	}
+	if m.PathParams != nil {
+		clear(m.PathParams)
+		pathParamsPool.Put(m.PathParams)
 	}
 	m.Route = nil
 	m.PathParams = nil
@@ -100,7 +108,7 @@ func (rg *RouteGroup) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	params := httprouter.ParamsFromContext(r.Context())
 	var pathParams map[string]string
 	if len(params) > 0 {
-		pathParams = make(map[string]string, len(params))
+		pathParams = pathParamsPool.Get().(map[string]string)
 		for _, p := range params {
 			pathParams[p.Key] = p.Value
 		}

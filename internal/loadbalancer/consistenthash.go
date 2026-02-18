@@ -42,6 +42,7 @@ func NewConsistentHash(backends []*Backend, cfg config.ConsistentHashConfig) *Co
 		}
 	}
 	ch.backends = backends
+	ch.buildIndex()
 	ch.rebuildRing()
 	return ch
 }

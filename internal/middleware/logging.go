@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/wudi/gateway/internal/logging"
@@ -11,6 +12,10 @@ import (
 	"github.com/wudi/gateway/internal/variables"
 	"go.uber.org/zap"
 )
+
+var loggingRWPool = sync.Pool{
+	New: func() any { return &loggingResponseWriter{} },
+}
 
 // LoggingConfig configures the logging middleware
 type LoggingConfig struct {
@@ -76,10 +81,10 @@ func LoggingWithConfig(cfg LoggingConfig) Middleware {
 			start := time.Now()
 
 			// Wrap response writer to capture status and bytes
-			lrw := &loggingResponseWriter{
-				ResponseWriter: w,
-				status:         http.StatusOK,
-			}
+			lrw := loggingRWPool.Get().(*loggingResponseWriter)
+			lrw.ResponseWriter = w
+			lrw.status = http.StatusOK
+			lrw.bytes = 0
 
 			// Process request
 			next.ServeHTTP(lrw, r)
@@ -116,57 +121,60 @@ func LoggingWithConfig(cfg LoggingConfig) Middleware {
 			}
 
 			if cfg.JSON {
-				fields := []zap.Field{
-					zap.String("request_id", varCtx.RequestID),
-					zap.String("remote_addr", variables.ExtractClientIP(r)),
-					zap.String("method", r.Method),
-					zap.String("path", r.URL.Path),
-					zap.Int("status", lrw.status),
-					zap.Int64("body_bytes", lrw.bytes),
-					zap.Duration("response_time", duration),
-				}
+				// Stack-allocated array avoids slice growth allocations.
+				var fields [16]zap.Field
+				n := 0
+				fields[n] = zap.String("request_id", varCtx.RequestID); n++
+				fields[n] = zap.String("remote_addr", variables.ExtractClientIP(r)); n++
+				fields[n] = zap.String("method", r.Method); n++
+				fields[n] = zap.String("path", r.URL.Path); n++
+				fields[n] = zap.Int("status", lrw.status); n++
+				fields[n] = zap.Int64("body_bytes", lrw.bytes); n++
+				fields[n] = zap.Duration("response_time", duration); n++
 				if r.URL.RawQuery != "" {
-					fields = append(fields, zap.String("query", r.URL.RawQuery))
+					fields[n] = zap.String("query", r.URL.RawQuery); n++
 				}
 				if varCtx.RouteID != "" {
-					fields = append(fields, zap.String("route_id", varCtx.RouteID))
+					fields[n] = zap.String("route_id", varCtx.RouteID); n++
 				}
 				if varCtx.UpstreamAddr != "" {
-					fields = append(fields, zap.String("upstream_addr", varCtx.UpstreamAddr))
+					fields[n] = zap.String("upstream_addr", varCtx.UpstreamAddr); n++
 				}
 				if varCtx.Identity != nil {
-					fields = append(fields, zap.String("auth_client_id", varCtx.Identity.ClientID))
+					fields[n] = zap.String("auth_client_id", varCtx.Identity.ClientID); n++
 				}
 				if ua := r.UserAgent(); ua != "" {
-					fields = append(fields, zap.String("user_agent", ua))
+					fields[n] = zap.String("user_agent", ua); n++
 				}
 
-				// Per-route header capture
+				// Per-route header/body capture may exceed the fixed array; use append for overflow.
+				extra := fields[:n]
 				if alCfg != nil && alCfg.HasHeaderCapture() {
 					reqHeaders := alCfg.CaptureRequestHeaders(r)
 					if len(reqHeaders) > 0 {
-						fields = append(fields, zap.Any("request_headers", reqHeaders))
+						extra = append(extra, zap.Any("request_headers", reqHeaders))
 					}
 					respHeaders := alCfg.CaptureResponseHeaders(lrw.Header())
 					if len(respHeaders) > 0 {
-						fields = append(fields, zap.Any("response_headers", respHeaders))
+						extra = append(extra, zap.Any("response_headers", respHeaders))
 					}
 				}
-
-				// Per-route body capture
 				if reqBody, ok := varCtx.Custom["_al_req_body"]; ok && reqBody != "" {
-					fields = append(fields, zap.String("request_body", reqBody))
+					extra = append(extra, zap.String("request_body", reqBody))
 				}
 				if respBody, ok := varCtx.Custom["_al_resp_body"]; ok && respBody != "" {
-					fields = append(fields, zap.String("response_body", respBody))
+					extra = append(extra, zap.String("response_body", respBody))
 				}
 
-				logging.Info("HTTP request", fields...)
+				logging.Info("HTTP request", extra...)
 			} else {
 				// Use format string with variable interpolation
 				logLine := resolver.Resolve(format, varCtx)
 				logging.Info(logLine)
 			}
+
+			lrw.ResponseWriter = nil
+			loggingRWPool.Put(lrw)
 		})
 	}
 }

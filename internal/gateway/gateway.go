@@ -93,6 +93,11 @@ import (
 
 // Gateway is the main API gateway
 type Gateway struct {
+	// Hot path — read on every request via serveHTTP (own cache line)
+	routeHandlers atomic.Pointer[map[string]http.Handler]
+	routeProxies  atomic.Pointer[map[string]*proxy.RouteProxy]
+	_pad          [64 - 2*8]byte // prevent false sharing with cold fields below
+
 	config        *config.Config
 	router        *router.Router
 	proxy         *proxy.Proxy
@@ -185,10 +190,8 @@ type Gateway struct {
 
 	redisClient *redis.Client // shared Redis client for distributed features
 
-	routeProxies  atomic.Pointer[map[string]*proxy.RouteProxy]
-	routeHandlers atomic.Pointer[map[string]http.Handler]
-	watchCancels  map[string]context.CancelFunc
-	mu            sync.RWMutex
+	watchCancels map[string]context.CancelFunc
+	mu           sync.RWMutex // cold: only held during route add/reload
 }
 
 // storeRouteProxy atomically stores a route proxy using copy-on-write.

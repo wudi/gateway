@@ -12,18 +12,19 @@ import (
 // DefaultBuckets are default histogram buckets in seconds
 var DefaultBuckets = []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0}
 
-// statusCodeStrings caches string representations of common HTTP status codes
-// to avoid per-request strconv.Itoa allocations.
-var statusCodeStrings = map[int]string{
-	200: "200", 201: "201", 204: "204",
-	301: "301", 302: "302", 304: "304",
-	400: "400", 401: "401", 403: "403", 404: "404", 405: "405", 408: "408", 429: "429",
-	500: "500", 502: "502", 503: "503", 504: "504",
+// statusCodeStrings caches string representations of all standard HTTP status codes
+// (100-599) to avoid per-request strconv.Itoa allocations. Array lookup is faster than map.
+var statusCodeStrings [600]string
+
+func init() {
+	for i := 100; i < 600; i++ {
+		statusCodeStrings[i] = strconv.Itoa(i)
+	}
 }
 
 func statusCodeString(code int) string {
-	if s, ok := statusCodeStrings[code]; ok {
-		return s
+	if code >= 100 && code < 600 {
+		return statusCodeStrings[code]
 	}
 	return strconv.Itoa(code)
 }
