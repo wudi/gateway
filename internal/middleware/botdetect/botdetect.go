@@ -88,13 +88,7 @@ func (bd *BotDetector) Middleware() middleware.Middleware {
 
 // MergeBotDetectionConfig merges per-route config with global, preferring per-route when set.
 func MergeBotDetectionConfig(route, global config.BotDetectionConfig) config.BotDetectionConfig {
-	merged := global
-	if len(route.Deny) > 0 {
-		merged.Deny = route.Deny
-	}
-	if len(route.Allow) > 0 {
-		merged.Allow = route.Allow
-	}
+	merged := config.MergeNonZero(global, route)
 	merged.Enabled = true
 	return merged
 }

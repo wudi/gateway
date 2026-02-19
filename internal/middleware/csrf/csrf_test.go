@@ -430,11 +430,12 @@ func TestMergeCSRFConfig(t *testing.T) {
 	if merged.TokenTTL != 30*time.Minute {
 		t.Errorf("expected per-route TTL, got %v", merged.TokenTTL)
 	}
-	if !merged.CookieSecure {
-		t.Error("expected global CookieSecure to persist")
+	// MergeNonZero always takes bools from overlay: per-route false overrides global true
+	if merged.CookieSecure {
+		t.Error("expected per-route CookieSecure=false to override global")
 	}
-	if !merged.InjectToken {
-		t.Error("expected global InjectToken to persist")
+	if merged.InjectToken {
+		t.Error("expected per-route InjectToken=false to override global")
 	}
 }
 

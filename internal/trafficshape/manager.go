@@ -81,50 +81,21 @@ func (m *PriorityByRoute) GetConfig(routeID string) (config.PriorityConfig, bool
 
 // MergeThrottleConfig merges a route-level throttle config with the global config as fallback.
 func MergeThrottleConfig(route, global config.ThrottleConfig) config.ThrottleConfig {
-	if route.Rate == 0 {
-		route.Rate = global.Rate
+	merged := config.MergeNonZero(global, route)
+	if merged.MaxWait == 0 {
+		merged.MaxWait = 30 * time.Second
 	}
-	if route.Burst == 0 {
-		route.Burst = global.Burst
-	}
-	if route.MaxWait == 0 {
-		route.MaxWait = global.MaxWait
-	}
-	if route.MaxWait == 0 {
-		route.MaxWait = 30 * time.Second
-	}
-	return route
+	return merged
 }
 
 // MergeBandwidthConfig merges a route-level bandwidth config with the global config as fallback.
 func MergeBandwidthConfig(route, global config.BandwidthConfig) config.BandwidthConfig {
-	if route.RequestRate == 0 {
-		route.RequestRate = global.RequestRate
-	}
-	if route.ResponseRate == 0 {
-		route.ResponseRate = global.ResponseRate
-	}
-	if route.RequestBurst == 0 {
-		route.RequestBurst = global.RequestBurst
-	}
-	if route.ResponseBurst == 0 {
-		route.ResponseBurst = global.ResponseBurst
-	}
-	return route
+	return config.MergeNonZero(global, route)
 }
 
 // MergePriorityConfig merges a route-level priority config with the global config as fallback.
 func MergePriorityConfig(route, global config.PriorityConfig) config.PriorityConfig {
-	if route.DefaultLevel == 0 {
-		route.DefaultLevel = global.DefaultLevel
-	}
-	if len(route.Levels) == 0 {
-		route.Levels = global.Levels
-	}
-	if route.MaxWait == 0 {
-		route.MaxWait = global.MaxWait
-	}
-	return route
+	return config.MergeNonZero(global, route)
 }
 
 // FaultInjectionByRoute manages per-route fault injectors.

@@ -322,33 +322,5 @@ func ReplayResponse(w http.ResponseWriter, resp *StoredResponse) {
 
 // MergeIdempotencyConfig merges per-route overrides onto global config.
 func MergeIdempotencyConfig(perRoute, global config.IdempotencyConfig) config.IdempotencyConfig {
-	merged := global
-	merged.Enabled = perRoute.Enabled
-
-	if perRoute.HeaderName != "" {
-		merged.HeaderName = perRoute.HeaderName
-	}
-	if perRoute.TTL > 0 {
-		merged.TTL = perRoute.TTL
-	}
-	if len(perRoute.Methods) > 0 {
-		merged.Methods = perRoute.Methods
-	}
-	if perRoute.Enforce {
-		merged.Enforce = perRoute.Enforce
-	}
-	if perRoute.KeyScope != "" {
-		merged.KeyScope = perRoute.KeyScope
-	}
-	if perRoute.Mode != "" {
-		merged.Mode = perRoute.Mode
-	}
-	if perRoute.MaxKeyLength > 0 {
-		merged.MaxKeyLength = perRoute.MaxKeyLength
-	}
-	if perRoute.MaxBodySize > 0 {
-		merged.MaxBodySize = perRoute.MaxBodySize
-	}
-
-	return merged
+	return config.MergeNonZero(global, perRoute)
 }

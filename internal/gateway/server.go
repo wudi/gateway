@@ -450,21 +450,15 @@ func (s *Server) adminHandler() http.Handler {
 		mux.HandleFunc(metricsPath, s.handleMetrics)
 	}
 
-	// Custom admin endpoints (non-boilerplate)
-	mux.HandleFunc("/retries", s.handleRetries)
+	// Custom admin endpoints (non-boilerplate; simple stats auto-registered via features above)
 	mux.HandleFunc("/rules", s.handleRules)
-	mux.HandleFunc("/protocol-translators", s.handleProtocolTranslators)
 	mux.HandleFunc("/traffic-shaping", s.handleTrafficShaping)
-	mux.HandleFunc("/traffic-splits", s.handleTrafficSplits)
-	mux.HandleFunc("/tracing", s.handleTracing)
 	mux.HandleFunc("/rate-limits", s.handleRateLimits)
 	mux.HandleFunc("/reload", s.handleReload)
-	mux.HandleFunc("/reload/status", s.handleReloadStatus)
-	mux.HandleFunc("/load-balancers", s.handleLoadBalancers)
+	mux.HandleFunc("/reload/status", jsonStatsHandler(func() any { return s.reloadHistory }))
+	mux.HandleFunc("/load-balancers", jsonStatsHandler(func() any { return s.gateway.GetLoadBalancerInfo() }))
 	mux.HandleFunc("/maintenance/", s.handleMaintenanceAction)
-	mux.HandleFunc("/trusted-proxies", s.handleTrustedProxies)
 	mux.HandleFunc("/drain", s.handleDrain)
-	mux.HandleFunc("/webhooks", s.handleWebhooks)
 	mux.HandleFunc("/transport", s.handleTransport)
 	mux.HandleFunc("/upstreams", s.handleUpstreams)
 	mux.HandleFunc("/canary/", s.handleCanaryAction)
@@ -472,8 +466,6 @@ func (s *Server) adminHandler() http.Handler {
 	mux.HandleFunc("/allowed-hosts", s.handleAllowedHosts)
 	mux.HandleFunc("/token-revocation", s.handleTokenRevocation)
 	mux.HandleFunc("/token-revocation/", s.handleTokenRevocationAction)
-	mux.HandleFunc("/service-rate-limit", s.handleServiceRateLimit)
-	mux.HandleFunc("/follow-redirects", s.handleFollowRedirects)
 	mux.HandleFunc("/dashboard", s.handleDashboard)
 	if s.gateway.GetAPIKeyAuth() != nil {
 		mux.HandleFunc("/admin/keys", s.handleAdminKeys)
@@ -771,18 +763,6 @@ func (s *Server) handleListeners(w http.ResponseWriter, r *http.Request) {
 }
 
 
-// handleRetries handles retry metrics requests
-func (s *Server) handleRetries(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	metrics := s.gateway.GetRetryMetrics()
-	result := make(map[string]interface{}, len(metrics))
-	for routeID, m := range metrics {
-		result[routeID] = m.Snapshot()
-	}
-	json.NewEncoder(w).Encode(result)
-}
-
 // handleRules handles rules engine status requests
 func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -842,13 +822,6 @@ func (s *Server) handleTrafficShaping(w http.ResponseWriter, r *http.Request) {
 }
 
 
-// handleTrafficSplits handles traffic split / A/B testing stats requests
-func (s *Server) handleTrafficSplits(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	stats := s.gateway.GetTrafficSplitStats()
-	json.NewEncoder(w).Encode(stats)
-}
-
 // handleRateLimits handles rate limiter status requests
 func (s *Server) handleRateLimits(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -870,17 +843,6 @@ func (s *Server) handleRateLimits(w http.ResponseWriter, r *http.Request) {
 		result[id] = info
 	}
 	json.NewEncoder(w).Encode(result)
-}
-
-// handleTracing handles tracing status requests
-func (s *Server) handleTracing(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	tracer := s.gateway.GetTracer()
-	if tracer != nil {
-		json.NewEncoder(w).Encode(tracer.Status())
-	} else {
-		json.NewEncoder(w).Encode(map[string]interface{}{"enabled": false})
-	}
 }
 
 // handleDashboard returns aggregated stats from all feature managers
@@ -923,41 +885,14 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Non-feature stats
-	retryMetrics := s.gateway.GetRetryMetrics()
-	if len(retryMetrics) > 0 {
-		retries := make(map[string]interface{}, len(retryMetrics))
-		for id, m := range retryMetrics {
-			retries[id] = m.Snapshot()
-		}
-		dashboard["retries"] = retries
-	}
-	if splits := s.gateway.GetTrafficSplitStats(); len(splits) > 0 {
-		dashboard["traffic_splits"] = splits
-	}
-	if ext := s.gateway.GetRealIPExtractor(); ext != nil {
-		dashboard["trusted_proxies"] = ext.Stats()
-	}
-	if d := s.gateway.GetWebhookDispatcher(); d != nil {
-		dashboard["webhooks"] = d.Stats()
-	}
+	// Managers not registered as Features
 	if upstreams := s.gateway.GetUpstreams(); len(upstreams) > 0 {
 		dashboard["upstreams"] = upstreams
 	}
-	if sl := s.gateway.GetServiceLimiter(); sl != nil {
-		dashboard["service_rate_limit"] = sl.Stats()
-	}
-	if dh := s.gateway.GetDebugHandler(); dh != nil {
+	if dh := s.gateway.debugHandler; dh != nil {
 		dashboard["debug_endpoint"] = dh.Stats()
 	}
-	if frStats := s.gateway.GetFollowRedirectStats(); len(frStats) > 0 {
-		dashboard["follow_redirects"] = frStats
-	}
-	pool := s.gateway.GetTransportPool()
-	dashboard["transport"] = pool.DefaultConfig()
-	if tracer := s.gateway.GetTracer(); tracer != nil {
-		dashboard["tracing"] = tracer.Status()
-	}
+	dashboard["transport"] = s.gateway.GetTransportPool().DefaultConfig()
 
 	// TCP/UDP stats
 	if s.tcpProxy != nil {
@@ -979,13 +914,14 @@ func boolStatus(ok bool) string {
 	return "fail"
 }
 
-
-// handleLoadBalancers handles load balancer info requests
-func (s *Server) handleLoadBalancers(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	info := s.gateway.GetLoadBalancerInfo()
-	json.NewEncoder(w).Encode(info)
+// jsonStatsHandler returns an http.HandlerFunc that encodes fn() as JSON.
+func jsonStatsHandler(fn func() any) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(fn())
+	}
 }
+
 
 // handleReload handles config reload requests (POST only).
 func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
@@ -997,20 +933,6 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 	result := s.ReloadConfig()
 	json.NewEncoder(w).Encode(result)
 }
-
-// handleReloadStatus returns the reload history.
-func (s *Server) handleReloadStatus(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.reloadHistory)
-}
-
-// handleProtocolTranslators handles protocol translator stats requests
-func (s *Server) handleProtocolTranslators(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	stats := s.gateway.GetTranslators().Stats()
-	json.NewEncoder(w).Encode(stats)
-}
-
 
 // handleMaintenanceAction handles runtime enable/disable of maintenance mode.
 // POST /maintenance/{routeID}/enable or POST /maintenance/{routeID}/disable
@@ -1055,17 +977,6 @@ func (s *Server) handleMaintenanceAction(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-
-// handleTrustedProxies handles trusted proxies stats requests.
-func (s *Server) handleTrustedProxies(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	extractor := s.gateway.GetRealIPExtractor()
-	if extractor != nil {
-		json.NewEncoder(w).Encode(extractor.Stats())
-	} else {
-		json.NewEncoder(w).Encode(map[string]interface{}{"enabled": false})
-	}
-}
 
 // handleHTTPSRedirect handles HTTPS redirect stats requests.
 func (s *Server) handleHTTPSRedirect(w http.ResponseWriter, r *http.Request) {
@@ -1211,17 +1122,6 @@ func (s *Server) handleDrain(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleWebhooks handles webhook dispatcher stats requests.
-func (s *Server) handleWebhooks(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	d := s.gateway.GetWebhookDispatcher()
-	if d != nil {
-		json.NewEncoder(w).Encode(d.Stats())
-	} else {
-		json.NewEncoder(w).Encode(map[string]interface{}{"enabled": false})
-	}
-}
-
 // handleUpstreams returns configured upstream pools.
 func (s *Server) handleUpstreams(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -1301,23 +1201,6 @@ func (s *Server) handleCanaryAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": actionName, "route": routeID})
-}
-
-
-func (s *Server) handleServiceRateLimit(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	sl := s.gateway.GetServiceLimiter()
-	if sl == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"enabled": false})
-		return
-	}
-	json.NewEncoder(w).Encode(sl.Stats())
-}
-
-
-func (s *Server) handleFollowRedirects(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetFollowRedirectStats())
 }
 
 

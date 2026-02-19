@@ -340,58 +340,6 @@ func (c *CompiledCSRF) setTokenCookie(w http.ResponseWriter) {
 }
 
 // MergeCSRFConfig merges per-route overrides onto global config.
-// Per-route non-zero values override global values.
 func MergeCSRFConfig(perRoute, global config.CSRFConfig) config.CSRFConfig {
-	merged := global
-
-	// Always take per-route enabled state
-	merged.Enabled = perRoute.Enabled
-
-	if perRoute.CookieName != "" {
-		merged.CookieName = perRoute.CookieName
-	}
-	if perRoute.HeaderName != "" {
-		merged.HeaderName = perRoute.HeaderName
-	}
-	if perRoute.Secret != "" {
-		merged.Secret = perRoute.Secret
-	}
-	if perRoute.TokenTTL > 0 {
-		merged.TokenTTL = perRoute.TokenTTL
-	}
-	if len(perRoute.SafeMethods) > 0 {
-		merged.SafeMethods = perRoute.SafeMethods
-	}
-	if len(perRoute.AllowedOrigins) > 0 {
-		merged.AllowedOrigins = perRoute.AllowedOrigins
-	}
-	if len(perRoute.AllowedOriginPatterns) > 0 {
-		merged.AllowedOriginPatterns = perRoute.AllowedOriginPatterns
-	}
-	if perRoute.CookiePath != "" {
-		merged.CookiePath = perRoute.CookiePath
-	}
-	if perRoute.CookieDomain != "" {
-		merged.CookieDomain = perRoute.CookieDomain
-	}
-	if perRoute.CookieSecure {
-		merged.CookieSecure = perRoute.CookieSecure
-	}
-	if perRoute.CookieSameSite != "" {
-		merged.CookieSameSite = perRoute.CookieSameSite
-	}
-	if perRoute.CookieHTTPOnly {
-		merged.CookieHTTPOnly = perRoute.CookieHTTPOnly
-	}
-	if perRoute.InjectToken {
-		merged.InjectToken = perRoute.InjectToken
-	}
-	if perRoute.ShadowMode {
-		merged.ShadowMode = perRoute.ShadowMode
-	}
-	if len(perRoute.ExemptPaths) > 0 {
-		merged.ExemptPaths = perRoute.ExemptPaths
-	}
-
-	return merged
+	return config.MergeNonZero(global, perRoute)
 }

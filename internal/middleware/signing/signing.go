@@ -178,25 +178,7 @@ func (s *CompiledSigner) RouteID() string {
 
 // MergeSigningConfig merges per-route and global configs (per-route non-zero overrides global).
 func MergeSigningConfig(perRoute, global config.BackendSigningConfig) config.BackendSigningConfig {
-	merged := global
-	if perRoute.Algorithm != "" {
-		merged.Algorithm = perRoute.Algorithm
-	}
-	if perRoute.Secret != "" {
-		merged.Secret = perRoute.Secret
-	}
-	if perRoute.KeyID != "" {
-		merged.KeyID = perRoute.KeyID
-	}
-	if len(perRoute.SignedHeaders) > 0 {
-		merged.SignedHeaders = perRoute.SignedHeaders
-	}
-	if perRoute.IncludeBody != nil {
-		merged.IncludeBody = perRoute.IncludeBody
-	}
-	if perRoute.HeaderPrefix != "" {
-		merged.HeaderPrefix = perRoute.HeaderPrefix
-	}
+	merged := config.MergeNonZero(global, perRoute)
 	merged.Enabled = true
 	return merged
 }

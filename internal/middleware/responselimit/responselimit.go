@@ -181,19 +181,8 @@ func (lw *limitWriter) Flush() {
 }
 
 // MergeResponseLimitConfig merges per-route config with global config.
-// Per-route non-zero values override global.
 func MergeResponseLimitConfig(perRoute, global config.ResponseLimitConfig) config.ResponseLimitConfig {
-	merged := global
-	if perRoute.Enabled {
-		merged.Enabled = true
-	}
-	if perRoute.MaxSize > 0 {
-		merged.MaxSize = perRoute.MaxSize
-	}
-	if perRoute.Action != "" {
-		merged.Action = perRoute.Action
-	}
-	return merged
+	return config.MergeNonZero(global, perRoute)
 }
 
 // ResponseLimitByRoute manages response limiters per route.

@@ -248,41 +248,14 @@ func (g *CompiledGeo) Status() GeoSnapshot {
 }
 
 // MergeGeoConfig merges per-route config over global config.
-// Per-route non-zero values override global.
 func MergeGeoConfig(perRoute, global config.GeoConfig) config.GeoConfig {
-	merged := global
-
-	// Always take per-route enabled state
-	merged.Enabled = perRoute.Enabled
-
-	// Database always from global (ignored in per-route)
-
-	if len(perRoute.AllowCountries) > 0 {
-		merged.AllowCountries = perRoute.AllowCountries
-	}
-	if len(perRoute.DenyCountries) > 0 {
-		merged.DenyCountries = perRoute.DenyCountries
-	}
-	if len(perRoute.AllowCities) > 0 {
-		merged.AllowCities = perRoute.AllowCities
-	}
-	if len(perRoute.DenyCities) > 0 {
-		merged.DenyCities = perRoute.DenyCities
-	}
-	if perRoute.Order != "" {
-		merged.Order = perRoute.Order
-	}
-	if perRoute.ShadowMode {
-		merged.ShadowMode = perRoute.ShadowMode
-	}
-	// InjectHeaders: per-route can explicitly disable
-	// Since Go bool defaults to false, we need a way to distinguish "not set" from "set to false"
-	// Convention: if per-route has ANY lists or explicit settings, take its InjectHeaders value
-	if len(perRoute.AllowCountries) > 0 || len(perRoute.DenyCountries) > 0 ||
+	merged := config.MergeNonZero(global, perRoute)
+	// InjectHeaders: only take per-route value if per-route has explicit settings,
+	// otherwise inherit from global (can't distinguish "not set" from "set to false").
+	if !(len(perRoute.AllowCountries) > 0 || len(perRoute.DenyCountries) > 0 ||
 		len(perRoute.AllowCities) > 0 || len(perRoute.DenyCities) > 0 ||
-		perRoute.Order != "" {
-		merged.InjectHeaders = perRoute.InjectHeaders
+		perRoute.Order != "") {
+		merged.InjectHeaders = global.InjectHeaders
 	}
-
 	return merged
 }

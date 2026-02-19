@@ -13,68 +13,160 @@ import (
 	"time"
 )
 
-// validateRoute validates a single route configuration.
+// validateRoute validates a single route configuration by running all
+// per-feature validators in sequence.
 func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
-	routeID := route.ID
-	scope := fmt.Sprintf("route %s", routeID)
+	validators := []func(RouteConfig, *Config) error{
+		l.validateRouteBasics,
+		l.validateEchoExclusions,
+		l.validatePassthroughExclusions,
+		l.validateMockAndStaticFiles,
+		l.validateBackendAuthAndStatusMapping,
+		l.validateSequentialProxy,
+		l.validateAggregateProxy,
+		l.validateSmallRouteFeatures,
+		l.validateRateLimiting,
+		l.validateTrafficControls,
+		l.validateMirrorAndCORS,
+		l.validateResilienceFeatures,
+		l.validateNetworkFeatures,
+		l.validateTransformsAndValidation,
+		l.validateTimeoutPolicy,
+		l.validateHealthCheckRefs,
+		l.validateOutlierDetection,
+		l.validateDelegatedSecurity,
+		l.validateDelegatedMiddleware,
+	}
+	for _, v := range validators {
+		if err := v(route, cfg); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
-	// === Basic requirements ===
-	// Must have either backends, service discovery, versioning, upstream ref, echo, static, sequential, or aggregate
+// --- Route validator helpers ---
+
+func (l *Loader) validateRouteBasics(route RouteConfig, _ *Config) error {
+	routeID := route.ID
 	if len(route.Backends) == 0 && route.Service.Name == "" && !route.Versioning.Enabled && route.Upstream == "" && !route.Echo && !route.Static.Enabled && !route.Sequential.Enabled && !route.Aggregate.Enabled {
 		return fmt.Errorf("route %s: must have either backends, service name, or upstream", routeID)
 	}
-
-	// === Echo mutual exclusions ===
-	if route.Echo {
-		if len(route.Backends) > 0 || route.Service.Name != "" || route.Upstream != "" {
-			return fmt.Errorf("route %s: echo is mutually exclusive with backends, service, and upstream", routeID)
+	if route.Upstream != "" {
+		if len(route.Backends) > 0 {
+			return fmt.Errorf("route %s: upstream and backends are mutually exclusive", routeID)
 		}
-		if route.Versioning.Enabled {
-			return fmt.Errorf("route %s: echo is mutually exclusive with versioning", routeID)
-		}
-		if route.Protocol.Type != "" {
-			return fmt.Errorf("route %s: echo is mutually exclusive with protocol", routeID)
-		}
-		if route.WebSocket.Enabled {
-			return fmt.Errorf("route %s: echo is mutually exclusive with websocket", routeID)
-		}
-		if route.CircuitBreaker.Enabled {
-			return fmt.Errorf("route %s: echo is mutually exclusive with circuit_breaker", routeID)
-		}
-		if route.Cache.Enabled {
-			return fmt.Errorf("route %s: echo is mutually exclusive with cache", routeID)
-		}
-		if route.Coalesce.Enabled {
-			return fmt.Errorf("route %s: echo is mutually exclusive with coalesce", routeID)
-		}
-		if route.OutlierDetection.Enabled {
-			return fmt.Errorf("route %s: echo is mutually exclusive with outlier_detection", routeID)
-		}
-		if route.Canary.Enabled {
-			return fmt.Errorf("route %s: echo is mutually exclusive with canary", routeID)
-		}
-		if route.RetryPolicy.MaxRetries > 0 || route.RetryPolicy.Hedging.Enabled {
-			return fmt.Errorf("route %s: echo is mutually exclusive with retry_policy", routeID)
-		}
-		if len(route.TrafficSplit) > 0 {
-			return fmt.Errorf("route %s: echo is mutually exclusive with traffic_split", routeID)
-		}
-		if route.Mirror.Enabled {
-			return fmt.Errorf("route %s: echo is mutually exclusive with mirror", routeID)
-		}
-		if route.MockResponse.Enabled {
-			return fmt.Errorf("route %s: echo is mutually exclusive with mock_response", routeID)
+		if route.Service.Name != "" {
+			return fmt.Errorf("route %s: upstream and service are mutually exclusive", routeID)
 		}
 	}
+	return l.validateMatchConfig(routeID, route.Match)
+}
 
-	// === Mock response ===
+func (l *Loader) validateEchoExclusions(route RouteConfig, _ *Config) error {
+	if !route.Echo {
+		return nil
+	}
+	routeID := route.ID
+	if len(route.Backends) > 0 || route.Service.Name != "" || route.Upstream != "" {
+		return fmt.Errorf("route %s: echo is mutually exclusive with backends, service, and upstream", routeID)
+	}
+	if route.Versioning.Enabled {
+		return fmt.Errorf("route %s: echo is mutually exclusive with versioning", routeID)
+	}
+	if route.Protocol.Type != "" {
+		return fmt.Errorf("route %s: echo is mutually exclusive with protocol", routeID)
+	}
+	if route.WebSocket.Enabled {
+		return fmt.Errorf("route %s: echo is mutually exclusive with websocket", routeID)
+	}
+	if route.CircuitBreaker.Enabled {
+		return fmt.Errorf("route %s: echo is mutually exclusive with circuit_breaker", routeID)
+	}
+	if route.Cache.Enabled {
+		return fmt.Errorf("route %s: echo is mutually exclusive with cache", routeID)
+	}
+	if route.Coalesce.Enabled {
+		return fmt.Errorf("route %s: echo is mutually exclusive with coalesce", routeID)
+	}
+	if route.OutlierDetection.Enabled {
+		return fmt.Errorf("route %s: echo is mutually exclusive with outlier_detection", routeID)
+	}
+	if route.Canary.Enabled {
+		return fmt.Errorf("route %s: echo is mutually exclusive with canary", routeID)
+	}
+	if route.RetryPolicy.MaxRetries > 0 || route.RetryPolicy.Hedging.Enabled {
+		return fmt.Errorf("route %s: echo is mutually exclusive with retry_policy", routeID)
+	}
+	if len(route.TrafficSplit) > 0 {
+		return fmt.Errorf("route %s: echo is mutually exclusive with traffic_split", routeID)
+	}
+	if route.Mirror.Enabled {
+		return fmt.Errorf("route %s: echo is mutually exclusive with mirror", routeID)
+	}
+	if route.MockResponse.Enabled {
+		return fmt.Errorf("route %s: echo is mutually exclusive with mock_response", routeID)
+	}
+	return nil
+}
+
+func (l *Loader) validatePassthroughExclusions(route RouteConfig, _ *Config) error {
+	if !route.Passthrough {
+		return nil
+	}
+	routeID := route.ID
+	type passthroughCheck struct {
+		active bool
+		name   string
+	}
+	checks := []passthroughCheck{
+		{route.Transform.Request.Body.IsActive() || route.Transform.Response.Body.IsActive(), "body transforms"},
+		{route.Validation.Enabled, "validation"},
+		{route.Compression.Enabled, "compression"},
+		{route.Cache.Enabled, "cache"},
+		{route.GraphQL.Enabled, "graphql"},
+		{route.OpenAPI.SpecFile != "" || route.OpenAPI.SpecID != "", "openapi"},
+		{route.RequestDecompression.Enabled, "request_decompression"},
+		{route.ResponseLimit.Enabled, "response_limit"},
+		{route.ContentReplacer.Enabled, "content_replacer"},
+		{route.BodyGenerator.Enabled, "body_generator"},
+		{route.Sequential.Enabled, "sequential"},
+		{route.Aggregate.Enabled, "aggregate"},
+		{route.ResponseBodyGenerator.Enabled, "response_body_generator"},
+		{route.ContentNegotiation.Enabled, "content_negotiation"},
+		{route.BackendEncoding.Encoding != "", "backend_encoding"},
+	}
+	for _, c := range checks {
+		if c.active {
+			return fmt.Errorf("route %s: passthrough is mutually exclusive with %s", routeID, c.name)
+		}
+	}
+	return nil
+}
+
+func (l *Loader) validateMockAndStaticFiles(route RouteConfig, _ *Config) error {
+	routeID := route.ID
 	if route.MockResponse.Enabled {
 		if route.MockResponse.StatusCode != 0 && (route.MockResponse.StatusCode < 100 || route.MockResponse.StatusCode > 599) {
 			return fmt.Errorf("route %s: mock_response.status_code must be 100-599", routeID)
 		}
 	}
+	if route.Static.Enabled {
+		if route.Static.Root == "" {
+			return fmt.Errorf("route %s: static.root is required", routeID)
+		}
+		if route.Echo {
+			return fmt.Errorf("route %s: static is mutually exclusive with echo", routeID)
+		}
+		if len(route.Backends) > 0 || route.Service.Name != "" || route.Upstream != "" {
+			return fmt.Errorf("route %s: static is mutually exclusive with backends, service, and upstream", routeID)
+		}
+	}
+	return nil
+}
 
-	// === Backend auth ===
+func (l *Loader) validateBackendAuthAndStatusMapping(route RouteConfig, _ *Config) error {
+	routeID := route.ID
 	if route.BackendAuth.Enabled {
 		if route.BackendAuth.Type != "oauth2_client_credentials" {
 			return fmt.Errorf("route %s: backend_auth.type must be 'oauth2_client_credentials'", routeID)
@@ -89,8 +181,6 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 			return fmt.Errorf("route %s: backend_auth.client_secret is required", routeID)
 		}
 	}
-
-	// === Status mapping ===
 	if route.StatusMapping.Enabled {
 		for from, to := range route.StatusMapping.Mappings {
 			if from < 100 || from > 599 {
@@ -101,56 +191,77 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 			}
 		}
 	}
+	return nil
+}
 
-	// === Static file serving ===
+func (l *Loader) validateSequentialProxy(route RouteConfig, _ *Config) error {
+	if !route.Sequential.Enabled {
+		return nil
+	}
+	routeID := route.ID
+	if len(route.Sequential.Steps) < 2 {
+		return fmt.Errorf("route %s: sequential requires at least 2 steps", routeID)
+	}
+	for j, step := range route.Sequential.Steps {
+		if step.URL == "" {
+			return fmt.Errorf("route %s: sequential step %d requires a URL", routeID, j)
+		}
+	}
+	if route.Echo {
+		return fmt.Errorf("route %s: sequential is mutually exclusive with echo", routeID)
+	}
 	if route.Static.Enabled {
-		if route.Static.Root == "" {
-			return fmt.Errorf("route %s: static.root is required", routeID)
+		return fmt.Errorf("route %s: sequential is mutually exclusive with static", routeID)
+	}
+	return nil
+}
+
+func (l *Loader) validateAggregateProxy(route RouteConfig, _ *Config) error {
+	if !route.Aggregate.Enabled {
+		return nil
+	}
+	routeID := route.ID
+	if len(route.Aggregate.Backends) < 2 {
+		return fmt.Errorf("route %s: aggregate requires at least 2 backends", routeID)
+	}
+	names := make(map[string]bool)
+	for j, ab := range route.Aggregate.Backends {
+		if ab.Name == "" {
+			return fmt.Errorf("route %s: aggregate backend %d requires a name", routeID, j)
 		}
-		if route.Echo {
-			return fmt.Errorf("route %s: static is mutually exclusive with echo", routeID)
+		if names[ab.Name] {
+			return fmt.Errorf("route %s: duplicate aggregate backend name: %s", routeID, ab.Name)
 		}
-		if len(route.Backends) > 0 || route.Service.Name != "" || route.Upstream != "" {
-			return fmt.Errorf("route %s: static is mutually exclusive with backends, service, and upstream", routeID)
+		names[ab.Name] = true
+		if ab.URL == "" {
+			return fmt.Errorf("route %s: aggregate backend %s requires a URL", routeID, ab.Name)
 		}
 	}
-
-	// === Passthrough mutual exclusions ===
-	if route.Passthrough {
-		type passthroughCheck struct {
-			active bool
-			name   string
-		}
-		checks := []passthroughCheck{
-			{route.Transform.Request.Body.IsActive() || route.Transform.Response.Body.IsActive(), "body transforms"},
-			{route.Validation.Enabled, "validation"},
-			{route.Compression.Enabled, "compression"},
-			{route.Cache.Enabled, "cache"},
-			{route.GraphQL.Enabled, "graphql"},
-			{route.OpenAPI.SpecFile != "" || route.OpenAPI.SpecID != "", "openapi"},
-			{route.RequestDecompression.Enabled, "request_decompression"},
-			{route.ResponseLimit.Enabled, "response_limit"},
-			{route.ContentReplacer.Enabled, "content_replacer"},
-			{route.BodyGenerator.Enabled, "body_generator"},
-			{route.Sequential.Enabled, "sequential"},
-			{route.Aggregate.Enabled, "aggregate"},
-			{route.ResponseBodyGenerator.Enabled, "response_body_generator"},
-			{route.ContentNegotiation.Enabled, "content_negotiation"},
-			{route.BackendEncoding.Encoding != "", "backend_encoding"},
-		}
-		for _, c := range checks {
-			if c.active {
-				return fmt.Errorf("route %s: passthrough is mutually exclusive with %s", routeID, c.name)
-			}
-		}
+	fs := route.Aggregate.FailStrategy
+	if fs != "" && fs != "abort" && fs != "partial" {
+		return fmt.Errorf("route %s: aggregate fail_strategy must be 'abort' or 'partial'", routeID)
 	}
+	if route.Echo {
+		return fmt.Errorf("route %s: aggregate is mutually exclusive with echo", routeID)
+	}
+	if route.Sequential.Enabled {
+		return fmt.Errorf("route %s: aggregate is mutually exclusive with sequential", routeID)
+	}
+	if route.Static.Enabled {
+		return fmt.Errorf("route %s: aggregate is mutually exclusive with static", routeID)
+	}
+	return nil
+}
 
-	// === Spike arrest ===
+func (l *Loader) validateSmallRouteFeatures(route RouteConfig, _ *Config) error {
+	routeID := route.ID
+
+	// Spike arrest
 	if route.SpikeArrest.Enabled && route.SpikeArrest.Rate <= 0 {
 		return fmt.Errorf("route %s: spike_arrest rate must be > 0 when enabled", routeID)
 	}
 
-	// === Content replacer ===
+	// Content replacer
 	if route.ContentReplacer.Enabled {
 		if len(route.ContentReplacer.Replacements) == 0 {
 			return fmt.Errorf("route %s: content_replacer requires at least one replacement", routeID)
@@ -162,38 +273,69 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		}
 	}
 
-
-	// === Follow redirects ===
+	// Follow redirects
 	if route.FollowRedirects.Enabled && route.FollowRedirects.MaxRedirects < 0 {
 		return fmt.Errorf("route %s: follow_redirects max_redirects must be >= 0", routeID)
 	}
 
-	// === Body generator ===
+	// Body generator
 	if route.BodyGenerator.Enabled {
 		if route.BodyGenerator.Template == "" {
 			return fmt.Errorf("route %s: body_generator requires a template", routeID)
 		}
 	}
 
-	// === Sequential proxy ===
-	if route.Sequential.Enabled {
-		if len(route.Sequential.Steps) < 2 {
-			return fmt.Errorf("route %s: sequential requires at least 2 steps", routeID)
-		}
-		for j, step := range route.Sequential.Steps {
-			if step.URL == "" {
-				return fmt.Errorf("route %s: sequential step %d requires a URL", routeID, j)
-			}
-		}
-		if route.Echo {
-			return fmt.Errorf("route %s: sequential is mutually exclusive with echo", routeID)
-		}
-		if route.Static.Enabled {
-			return fmt.Errorf("route %s: sequential is mutually exclusive with static", routeID)
+	// Response body generator
+	if route.ResponseBodyGenerator.Enabled {
+		if route.ResponseBodyGenerator.Template == "" {
+			return fmt.Errorf("route %s: response_body_generator requires a template", routeID)
 		}
 	}
 
-	// === Quota ===
+	// Param forwarding
+	if route.ParamForwarding.Enabled {
+		if len(route.ParamForwarding.Headers) == 0 && len(route.ParamForwarding.QueryParams) == 0 && len(route.ParamForwarding.Cookies) == 0 {
+			return fmt.Errorf("route %s: param_forwarding requires at least one of headers, query_params, or cookies", routeID)
+		}
+	}
+
+	// Content negotiation
+	if route.ContentNegotiation.Enabled {
+		validFormats := map[string]bool{"json": true, "xml": true, "yaml": true}
+		for _, f := range route.ContentNegotiation.Supported {
+			if !validFormats[f] {
+				return fmt.Errorf("route %s: content_negotiation supported format %q must be json, xml, or yaml", routeID, f)
+			}
+		}
+		if route.ContentNegotiation.Default != "" && !validFormats[route.ContentNegotiation.Default] {
+			return fmt.Errorf("route %s: content_negotiation default %q must be json, xml, or yaml", routeID, route.ContentNegotiation.Default)
+		}
+	}
+
+	// CDN cache headers
+	if route.CDNCacheHeaders.Enabled {
+		if route.CDNCacheHeaders.CacheControl == "" && route.CDNCacheHeaders.SurrogateControl == "" && len(route.CDNCacheHeaders.Vary) == 0 {
+			return fmt.Errorf("route %s: cdn_cache_headers requires at least one of cache_control, surrogate_control, or vary", routeID)
+		}
+	}
+
+	// Cache bucket name
+	if route.Cache.Bucket != "" {
+		for _, c := range route.Cache.Bucket {
+			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
+				return fmt.Errorf("route %s: cache bucket name must be alphanumeric with hyphens/underscores", routeID)
+			}
+		}
+	}
+
+	// Backend encoding
+	if route.BackendEncoding.Encoding != "" {
+		if route.BackendEncoding.Encoding != "xml" && route.BackendEncoding.Encoding != "yaml" {
+			return fmt.Errorf("route %s: backend_encoding encoding must be 'xml' or 'yaml', got %q", routeID, route.BackendEncoding.Encoding)
+		}
+	}
+
+	// Quota
 	if route.Quota.Enabled {
 		if route.Quota.Limit <= 0 {
 			return fmt.Errorf("route %s: quota limit must be > 0", routeID)
@@ -207,105 +349,34 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		}
 	}
 
-	// === Aggregate ===
-	if route.Aggregate.Enabled {
-		if len(route.Aggregate.Backends) < 2 {
-			return fmt.Errorf("route %s: aggregate requires at least 2 backends", routeID)
+	// Proxy rate limit
+	if route.ProxyRateLimit.Enabled {
+		if route.ProxyRateLimit.Rate <= 0 {
+			return fmt.Errorf("route %s: proxy_rate_limit.rate must be > 0", routeID)
 		}
-		names := make(map[string]bool)
-		for j, ab := range route.Aggregate.Backends {
-			if ab.Name == "" {
-				return fmt.Errorf("route %s: aggregate backend %d requires a name", routeID, j)
+	}
+
+	// Claims propagation
+	if route.ClaimsPropagation.Enabled {
+		if len(route.ClaimsPropagation.Claims) == 0 {
+			return fmt.Errorf("route %s: claims_propagation: at least one claim mapping is required when enabled", routeID)
+		}
+		for claimName, headerName := range route.ClaimsPropagation.Claims {
+			if claimName == "" {
+				return fmt.Errorf("route %s: claims_propagation: empty claim name", routeID)
 			}
-			if names[ab.Name] {
-				return fmt.Errorf("route %s: duplicate aggregate backend name: %s", routeID, ab.Name)
-			}
-			names[ab.Name] = true
-			if ab.URL == "" {
-				return fmt.Errorf("route %s: aggregate backend %s requires a URL", routeID, ab.Name)
-			}
-		}
-		fs := route.Aggregate.FailStrategy
-		if fs != "" && fs != "abort" && fs != "partial" {
-			return fmt.Errorf("route %s: aggregate fail_strategy must be 'abort' or 'partial'", routeID)
-		}
-		if route.Echo {
-			return fmt.Errorf("route %s: aggregate is mutually exclusive with echo", routeID)
-		}
-		if route.Sequential.Enabled {
-			return fmt.Errorf("route %s: aggregate is mutually exclusive with sequential", routeID)
-		}
-		if route.Static.Enabled {
-			return fmt.Errorf("route %s: aggregate is mutually exclusive with static", routeID)
-		}
-	}
-
-	// === Response body generator ===
-	if route.ResponseBodyGenerator.Enabled {
-		if route.ResponseBodyGenerator.Template == "" {
-			return fmt.Errorf("route %s: response_body_generator requires a template", routeID)
-		}
-	}
-
-	// === Param forwarding ===
-	if route.ParamForwarding.Enabled {
-		if len(route.ParamForwarding.Headers) == 0 && len(route.ParamForwarding.QueryParams) == 0 && len(route.ParamForwarding.Cookies) == 0 {
-			return fmt.Errorf("route %s: param_forwarding requires at least one of headers, query_params, or cookies", routeID)
-		}
-	}
-
-	// === Content negotiation ===
-	if route.ContentNegotiation.Enabled {
-		validFormats := map[string]bool{"json": true, "xml": true, "yaml": true}
-		for _, f := range route.ContentNegotiation.Supported {
-			if !validFormats[f] {
-				return fmt.Errorf("route %s: content_negotiation supported format %q must be json, xml, or yaml", routeID, f)
-			}
-		}
-		if route.ContentNegotiation.Default != "" && !validFormats[route.ContentNegotiation.Default] {
-			return fmt.Errorf("route %s: content_negotiation default %q must be json, xml, or yaml", routeID, route.ContentNegotiation.Default)
-		}
-	}
-
-	// === CDN cache headers ===
-	if route.CDNCacheHeaders.Enabled {
-		if route.CDNCacheHeaders.CacheControl == "" && route.CDNCacheHeaders.SurrogateControl == "" && len(route.CDNCacheHeaders.Vary) == 0 {
-			return fmt.Errorf("route %s: cdn_cache_headers requires at least one of cache_control, surrogate_control, or vary", routeID)
-		}
-	}
-
-	// === Cache bucket name ===
-	if route.Cache.Bucket != "" {
-		for _, c := range route.Cache.Bucket {
-			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
-				return fmt.Errorf("route %s: cache bucket name must be alphanumeric with hyphens/underscores", routeID)
+			if headerName == "" {
+				return fmt.Errorf("route %s: claims_propagation: empty header name for claim %q", routeID, claimName)
 			}
 		}
 	}
 
-	// === Backend encoding ===
-	if route.BackendEncoding.Encoding != "" {
-		if route.BackendEncoding.Encoding != "xml" && route.BackendEncoding.Encoding != "yaml" {
-			return fmt.Errorf("route %s: backend_encoding encoding must be 'xml' or 'yaml', got %q", routeID, route.BackendEncoding.Encoding)
-		}
-	}
+	return nil
+}
 
-	// === Upstream vs inline backends ===
-	if route.Upstream != "" {
-		if len(route.Backends) > 0 {
-			return fmt.Errorf("route %s: upstream and backends are mutually exclusive", routeID)
-		}
-		if route.Service.Name != "" {
-			return fmt.Errorf("route %s: upstream and service are mutually exclusive", routeID)
-		}
-	}
+func (l *Loader) validateRateLimiting(route RouteConfig, cfg *Config) error {
+	routeID := route.ID
 
-	// === Match config ===
-	if err := l.validateMatchConfig(routeID, route.Match); err != nil {
-		return err
-	}
-
-	// === Rate limiting ===
 	if route.RateLimit.Mode == "distributed" && cfg.Redis.Address == "" {
 		return fmt.Errorf("route %s: distributed rate limiting requires redis.address to be configured", routeID)
 	}
@@ -343,7 +414,7 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		}
 	}
 
-	// === Tiered rate limits ===
+	// Tiered rate limits
 	if len(route.RateLimit.Tiers) > 0 {
 		if route.RateLimit.Rate > 0 {
 			return fmt.Errorf("route %s: rate_limit.tiers and rate_limit.rate are mutually exclusive", routeID)
@@ -367,7 +438,14 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		}
 	}
 
-	// === Per-route rules ===
+	return nil
+}
+
+func (l *Loader) validateTrafficControls(route RouteConfig, cfg *Config) error {
+	routeID := route.ID
+	scope := fmt.Sprintf("route %s", routeID)
+
+	// Per-route rules
 	if err := l.validateRules(route.Rules.Request, "request"); err != nil {
 		return fmt.Errorf("route %s rules: %w", routeID, err)
 	}
@@ -375,7 +453,7 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		return fmt.Errorf("route %s rules: %w", routeID, err)
 	}
 
-	// === Per-route traffic shaping ===
+	// Per-route traffic shaping
 	if err := l.validateTrafficShaping(route.TrafficShaping, scope); err != nil {
 		return err
 	}
@@ -383,7 +461,7 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		return fmt.Errorf("route %s: per-route priority requires global priority to be enabled", routeID)
 	}
 
-	// === Sticky sessions ===
+	// Sticky sessions
 	if route.Sticky.Enabled {
 		validModes := map[string]bool{"cookie": true, "header": true, "hash": true}
 		if route.Sticky.Mode == "" {
@@ -400,7 +478,7 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		}
 	}
 
-	// === Traffic split ===
+	// Traffic split
 	if len(route.TrafficSplit) > 0 {
 		totalWeight := 0
 		for _, split := range route.TrafficSplit {
@@ -411,7 +489,13 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		}
 	}
 
-	// === Mirror ===
+	return nil
+}
+
+func (l *Loader) validateMirrorAndCORS(route RouteConfig, _ *Config) error {
+	routeID := route.ID
+
+	// Mirror
 	if route.Mirror.Enabled && route.Mirror.Conditions.PathRegex != "" {
 		if _, err := regexp.Compile(route.Mirror.Conditions.PathRegex); err != nil {
 			return fmt.Errorf("route %s: mirror conditions path_regex is invalid: %w", routeID, err)
@@ -423,40 +507,80 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		}
 	}
 
-	// === CORS regex ===
+	// CORS regex
 	for _, pattern := range route.CORS.AllowOriginPatterns {
 		if _, err := regexp.Compile(pattern); err != nil {
 			return fmt.Errorf("route %s: cors allow_origin_patterns: invalid regex %q: %w", routeID, pattern, err)
 		}
 	}
 
-	// === WAF ===
-	if route.WAF.Enabled {
-		if route.WAF.Mode != "" && route.WAF.Mode != "block" && route.WAF.Mode != "detect" {
-			return fmt.Errorf("route %s: WAF mode must be 'block' or 'detect'", routeID)
-		}
-	}
+	return nil
+}
 
-	// === GraphQL ===
-	if route.GraphQL.Enabled {
-		if route.GraphQL.MaxDepth < 0 {
-			return fmt.Errorf("route %s: graphql max_depth must be >= 0", routeID)
+func (l *Loader) validateResilienceFeatures(route RouteConfig, cfg *Config) error {
+	routeID := route.ID
+
+	// Retry policy
+	if route.RetryPolicy.MaxRetries > 0 {
+		if route.RetryPolicy.BackoffMultiplier != 0 && route.RetryPolicy.BackoffMultiplier < 1.0 {
+			return fmt.Errorf("route %s: retry_policy backoff_multiplier must be >= 1.0", routeID)
 		}
-		if route.GraphQL.MaxComplexity < 0 {
-			return fmt.Errorf("route %s: graphql max_complexity must be >= 0", routeID)
-		}
-		validOpTypes := map[string]bool{"query": true, "mutation": true, "subscription": true}
-		for opType, limit := range route.GraphQL.OperationLimits {
-			if !validOpTypes[opType] {
-				return fmt.Errorf("route %s: graphql operation_limits key %q must be query, mutation, or subscription", routeID, opType)
-			}
-			if limit <= 0 {
-				return fmt.Errorf("route %s: graphql operation_limits value for %q must be > 0", routeID, opType)
+		for _, status := range route.RetryPolicy.RetryableStatuses {
+			if status < 100 || status > 599 {
+				return fmt.Errorf("route %s: retry_policy contains invalid HTTP status code: %d", routeID, status)
 			}
 		}
 	}
+	if route.RetryPolicy.Budget.Ratio > 0 {
+		if route.RetryPolicy.Budget.Ratio > 1.0 {
+			return fmt.Errorf("route %s: retry_policy budget ratio must be between 0.0 and 1.0", routeID)
+		}
+		if route.RetryPolicy.Budget.MinRetries < 0 {
+			return fmt.Errorf("route %s: retry_policy budget min_retries must be >= 0", routeID)
+		}
+		if route.RetryPolicy.Budget.Window < 0 {
+			return fmt.Errorf("route %s: retry_policy budget window must be > 0", routeID)
+		}
+	}
+	if route.RetryPolicy.Hedging.Enabled {
+		if route.RetryPolicy.Hedging.MaxRequests < 2 {
+			return fmt.Errorf("route %s: retry_policy hedging max_requests must be >= 2", routeID)
+		}
+		if route.RetryPolicy.MaxRetries > 0 {
+			return fmt.Errorf("route %s: retry_policy cannot use both hedging and max_retries", routeID)
+		}
+	}
 
-	// === Coalesce ===
+	// Circuit breaker
+	if route.CircuitBreaker.Enabled {
+		if route.CircuitBreaker.FailureThreshold != 0 && route.CircuitBreaker.FailureThreshold < 1 {
+			return fmt.Errorf("route %s: circuit_breaker failure_threshold must be > 0", routeID)
+		}
+		if route.CircuitBreaker.MaxRequests != 0 && route.CircuitBreaker.MaxRequests < 1 {
+			return fmt.Errorf("route %s: circuit_breaker max_requests must be > 0", routeID)
+		}
+		if route.CircuitBreaker.Timeout != 0 && route.CircuitBreaker.Timeout < 0 {
+			return fmt.Errorf("route %s: circuit_breaker timeout must be > 0", routeID)
+		}
+	}
+
+	// Cache
+	if route.Cache.Enabled {
+		if route.Cache.TTL != 0 && route.Cache.TTL < 0 {
+			return fmt.Errorf("route %s: cache ttl must be > 0", routeID)
+		}
+		if route.Cache.MaxSize != 0 && route.Cache.MaxSize < 1 {
+			return fmt.Errorf("route %s: cache max_size must be > 0", routeID)
+		}
+		if route.Cache.Mode != "" && route.Cache.Mode != "local" && route.Cache.Mode != "distributed" {
+			return fmt.Errorf("route %s: cache mode must be \"local\" or \"distributed\"", routeID)
+		}
+		if route.Cache.Mode == "distributed" && cfg.Redis.Address == "" {
+			return fmt.Errorf("route %s: distributed cache requires redis.address to be configured", routeID)
+		}
+	}
+
+	// Coalesce
 	if route.Coalesce.Enabled {
 		if route.Coalesce.Timeout < 0 {
 			return fmt.Errorf("route %s: coalesce timeout must be >= 0", routeID)
@@ -468,7 +592,7 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		}
 	}
 
-	// === Canary ===
+	// Canary
 	if route.Canary.Enabled {
 		if len(route.TrafficSplit) == 0 {
 			return fmt.Errorf("route %s: canary requires traffic_split to be configured", routeID)
@@ -505,67 +629,39 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		}
 	}
 
-	// === Retry policy ===
-	if route.RetryPolicy.MaxRetries > 0 {
-		if route.RetryPolicy.BackoffMultiplier != 0 && route.RetryPolicy.BackoffMultiplier < 1.0 {
-			return fmt.Errorf("route %s: retry_policy backoff_multiplier must be >= 1.0", routeID)
+	return nil
+}
+
+func (l *Loader) validateNetworkFeatures(route RouteConfig, _ *Config) error {
+	routeID := route.ID
+
+	// WAF
+	if route.WAF.Enabled {
+		if route.WAF.Mode != "" && route.WAF.Mode != "block" && route.WAF.Mode != "detect" {
+			return fmt.Errorf("route %s: WAF mode must be 'block' or 'detect'", routeID)
 		}
-		for _, status := range route.RetryPolicy.RetryableStatuses {
-			if status < 100 || status > 599 {
-				return fmt.Errorf("route %s: retry_policy contains invalid HTTP status code: %d", routeID, status)
+	}
+
+	// GraphQL
+	if route.GraphQL.Enabled {
+		if route.GraphQL.MaxDepth < 0 {
+			return fmt.Errorf("route %s: graphql max_depth must be >= 0", routeID)
+		}
+		if route.GraphQL.MaxComplexity < 0 {
+			return fmt.Errorf("route %s: graphql max_complexity must be >= 0", routeID)
+		}
+		validOpTypes := map[string]bool{"query": true, "mutation": true, "subscription": true}
+		for opType, limit := range route.GraphQL.OperationLimits {
+			if !validOpTypes[opType] {
+				return fmt.Errorf("route %s: graphql operation_limits key %q must be query, mutation, or subscription", routeID, opType)
+			}
+			if limit <= 0 {
+				return fmt.Errorf("route %s: graphql operation_limits value for %q must be > 0", routeID, opType)
 			}
 		}
 	}
-	if route.RetryPolicy.Budget.Ratio > 0 {
-		if route.RetryPolicy.Budget.Ratio > 1.0 {
-			return fmt.Errorf("route %s: retry_policy budget ratio must be between 0.0 and 1.0", routeID)
-		}
-		if route.RetryPolicy.Budget.MinRetries < 0 {
-			return fmt.Errorf("route %s: retry_policy budget min_retries must be >= 0", routeID)
-		}
-		if route.RetryPolicy.Budget.Window < 0 {
-			return fmt.Errorf("route %s: retry_policy budget window must be > 0", routeID)
-		}
-	}
-	if route.RetryPolicy.Hedging.Enabled {
-		if route.RetryPolicy.Hedging.MaxRequests < 2 {
-			return fmt.Errorf("route %s: retry_policy hedging max_requests must be >= 2", routeID)
-		}
-		if route.RetryPolicy.MaxRetries > 0 {
-			return fmt.Errorf("route %s: retry_policy cannot use both hedging and max_retries", routeID)
-		}
-	}
 
-	// === Circuit breaker ===
-	if route.CircuitBreaker.Enabled {
-		if route.CircuitBreaker.FailureThreshold != 0 && route.CircuitBreaker.FailureThreshold < 1 {
-			return fmt.Errorf("route %s: circuit_breaker failure_threshold must be > 0", routeID)
-		}
-		if route.CircuitBreaker.MaxRequests != 0 && route.CircuitBreaker.MaxRequests < 1 {
-			return fmt.Errorf("route %s: circuit_breaker max_requests must be > 0", routeID)
-		}
-		if route.CircuitBreaker.Timeout != 0 && route.CircuitBreaker.Timeout < 0 {
-			return fmt.Errorf("route %s: circuit_breaker timeout must be > 0", routeID)
-		}
-	}
-
-	// === Cache ===
-	if route.Cache.Enabled {
-		if route.Cache.TTL != 0 && route.Cache.TTL < 0 {
-			return fmt.Errorf("route %s: cache ttl must be > 0", routeID)
-		}
-		if route.Cache.MaxSize != 0 && route.Cache.MaxSize < 1 {
-			return fmt.Errorf("route %s: cache max_size must be > 0", routeID)
-		}
-		if route.Cache.Mode != "" && route.Cache.Mode != "local" && route.Cache.Mode != "distributed" {
-			return fmt.Errorf("route %s: cache mode must be \"local\" or \"distributed\"", routeID)
-		}
-		if route.Cache.Mode == "distributed" && cfg.Redis.Address == "" {
-			return fmt.Errorf("route %s: distributed cache requires redis.address to be configured", routeID)
-		}
-	}
-
-	// === WebSocket ===
+	// WebSocket
 	if route.WebSocket.Enabled {
 		if route.WebSocket.ReadBufferSize != 0 && route.WebSocket.ReadBufferSize < 1 {
 			return fmt.Errorf("route %s: websocket read_buffer_size must be > 0", routeID)
@@ -575,7 +671,7 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		}
 	}
 
-	// === Load balancer ===
+	// Load balancer
 	if route.LoadBalancer != "" {
 		validLBs := map[string]bool{
 			"round_robin":         true,
@@ -600,7 +696,7 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		}
 	}
 
-	// === Protocol translation ===
+	// Protocol translation
 	if route.Protocol.Type != "" {
 		validProtocolTypes := map[string]bool{"http_to_grpc": true, "http_to_thrift": true}
 		if !validProtocolTypes[route.Protocol.Type] {
@@ -653,7 +749,7 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		}
 	}
 
-	// === External auth ===
+	// External auth
 	if route.ExtAuth.Enabled {
 		if route.ExtAuth.URL == "" {
 			return fmt.Errorf("route %s: ext_auth.url is required when enabled", routeID)
@@ -674,14 +770,20 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		}
 	}
 
-	// === Versioning ===
+	return nil
+}
+
+func (l *Loader) validateTransformsAndValidation(route RouteConfig, cfg *Config) error {
+	routeID := route.ID
+
+	// Versioning
 	if route.Versioning.Enabled {
 		if err := l.validateRouteVersioning(routeID, route); err != nil {
 			return err
 		}
 	}
 
-	// === Body transforms ===
+	// Body transforms
 	if err := l.validateBodyTransform(routeID, "request", route.Transform.Request.Body); err != nil {
 		return err
 	}
@@ -689,12 +791,12 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		return err
 	}
 
-	// === Access log ===
+	// Access log
 	if err := l.validateAccessLog(routeID, route.AccessLog); err != nil {
 		return err
 	}
 
-	// === OpenAPI ===
+	// OpenAPI
 	if route.OpenAPI.SpecFile != "" && route.OpenAPI.SpecID != "" {
 		return fmt.Errorf("route %s: openapi spec_file and spec_id are mutually exclusive", routeID)
 	}
@@ -711,45 +813,55 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		}
 	}
 
-	// === Response validation ===
+	// Response validation
 	if route.Validation.ResponseSchema != "" && route.Validation.ResponseSchemaFile != "" {
 		return fmt.Errorf("route %s: validation response_schema and response_schema_file are mutually exclusive", routeID)
 	}
 
-	// === Rewrite ===
+	// Rewrite
 	if err := l.validateRewriteConfig(routeID, route.Rewrite, route.PathPrefix, route.StripPrefix); err != nil {
 		return err
 	}
 
-	// === Timeout policy ===
-	if route.TimeoutPolicy.IsActive() {
-		if route.TimeoutPolicy.Request < 0 {
-			return fmt.Errorf("route %s: timeout_policy.request must be >= 0", routeID)
+	return nil
+}
+
+func (l *Loader) validateTimeoutPolicy(route RouteConfig, _ *Config) error {
+	if !route.TimeoutPolicy.IsActive() {
+		return nil
+	}
+	routeID := route.ID
+	if route.TimeoutPolicy.Request < 0 {
+		return fmt.Errorf("route %s: timeout_policy.request must be >= 0", routeID)
+	}
+	if route.TimeoutPolicy.Idle < 0 {
+		return fmt.Errorf("route %s: timeout_policy.idle must be >= 0", routeID)
+	}
+	if route.TimeoutPolicy.Backend < 0 {
+		return fmt.Errorf("route %s: timeout_policy.backend must be >= 0", routeID)
+	}
+	if route.TimeoutPolicy.HeaderTimeout < 0 {
+		return fmt.Errorf("route %s: timeout_policy.header_timeout must be >= 0", routeID)
+	}
+	if route.TimeoutPolicy.Backend > 0 && route.TimeoutPolicy.Request > 0 && route.TimeoutPolicy.Backend > route.TimeoutPolicy.Request {
+		return fmt.Errorf("route %s: timeout_policy.backend must be <= timeout_policy.request", routeID)
+	}
+	if route.TimeoutPolicy.HeaderTimeout > 0 {
+		limit := route.TimeoutPolicy.Backend
+		if limit <= 0 {
+			limit = route.TimeoutPolicy.Request
 		}
-		if route.TimeoutPolicy.Idle < 0 {
-			return fmt.Errorf("route %s: timeout_policy.idle must be >= 0", routeID)
-		}
-		if route.TimeoutPolicy.Backend < 0 {
-			return fmt.Errorf("route %s: timeout_policy.backend must be >= 0", routeID)
-		}
-		if route.TimeoutPolicy.HeaderTimeout < 0 {
-			return fmt.Errorf("route %s: timeout_policy.header_timeout must be >= 0", routeID)
-		}
-		if route.TimeoutPolicy.Backend > 0 && route.TimeoutPolicy.Request > 0 && route.TimeoutPolicy.Backend > route.TimeoutPolicy.Request {
-			return fmt.Errorf("route %s: timeout_policy.backend must be <= timeout_policy.request", routeID)
-		}
-		if route.TimeoutPolicy.HeaderTimeout > 0 {
-			limit := route.TimeoutPolicy.Backend
-			if limit <= 0 {
-				limit = route.TimeoutPolicy.Request
-			}
-			if limit > 0 && route.TimeoutPolicy.HeaderTimeout > limit {
-				return fmt.Errorf("route %s: timeout_policy.header_timeout must be <= backend (or request) timeout", routeID)
-			}
+		if limit > 0 && route.TimeoutPolicy.HeaderTimeout > limit {
+			return fmt.Errorf("route %s: timeout_policy.header_timeout must be <= backend (or request) timeout", routeID)
 		}
 	}
+	return nil
+}
 
-	// === Per-backend health checks ===
+func (l *Loader) validateHealthCheckRefs(route RouteConfig, cfg *Config) error {
+	routeID := route.ID
+
+	// Per-backend health checks
 	for i, b := range route.Backends {
 		if b.HealthCheck != nil {
 			if err := l.validateHealthCheck(fmt.Sprintf("route %s backend %d", routeID, i), *b.HealthCheck); err != nil {
@@ -778,7 +890,7 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		}
 	}
 
-	// === Upstream references ===
+	// Upstream references
 	if route.Upstream != "" {
 		if _, ok := cfg.Upstreams[route.Upstream]; !ok {
 			return fmt.Errorf("route %s: references unknown upstream %q", routeID, route.Upstream)
@@ -815,125 +927,93 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		}
 	}
 
-	// === Error pages ===
+	return nil
+}
+
+func (l *Loader) validateOutlierDetection(route RouteConfig, _ *Config) error {
+	if !route.OutlierDetection.Enabled {
+		return nil
+	}
+	routeID := route.ID
+	od := route.OutlierDetection
+	if od.Interval < 0 {
+		return fmt.Errorf("route %s: outlier_detection.interval must be >= 0", routeID)
+	}
+	if od.Window < 0 {
+		return fmt.Errorf("route %s: outlier_detection.window must be >= 0", routeID)
+	}
+	if od.MinRequests < 0 {
+		return fmt.Errorf("route %s: outlier_detection.min_requests must be >= 0", routeID)
+	}
+	if od.ErrorRateThreshold < 0 || od.ErrorRateThreshold > 1 {
+		return fmt.Errorf("route %s: outlier_detection.error_rate_threshold must be between 0.0 and 1.0", routeID)
+	}
+	if od.ErrorRateMultiplier < 0 {
+		return fmt.Errorf("route %s: outlier_detection.error_rate_multiplier must be >= 0", routeID)
+	}
+	if od.LatencyMultiplier < 0 {
+		return fmt.Errorf("route %s: outlier_detection.latency_multiplier must be >= 0", routeID)
+	}
+	if od.BaseEjectionDuration < 0 {
+		return fmt.Errorf("route %s: outlier_detection.base_ejection_duration must be >= 0", routeID)
+	}
+	if od.MaxEjectionDuration < 0 {
+		return fmt.Errorf("route %s: outlier_detection.max_ejection_duration must be >= 0", routeID)
+	}
+	if od.MaxEjectionDuration > 0 && od.BaseEjectionDuration > 0 && od.MaxEjectionDuration < od.BaseEjectionDuration {
+		return fmt.Errorf("route %s: outlier_detection.max_ejection_duration must be >= base_ejection_duration", routeID)
+	}
+	if od.MaxEjectionPercent < 0 || od.MaxEjectionPercent > 100 {
+		return fmt.Errorf("route %s: outlier_detection.max_ejection_percent must be between 0 and 100", routeID)
+	}
+	return nil
+}
+
+func (l *Loader) validateDelegatedSecurity(route RouteConfig, cfg *Config) error {
+	scope := fmt.Sprintf("route %s", route.ID)
 	if err := l.validateErrorPages(scope, route.ErrorPages); err != nil {
 		return err
 	}
-
-	// === Nonce ===
 	if err := l.validateNonceConfig(scope, route.Nonce, cfg.Redis.Address); err != nil {
 		return err
 	}
-
-	// === Outlier detection ===
-	if route.OutlierDetection.Enabled {
-		od := route.OutlierDetection
-		if od.Interval < 0 {
-			return fmt.Errorf("route %s: outlier_detection.interval must be >= 0", routeID)
-		}
-		if od.Window < 0 {
-			return fmt.Errorf("route %s: outlier_detection.window must be >= 0", routeID)
-		}
-		if od.MinRequests < 0 {
-			return fmt.Errorf("route %s: outlier_detection.min_requests must be >= 0", routeID)
-		}
-		if od.ErrorRateThreshold < 0 || od.ErrorRateThreshold > 1 {
-			return fmt.Errorf("route %s: outlier_detection.error_rate_threshold must be between 0.0 and 1.0", routeID)
-		}
-		if od.ErrorRateMultiplier < 0 {
-			return fmt.Errorf("route %s: outlier_detection.error_rate_multiplier must be >= 0", routeID)
-		}
-		if od.LatencyMultiplier < 0 {
-			return fmt.Errorf("route %s: outlier_detection.latency_multiplier must be >= 0", routeID)
-		}
-		if od.BaseEjectionDuration < 0 {
-			return fmt.Errorf("route %s: outlier_detection.base_ejection_duration must be >= 0", routeID)
-		}
-		if od.MaxEjectionDuration < 0 {
-			return fmt.Errorf("route %s: outlier_detection.max_ejection_duration must be >= 0", routeID)
-		}
-		if od.MaxEjectionDuration > 0 && od.BaseEjectionDuration > 0 && od.MaxEjectionDuration < od.BaseEjectionDuration {
-			return fmt.Errorf("route %s: outlier_detection.max_ejection_duration must be >= base_ejection_duration", routeID)
-		}
-		if od.MaxEjectionPercent < 0 || od.MaxEjectionPercent > 100 {
-			return fmt.Errorf("route %s: outlier_detection.max_ejection_percent must be between 0 and 100", routeID)
-		}
-	}
-
-	// === CSRF ===
 	if err := l.validateCSRFConfig(scope, route.CSRF); err != nil {
 		return err
 	}
-
-	// === Geo ===
 	if err := l.validateGeoConfig(scope, route.Geo); err != nil {
 		return err
 	}
-
-	// === Idempotency ===
 	if err := l.validateIdempotencyConfig(scope, route.Idempotency, cfg.Redis.Address); err != nil {
 		return err
 	}
-
-	// === Backend signing ===
 	if err := l.validateBackendSigningConfig(scope, route.BackendSigning); err != nil {
 		return err
 	}
-
-	// === Compression ===
-	if err := l.validateCompressionConfig(scope, route.Compression); err != nil {
-		return err
-	}
-
-	// === Request decompression ===
-	if err := l.validateDecompressionConfig(scope, route.RequestDecompression); err != nil {
-		return err
-	}
-
-	// === Response limit ===
-	if err := l.validateResponseLimitConfig(scope, route.ResponseLimit); err != nil {
-		return err
-	}
-
-	// === Security headers ===
-	if err := l.validateSecurityHeadersConfig(scope, route.SecurityHeaders); err != nil {
-		return err
-	}
-
-	// === Maintenance ===
-	if err := l.validateMaintenanceConfig(scope, route.Maintenance); err != nil {
-		return err
-	}
-
-	// === Bot detection ===
 	if route.BotDetection.Enabled {
 		if err := l.validateBotDetectionConfig(scope, route.BotDetection); err != nil {
 			return err
 		}
 	}
+	return nil
+}
 
-	// === Proxy rate limit ===
-	if route.ProxyRateLimit.Enabled {
-		if route.ProxyRateLimit.Rate <= 0 {
-			return fmt.Errorf("route %s: proxy_rate_limit.rate must be > 0", routeID)
-		}
+func (l *Loader) validateDelegatedMiddleware(route RouteConfig, _ *Config) error {
+	scope := fmt.Sprintf("route %s", route.ID)
+	if err := l.validateCompressionConfig(scope, route.Compression); err != nil {
+		return err
 	}
-
-	// === Claims propagation ===
-	if route.ClaimsPropagation.Enabled {
-		if len(route.ClaimsPropagation.Claims) == 0 {
-			return fmt.Errorf("route %s: claims_propagation: at least one claim mapping is required when enabled", routeID)
-		}
-		for claimName, headerName := range route.ClaimsPropagation.Claims {
-			if claimName == "" {
-				return fmt.Errorf("route %s: claims_propagation: empty claim name", routeID)
-			}
-			if headerName == "" {
-				return fmt.Errorf("route %s: claims_propagation: empty header name for claim %q", routeID, claimName)
-			}
-		}
+	if err := l.validateDecompressionConfig(scope, route.RequestDecompression); err != nil {
+		return err
 	}
-
+	if err := l.validateResponseLimitConfig(scope, route.ResponseLimit); err != nil {
+		return err
+	}
+	if err := l.validateSecurityHeadersConfig(scope, route.SecurityHeaders); err != nil {
+		return err
+	}
+	if err := l.validateMaintenanceConfig(scope, route.Maintenance); err != nil {
+		return err
+	}
 	return nil
 }
 

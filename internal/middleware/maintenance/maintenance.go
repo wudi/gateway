@@ -173,36 +173,7 @@ func extractIP(r *http.Request) net.IP {
 
 // MergeMaintenanceConfig merges per-route over global config.
 func MergeMaintenanceConfig(perRoute, global config.MaintenanceConfig) config.MaintenanceConfig {
-	merged := global
-	merged.Enabled = perRoute.Enabled
-	if perRoute.StatusCode != 0 {
-		merged.StatusCode = perRoute.StatusCode
-	}
-	if perRoute.Body != "" {
-		merged.Body = perRoute.Body
-	}
-	if perRoute.ContentType != "" {
-		merged.ContentType = perRoute.ContentType
-	}
-	if perRoute.RetryAfter != "" {
-		merged.RetryAfter = perRoute.RetryAfter
-	}
-	if len(perRoute.ExcludePaths) > 0 {
-		merged.ExcludePaths = perRoute.ExcludePaths
-	}
-	if len(perRoute.ExcludeIPs) > 0 {
-		merged.ExcludeIPs = perRoute.ExcludeIPs
-	}
-	if len(perRoute.Headers) > 0 {
-		merged.Headers = make(map[string]string)
-		for k, v := range global.Headers {
-			merged.Headers[k] = v
-		}
-		for k, v := range perRoute.Headers {
-			merged.Headers[k] = v
-		}
-	}
-	return merged
+	return config.MergeNonZero(global, perRoute)
 }
 
 // MaintenanceByRoute is a ByRoute manager for per-route maintenance mode.

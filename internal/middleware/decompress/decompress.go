@@ -223,19 +223,8 @@ func (db *decompressedBody) Close() error {
 }
 
 // MergeDecompressionConfig merges per-route config with global config.
-// Per-route non-zero values override global.
 func MergeDecompressionConfig(perRoute, global config.RequestDecompressionConfig) config.RequestDecompressionConfig {
-	merged := global
-	if perRoute.Enabled {
-		merged.Enabled = true
-	}
-	if len(perRoute.Algorithms) > 0 {
-		merged.Algorithms = perRoute.Algorithms
-	}
-	if perRoute.MaxDecompressedSize > 0 {
-		merged.MaxDecompressedSize = perRoute.MaxDecompressedSize
-	}
-	return merged
+	return config.MergeNonZero(global, perRoute)
 }
 
 // DecompressorByRoute manages decompressors per route.

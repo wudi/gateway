@@ -102,50 +102,9 @@ func (c *CompiledSecurityHeaders) Snapshot() Snapshot {
 }
 
 // MergeSecurityHeadersConfig merges per-route config over global config.
-// Per-route non-empty fields override global; if per-route has no overrides it
-// inherits the global value.
 func MergeSecurityHeadersConfig(perRoute, global config.SecurityHeadersConfig) config.SecurityHeadersConfig {
-	merged := global
-	merged.Enabled = true // caller already decided to merge
-	if perRoute.StrictTransportSecurity != "" {
-		merged.StrictTransportSecurity = perRoute.StrictTransportSecurity
-	}
-	if perRoute.ContentSecurityPolicy != "" {
-		merged.ContentSecurityPolicy = perRoute.ContentSecurityPolicy
-	}
-	if perRoute.XContentTypeOptions != "" {
-		merged.XContentTypeOptions = perRoute.XContentTypeOptions
-	}
-	if perRoute.XFrameOptions != "" {
-		merged.XFrameOptions = perRoute.XFrameOptions
-	}
-	if perRoute.ReferrerPolicy != "" {
-		merged.ReferrerPolicy = perRoute.ReferrerPolicy
-	}
-	if perRoute.PermissionsPolicy != "" {
-		merged.PermissionsPolicy = perRoute.PermissionsPolicy
-	}
-	if perRoute.CrossOriginOpenerPolicy != "" {
-		merged.CrossOriginOpenerPolicy = perRoute.CrossOriginOpenerPolicy
-	}
-	if perRoute.CrossOriginEmbedderPolicy != "" {
-		merged.CrossOriginEmbedderPolicy = perRoute.CrossOriginEmbedderPolicy
-	}
-	if perRoute.CrossOriginResourcePolicy != "" {
-		merged.CrossOriginResourcePolicy = perRoute.CrossOriginResourcePolicy
-	}
-	if perRoute.XPermittedCrossDomainPolicies != "" {
-		merged.XPermittedCrossDomainPolicies = perRoute.XPermittedCrossDomainPolicies
-	}
-	if len(perRoute.CustomHeaders) > 0 {
-		merged.CustomHeaders = make(map[string]string)
-		for k, v := range global.CustomHeaders {
-			merged.CustomHeaders[k] = v
-		}
-		for k, v := range perRoute.CustomHeaders {
-			merged.CustomHeaders[k] = v
-		}
-	}
+	merged := config.MergeNonZero(global, perRoute)
+	merged.Enabled = true
 	return merged
 }
 

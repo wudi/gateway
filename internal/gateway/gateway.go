@@ -694,6 +694,52 @@ func New(cfg *config.Config) (*Gateway, error) {
 		noOpFeature("outlier_detection", "/outlier-detection", g.outlierDetectors.RouteIDs, func() any { return g.outlierDetectors.Stats() }),
 		noOpFeature("sequential", "/sequential", g.sequentialHandlers.RouteIDs, func() any { return g.sequentialHandlers.Stats() }),
 		noOpFeature("aggregate", "/aggregate", g.aggregateHandlers.RouteIDs, func() any { return g.aggregateHandlers.Stats() }),
+
+		// Non-per-route managers exposed as Features for auto admin + dashboard
+		noOpFeature("retries", "/retries", func() []string { return nil }, func() any {
+			result := make(map[string]interface{})
+			for routeID, rp := range *g.routeProxies.Load() {
+				if m := rp.GetRetryMetrics(); m != nil {
+					result[routeID] = m.Snapshot()
+				}
+			}
+			if len(result) == 0 {
+				return nil
+			}
+			return result
+		}),
+		noOpFeature("traffic_splits", "/traffic-splits", func() []string { return nil }, func() any {
+			return g.GetTrafficSplitStats()
+		}),
+		noOpFeature("trusted_proxies", "/trusted-proxies", func() []string { return nil }, func() any {
+			if g.realIPExtractor == nil {
+				return map[string]interface{}{"enabled": false}
+			}
+			return g.realIPExtractor.Stats()
+		}),
+		noOpFeature("tracing", "/tracing", func() []string { return nil }, func() any {
+			if g.tracer == nil {
+				return map[string]interface{}{"enabled": false}
+			}
+			return g.tracer.Status()
+		}),
+		noOpFeature("service_rate_limit", "/service-rate-limit", func() []string { return nil }, func() any {
+			if g.serviceLimiter == nil {
+				return map[string]interface{}{"enabled": false}
+			}
+			return g.serviceLimiter.Stats()
+		}),
+		noOpFeature("webhooks", "/webhooks", func() []string { return nil }, func() any {
+			if g.webhookDispatcher == nil {
+				return map[string]interface{}{"enabled": false}
+			}
+			return g.webhookDispatcher.Stats()
+		}),
+		noOpFeature("follow_redirects", "/follow-redirects", func() []string { return nil }, func() any {
+			return g.GetFollowRedirectStats()
+		}),
+		noOpFeature("protocol_translators", "/protocol-translators",
+			g.translators.RouteIDs, func() any { return g.translators.Stats() }),
 	}
 
 	// Initialize global IP filter
@@ -1942,11 +1988,6 @@ func (g *Gateway) GetRateLimiters() *ratelimit.RateLimitByRoute {
 	return g.rateLimiters
 }
 
-// GetTracer returns the tracer (may be nil).
-func (g *Gateway) GetTracer() *tracing.Tracer {
-	return g.tracer
-}
-
 // GetMirrors returns the mirror manager.
 func (g *Gateway) GetMirrors() *mirror.MirrorByRoute {
 	return g.mirrors
@@ -1977,11 +2018,6 @@ func (g *Gateway) GetMaintenanceHandlers() *maintenance.MaintenanceByRoute {
 	return g.maintenanceHandlers
 }
 
-// GetRealIPExtractor returns the real IP extractor (may be nil).
-func (g *Gateway) GetRealIPExtractor() *realip.CompiledRealIP {
-	return g.realIPExtractor
-}
-
 // GetHTTPSRedirect returns the HTTPS redirect handler (may be nil).
 func (g *Gateway) GetHTTPSRedirect() *httpsredirect.CompiledHTTPSRedirect {
 	return g.httpsRedirect
@@ -1997,21 +2033,11 @@ func (g *Gateway) GetTokenChecker() *tokenrevoke.TokenChecker {
 	return g.tokenChecker
 }
 
-// GetWebhookDispatcher returns the webhook dispatcher (may be nil).
-func (g *Gateway) GetWebhookDispatcher() *webhook.Dispatcher {
-	return g.webhookDispatcher
-}
-
 // GetUpstreams returns the configured upstream map.
 func (g *Gateway) GetUpstreams() map[string]config.UpstreamConfig {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.config.Upstreams
-}
-
-// GetServiceLimiter returns the service-level rate limiter (may be nil).
-func (g *Gateway) GetServiceLimiter() *serviceratelimit.ServiceLimiter {
-	return g.serviceLimiter
 }
 
 // GetFollowRedirectStats returns per-route redirect transport stats.
@@ -2023,11 +2049,6 @@ func (g *Gateway) GetFollowRedirectStats() map[string]interface{} {
 		}
 	}
 	return result
-}
-
-// GetDebugHandler returns the debug endpoint handler (may be nil).
-func (g *Gateway) GetDebugHandler() *debug.Handler {
-	return g.debugHandler
 }
 
 // GetTransportPool returns the proxy's transport pool.

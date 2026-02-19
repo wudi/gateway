@@ -259,23 +259,5 @@ func (m *AdaptiveConcurrencyByRoute) StopAll() {
 
 // MergeAdaptiveConcurrencyConfig merges a route-level config with the global config as fallback.
 func MergeAdaptiveConcurrencyConfig(route, global config.AdaptiveConcurrencyConfig) config.AdaptiveConcurrencyConfig {
-	if route.MinConcurrency == 0 {
-		route.MinConcurrency = global.MinConcurrency
-	}
-	if route.MaxConcurrency == 0 {
-		route.MaxConcurrency = global.MaxConcurrency
-	}
-	if route.LatencyTolerance == 0 {
-		route.LatencyTolerance = global.LatencyTolerance
-	}
-	if route.AdjustmentInterval == 0 {
-		route.AdjustmentInterval = global.AdjustmentInterval
-	}
-	if route.SmoothingFactor == 0 {
-		route.SmoothingFactor = global.SmoothingFactor
-	}
-	if route.MinLatencySamples == 0 {
-		route.MinLatencySamples = global.MinLatencySamples
-	}
-	return route
+	return config.MergeNonZero(global, route)
 }

@@ -167,36 +167,8 @@ func parseTimestamp(s string) (time.Time, error) {
 }
 
 // MergeNonceConfig merges per-route config over global config.
-// Per-route fields take precedence when non-zero.
 func MergeNonceConfig(perRoute, global config.NonceConfig) config.NonceConfig {
-	merged := global
-
-	if perRoute.Header != "" {
-		merged.Header = perRoute.Header
-	}
-	if perRoute.QueryParam != "" {
-		merged.QueryParam = perRoute.QueryParam
-	}
-	if perRoute.TTL > 0 {
-		merged.TTL = perRoute.TTL
-	}
-	if perRoute.Mode != "" {
-		merged.Mode = perRoute.Mode
-	}
-	if perRoute.Scope != "" {
-		merged.Scope = perRoute.Scope
-	}
-	if perRoute.TimestampHeader != "" {
-		merged.TimestampHeader = perRoute.TimestampHeader
-	}
-	if perRoute.MaxAge > 0 {
-		merged.MaxAge = perRoute.MaxAge
-	}
-	// Required: per-route overrides global
-	if perRoute.Enabled {
-		merged.Required = perRoute.Required
-	}
-
+	merged := config.MergeNonZero(global, perRoute)
 	merged.Enabled = true
 	return merged
 }

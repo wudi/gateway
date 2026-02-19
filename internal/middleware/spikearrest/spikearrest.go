@@ -122,19 +122,7 @@ func (sa *SpikeArrester) Stats() map[string]interface{} {
 
 // MergeSpikeArrestConfig merges per-route config over global config.
 func MergeSpikeArrestConfig(perRoute, global config.SpikeArrestConfig) config.SpikeArrestConfig {
-	merged := global
-	if perRoute.Rate > 0 {
-		merged.Rate = perRoute.Rate
-	}
-	if perRoute.Period > 0 {
-		merged.Period = perRoute.Period
-	}
-	if perRoute.Burst > 0 {
-		merged.Burst = perRoute.Burst
-	}
-	if perRoute.PerIP {
-		merged.PerIP = true
-	}
+	merged := config.MergeNonZero(global, perRoute)
 	merged.Enabled = true
 	return merged
 }
