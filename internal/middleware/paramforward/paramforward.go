@@ -152,15 +152,12 @@ func (m *ParamForwardByRoute) GetForwarder(routeID string) *ParamForwarder {
 
 // Stats returns per-route param forwarder stats.
 func (m *ParamForwardByRoute) Stats() map[string]interface{} {
-	stats := make(map[string]interface{})
-	m.Range(func(id string, pf *ParamForwarder) bool {
-		stats[id] = map[string]interface{}{
+	return byroute.CollectStats(&m.Manager, func(pf *ParamForwarder) interface{} {
+		return map[string]interface{}{
 			"stripped":        pf.Stripped(),
 			"allowed_headers": len(pf.allowedHeaders),
 			"allowed_query":   len(pf.allowedQuery),
 			"allowed_cookies": len(pf.allowedCookies),
 		}
-		return true
 	})
-	return stats
 }

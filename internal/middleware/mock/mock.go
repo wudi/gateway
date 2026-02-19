@@ -74,12 +74,7 @@ func (m *MockByRoute) GetHandler(routeID string) *MockHandler {
 
 // Stats returns per-route mock stats.
 func (m *MockByRoute) Stats() map[string]interface{} {
-	stats := make(map[string]interface{})
-	m.Range(func(id string, h *MockHandler) bool {
-		stats[id] = map[string]interface{}{
-			"served": h.Served(),
-		}
-		return true
+	return byroute.CollectStats(&m.Manager, func(h *MockHandler) interface{} {
+		return map[string]interface{}{"served": h.Served()}
 	})
-	return stats
 }

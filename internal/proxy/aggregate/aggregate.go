@@ -359,10 +359,5 @@ func (m *AggregateByRoute) GetHandler(routeID string) *AggregateHandler {
 
 // Stats returns per-route aggregate handler stats.
 func (m *AggregateByRoute) Stats() map[string]interface{} {
-	stats := make(map[string]interface{})
-	m.Range(func(id string, ah *AggregateHandler) bool {
-		stats[id] = ah.Stats()
-		return true
-	})
-	return stats
+	return byroute.CollectStats(&m.Manager, func(ah *AggregateHandler) interface{} { return ah.Stats() })
 }

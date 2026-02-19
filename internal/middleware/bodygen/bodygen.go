@@ -149,13 +149,7 @@ func (m *BodyGenByRoute) GetGenerator(routeID string) *BodyGen {
 
 // Stats returns per-route body generator stats.
 func (m *BodyGenByRoute) Stats() map[string]interface{} {
-	stats := make(map[string]interface{})
-	m.Range(func(id string, bg *BodyGen) bool {
-		stats[id] = map[string]interface{}{
-			"generated":    bg.Generated(),
-			"content_type": bg.contentType,
-		}
-		return true
+	return byroute.CollectStats(&m.Manager, func(bg *BodyGen) interface{} {
+		return map[string]interface{}{"generated": bg.Generated(), "content_type": bg.contentType}
 	})
-	return stats
 }

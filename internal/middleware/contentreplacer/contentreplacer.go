@@ -199,10 +199,5 @@ func (m *ContentReplacerByRoute) GetReplacer(routeID string) *ContentReplacer {
 
 // Stats returns per-route content replacer metrics.
 func (m *ContentReplacerByRoute) Stats() map[string]interface{} {
-	stats := make(map[string]interface{})
-	m.Range(func(id string, cr *ContentReplacer) bool {
-		stats[id] = cr.Stats()
-		return true
-	})
-	return stats
+	return byroute.CollectStats(&m.Manager, func(cr *ContentReplacer) interface{} { return cr.Stats() })
 }

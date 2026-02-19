@@ -481,10 +481,5 @@ func (m *CompressorByRoute) GetCompressor(routeID string) *Compressor {
 
 // Stats returns per-route compression statistics.
 func (m *CompressorByRoute) Stats() map[string]CompressionSnapshot {
-	result := make(map[string]CompressionSnapshot)
-	m.Range(func(id string, c *Compressor) bool {
-		result[id] = c.Stats()
-		return true
-	})
-	return result
+	return byroute.CollectStats(&m.Manager, func(c *Compressor) CompressionSnapshot { return c.Stats() })
 }

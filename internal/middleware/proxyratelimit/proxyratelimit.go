@@ -84,10 +84,5 @@ func (m *ProxyRateLimitByRoute) GetLimiter(routeID string) *ProxyLimiter {
 
 // Stats returns per-route proxy rate limit metrics.
 func (m *ProxyRateLimitByRoute) Stats() map[string]interface{} {
-	stats := make(map[string]interface{})
-	m.Range(func(id string, pl *ProxyLimiter) bool {
-		stats[id] = pl.Stats()
-		return true
-	})
-	return stats
+	return byroute.CollectStats(&m.Manager, func(pl *ProxyLimiter) interface{} { return pl.Stats() })
 }

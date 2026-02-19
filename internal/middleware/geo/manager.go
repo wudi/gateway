@@ -39,10 +39,5 @@ func (m *GeoByRoute) GetGeo(routeID string) *CompiledGeo {
 
 // Stats returns admin status for all routes.
 func (m *GeoByRoute) Stats() map[string]GeoSnapshot {
-	result := make(map[string]GeoSnapshot)
-	m.Range(func(id string, g *CompiledGeo) bool {
-		result[id] = g.Status()
-		return true
-	})
-	return result
+	return byroute.CollectStats(&m.Manager, func(g *CompiledGeo) GeoSnapshot { return g.Status() })
 }

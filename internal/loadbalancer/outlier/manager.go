@@ -55,12 +55,7 @@ func (m *DetectorByRoute) GetDetector(routeID string) *Detector {
 
 // Stats returns snapshots for all routes.
 func (m *DetectorByRoute) Stats() map[string]DetectorSnapshot {
-	result := make(map[string]DetectorSnapshot)
-	m.Range(func(id string, d *Detector) bool {
-		result[id] = d.Snapshot()
-		return true
-	})
-	return result
+	return byroute.CollectStats(&m.Manager, func(d *Detector) DetectorSnapshot { return d.Snapshot() })
 }
 
 // StopAll stops all detectors and removes them.

@@ -228,10 +228,5 @@ func (m *MaintenanceByRoute) GetMaintenance(routeID string) *CompiledMaintenance
 
 // Stats returns per-route snapshots.
 func (m *MaintenanceByRoute) Stats() map[string]Snapshot {
-	out := make(map[string]Snapshot)
-	m.Range(func(id string, h *CompiledMaintenance) bool {
-		out[id] = h.Snapshot()
-		return true
-	})
-	return out
+	return byroute.CollectStats(&m.Manager, func(h *CompiledMaintenance) Snapshot { return h.Snapshot() })
 }

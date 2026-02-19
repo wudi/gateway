@@ -30,12 +30,7 @@ func (m *ThrottleByRoute) GetThrottler(routeID string) *Throttler {
 
 // Stats returns snapshots for all routes.
 func (m *ThrottleByRoute) Stats() map[string]ThrottleSnapshot {
-	result := make(map[string]ThrottleSnapshot)
-	m.Range(func(id string, t *Throttler) bool {
-		result[id] = t.Snapshot()
-		return true
-	})
-	return result
+	return byroute.CollectStats(&m.Manager, func(t *Throttler) ThrottleSnapshot { return t.Snapshot() })
 }
 
 // BandwidthByRoute manages per-route bandwidth limiters.
@@ -61,12 +56,7 @@ func (m *BandwidthByRoute) GetLimiter(routeID string) *BandwidthLimiter {
 
 // Stats returns snapshots for all routes.
 func (m *BandwidthByRoute) Stats() map[string]BandwidthSnapshot {
-	result := make(map[string]BandwidthSnapshot)
-	m.Range(func(id string, l *BandwidthLimiter) bool {
-		result[id] = l.Snapshot()
-		return true
-	})
-	return result
+	return byroute.CollectStats(&m.Manager, func(l *BandwidthLimiter) BandwidthSnapshot { return l.Snapshot() })
 }
 
 // PriorityByRoute stores per-route priority configs for level determination.
@@ -160,12 +150,7 @@ func (m *FaultInjectionByRoute) GetInjector(routeID string) *FaultInjector {
 
 // Stats returns snapshots for all routes.
 func (m *FaultInjectionByRoute) Stats() map[string]FaultInjectionSnapshot {
-	result := make(map[string]FaultInjectionSnapshot)
-	m.Range(func(id string, fi *FaultInjector) bool {
-		result[id] = fi.Snapshot()
-		return true
-	})
-	return result
+	return byroute.CollectStats(&m.Manager, func(fi *FaultInjector) FaultInjectionSnapshot { return fi.Snapshot() })
 }
 
 // MergeFaultInjectionConfig merges a route-level fault injection config with the global config as fallback.

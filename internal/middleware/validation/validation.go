@@ -239,16 +239,13 @@ func (m *ValidatorByRoute) GetValidator(routeID string) *Validator {
 
 // Stats returns per-route validation metrics.
 func (m *ValidatorByRoute) Stats() map[string]interface{} {
-	result := make(map[string]interface{})
-	m.Range(func(id string, v *Validator) bool {
-		result[id] = map[string]interface{}{
+	return byroute.CollectStats(&m.Manager, func(v *Validator) interface{} {
+		return map[string]interface{}{
 			"enabled":             v.enabled,
 			"has_request_schema":  v.requestSchema != nil,
 			"has_response_schema": v.responseSchema != nil,
 			"log_only":            v.logOnly,
 			"metrics":             v.metrics.Snapshot(),
 		}
-		return true
 	})
-	return result
 }

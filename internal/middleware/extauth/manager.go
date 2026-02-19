@@ -33,12 +33,7 @@ func (m *ExtAuthByRoute) GetAuth(routeID string) *ExtAuth {
 
 // Stats returns a snapshot of ext auth metrics for all routes.
 func (m *ExtAuthByRoute) Stats() map[string]ExtAuthSnapshot {
-	result := make(map[string]ExtAuthSnapshot)
-	m.Range(func(id string, ea *ExtAuth) bool {
-		result[id] = ea.metrics.Snapshot()
-		return true
-	})
-	return result
+	return byroute.CollectStats(&m.Manager, func(ea *ExtAuth) ExtAuthSnapshot { return ea.metrics.Snapshot() })
 }
 
 // CloseAll closes all gRPC connections.

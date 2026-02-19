@@ -33,10 +33,5 @@ func (m *GraphQLByRoute) GetParser(routeID string) *Parser {
 
 // Stats returns stats from all per-route parsers.
 func (m *GraphQLByRoute) Stats() map[string]interface{} {
-	result := make(map[string]interface{})
-	m.Range(func(id string, p *Parser) bool {
-		result[id] = p.Stats()
-		return true
-	})
-	return result
+	return byroute.CollectStats(&m.Manager, func(p *Parser) interface{} { return p.Stats() })
 }

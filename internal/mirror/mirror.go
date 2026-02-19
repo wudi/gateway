@@ -215,10 +215,5 @@ func (m *MirrorByRoute) GetMirror(routeID string) *Mirror {
 
 // Stats returns a snapshot of metrics for all routes.
 func (m *MirrorByRoute) Stats() map[string]MirrorSnapshot {
-	result := make(map[string]MirrorSnapshot)
-	m.Range(func(id string, mirror *Mirror) bool {
-		result[id] = mirror.metrics.Snapshot()
-		return true
-	})
-	return result
+	return byroute.CollectStats(&m.Manager, func(mirror *Mirror) MirrorSnapshot { return mirror.metrics.Snapshot() })
 }

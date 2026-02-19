@@ -117,29 +117,31 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 
 	// === Passthrough mutual exclusions ===
 	if route.Passthrough {
-		if route.Transform.Request.Body.IsActive() || route.Transform.Response.Body.IsActive() {
-			return fmt.Errorf("route %s: passthrough is mutually exclusive with body transforms", routeID)
+		type passthroughCheck struct {
+			active bool
+			name   string
 		}
-		if route.Validation.Enabled {
-			return fmt.Errorf("route %s: passthrough is mutually exclusive with validation", routeID)
+		checks := []passthroughCheck{
+			{route.Transform.Request.Body.IsActive() || route.Transform.Response.Body.IsActive(), "body transforms"},
+			{route.Validation.Enabled, "validation"},
+			{route.Compression.Enabled, "compression"},
+			{route.Cache.Enabled, "cache"},
+			{route.GraphQL.Enabled, "graphql"},
+			{route.OpenAPI.SpecFile != "" || route.OpenAPI.SpecID != "", "openapi"},
+			{route.RequestDecompression.Enabled, "request_decompression"},
+			{route.ResponseLimit.Enabled, "response_limit"},
+			{route.ContentReplacer.Enabled, "content_replacer"},
+			{route.BodyGenerator.Enabled, "body_generator"},
+			{route.Sequential.Enabled, "sequential"},
+			{route.Aggregate.Enabled, "aggregate"},
+			{route.ResponseBodyGenerator.Enabled, "response_body_generator"},
+			{route.ContentNegotiation.Enabled, "content_negotiation"},
+			{route.BackendEncoding.Encoding != "", "backend_encoding"},
 		}
-		if route.Compression.Enabled {
-			return fmt.Errorf("route %s: passthrough is mutually exclusive with compression", routeID)
-		}
-		if route.Cache.Enabled {
-			return fmt.Errorf("route %s: passthrough is mutually exclusive with cache", routeID)
-		}
-		if route.GraphQL.Enabled {
-			return fmt.Errorf("route %s: passthrough is mutually exclusive with graphql", routeID)
-		}
-		if route.OpenAPI.SpecFile != "" || route.OpenAPI.SpecID != "" {
-			return fmt.Errorf("route %s: passthrough is mutually exclusive with openapi", routeID)
-		}
-		if route.RequestDecompression.Enabled {
-			return fmt.Errorf("route %s: passthrough is mutually exclusive with request_decompression", routeID)
-		}
-		if route.ResponseLimit.Enabled {
-			return fmt.Errorf("route %s: passthrough is mutually exclusive with response_limit", routeID)
+		for _, c := range checks {
+			if c.active {
+				return fmt.Errorf("route %s: passthrough is mutually exclusive with %s", routeID, c.name)
+			}
 		}
 	}
 
@@ -159,9 +161,7 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 			}
 		}
 	}
-	if route.Passthrough && route.ContentReplacer.Enabled {
-		return fmt.Errorf("route %s: passthrough is mutually exclusive with content_replacer", routeID)
-	}
+
 
 	// === Follow redirects ===
 	if route.FollowRedirects.Enabled && route.FollowRedirects.MaxRedirects < 0 {
@@ -172,9 +172,6 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 	if route.BodyGenerator.Enabled {
 		if route.BodyGenerator.Template == "" {
 			return fmt.Errorf("route %s: body_generator requires a template", routeID)
-		}
-		if route.Passthrough {
-			return fmt.Errorf("route %s: body_generator is mutually exclusive with passthrough", routeID)
 		}
 	}
 
@@ -193,9 +190,6 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		}
 		if route.Static.Enabled {
 			return fmt.Errorf("route %s: sequential is mutually exclusive with static", routeID)
-		}
-		if route.Passthrough {
-			return fmt.Errorf("route %s: sequential is mutually exclusive with passthrough", routeID)
 		}
 	}
 
@@ -244,18 +238,12 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		if route.Static.Enabled {
 			return fmt.Errorf("route %s: aggregate is mutually exclusive with static", routeID)
 		}
-		if route.Passthrough {
-			return fmt.Errorf("route %s: aggregate is mutually exclusive with passthrough", routeID)
-		}
 	}
 
 	// === Response body generator ===
 	if route.ResponseBodyGenerator.Enabled {
 		if route.ResponseBodyGenerator.Template == "" {
 			return fmt.Errorf("route %s: response_body_generator requires a template", routeID)
-		}
-		if route.Passthrough {
-			return fmt.Errorf("route %s: response_body_generator is mutually exclusive with passthrough", routeID)
 		}
 	}
 
@@ -276,9 +264,6 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		}
 		if route.ContentNegotiation.Default != "" && !validFormats[route.ContentNegotiation.Default] {
 			return fmt.Errorf("route %s: content_negotiation default %q must be json, xml, or yaml", routeID, route.ContentNegotiation.Default)
-		}
-		if route.Passthrough {
-			return fmt.Errorf("route %s: content_negotiation is mutually exclusive with passthrough", routeID)
 		}
 	}
 
@@ -302,9 +287,6 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 	if route.BackendEncoding.Encoding != "" {
 		if route.BackendEncoding.Encoding != "xml" && route.BackendEncoding.Encoding != "yaml" {
 			return fmt.Errorf("route %s: backend_encoding encoding must be 'xml' or 'yaml', got %q", routeID, route.BackendEncoding.Encoding)
-		}
-		if route.Passthrough {
-			return fmt.Errorf("route %s: backend_encoding is mutually exclusive with passthrough", routeID)
 		}
 	}
 

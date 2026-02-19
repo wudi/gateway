@@ -217,10 +217,5 @@ func (m *WAFByRoute) GetWAF(routeID string) *WAF {
 
 // Stats returns WAF stats for all routes.
 func (m *WAFByRoute) Stats() map[string]interface{} {
-	result := make(map[string]interface{})
-	m.Range(func(id string, w *WAF) bool {
-		result[id] = w.Stats()
-		return true
-	})
-	return result
+	return byroute.CollectStats(&m.Manager, func(w *WAF) interface{} { return w.Stats() })
 }

@@ -112,10 +112,5 @@ func (m *StatusMapByRoute) GetMapper(routeID string) *StatusMapper {
 
 // Stats returns per-route status mapping stats.
 func (m *StatusMapByRoute) Stats() map[string]interface{} {
-	stats := make(map[string]interface{})
-	m.Range(func(id string, sm *StatusMapper) bool {
-		stats[id] = sm.Stats()
-		return true
-	})
-	return stats
+	return byroute.CollectStats(&m.Manager, func(sm *StatusMapper) interface{} { return sm.Stats() })
 }

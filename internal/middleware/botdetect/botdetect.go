@@ -127,12 +127,7 @@ func (m *BotDetectByRoute) GetDetector(routeID string) *BotDetector {
 
 // Stats returns per-route blocked counts.
 func (m *BotDetectByRoute) Stats() map[string]interface{} {
-	stats := make(map[string]interface{})
-	m.Range(func(id string, bd *BotDetector) bool {
-		stats[id] = map[string]interface{}{
-			"blocked": bd.Blocked(),
-		}
-		return true
+	return byroute.CollectStats(&m.Manager, func(bd *BotDetector) interface{} {
+		return map[string]interface{}{"blocked": bd.Blocked()}
 	})
-	return stats
 }

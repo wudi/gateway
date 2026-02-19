@@ -108,10 +108,5 @@ func (m *ClaimsPropByRoute) GetPropagator(routeID string) *ClaimsPropagator {
 
 // Stats returns per-route propagation statistics.
 func (m *ClaimsPropByRoute) Stats() map[string]interface{} {
-	result := make(map[string]interface{})
-	m.Range(func(id string, cp *ClaimsPropagator) bool {
-		result[id] = cp.Stats()
-		return true
-	})
-	return result
+	return byroute.CollectStats(&m.Manager, func(cp *ClaimsPropagator) interface{} { return cp.Stats() })
 }

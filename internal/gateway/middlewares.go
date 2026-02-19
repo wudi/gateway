@@ -22,15 +22,10 @@ import (
 	"github.com/wudi/gateway/internal/metrics"
 	"github.com/wudi/gateway/internal/middleware"
 	"github.com/wudi/gateway/internal/middleware/accesslog"
-	"github.com/wudi/gateway/internal/middleware/backendauth"
 	"github.com/wudi/gateway/internal/middleware/backendenc"
-	"github.com/wudi/gateway/internal/middleware/bodygen"
-	"github.com/wudi/gateway/internal/middleware/botdetect"
 	"github.com/wudi/gateway/internal/middleware/cdnheaders"
 	"github.com/wudi/gateway/internal/middleware/claimsprop"
 	"github.com/wudi/gateway/internal/middleware/compression"
-	"github.com/wudi/gateway/internal/middleware/contentneg"
-	"github.com/wudi/gateway/internal/middleware/contentreplacer"
 	"github.com/wudi/gateway/internal/middleware/cors"
 	"github.com/wudi/gateway/internal/middleware/csrf"
 	"github.com/wudi/gateway/internal/middleware/idempotency"
@@ -38,27 +33,16 @@ import (
 	"github.com/wudi/gateway/internal/middleware/extauth"
 	"github.com/wudi/gateway/internal/middleware/geo"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
-	"github.com/wudi/gateway/internal/middleware/mock"
 	"github.com/wudi/gateway/internal/middleware/nonce"
 	"github.com/wudi/gateway/internal/middleware/decompress"
 	"github.com/wudi/gateway/internal/middleware/maintenance"
-	"github.com/wudi/gateway/internal/middleware/paramforward"
-	"github.com/wudi/gateway/internal/middleware/proxyratelimit"
-	"github.com/wudi/gateway/internal/middleware/quota"
-	"github.com/wudi/gateway/internal/middleware/respbodygen"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/signing"
-	"github.com/wudi/gateway/internal/middleware/spikearrest"
-	"github.com/wudi/gateway/internal/middleware/statusmap"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
-	"github.com/wudi/gateway/internal/middleware/ratelimit"
-	"github.com/wudi/gateway/internal/middleware/responselimit"
-	"github.com/wudi/gateway/internal/middleware/timeout"
 	"github.com/wudi/gateway/internal/middleware/tokenrevoke"
 	"github.com/wudi/gateway/internal/middleware/transform"
 	"github.com/wudi/gateway/internal/middleware/validation"
 	"github.com/wudi/gateway/internal/middleware/versioning"
-	"github.com/wudi/gateway/internal/middleware/waf"
 	"github.com/wudi/gateway/internal/mirror"
 	grpcproxy "github.com/wudi/gateway/internal/proxy/grpc"
 	"github.com/wudi/gateway/internal/router"
@@ -241,55 +225,40 @@ func requestRulesMW(global, route *rules.RuleEngine) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			varCtx := variables.GetFromRequest(r)
-
-			if global != nil && global.HasRequestRules() {
-				reqEnv := rules.NewRequestEnv(r, varCtx)
-				for _, result := range global.EvaluateRequest(reqEnv) {
-					if result.Terminated {
-						rules.ExecuteTerminatingAction(w, r, result.Action)
-						return
-					}
-					switch result.Action.Type {
-					case "set_headers":
-						rules.ExecuteRequestHeaders(r, result.Action.Headers)
-					case "rewrite":
-						rules.ExecuteRewrite(r, result.Action.Rewrite)
-					case "group":
-						rules.ExecuteGroup(varCtx, result.Action.Group)
-					case "log":
-						rules.ExecuteLog(result.RuleID, r, varCtx, result.Action.LogMessage)
-					}
-				}
+			if evaluateRequestRules(global, w, r, varCtx) {
+				return
 			}
-
-			if route != nil && route.HasRequestRules() {
-				reqEnv := rules.NewRequestEnv(r, varCtx)
-				for _, result := range route.EvaluateRequest(reqEnv) {
-					if result.Terminated {
-						rules.ExecuteTerminatingAction(w, r, result.Action)
-						return
-					}
-					switch result.Action.Type {
-					case "set_headers":
-						rules.ExecuteRequestHeaders(r, result.Action.Headers)
-					case "rewrite":
-						rules.ExecuteRewrite(r, result.Action.Rewrite)
-					case "group":
-						rules.ExecuteGroup(varCtx, result.Action.Group)
-					case "log":
-						rules.ExecuteLog(result.RuleID, r, varCtx, result.Action.LogMessage)
-					}
-				}
+			if evaluateRequestRules(route, w, r, varCtx) {
+				return
 			}
-
 			next.ServeHTTP(w, r)
 		})
 	}
 }
 
-// 5. rateLimitMW applies per-route rate limiting.
-func rateLimitMW(l *ratelimit.Limiter) middleware.Middleware {
-	return l.Middleware()
+// evaluateRequestRules runs request rules on the given engine and returns true if terminated.
+func evaluateRequestRules(engine *rules.RuleEngine, w http.ResponseWriter, r *http.Request, varCtx *variables.Context) bool {
+	if engine == nil || !engine.HasRequestRules() {
+		return false
+	}
+	reqEnv := rules.NewRequestEnv(r, varCtx)
+	for _, result := range engine.EvaluateRequest(reqEnv) {
+		if result.Terminated {
+			rules.ExecuteTerminatingAction(w, r, result.Action)
+			return true
+		}
+		switch result.Action.Type {
+		case "set_headers":
+			rules.ExecuteRequestHeaders(r, result.Action.Headers)
+		case "rewrite":
+			rules.ExecuteRewrite(r, result.Action.Rewrite)
+		case "group":
+			rules.ExecuteGroup(varCtx, result.Action.Group)
+		case "log":
+			rules.ExecuteLog(result.RuleID, r, varCtx, result.Action.LogMessage)
+		}
+	}
+	return false
 }
 
 // 6. bodyLimitMW enforces a request body size limit.
@@ -485,11 +454,6 @@ func compressionMW(c *compression.Compressor) middleware.Middleware {
 	}
 }
 
-// 11.5. responseLimitMW enforces a maximum response body size.
-func responseLimitMW(rl *responselimit.ResponseLimiter) middleware.Middleware {
-	return rl.Middleware()
-}
-
 // 12. responseRulesMW wraps with RulesResponseWriter, evaluates response rules, then flushes.
 func responseRulesMW(global, route *rules.RuleEngine) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
@@ -500,29 +464,26 @@ func responseRulesMW(global, route *rules.RuleEngine) middleware.Middleware {
 			varCtx := variables.GetFromRequest(r)
 			respEnv := rules.NewResponseEnv(r, varCtx, rulesWriter.StatusCode(), rulesWriter.Header())
 
-			if global != nil && global.HasResponseRules() {
-				for _, result := range global.EvaluateResponse(respEnv) {
-					switch result.Action.Type {
-					case "set_headers":
-						rules.ExecuteResponseHeaders(rulesWriter, result.Action.Headers)
-					case "log":
-						rules.ExecuteResponseLog(result.RuleID, r, rulesWriter.StatusCode(), result.Action.LogMessage)
-					}
-				}
-			}
-			if route != nil && route.HasResponseRules() {
-				for _, result := range route.EvaluateResponse(respEnv) {
-					switch result.Action.Type {
-					case "set_headers":
-						rules.ExecuteResponseHeaders(rulesWriter, result.Action.Headers)
-					case "log":
-						rules.ExecuteResponseLog(result.RuleID, r, rulesWriter.StatusCode(), result.Action.LogMessage)
-					}
-				}
-			}
+			evaluateResponseRules(global, rulesWriter, r, respEnv)
+			evaluateResponseRules(route, rulesWriter, r, respEnv)
 
 			rulesWriter.Flush()
 		})
+	}
+}
+
+// evaluateResponseRules runs response rules on the given engine.
+func evaluateResponseRules(engine *rules.RuleEngine, rw *rules.RulesResponseWriter, r *http.Request, respEnv rules.ResponseEnv) {
+	if engine == nil || !engine.HasResponseRules() {
+		return
+	}
+	for _, result := range engine.EvaluateResponse(respEnv) {
+		switch result.Action.Type {
+		case "set_headers":
+			rules.ExecuteResponseHeaders(rw, result.Action.Headers)
+		case "log":
+			rules.ExecuteResponseLog(result.RuleID, r, rw.StatusCode(), result.Action.LogMessage)
+		}
 	}
 }
 
@@ -792,11 +753,6 @@ func faultInjectionMW(fi *trafficshape.FaultInjector) middleware.Middleware {
 	}
 }
 
-// 21. wafMW runs WAF inspection on the request.
-func wafMW(w *waf.WAF) middleware.Middleware {
-	return w.Middleware()
-}
-
 // 20. bandwidthMW wraps request body and response writer with bandwidth limits.
 func bandwidthMW(bw *trafficshape.BandwidthLimiter) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
@@ -880,11 +836,6 @@ func accessLogMW(cfg *accesslog.CompiledAccessLog) middleware.Middleware {
 			next.ServeHTTP(w, r)
 		})
 	}
-}
-
-// timeoutMW applies a request-level context deadline and injects Retry-After on 504.
-func timeoutMW(ct *timeout.CompiledTimeout) middleware.Middleware {
-	return ct.Middleware()
 }
 
 // openapiRequestMW validates requests against an OpenAPI spec.
@@ -1058,21 +1009,6 @@ func backendSigningMW(signer *signing.CompiledSigner) middleware.Middleware {
 	}
 }
 
-// botDetectMW blocks requests from denied User-Agent patterns.
-func botDetectMW(bd *botdetect.BotDetector) middleware.Middleware {
-	return bd.Middleware()
-}
-
-// proxyRateLimitMW limits outbound requests per route to protect backends.
-func proxyRateLimitMW(pl *proxyratelimit.ProxyLimiter) middleware.Middleware {
-	return pl.Middleware()
-}
-
-// mockMW returns a static response without calling the backend.
-func mockMW(mh *mock.MockHandler) middleware.Middleware {
-	return mh.Middleware()
-}
-
 // claimsPropMW propagates JWT claims as request headers to backends.
 func claimsPropMW(cp *claimsprop.ClaimsPropagator) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
@@ -1094,51 +1030,6 @@ func tokenRevokeMW(tc *tokenrevoke.TokenChecker) middleware.Middleware {
 			next.ServeHTTP(w, r)
 		})
 	}
-}
-
-// backendAuthMW injects an OAuth2 access token into backend requests.
-func backendAuthMW(ba *backendauth.TokenProvider) middleware.Middleware {
-	return ba.Middleware()
-}
-
-// statusMapMW remaps backend response status codes.
-func statusMapMW(sm *statusmap.StatusMapper) middleware.Middleware {
-	return sm.Middleware()
-}
-
-// spikeArrestMW enforces continuous rate limiting with immediate rejection.
-func spikeArrestMW(sa *spikearrest.SpikeArrester) middleware.Middleware {
-	return sa.Middleware()
-}
-
-// contentReplacerMW applies regex replacements to response body/headers.
-func contentReplacerMW(cr *contentreplacer.ContentReplacer) middleware.Middleware {
-	return cr.Middleware()
-}
-
-// bodyGenMW generates request body from a Go template.
-func bodyGenMW(bg *bodygen.BodyGen) middleware.Middleware {
-	return bg.Middleware()
-}
-
-// quotaMW enforces per-client usage quotas over billing periods.
-func quotaMW(qe *quota.QuotaEnforcer) middleware.Middleware {
-	return qe.Middleware()
-}
-
-// respBodyGenMW generates response body from a Go template.
-func respBodyGenMW(rbg *respbodygen.RespBodyGen) middleware.Middleware {
-	return rbg.Middleware()
-}
-
-// paramForwardMW strips disallowed headers/query/cookies.
-func paramForwardMW(pf *paramforward.ParamForwarder) middleware.Middleware {
-	return pf.Middleware()
-}
-
-// contentNegMW re-encodes response based on Accept header.
-func contentNegMW(cn *contentneg.Negotiator) middleware.Middleware {
-	return cn.Middleware()
 }
 
 // cdnHeadersMW injects CDN cache control headers into responses.

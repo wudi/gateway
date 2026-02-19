@@ -39,10 +39,5 @@ func (m *CSRFByRoute) GetProtector(routeID string) *CompiledCSRF {
 
 // Stats returns admin status for all routes.
 func (m *CSRFByRoute) Stats() map[string]CSRFStatus {
-	result := make(map[string]CSRFStatus)
-	m.Range(func(id string, cp *CompiledCSRF) bool {
-		result[id] = cp.Status()
-		return true
-	})
-	return result
+	return byroute.CollectStats(&m.Manager, func(cp *CompiledCSRF) CSRFStatus { return cp.Status() })
 }

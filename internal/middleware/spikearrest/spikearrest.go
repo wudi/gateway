@@ -162,10 +162,5 @@ func (m *SpikeArrestByRoute) GetArrester(routeID string) *SpikeArrester {
 
 // Stats returns per-route spike arrest metrics.
 func (m *SpikeArrestByRoute) Stats() map[string]interface{} {
-	stats := make(map[string]interface{})
-	m.Range(func(id string, sa *SpikeArrester) bool {
-		stats[id] = sa.Stats()
-		return true
-	})
-	return stats
+	return byroute.CollectStats(&m.Manager, func(sa *SpikeArrester) interface{} { return sa.Stats() })
 }

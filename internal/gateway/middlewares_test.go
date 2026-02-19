@@ -171,7 +171,7 @@ func TestRateLimitMW_AllowAndReject(t *testing.T) {
 		PerIP:  true,
 	})
 
-	mw := rateLimitMW(limiter)
+	mw := limiter.Middleware()
 	handler := mw(ok200())
 
 	// First 2 requests should pass

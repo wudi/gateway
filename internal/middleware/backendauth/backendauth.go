@@ -204,10 +204,5 @@ func (m *BackendAuthByRoute) GetProvider(routeID string) *TokenProvider {
 
 // Stats returns per-route backend auth stats.
 func (m *BackendAuthByRoute) Stats() map[string]interface{} {
-	stats := make(map[string]interface{})
-	m.Range(func(id string, p *TokenProvider) bool {
-		stats[id] = p.Stats()
-		return true
-	})
-	return stats
+	return byroute.CollectStats(&m.Manager, func(p *TokenProvider) interface{} { return p.Stats() })
 }

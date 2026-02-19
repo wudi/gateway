@@ -219,10 +219,5 @@ func (m *ResponseLimitByRoute) GetLimiter(routeID string) *ResponseLimiter {
 
 // Stats returns per-route response limit statistics.
 func (m *ResponseLimitByRoute) Stats() map[string]Snapshot {
-	result := make(map[string]Snapshot)
-	m.Range(func(id string, rl *ResponseLimiter) bool {
-		result[id] = rl.Stats()
-		return true
-	})
-	return result
+	return byroute.CollectStats(&m.Manager, func(rl *ResponseLimiter) Snapshot { return rl.Stats() })
 }

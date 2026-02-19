@@ -226,12 +226,7 @@ func (m *QuotaByRoute) GetEnforcer(routeID string) *QuotaEnforcer {
 
 // Stats returns per-route quota stats.
 func (m *QuotaByRoute) Stats() map[string]interface{} {
-	stats := make(map[string]interface{})
-	m.Range(func(id string, qe *QuotaEnforcer) bool {
-		stats[id] = qe.Stats()
-		return true
-	})
-	return stats
+	return byroute.CollectStats(&m.Manager, func(qe *QuotaEnforcer) interface{} { return qe.Stats() })
 }
 
 // CloseAll stops all background goroutines.

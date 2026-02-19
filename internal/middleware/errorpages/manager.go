@@ -40,8 +40,7 @@ func (m *ErrorPagesByRoute) GetErrorPages(routeID string) *CompiledErrorPages {
 
 // Stats returns error page status for all routes.
 func (m *ErrorPagesByRoute) Stats() map[string]ErrorPagesStatus {
-	result := make(map[string]ErrorPagesStatus)
-	m.Range(func(id string, ep *CompiledErrorPages) bool {
+	return byroute.CollectStats(&m.Manager, func(ep *CompiledErrorPages) ErrorPagesStatus {
 		keys := make([]string, 0)
 		for code := range ep.exactPages {
 			keys = append(keys, fmt.Sprintf("%d", code))
@@ -53,11 +52,9 @@ func (m *ErrorPagesByRoute) Stats() map[string]ErrorPagesStatus {
 			keys = append(keys, "default")
 		}
 		sort.Strings(keys)
-		result[id] = ErrorPagesStatus{
+		return ErrorPagesStatus{
 			PageKeys: keys,
 			Metrics:  ep.Metrics(),
 		}
-		return true
 	})
-	return result
 }

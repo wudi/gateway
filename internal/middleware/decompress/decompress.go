@@ -261,10 +261,5 @@ func (m *DecompressorByRoute) GetDecompressor(routeID string) *Decompressor {
 
 // Stats returns per-route decompression statistics.
 func (m *DecompressorByRoute) Stats() map[string]Snapshot {
-	result := make(map[string]Snapshot)
-	m.Range(func(id string, d *Decompressor) bool {
-		result[id] = d.Stats()
-		return true
-	})
-	return result
+	return byroute.CollectStats(&m.Manager, func(d *Decompressor) Snapshot { return d.Stats() })
 }

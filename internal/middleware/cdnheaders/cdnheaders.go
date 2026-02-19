@@ -148,10 +148,5 @@ func (br *CDNHeadersByRoute) GetHandler(routeID string) *CDNHeaders {
 
 // Stats returns CDN headers statistics for all routes.
 func (br *CDNHeadersByRoute) Stats() map[string]Snapshot {
-	result := make(map[string]Snapshot)
-	br.Range(func(id string, h *CDNHeaders) bool {
-		result[id] = h.Stats()
-		return true
-	})
-	return result
+	return byroute.CollectStats(&br.Manager, func(h *CDNHeaders) Snapshot { return h.Stats() })
 }

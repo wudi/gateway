@@ -37,11 +37,8 @@ func (m *TimeoutByRoute) GetTimeout(routeID string) *CompiledTimeout {
 
 // Stats returns timeout status for all routes.
 func (m *TimeoutByRoute) Stats() map[string]TimeoutStatus {
-	result := make(map[string]TimeoutStatus)
-	m.Range(func(id string, ct *CompiledTimeout) bool {
-		s := TimeoutStatus{
-			Metrics: ct.Metrics(),
-		}
+	return byroute.CollectStats(&m.Manager, func(ct *CompiledTimeout) TimeoutStatus {
+		s := TimeoutStatus{Metrics: ct.Metrics()}
 		if ct.Request > 0 {
 			s.Request = ct.Request.String()
 		}
@@ -54,8 +51,6 @@ func (m *TimeoutByRoute) Stats() map[string]TimeoutStatus {
 		if ct.HeaderTimeout > 0 {
 			s.HeaderTimeout = ct.HeaderTimeout.String()
 		}
-		result[id] = s
-		return true
+		return s
 	})
-	return result
 }

@@ -452,12 +452,7 @@ func (m *CanaryByRoute) GetController(routeID string) *Controller {
 
 // Stats returns snapshots for all canary controllers.
 func (m *CanaryByRoute) Stats() map[string]CanarySnapshot {
-	result := make(map[string]CanarySnapshot)
-	m.Range(func(id string, ctrl *Controller) bool {
-		result[id] = ctrl.Snapshot()
-		return true
-	})
-	return result
+	return byroute.CollectStats(&m.Manager, func(ctrl *Controller) CanarySnapshot { return ctrl.Snapshot() })
 }
 
 // StopAll stops all controller goroutines.

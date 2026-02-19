@@ -111,18 +111,7 @@ func (s *Server) initListeners() error {
 
 		switch listenerCfg.Protocol {
 		case config.ProtocolHTTP:
-			l, err = listener.NewHTTPListener(listener.HTTPListenerConfig{
-				ID:                listenerCfg.ID,
-				Address:           listenerCfg.Address,
-				Handler:           s.gateway.Handler(),
-				TLS:               listenerCfg.TLS,
-				ReadTimeout:       listenerCfg.HTTP.ReadTimeout,
-				WriteTimeout:      listenerCfg.HTTP.WriteTimeout,
-				IdleTimeout:       listenerCfg.HTTP.IdleTimeout,
-				MaxHeaderBytes:    listenerCfg.HTTP.MaxHeaderBytes,
-				ReadHeaderTimeout: listenerCfg.HTTP.ReadHeaderTimeout,
-				EnableHTTP3:       listenerCfg.HTTP.EnableHTTP3,
-			})
+			l, err = s.makeHTTPListener(listenerCfg)
 
 		case config.ProtocolTCP:
 			if s.tcpProxy == nil {
@@ -366,18 +355,7 @@ func (s *Server) reconcileListeners(newCfg *config.Config) {
 		if listenerCfg.Protocol != config.ProtocolHTTP {
 			continue // only handle HTTP listeners during reload
 		}
-		l, err := listener.NewHTTPListener(listener.HTTPListenerConfig{
-			ID:                listenerCfg.ID,
-			Address:           listenerCfg.Address,
-			Handler:           s.gateway.Handler(),
-			TLS:               listenerCfg.TLS,
-			ReadTimeout:       listenerCfg.HTTP.ReadTimeout,
-			WriteTimeout:      listenerCfg.HTTP.WriteTimeout,
-			IdleTimeout:       listenerCfg.HTTP.IdleTimeout,
-			MaxHeaderBytes:    listenerCfg.HTTP.MaxHeaderBytes,
-			ReadHeaderTimeout: listenerCfg.HTTP.ReadHeaderTimeout,
-			EnableHTTP3:       listenerCfg.HTTP.EnableHTTP3,
-		})
+		l, err := s.makeHTTPListener(listenerCfg)
 		if err != nil {
 			logging.Error("Failed to create new listener", zap.String("id", listenerCfg.ID), zap.Error(err))
 			continue
@@ -401,6 +379,22 @@ func appendReloadHistory(history []ReloadResult, result ReloadResult) []ReloadRe
 		history = history[len(history)-50:]
 	}
 	return history
+}
+
+// makeHTTPListener creates an HTTP listener from a listener config.
+func (s *Server) makeHTTPListener(lc config.ListenerConfig) (*listener.HTTPListener, error) {
+	return listener.NewHTTPListener(listener.HTTPListenerConfig{
+		ID:                lc.ID,
+		Address:           lc.Address,
+		Handler:           s.gateway.Handler(),
+		TLS:               lc.TLS,
+		ReadTimeout:       lc.HTTP.ReadTimeout,
+		WriteTimeout:      lc.HTTP.WriteTimeout,
+		IdleTimeout:       lc.HTTP.IdleTimeout,
+		MaxHeaderBytes:    lc.HTTP.MaxHeaderBytes,
+		ReadHeaderTimeout: lc.HTTP.ReadHeaderTimeout,
+		EnableHTTP3:       lc.HTTP.EnableHTTP3,
+	})
 }
 
 // adminHandler creates the admin API handler
@@ -915,23 +909,21 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		dashboard["drain"] = drainInfo
 	}
 
-	// Aggregate feature stats
-	featureStats := s.gateway.FeatureStats()
-	if len(featureStats) > 0 {
-		dashboard["features"] = featureStats
+	// Auto-collect stats from all features with admin endpoints
+	for _, f := range s.gateway.features {
+		if asp, ok := f.(AdminStatsProvider); ok {
+			path := asp.AdminPath()
+			if path == "" {
+				continue
+			}
+			key := strings.TrimPrefix(path, "/")
+			if stats := asp.AdminStats(); stats != nil {
+				dashboard[key] = stats
+			}
+		}
 	}
 
-	// Circuit breakers
-	if snapshots := s.gateway.GetCircuitBreakers().Snapshots(); len(snapshots) > 0 {
-		dashboard["circuit_breakers"] = snapshots
-	}
-
-	// Cache stats
-	if cacheStats := s.gateway.GetCaches().Stats(); len(cacheStats) > 0 {
-		dashboard["cache"] = cacheStats
-	}
-
-	// Retry metrics
+	// Non-feature stats
 	retryMetrics := s.gateway.GetRetryMetrics()
 	if len(retryMetrics) > 0 {
 		retries := make(map[string]interface{}, len(retryMetrics))
@@ -940,192 +932,29 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 		dashboard["retries"] = retries
 	}
-
-	// Traffic splits
 	if splits := s.gateway.GetTrafficSplitStats(); len(splits) > 0 {
 		dashboard["traffic_splits"] = splits
 	}
-
-	// WAF
-	if wafStats := s.gateway.GetWAFHandlers().Stats(); len(wafStats) > 0 {
-		dashboard["waf"] = wafStats
-	}
-
-	// Coalesce
-	if coalesceStats := s.gateway.GetCoalescers().Stats(); len(coalesceStats) > 0 {
-		dashboard["coalesce"] = coalesceStats
-	}
-
-	// Adaptive concurrency
-	if acStats := s.gateway.GetAdaptiveLimiters().Stats(); len(acStats) > 0 {
-		dashboard["adaptive_concurrency"] = acStats
-	}
-
-	// Canary deployments
-	if canaryStats := s.gateway.GetCanaryControllers().Stats(); len(canaryStats) > 0 {
-		dashboard["canary"] = canaryStats
-	}
-
-	// Ext auth
-	if extAuthStats := s.gateway.GetExtAuths().Stats(); len(extAuthStats) > 0 {
-		dashboard["ext_auth"] = extAuthStats
-	}
-
-	// Versioning
-	if versioningStats := s.gateway.GetVersioners().Stats(); len(versioningStats) > 0 {
-		dashboard["versioning"] = versioningStats
-	}
-
-	// Access log
-	if alStats := s.gateway.GetAccessLogConfigs().Stats(); len(alStats) > 0 {
-		dashboard["access_log"] = alStats
-	}
-
-	// OpenAPI validation
-	if openapiStats := s.gateway.GetOpenAPIValidators().Stats(); len(openapiStats) > 0 {
-		dashboard["openapi"] = openapiStats
-	}
-
-	// Timeout policies
-	if timeoutStats := s.gateway.GetTimeoutConfigs().Stats(); len(timeoutStats) > 0 {
-		dashboard["timeouts"] = timeoutStats
-	}
-
-	// Error pages
-	if epStats := s.gateway.GetErrorPages().Stats(); len(epStats) > 0 {
-		dashboard["error_pages"] = epStats
-	}
-
-	// Nonces (replay prevention)
-	if nonceStats := s.gateway.GetNonceCheckers().Stats(); len(nonceStats) > 0 {
-		dashboard["nonces"] = nonceStats
-	}
-
-	// CSRF protection
-	if csrfStats := s.gateway.GetCSRFProtectors().Stats(); len(csrfStats) > 0 {
-		dashboard["csrf"] = csrfStats
-	}
-
-	// Outlier detection
-	if odStats := s.gateway.GetOutlierDetectors().Stats(); len(odStats) > 0 {
-		dashboard["outlier_detection"] = odStats
-	}
-
-	// Idempotency
-	if idemStats := s.gateway.GetIdempotencyHandlers().Stats(); len(idemStats) > 0 {
-		dashboard["idempotency"] = idemStats
-	}
-
-	// Backend signing
-	if sigStats := s.gateway.GetBackendSigners().Stats(); len(sigStats) > 0 {
-		dashboard["backend_signing"] = sigStats
-	}
-
-	// Compression
-	if compStats := s.gateway.GetCompressors().Stats(); len(compStats) > 0 {
-		dashboard["compression"] = compStats
-	}
-
-	// Request decompression
-	if decompStats := s.gateway.GetDecompressors().Stats(); len(decompStats) > 0 {
-		dashboard["request_decompression"] = decompStats
-	}
-
-	// Response limits
-	if rlStats := s.gateway.GetResponseLimiters().Stats(); len(rlStats) > 0 {
-		dashboard["response_limits"] = rlStats
-	}
-
-	// Security headers
-	if shStats := s.gateway.GetSecurityHeaders().Stats(); len(shStats) > 0 {
-		dashboard["security_headers"] = shStats
-	}
-
-	// Maintenance mode
-	if maintStats := s.gateway.GetMaintenanceHandlers().Stats(); len(maintStats) > 0 {
-		dashboard["maintenance"] = maintStats
-	}
-
-	// Trusted proxies
 	if ext := s.gateway.GetRealIPExtractor(); ext != nil {
 		dashboard["trusted_proxies"] = ext.Stats()
 	}
-
-	// Webhooks
 	if d := s.gateway.GetWebhookDispatcher(); d != nil {
 		dashboard["webhooks"] = d.Stats()
 	}
-
-	// Upstreams
 	if upstreams := s.gateway.GetUpstreams(); len(upstreams) > 0 {
 		dashboard["upstreams"] = upstreams
 	}
-
-	// Service rate limit
 	if sl := s.gateway.GetServiceLimiter(); sl != nil {
 		dashboard["service_rate_limit"] = sl.Stats()
 	}
-
-	// Spike arrest
-	if saStats := s.gateway.GetSpikeArresters().Stats(); len(saStats) > 0 {
-		dashboard["spike_arrest"] = saStats
-	}
-
-	// Content replacer
-	if crStats := s.gateway.GetContentReplacers().Stats(); len(crStats) > 0 {
-		dashboard["content_replacer"] = crStats
-	}
-
-	// Debug endpoint
 	if dh := s.gateway.GetDebugHandler(); dh != nil {
 		dashboard["debug_endpoint"] = dh.Stats()
 	}
-
-	// Follow redirects
 	if frStats := s.gateway.GetFollowRedirectStats(); len(frStats) > 0 {
 		dashboard["follow_redirects"] = frStats
 	}
-
-	// Body generator
-	if bgStats := s.gateway.GetBodyGenerators().Stats(); len(bgStats) > 0 {
-		dashboard["body_generator"] = bgStats
-	}
-
-	// Sequential proxy
-	if seqStats := s.gateway.GetSequentialHandlers().Stats(); len(seqStats) > 0 {
-		dashboard["sequential"] = seqStats
-	}
-
-	// Quotas
-	if quotaStats := s.gateway.GetQuotaEnforcers().Stats(); len(quotaStats) > 0 {
-		dashboard["quotas"] = quotaStats
-	}
-
-	// Aggregate handlers
-	if aggStats := s.gateway.GetAggregateHandlers().Stats(); len(aggStats) > 0 {
-		dashboard["aggregate"] = aggStats
-	}
-
-	// Response body generator
-	if rbgStats := s.gateway.GetRespBodyGenerators().Stats(); len(rbgStats) > 0 {
-		dashboard["response_body_generator"] = rbgStats
-	}
-
-	// Parameter forwarding
-	if pfStats := s.gateway.GetParamForwarders().Stats(); len(pfStats) > 0 {
-		dashboard["param_forwarding"] = pfStats
-	}
-
-	// Content negotiation
-	if cnStats := s.gateway.GetContentNegotiators().Stats(); len(cnStats) > 0 {
-		dashboard["content_negotiation"] = cnStats
-	}
-
-	// Transport pool
 	pool := s.gateway.GetTransportPool()
 	dashboard["transport"] = pool.DefaultConfig()
-
-	// Tracing
 	if tracer := s.gateway.GetTracer(); tracer != nil {
 		dashboard["tracing"] = tracer.Status()
 	}

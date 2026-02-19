@@ -33,10 +33,5 @@ func (m *VersioningByRoute) GetVersioner(routeID string) *Versioner {
 
 // Stats returns snapshots for all routes.
 func (m *VersioningByRoute) Stats() map[string]VersioningSnapshot {
-	result := make(map[string]VersioningSnapshot)
-	m.Range(func(id string, v *Versioner) bool {
-		result[id] = v.Snapshot()
-		return true
-	})
-	return result
+	return byroute.CollectStats(&m.Manager, func(v *Versioner) VersioningSnapshot { return v.Snapshot() })
 }

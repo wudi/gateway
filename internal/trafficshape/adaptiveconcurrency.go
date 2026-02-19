@@ -246,12 +246,7 @@ func (m *AdaptiveConcurrencyByRoute) GetLimiter(routeID string) *AdaptiveLimiter
 
 // Stats returns snapshots for all routes.
 func (m *AdaptiveConcurrencyByRoute) Stats() map[string]AdaptiveConcurrencySnapshot {
-	result := make(map[string]AdaptiveConcurrencySnapshot)
-	m.Range(func(id string, l *AdaptiveLimiter) bool {
-		result[id] = l.Snapshot()
-		return true
-	})
-	return result
+	return byroute.CollectStats(&m.Manager, func(l *AdaptiveLimiter) AdaptiveConcurrencySnapshot { return l.Snapshot() })
 }
 
 // StopAll stops all adaptive limiters.

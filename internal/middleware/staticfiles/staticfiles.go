@@ -127,10 +127,5 @@ func (m *StaticByRoute) GetHandler(routeID string) *StaticFileHandler {
 
 // Stats returns per-route static file stats.
 func (m *StaticByRoute) Stats() map[string]interface{} {
-	stats := make(map[string]interface{})
-	m.Range(func(id string, h *StaticFileHandler) bool {
-		stats[id] = h.Stats()
-		return true
-	})
-	return stats
+	return byroute.CollectStats(&m.Manager, func(h *StaticFileHandler) interface{} { return h.Stats() })
 }

@@ -83,17 +83,14 @@ func (m *OpenAPIByRoute) GetValidator(routeID string) *CompiledOpenAPI {
 
 // Stats returns per-route OpenAPI validation status.
 func (m *OpenAPIByRoute) Stats() map[string]OpenAPIStatus {
-	result := make(map[string]OpenAPIStatus)
-	m.Range(func(id string, v *CompiledOpenAPI) bool {
-		result[id] = OpenAPIStatus{
+	return byroute.CollectStats(&m.Manager, func(v *CompiledOpenAPI) OpenAPIStatus {
+		return OpenAPIStatus{
 			ValidateRequest:  v.validateRequest,
 			ValidateResponse: v.validateResponse,
 			LogOnly:          v.logOnly,
 			Metrics:          v.metrics.Snapshot(),
 		}
-		return true
 	})
-	return result
 }
 
 // loadSpec loads a spec from cache or disk.

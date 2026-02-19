@@ -40,12 +40,7 @@ func (m *IdempotencyByRoute) GetHandler(routeID string) *CompiledIdempotency {
 
 // Stats returns admin status for all routes.
 func (m *IdempotencyByRoute) Stats() map[string]IdempotencyStatus {
-	result := make(map[string]IdempotencyStatus)
-	m.Range(func(id string, ci *CompiledIdempotency) bool {
-		result[id] = ci.Status()
-		return true
-	})
-	return result
+	return byroute.CollectStats(&m.Manager, func(ci *CompiledIdempotency) IdempotencyStatus { return ci.Status() })
 }
 
 // CloseAll closes all idempotency handlers (stopping cleanup goroutines).

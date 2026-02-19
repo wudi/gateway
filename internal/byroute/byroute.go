@@ -68,3 +68,14 @@ func (m *Manager[T]) Clear() {
 	m.items = nil
 	m.mu.Unlock()
 }
+
+// CollectStats iterates over all items and applies fn to produce a stats map.
+// This replaces the hand-written Stats() boilerplate on every XxxByRoute type.
+func CollectStats[T any, S any](m *Manager[T], fn func(T) S) map[string]S {
+	result := make(map[string]S)
+	m.Range(func(id string, item T) bool {
+		result[id] = fn(item)
+		return true
+	})
+	return result
+}

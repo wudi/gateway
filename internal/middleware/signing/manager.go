@@ -33,10 +33,5 @@ func (m *SigningByRoute) GetSigner(routeID string) *CompiledSigner {
 
 // Stats returns signing status for all routes.
 func (m *SigningByRoute) Stats() map[string]SigningStatus {
-	stats := make(map[string]SigningStatus)
-	m.Range(func(id string, s *CompiledSigner) bool {
-		stats[id] = s.Status()
-		return true
-	})
-	return stats
+	return byroute.CollectStats(&m.Manager, func(s *CompiledSigner) SigningStatus { return s.Status() })
 }

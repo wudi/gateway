@@ -188,14 +188,11 @@ type EngineStats struct {
 
 // Stats returns admin API info for all routes.
 func (rbr *RulesByRoute) Stats() map[string]EngineStats {
-	result := make(map[string]EngineStats)
-	rbr.Range(func(routeID string, engine *RuleEngine) bool {
-		result[routeID] = EngineStats{
+	return byroute.CollectStats(&rbr.Manager, func(engine *RuleEngine) EngineStats {
+		return EngineStats{
 			RequestRules:  engine.RequestRuleInfos(),
 			ResponseRules: engine.ResponseRuleInfos(),
 			Metrics:       engine.GetMetrics(),
 		}
-		return true
 	})
-	return result
 }

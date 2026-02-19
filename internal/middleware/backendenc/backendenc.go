@@ -259,10 +259,5 @@ func (br *EncoderByRoute) GetEncoder(routeID string) *Encoder {
 
 // Stats returns encoder statistics for all routes.
 func (br *EncoderByRoute) Stats() map[string]Snapshot {
-	result := make(map[string]Snapshot)
-	br.Range(func(id string, e *Encoder) bool {
-		result[id] = e.Stats()
-		return true
-	})
-	return result
+	return byroute.CollectStats(&br.Manager, func(e *Encoder) Snapshot { return e.Stats() })
 }

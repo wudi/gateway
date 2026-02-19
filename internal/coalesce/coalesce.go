@@ -253,10 +253,5 @@ func (m *CoalesceByRoute) GetCoalescer(routeID string) *Coalescer {
 
 // Stats returns per-route coalescing metrics.
 func (m *CoalesceByRoute) Stats() map[string]Stats {
-	result := make(map[string]Stats)
-	m.Range(func(id string, c *Coalescer) bool {
-		result[id] = c.Stats()
-		return true
-	})
-	return result
+	return byroute.CollectStats(&m.Manager, func(c *Coalescer) Stats { return c.Stats() })
 }

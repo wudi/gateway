@@ -172,10 +172,5 @@ func (m *SecurityHeadersByRoute) GetHeaders(routeID string) *CompiledSecurityHea
 
 // Stats returns per-route snapshots.
 func (m *SecurityHeadersByRoute) Stats() map[string]Snapshot {
-	out := make(map[string]Snapshot)
-	m.Range(func(id string, h *CompiledSecurityHeaders) bool {
-		out[id] = h.Snapshot()
-		return true
-	})
-	return out
+	return byroute.CollectStats(&m.Manager, func(h *CompiledSecurityHeaders) Snapshot { return h.Snapshot() })
 }

@@ -325,10 +325,5 @@ func (m *NegotiatorByRoute) GetNegotiator(routeID string) *Negotiator {
 
 // Stats returns per-route negotiator stats.
 func (m *NegotiatorByRoute) Stats() map[string]interface{} {
-	stats := make(map[string]interface{})
-	m.Range(func(id string, n *Negotiator) bool {
-		stats[id] = n.Stats()
-		return true
-	})
-	return stats
+	return byroute.CollectStats(&m.Manager, func(n *Negotiator) interface{} { return n.Stats() })
 }

@@ -1294,7 +1294,7 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 			if m := g.maintenanceHandlers.GetMaintenance(routeID); m != nil { return maintenanceMW(m) }; return nil
 		},
 		/* 2.8  */ func() middleware.Middleware {
-			if bd := g.botDetectors.GetDetector(routeID); bd != nil { return botDetectMW(bd) }; return nil
+			if bd := g.botDetectors.GetDetector(routeID); bd != nil { return bd.Middleware() }; return nil
 		},
 		/* 3    */ func() middleware.Middleware {
 			if ch := g.corsHandlers.GetHandler(routeID); ch != nil && ch.IsEnabled() { return corsMW(ch) }; return nil
@@ -1316,14 +1316,14 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 			if ver := g.versioners.GetVersioner(routeID); ver != nil { return versioningMW(ver) }; return nil
 		},
 		/* 4.75 */ func() middleware.Middleware {
-			if ct := g.timeoutConfigs.GetTimeout(routeID); ct != nil { return timeoutMW(ct) }; return nil
+			if ct := g.timeoutConfigs.GetTimeout(routeID); ct != nil { return ct.Middleware() }; return nil
 		},
 		/* 5    */ func() middleware.Middleware { return g.rateLimiters.GetMiddleware(routeID) },
 		/* 5.25 */ func() middleware.Middleware {
-			if sa := g.spikeArresters.GetArrester(routeID); sa != nil { return spikeArrestMW(sa) }; return nil
+			if sa := g.spikeArresters.GetArrester(routeID); sa != nil { return sa.Middleware() }; return nil
 		},
 		/* 5.3  */ func() middleware.Middleware {
-			if qe := g.quotaEnforcers.GetEnforcer(routeID); qe != nil { return quotaMW(qe) }; return nil
+			if qe := g.quotaEnforcers.GetEnforcer(routeID); qe != nil { return qe.Middleware() }; return nil
 		},
 		/* 5.5  */ func() middleware.Middleware {
 			if t := g.throttlers.GetThrottler(routeID); t != nil { return throttleMW(t) }; return nil
@@ -1359,13 +1359,13 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 			if hasReq { return requestRulesMW(g.globalRules, routeEngine) }; return nil
 		},
 		/* 7.25 */ func() middleware.Middleware {
-			if wh := g.wafHandlers.GetWAF(routeID); wh != nil { return wafMW(wh) }; return nil
+			if wh := g.wafHandlers.GetWAF(routeID); wh != nil { return wh.Middleware() }; return nil
 		},
 		/* 7.5  */ func() middleware.Middleware {
 			if fi := g.faultInjectors.GetInjector(routeID); fi != nil { return faultInjectionMW(fi) }; return nil
 		},
 		/* 7.75 */ func() middleware.Middleware {
-			if mh := g.mockHandlers.GetHandler(routeID); mh != nil { return mockMW(mh) }; return nil
+			if mh := g.mockHandlers.GetHandler(routeID); mh != nil { return mh.Middleware() }; return nil
 		},
 		/* 8    */ func() middleware.Middleware {
 			if !skipBody && route.MaxBodySize > 0 { return bodyLimitMW(route.MaxBodySize) }; return nil
@@ -1413,7 +1413,7 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 			if al := g.adaptiveLimiters.GetLimiter(routeID); al != nil { return adaptiveConcurrencyMW(al) }; return nil
 		},
 		/* 12.6 */ func() middleware.Middleware {
-			if pl := g.proxyRateLimiters.GetLimiter(routeID); pl != nil { return proxyRateLimitMW(pl) }; return nil
+			if pl := g.proxyRateLimiters.GetLimiter(routeID); pl != nil { return pl.Middleware() }; return nil
 		},
 		/* 13   */ func() middleware.Middleware {
 			if skipBody { return nil }
@@ -1421,7 +1421,7 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		},
 		/* 13.5 */ func() middleware.Middleware {
 			if skipBody { return nil }
-			if rl := g.responseLimiters.GetLimiter(routeID); rl != nil && rl.IsEnabled() { return responseLimitMW(rl) }; return nil
+			if rl := g.responseLimiters.GetLimiter(routeID); rl != nil && rl.IsEnabled() { return rl.Middleware() }; return nil
 		},
 		/* 14   */ func() middleware.Middleware {
 			hasResp := (g.globalRules != nil && g.globalRules.HasResponseRules()) ||
@@ -1441,13 +1441,13 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 			return requestTransformMW(route, g.grpcHandlers[routeID], reqBodyTransform)
 		},
 		/* 16.05*/ func() middleware.Middleware {
-			if bg := g.bodyGenerators.GetGenerator(routeID); bg != nil { return bodyGenMW(bg) }; return nil
+			if bg := g.bodyGenerators.GetGenerator(routeID); bg != nil { return bg.Middleware() }; return nil
 		},
 		/* 16.1 */ func() middleware.Middleware {
-			if pf := g.paramForwarders.GetForwarder(routeID); pf != nil { return paramForwardMW(pf) }; return nil
+			if pf := g.paramForwarders.GetForwarder(routeID); pf != nil { return pf.Middleware() }; return nil
 		},
 		/* 16.25*/ func() middleware.Middleware {
-			if ba := g.backendAuths.GetProvider(routeID); ba != nil { return backendAuthMW(ba) }; return nil
+			if ba := g.backendAuths.GetProvider(routeID); ba != nil { return ba.Middleware() }; return nil
 		},
 		/* 16.5 */ func() middleware.Middleware {
 			if s := g.backendSigners.GetSigner(routeID); s != nil { return backendSigningMW(s) }; return nil
@@ -1456,19 +1456,19 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 			if !skipBody && respBodyTransform != nil { return transform.ResponseBodyTransformMiddleware(respBodyTransform) }; return nil
 		},
 		/* 17.25*/ func() middleware.Middleware {
-			if sm := g.statusMappers.GetMapper(routeID); sm != nil { return statusMapMW(sm) }; return nil
+			if sm := g.statusMappers.GetMapper(routeID); sm != nil { return sm.Middleware() }; return nil
 		},
 		/* 17.3 */ func() middleware.Middleware {
 			if skipBody { return nil }
-			if cr := g.contentReplacers.GetReplacer(routeID); cr != nil { return contentReplacerMW(cr) }; return nil
+			if cr := g.contentReplacers.GetReplacer(routeID); cr != nil { return cr.Middleware() }; return nil
 		},
 		/* 17.35*/ func() middleware.Middleware {
 			if skipBody { return nil }
-			if rbg := g.respBodyGenerators.GetGenerator(routeID); rbg != nil { return respBodyGenMW(rbg) }; return nil
+			if rbg := g.respBodyGenerators.GetGenerator(routeID); rbg != nil { return rbg.Middleware() }; return nil
 		},
 		/* 17.4 */ func() middleware.Middleware {
 			if skipBody { return nil }
-			if cn := g.contentNegotiators.GetNegotiator(routeID); cn != nil { return contentNegMW(cn) }; return nil
+			if cn := g.contentNegotiators.GetNegotiator(routeID); cn != nil { return cn.Middleware() }; return nil
 		},
 	}
 
@@ -1947,11 +1947,6 @@ func (g *Gateway) GetTracer() *tracing.Tracer {
 	return g.tracer
 }
 
-// GetWAFHandlers returns the WAF manager.
-func (g *Gateway) GetWAFHandlers() *waf.WAFByRoute {
-	return g.wafHandlers
-}
-
 // GetMirrors returns the mirror manager.
 func (g *Gateway) GetMirrors() *mirror.MirrorByRoute {
 	return g.mirrors
@@ -1960,11 +1955,6 @@ func (g *Gateway) GetMirrors() *mirror.MirrorByRoute {
 // GetGraphQLParsers returns the GraphQL parser manager.
 func (g *Gateway) GetGraphQLParsers() *graphql.GraphQLByRoute {
 	return g.graphqlParsers
-}
-
-// GetCoalescers returns the coalesce manager.
-func (g *Gateway) GetCoalescers() *coalesce.CoalesceByRoute {
-	return g.coalescers
 }
 
 // GetCanaryControllers returns the canary controller manager.
@@ -1977,104 +1967,14 @@ func (g *Gateway) GetAdaptiveLimiters() *trafficshape.AdaptiveConcurrencyByRoute
 	return g.adaptiveLimiters
 }
 
-// GetExtAuths returns the ext auth manager.
-func (g *Gateway) GetExtAuths() *extauth.ExtAuthByRoute {
-	return g.extAuths
-}
-
-// GetVersioners returns the versioning manager.
-func (g *Gateway) GetVersioners() *versioning.VersioningByRoute {
-	return g.versioners
-}
-
-// GetAccessLogConfigs returns the access log config manager.
-func (g *Gateway) GetAccessLogConfigs() *accesslog.AccessLogByRoute {
-	return g.accessLogConfigs
-}
-
-// GetOpenAPIValidators returns the OpenAPI validator manager.
-func (g *Gateway) GetOpenAPIValidators() *openapivalidation.OpenAPIByRoute {
-	return g.openapiValidators
-}
-
-// GetTimeoutConfigs returns the timeout config manager.
-func (g *Gateway) GetTimeoutConfigs() *timeout.TimeoutByRoute {
-	return g.timeoutConfigs
-}
-
 // GetErrorPages returns the error pages manager.
 func (g *Gateway) GetErrorPages() *errorpages.ErrorPagesByRoute {
 	return g.errorPages
 }
 
-// GetNonceCheckers returns the nonce checker manager.
-func (g *Gateway) GetNonceCheckers() *nonce.NonceByRoute {
-	return g.nonceCheckers
-}
-
-// GetCSRFProtectors returns the CSRF protection manager.
-func (g *Gateway) GetCSRFProtectors() *csrf.CSRFByRoute {
-	return g.csrfProtectors
-}
-
-// GetOutlierDetectors returns the outlier detection manager.
-func (g *Gateway) GetOutlierDetectors() *outlier.DetectorByRoute {
-	return g.outlierDetectors
-}
-
-// GetIdempotencyHandlers returns the idempotency handler manager.
-func (g *Gateway) GetIdempotencyHandlers() *idempotency.IdempotencyByRoute {
-	return g.idempotencyHandlers
-}
-
-// GetBackendSigners returns the backend signing manager.
-func (g *Gateway) GetBackendSigners() *signing.SigningByRoute {
-	return g.backendSigners
-}
-
-// GetGeoFilters returns the geo filter manager.
-func (g *Gateway) GetGeoFilters() *geo.GeoByRoute {
-	return g.geoFilters
-}
-
-// GetCompressors returns the compression manager.
-func (g *Gateway) GetCompressors() *compression.CompressorByRoute {
-	return g.compressors
-}
-
-// GetDecompressors returns the request decompression manager.
-func (g *Gateway) GetDecompressors() *decompress.DecompressorByRoute {
-	return g.decompressors
-}
-
-// GetResponseLimiters returns the response limit ByRoute manager.
-func (g *Gateway) GetResponseLimiters() *responselimit.ResponseLimitByRoute {
-	return g.responseLimiters
-}
-
 // GetMaintenanceHandlers returns the maintenance ByRoute manager.
 func (g *Gateway) GetMaintenanceHandlers() *maintenance.MaintenanceByRoute {
 	return g.maintenanceHandlers
-}
-
-// GetSecurityHeaders returns the security headers ByRoute manager.
-func (g *Gateway) GetSecurityHeaders() *securityheaders.SecurityHeadersByRoute {
-	return g.securityHeaders
-}
-
-// GetBotDetectors returns the bot detection manager.
-func (g *Gateway) GetBotDetectors() *botdetect.BotDetectByRoute {
-	return g.botDetectors
-}
-
-// GetProxyRateLimiters returns the proxy rate limit manager.
-func (g *Gateway) GetProxyRateLimiters() *proxyratelimit.ProxyRateLimitByRoute {
-	return g.proxyRateLimiters
-}
-
-// GetMockHandlers returns the mock response manager.
-func (g *Gateway) GetMockHandlers() *mock.MockByRoute {
-	return g.mockHandlers
 }
 
 // GetRealIPExtractor returns the real IP extractor (may be nil).
@@ -2092,29 +1992,9 @@ func (g *Gateway) GetAllowedHosts() *allowedhosts.CompiledAllowedHosts {
 	return g.allowedHosts
 }
 
-// GetClaimsPropagators returns the claims propagation manager.
-func (g *Gateway) GetClaimsPropagators() *claimsprop.ClaimsPropByRoute {
-	return g.claimsPropagators
-}
-
 // GetTokenChecker returns the token revocation checker (may be nil).
 func (g *Gateway) GetTokenChecker() *tokenrevoke.TokenChecker {
 	return g.tokenChecker
-}
-
-// GetBackendAuths returns the backend auth manager.
-func (g *Gateway) GetBackendAuths() *backendauth.BackendAuthByRoute {
-	return g.backendAuths
-}
-
-// GetStatusMappers returns the status mapping manager.
-func (g *Gateway) GetStatusMappers() *statusmap.StatusMapByRoute {
-	return g.statusMappers
-}
-
-// GetStaticFiles returns the static file manager.
-func (g *Gateway) GetStaticFiles() *staticfiles.StaticByRoute {
-	return g.staticFiles
 }
 
 // GetWebhookDispatcher returns the webhook dispatcher (may be nil).
@@ -2134,31 +2014,6 @@ func (g *Gateway) GetServiceLimiter() *serviceratelimit.ServiceLimiter {
 	return g.serviceLimiter
 }
 
-// GetSpikeArresters returns the spike arrest manager.
-func (g *Gateway) GetSpikeArresters() *spikearrest.SpikeArrestByRoute {
-	return g.spikeArresters
-}
-
-// GetContentReplacers returns the content replacer manager.
-func (g *Gateway) GetContentReplacers() *contentreplacer.ContentReplacerByRoute {
-	return g.contentReplacers
-}
-
-// GetBodyGenerators returns the body generator manager.
-func (g *Gateway) GetBodyGenerators() *bodygen.BodyGenByRoute {
-	return g.bodyGenerators
-}
-
-// GetQuotaEnforcers returns the quota enforcer manager.
-func (g *Gateway) GetQuotaEnforcers() *quota.QuotaByRoute {
-	return g.quotaEnforcers
-}
-
-// GetSequentialHandlers returns the sequential handler manager.
-func (g *Gateway) GetSequentialHandlers() *sequential.SequentialByRoute {
-	return g.sequentialHandlers
-}
-
 // GetFollowRedirectStats returns per-route redirect transport stats.
 func (g *Gateway) GetFollowRedirectStats() map[string]interface{} {
 	result := make(map[string]interface{})
@@ -2168,26 +2023,6 @@ func (g *Gateway) GetFollowRedirectStats() map[string]interface{} {
 		}
 	}
 	return result
-}
-
-// GetAggregateHandlers returns the aggregate handler manager.
-func (g *Gateway) GetAggregateHandlers() *aggregate.AggregateByRoute {
-	return g.aggregateHandlers
-}
-
-// GetRespBodyGenerators returns the response body generator manager.
-func (g *Gateway) GetRespBodyGenerators() *respbodygen.RespBodyGenByRoute {
-	return g.respBodyGenerators
-}
-
-// GetParamForwarders returns the param forwarding manager.
-func (g *Gateway) GetParamForwarders() *paramforward.ParamForwardByRoute {
-	return g.paramForwarders
-}
-
-// GetContentNegotiators returns the content negotiation manager.
-func (g *Gateway) GetContentNegotiators() *contentneg.NegotiatorByRoute {
-	return g.contentNegotiators
 }
 
 // GetDebugHandler returns the debug endpoint handler (may be nil).
@@ -2293,17 +2128,6 @@ func (g *Gateway) GetTrafficSplitStats() map[string]interface{} {
 	return result
 }
 
-// FeatureStats returns admin stats from features that implement AdminStatsProvider.
-func (g *Gateway) FeatureStats() map[string]any {
-	result := make(map[string]any)
-	for _, f := range g.features {
-		if sp, ok := f.(AdminStatsProvider); ok {
-			result[f.Name()] = sp.AdminStats()
-		}
-	}
-	return result
-}
-
 // GetAPIKeyAuth returns the API key auth for admin API
 func (g *Gateway) GetAPIKeyAuth() *auth.APIKeyAuth {
 	return g.apiKeyAuth
@@ -2342,12 +2166,3 @@ func (g *Gateway) GetStats() *Stats {
 	return stats
 }
 
-// GetCDNCacheHeadersStats returns CDN cache header stats for all routes.
-func (g *Gateway) GetCDNCacheHeadersStats() map[string]cdnheaders.Snapshot {
-	return g.cdnHeaders.Stats()
-}
-
-// GetBackendEncodingStats returns backend encoding stats for all routes.
-func (g *Gateway) GetBackendEncodingStats() map[string]backendenc.Snapshot {
-	return g.backendEncoders.Stats()
-}

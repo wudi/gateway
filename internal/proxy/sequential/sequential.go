@@ -282,10 +282,5 @@ func (m *SequentialByRoute) GetHandler(routeID string) *SequentialHandler {
 
 // Stats returns per-route sequential handler stats.
 func (m *SequentialByRoute) Stats() map[string]interface{} {
-	stats := make(map[string]interface{})
-	m.Range(func(id string, sh *SequentialHandler) bool {
-		stats[id] = sh.Stats()
-		return true
-	})
-	return stats
+	return byroute.CollectStats(&m.Manager, func(sh *SequentialHandler) interface{} { return sh.Stats() })
 }

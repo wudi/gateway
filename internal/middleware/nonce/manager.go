@@ -54,12 +54,7 @@ func (m *NonceByRoute) GetChecker(routeID string) *NonceChecker {
 
 // Stats returns admin status for all routes.
 func (m *NonceByRoute) Stats() map[string]NonceStatus {
-	result := make(map[string]NonceStatus)
-	m.Range(func(id string, nc *NonceChecker) bool {
-		result[id] = nc.Status()
-		return true
-	})
-	return result
+	return byroute.CollectStats(&m.Manager, func(nc *NonceChecker) NonceStatus { return nc.Status() })
 }
 
 // CloseAll stops all nonce checker cleanup goroutines.
