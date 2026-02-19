@@ -3,9 +3,9 @@ package botdetect
 import (
 	"net/http"
 	"regexp"
-	"sync"
 	"sync/atomic"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/errors"
 	"github.com/wudi/gateway/internal/middleware"
@@ -101,8 +101,7 @@ func MergeBotDetectionConfig(route, global config.BotDetectionConfig) config.Bot
 
 // BotDetectByRoute manages per-route bot detectors.
 type BotDetectByRoute struct {
-	detectors map[string]*BotDetector
-	mu        sync.RWMutex
+	byroute.Manager[*BotDetector]
 }
 
 // NewBotDetectByRoute creates a new per-route bot detection manager.
@@ -116,42 +115,24 @@ func (m *BotDetectByRoute) AddRoute(routeID string, cfg config.BotDetectionConfi
 	if err != nil {
 		return err
 	}
-	m.mu.Lock()
-	if m.detectors == nil {
-		m.detectors = make(map[string]*BotDetector)
-	}
-	m.detectors[routeID] = bd
-	m.mu.Unlock()
+	m.Add(routeID, bd)
 	return nil
 }
 
 // GetDetector returns the bot detector for a route.
 func (m *BotDetectByRoute) GetDetector(routeID string) *BotDetector {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.detectors[routeID]
-}
-
-// RouteIDs returns all route IDs with bot detection.
-func (m *BotDetectByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.detectors))
-	for id := range m.detectors {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns per-route blocked counts.
 func (m *BotDetectByRoute) Stats() map[string]interface{} {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	stats := make(map[string]interface{}, len(m.detectors))
-	for id, bd := range m.detectors {
+	stats := make(map[string]interface{})
+	m.Range(func(id string, bd *BotDetector) bool {
 		stats[id] = map[string]interface{}{
 			"blocked": bd.Blocked(),
 		}
-	}
+		return true
+	})
 	return stats
 }

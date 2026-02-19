@@ -3,10 +3,10 @@ package proxyratelimit
 import (
 	"net/http"
 	"strconv"
-	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/errors"
 	"github.com/wudi/gateway/internal/middleware"
@@ -63,8 +63,7 @@ func (pl *ProxyLimiter) Stats() map[string]int64 {
 
 // ProxyRateLimitByRoute manages per-route proxy rate limiters.
 type ProxyRateLimitByRoute struct {
-	limiters map[string]*ProxyLimiter
-	mu       sync.RWMutex
+	byroute.Manager[*ProxyLimiter]
 }
 
 // NewProxyRateLimitByRoute creates a new per-route proxy rate limiter manager.
@@ -74,39 +73,21 @@ func NewProxyRateLimitByRoute() *ProxyRateLimitByRoute {
 
 // AddRoute adds a proxy rate limiter for a route.
 func (m *ProxyRateLimitByRoute) AddRoute(routeID string, cfg config.ProxyRateLimitConfig) {
-	m.mu.Lock()
-	if m.limiters == nil {
-		m.limiters = make(map[string]*ProxyLimiter)
-	}
-	m.limiters[routeID] = New(cfg)
-	m.mu.Unlock()
+	m.Add(routeID, New(cfg))
 }
 
 // GetLimiter returns the proxy limiter for a route.
 func (m *ProxyRateLimitByRoute) GetLimiter(routeID string) *ProxyLimiter {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.limiters[routeID]
-}
-
-// RouteIDs returns all route IDs with proxy rate limiters.
-func (m *ProxyRateLimitByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.limiters))
-	for id := range m.limiters {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns per-route proxy rate limit metrics.
 func (m *ProxyRateLimitByRoute) Stats() map[string]interface{} {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	stats := make(map[string]interface{}, len(m.limiters))
-	for id, pl := range m.limiters {
+	stats := make(map[string]interface{})
+	m.Range(func(id string, pl *ProxyLimiter) bool {
 		stats[id] = pl.Stats()
-	}
+		return true
+	})
 	return stats
 }

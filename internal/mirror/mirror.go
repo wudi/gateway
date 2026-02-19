@@ -7,9 +7,9 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
-	"sync"
 	"time"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/logging"
 	"go.uber.org/zap"
@@ -189,8 +189,7 @@ func (m *Mirror) sendMirrorWithMetrics(original *http.Request, backendURL string
 
 // MirrorByRoute manages mirrors per route
 type MirrorByRoute struct {
-	mirrors map[string]*Mirror
-	mu      sync.RWMutex
+	byroute.Manager[*Mirror]
 }
 
 // NewMirrorByRoute creates a new per-route mirror manager
@@ -204,40 +203,22 @@ func (m *MirrorByRoute) AddRoute(routeID string, cfg config.MirrorConfig) error 
 	if err != nil {
 		return err
 	}
-	m.mu.Lock()
-	if m.mirrors == nil {
-		m.mirrors = make(map[string]*Mirror)
-	}
-	m.mirrors[routeID] = mirror
-	m.mu.Unlock()
+	m.Add(routeID, mirror)
 	return nil
 }
 
 // GetMirror returns the mirror for a route
 func (m *MirrorByRoute) GetMirror(routeID string) *Mirror {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.mirrors[routeID]
-}
-
-// RouteIDs returns all route IDs with mirrors.
-func (m *MirrorByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.mirrors))
-	for id := range m.mirrors {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns a snapshot of metrics for all routes.
 func (m *MirrorByRoute) Stats() map[string]MirrorSnapshot {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make(map[string]MirrorSnapshot, len(m.mirrors))
-	for id, mirror := range m.mirrors {
+	result := make(map[string]MirrorSnapshot)
+	m.Range(func(id string, mirror *Mirror) bool {
 		result[id] = mirror.metrics.Snapshot()
-	}
+		return true
+	})
 	return result
 }

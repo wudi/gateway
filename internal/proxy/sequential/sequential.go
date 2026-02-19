@@ -8,11 +8,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"sync"
 	"sync/atomic"
 	"text/template"
 	"time"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/variables"
 )
@@ -256,8 +256,7 @@ func (sh *SequentialHandler) Stats() map[string]interface{} {
 
 // SequentialByRoute manages per-route sequential handlers.
 type SequentialByRoute struct {
-	handlers map[string]*SequentialHandler
-	mu       sync.RWMutex
+	byroute.Manager[*SequentialHandler]
 }
 
 // NewSequentialByRoute creates a new per-route sequential handler manager.
@@ -271,40 +270,22 @@ func (m *SequentialByRoute) AddRoute(routeID string, cfg config.SequentialConfig
 	if err != nil {
 		return err
 	}
-	m.mu.Lock()
-	if m.handlers == nil {
-		m.handlers = make(map[string]*SequentialHandler)
-	}
-	m.handlers[routeID] = sh
-	m.mu.Unlock()
+	m.Add(routeID, sh)
 	return nil
 }
 
 // GetHandler returns the sequential handler for a route.
 func (m *SequentialByRoute) GetHandler(routeID string) *SequentialHandler {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.handlers[routeID]
-}
-
-// RouteIDs returns all route IDs with sequential handlers.
-func (m *SequentialByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.handlers))
-	for id := range m.handlers {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns per-route sequential handler stats.
 func (m *SequentialByRoute) Stats() map[string]interface{} {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	stats := make(map[string]interface{}, len(m.handlers))
-	for id, sh := range m.handlers {
+	stats := make(map[string]interface{})
+	m.Range(func(id string, sh *SequentialHandler) bool {
 		stats[id] = sh.Stats()
-	}
+		return true
+	})
 	return stats
 }

@@ -1,16 +1,14 @@
 package idempotency
 
 import (
-	"sync"
-
 	"github.com/redis/go-redis/v9"
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 )
 
 // IdempotencyByRoute manages per-route idempotency handlers.
 type IdempotencyByRoute struct {
-	mu       sync.RWMutex
-	handlers map[string]*CompiledIdempotency
+	byroute.Manager[*CompiledIdempotency]
 }
 
 // NewIdempotencyByRoute creates a new IdempotencyByRoute manager.
@@ -29,50 +27,31 @@ func (m *IdempotencyByRoute) AddRoute(routeID string, cfg config.IdempotencyConf
 		return err
 	}
 
-	m.mu.Lock()
-	if m.handlers == nil {
-		m.handlers = make(map[string]*CompiledIdempotency)
-	}
-	m.handlers[routeID] = ci
-	m.mu.Unlock()
+	m.Add(routeID, ci)
 
 	return nil
 }
 
 // GetHandler returns the idempotency handler for a route, or nil.
 func (m *IdempotencyByRoute) GetHandler(routeID string) *CompiledIdempotency {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.handlers[routeID]
-}
-
-// RouteIDs returns all route IDs with idempotency handlers.
-func (m *IdempotencyByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.handlers))
-	for id := range m.handlers {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns admin status for all routes.
 func (m *IdempotencyByRoute) Stats() map[string]IdempotencyStatus {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make(map[string]IdempotencyStatus, len(m.handlers))
-	for id, ci := range m.handlers {
+	result := make(map[string]IdempotencyStatus)
+	m.Range(func(id string, ci *CompiledIdempotency) bool {
 		result[id] = ci.Status()
-	}
+		return true
+	})
 	return result
 }
 
 // CloseAll closes all idempotency handlers (stopping cleanup goroutines).
 func (m *IdempotencyByRoute) CloseAll() {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	for _, ci := range m.handlers {
+	m.Range(func(_ string, ci *CompiledIdempotency) bool {
 		ci.Close()
-	}
+		return true
+	})
 }

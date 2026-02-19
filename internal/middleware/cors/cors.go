@@ -5,8 +5,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 )
 
@@ -169,8 +169,7 @@ func (h *Handler) isOriginAllowed(origin string) bool {
 
 // CORSByRoute manages CORS handlers per route
 type CORSByRoute struct {
-	handlers map[string]*Handler
-	mu       sync.RWMutex
+	byroute.Manager[*Handler]
 }
 
 // NewCORSByRoute creates a new per-route CORS manager
@@ -184,29 +183,12 @@ func (m *CORSByRoute) AddRoute(routeID string, cfg config.CORSConfig) error {
 	if err != nil {
 		return err
 	}
-	m.mu.Lock()
-	if m.handlers == nil {
-		m.handlers = make(map[string]*Handler)
-	}
-	m.handlers[routeID] = h
-	m.mu.Unlock()
+	m.Add(routeID, h)
 	return nil
 }
 
 // GetHandler returns the CORS handler for a route
 func (m *CORSByRoute) GetHandler(routeID string) *Handler {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.handlers[routeID]
-}
-
-// RouteIDs returns all route IDs with CORS handlers.
-func (m *CORSByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.handlers))
-	for id := range m.handlers {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }

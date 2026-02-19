@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"sync/atomic"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/middleware"
 )
@@ -131,8 +131,7 @@ func (pf *ParamForwarder) Stripped() int64 {
 
 // ParamForwardByRoute manages per-route param forwarders.
 type ParamForwardByRoute struct {
-	forwarders map[string]*ParamForwarder
-	mu         sync.RWMutex
+	byroute.Manager[*ParamForwarder]
 }
 
 // NewParamForwardByRoute creates a new per-route param forwarder manager.
@@ -142,45 +141,26 @@ func NewParamForwardByRoute() *ParamForwardByRoute {
 
 // AddRoute adds a param forwarder for a route.
 func (m *ParamForwardByRoute) AddRoute(routeID string, cfg config.ParamForwardingConfig) {
-	pf := New(cfg)
-	m.mu.Lock()
-	if m.forwarders == nil {
-		m.forwarders = make(map[string]*ParamForwarder)
-	}
-	m.forwarders[routeID] = pf
-	m.mu.Unlock()
+	m.Add(routeID, New(cfg))
 }
 
 // GetForwarder returns the param forwarder for a route.
 func (m *ParamForwardByRoute) GetForwarder(routeID string) *ParamForwarder {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.forwarders[routeID]
-}
-
-// RouteIDs returns all route IDs with param forwarders.
-func (m *ParamForwardByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.forwarders))
-	for id := range m.forwarders {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns per-route param forwarder stats.
 func (m *ParamForwardByRoute) Stats() map[string]interface{} {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	stats := make(map[string]interface{}, len(m.forwarders))
-	for id, pf := range m.forwarders {
+	stats := make(map[string]interface{})
+	m.Range(func(id string, pf *ParamForwarder) bool {
 		stats[id] = map[string]interface{}{
 			"stripped":        pf.Stripped(),
 			"allowed_headers": len(pf.allowedHeaders),
 			"allowed_query":   len(pf.allowedQuery),
 			"allowed_cookies": len(pf.allowedCookies),
 		}
-	}
+		return true
+	})
 	return stats
 }

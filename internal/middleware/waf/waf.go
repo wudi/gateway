@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"sync/atomic"
 
 	"github.com/corazawaf/coraza/v3"
 	"github.com/corazawaf/coraza/v3/types"
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/logging"
 	"github.com/wudi/gateway/internal/middleware"
@@ -191,8 +191,7 @@ func clientIP(r *http.Request) string {
 
 // WAFByRoute manages WAF instances per route.
 type WAFByRoute struct {
-	wafs map[string]*WAF
-	mu   sync.RWMutex
+	byroute.Manager[*WAF]
 }
 
 // NewWAFByRoute creates a new per-route WAF manager.
@@ -206,40 +205,22 @@ func (m *WAFByRoute) AddRoute(routeID string, cfg config.WAFConfig) error {
 	if err != nil {
 		return err
 	}
-	m.mu.Lock()
-	if m.wafs == nil {
-		m.wafs = make(map[string]*WAF)
-	}
-	m.wafs[routeID] = w
-	m.mu.Unlock()
+	m.Add(routeID, w)
 	return nil
 }
 
 // GetWAF returns the WAF for a route, or nil if not configured.
 func (m *WAFByRoute) GetWAF(routeID string) *WAF {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.wafs[routeID]
-}
-
-// RouteIDs returns all route IDs with WAFs.
-func (m *WAFByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.wafs))
-	for id := range m.wafs {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns WAF stats for all routes.
 func (m *WAFByRoute) Stats() map[string]interface{} {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make(map[string]interface{}, len(m.wafs))
-	for id, w := range m.wafs {
+	result := make(map[string]interface{})
+	m.Range(func(id string, w *WAF) bool {
 		result[id] = w.Stats()
-	}
+		return true
+	})
 	return result
 }

@@ -230,56 +230,246 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 
 	// Register features
 	s.features = []Feature{
-		&ipFilterFeature{s.ipFilters},
-		&corsFeature{s.corsHandlers},
-		&circuitBreakerFeature{s.circuitBreakers},
-		&cacheFeature{s.caches},
-		&compressionFeature{s.compressors},
-		&validationFeature{s.validators},
-		&mirrorFeature{s.mirrors},
-		&rulesFeature{s.routeRules},
-		&throttleFeature{m: s.throttlers, global: &cfg.TrafficShaping.Throttle},
-		&bandwidthFeature{m: s.bandwidthLimiters, global: &cfg.TrafficShaping.Bandwidth},
-		&priorityFeature{m: s.priorityConfigs, global: &cfg.TrafficShaping.Priority},
-		&faultInjectionFeature{m: s.faultInjectors, global: &cfg.TrafficShaping.FaultInjection},
-		&adaptiveConcurrencyFeature{m: s.adaptiveLimiters, global: &cfg.TrafficShaping.AdaptiveConcurrency},
-		&wafFeature{s.wafHandlers},
-		&graphqlFeature{s.graphqlParsers},
-		&coalesceFeature{s.coalescers},
-		&canaryFeature{s.canaryControllers},
-		&extAuthFeature{s.extAuths},
-		&versioningFeature{s.versioners},
-		&accessLogFeature{s.accessLogConfigs},
-		&openapiFeature{s.openapiValidators},
-		&timeoutFeature{s.timeoutConfigs},
-		&errorPagesFeature{m: s.errorPages, global: &cfg.ErrorPages},
-		&nonceFeature{m: s.nonceCheckers, global: &cfg.Nonce, redis: g.redisClient},
-		&csrfFeature{m: s.csrfProtectors, global: &cfg.CSRF},
-		&idempotencyFeature{m: s.idempotencyHandlers, global: &cfg.Idempotency, redis: g.redisClient},
-		&outlierDetectionFeature{s.outlierDetectors},
-		&signingFeature{m: s.backendSigners, global: &cfg.BackendSigning},
-		&decompressFeature{m: s.decompressors, global: &cfg.RequestDecompression},
-		&responseLimitFeature{m: s.responseLimiters, global: &cfg.ResponseLimit},
-		&securityHeadersFeature{m: s.securityHeaders, global: &cfg.SecurityHeaders},
-		&maintenanceFeature{m: s.maintenanceHandlers, global: &cfg.Maintenance},
-		&botDetectFeature{m: s.botDetectors, global: &cfg.BotDetection},
-		&proxyRateLimitFeature{s.proxyRateLimiters},
-		&mockFeature{s.mockHandlers},
-		&claimsPropFeature{s.claimsPropagators},
-		&backendAuthFeature{s.backendAuths},
-		&statusMapFeature{s.statusMappers},
-		&staticFeature{s.staticFiles},
-		&spikeArrestFeature{m: s.spikeArresters, global: &cfg.SpikeArrest},
-		&contentReplacerFeature{s.contentReplacers},
-		&bodyGenFeature{s.bodyGenerators},
-		&quotaFeature{m: s.quotaEnforcers, redis: g.redisClient},
-		&sequentialFeature{s.sequentialHandlers},
-		&aggregateFeature{m: s.aggregateHandlers},
-		&respBodyGenFeature{s.respBodyGenerators},
-		&paramForwardFeature{s.paramForwarders},
-		&contentNegFeature{s.contentNegotiators},
-		&cdnHeadersFeature{m: s.cdnHeaders, global: &cfg.CDNCacheHeaders},
-		&backendEncodingFeature{s.backendEncoders},
+		newFeature("ip_filter", "", func(id string, rc config.RouteConfig) error {
+			if rc.IPFilter.Enabled { return s.ipFilters.AddRoute(id, rc.IPFilter) }
+			return nil
+		}, s.ipFilters.RouteIDs, nil),
+		newFeature("cors", "", func(id string, rc config.RouteConfig) error {
+			if rc.CORS.Enabled { return s.corsHandlers.AddRoute(id, rc.CORS) }
+			return nil
+		}, s.corsHandlers.RouteIDs, nil),
+		newFeature("circuit_breaker", "/circuit-breakers", func(id string, rc config.RouteConfig) error {
+			if rc.CircuitBreaker.Enabled { s.circuitBreakers.AddRoute(id, rc.CircuitBreaker) }
+			return nil
+		}, s.circuitBreakers.RouteIDs, func() any { return s.circuitBreakers.Snapshots() }),
+		newFeature("cache", "/cache", func(id string, rc config.RouteConfig) error {
+			if rc.Cache.Enabled { s.caches.AddRoute(id, rc.Cache) }
+			return nil
+		}, s.caches.RouteIDs, func() any { return s.caches.Stats() }),
+		newFeature("compression", "/compression", func(id string, rc config.RouteConfig) error {
+			if rc.Compression.Enabled { s.compressors.AddRoute(id, rc.Compression) }
+			return nil
+		}, s.compressors.RouteIDs, func() any { return s.compressors.Stats() }),
+		newFeature("validation", "", func(id string, rc config.RouteConfig) error {
+			if rc.Validation.Enabled { return s.validators.AddRoute(id, rc.Validation) }
+			return nil
+		}, s.validators.RouteIDs, nil),
+		newFeature("mirror", "/mirrors", func(id string, rc config.RouteConfig) error {
+			if rc.Mirror.Enabled { return s.mirrors.AddRoute(id, rc.Mirror) }
+			return nil
+		}, s.mirrors.RouteIDs, func() any { return s.mirrors.Stats() }),
+		newFeature("rules", "", func(id string, rc config.RouteConfig) error {
+			if len(rc.Rules.Request) > 0 || len(rc.Rules.Response) > 0 { return s.routeRules.AddRoute(id, rc.Rules) }
+			return nil
+		}, s.routeRules.RouteIDs, func() any { return s.routeRules.Stats() }),
+		newFeature("throttle", "", func(id string, rc config.RouteConfig) error {
+			tc := rc.TrafficShaping.Throttle
+			if tc.Enabled {
+				s.throttlers.AddRoute(id, trafficshape.MergeThrottleConfig(tc, cfg.TrafficShaping.Throttle))
+			} else if cfg.TrafficShaping.Throttle.Enabled {
+				s.throttlers.AddRoute(id, cfg.TrafficShaping.Throttle)
+			}
+			return nil
+		}, s.throttlers.RouteIDs, func() any { return s.throttlers.Stats() }),
+		newFeature("bandwidth", "", func(id string, rc config.RouteConfig) error {
+			bc := rc.TrafficShaping.Bandwidth
+			if bc.Enabled {
+				s.bandwidthLimiters.AddRoute(id, trafficshape.MergeBandwidthConfig(bc, cfg.TrafficShaping.Bandwidth))
+			} else if cfg.TrafficShaping.Bandwidth.Enabled {
+				s.bandwidthLimiters.AddRoute(id, cfg.TrafficShaping.Bandwidth)
+			}
+			return nil
+		}, s.bandwidthLimiters.RouteIDs, func() any { return s.bandwidthLimiters.Stats() }),
+		newFeature("priority", "", func(id string, rc config.RouteConfig) error {
+			pc := rc.TrafficShaping.Priority
+			if pc.Enabled {
+				s.priorityConfigs.AddRoute(id, trafficshape.MergePriorityConfig(pc, cfg.TrafficShaping.Priority))
+			} else if cfg.TrafficShaping.Priority.Enabled {
+				s.priorityConfigs.AddRoute(id, cfg.TrafficShaping.Priority)
+			}
+			return nil
+		}, s.priorityConfigs.RouteIDs, nil),
+		newFeature("fault_injection", "", func(id string, rc config.RouteConfig) error {
+			fi := rc.TrafficShaping.FaultInjection
+			if fi.Enabled {
+				s.faultInjectors.AddRoute(id, trafficshape.MergeFaultInjectionConfig(fi, cfg.TrafficShaping.FaultInjection))
+			} else if cfg.TrafficShaping.FaultInjection.Enabled {
+				s.faultInjectors.AddRoute(id, cfg.TrafficShaping.FaultInjection)
+			}
+			return nil
+		}, s.faultInjectors.RouteIDs, func() any { return s.faultInjectors.Stats() }),
+		newFeature("adaptive_concurrency", "/adaptive-concurrency", func(id string, rc config.RouteConfig) error {
+			ac := rc.TrafficShaping.AdaptiveConcurrency
+			if ac.Enabled {
+				s.adaptiveLimiters.AddRoute(id, trafficshape.MergeAdaptiveConcurrencyConfig(ac, cfg.TrafficShaping.AdaptiveConcurrency))
+			} else if cfg.TrafficShaping.AdaptiveConcurrency.Enabled {
+				s.adaptiveLimiters.AddRoute(id, cfg.TrafficShaping.AdaptiveConcurrency)
+			}
+			return nil
+		}, s.adaptiveLimiters.RouteIDs, func() any { return s.adaptiveLimiters.Stats() }),
+		newFeature("waf", "/waf", func(id string, rc config.RouteConfig) error {
+			if rc.WAF.Enabled { return s.wafHandlers.AddRoute(id, rc.WAF) }
+			return nil
+		}, s.wafHandlers.RouteIDs, func() any { return s.wafHandlers.Stats() }),
+		newFeature("graphql", "/graphql", func(id string, rc config.RouteConfig) error {
+			if rc.GraphQL.Enabled { return s.graphqlParsers.AddRoute(id, rc.GraphQL) }
+			return nil
+		}, s.graphqlParsers.RouteIDs, func() any { return s.graphqlParsers.Stats() }),
+		newFeature("coalesce", "/coalesce", func(id string, rc config.RouteConfig) error {
+			if rc.Coalesce.Enabled { s.coalescers.AddRoute(id, rc.Coalesce) }
+			return nil
+		}, s.coalescers.RouteIDs, func() any { return s.coalescers.Stats() }),
+		noOpFeature("canary", "/canary", s.canaryControllers.RouteIDs, func() any { return s.canaryControllers.Stats() }),
+		newFeature("ext_auth", "/ext-auth", func(id string, rc config.RouteConfig) error {
+			if rc.ExtAuth.Enabled { return s.extAuths.AddRoute(id, rc.ExtAuth) }
+			return nil
+		}, s.extAuths.RouteIDs, func() any { return s.extAuths.Stats() }),
+		newFeature("versioning", "/versioning", func(id string, rc config.RouteConfig) error {
+			if rc.Versioning.Enabled { return s.versioners.AddRoute(id, rc.Versioning) }
+			return nil
+		}, s.versioners.RouteIDs, func() any { return s.versioners.Stats() }),
+		newFeature("access_log", "/access-log", func(id string, rc config.RouteConfig) error {
+			al := rc.AccessLog
+			if al.Enabled != nil || al.Format != "" || len(al.HeadersInclude) > 0 || len(al.HeadersExclude) > 0 ||
+				al.Body.Enabled || al.Conditions.SampleRate > 0 || len(al.Conditions.StatusCodes) > 0 || len(al.Conditions.Methods) > 0 {
+				return s.accessLogConfigs.AddRoute(id, al)
+			}
+			return nil
+		}, s.accessLogConfigs.RouteIDs, func() any { return s.accessLogConfigs.Stats() }),
+		newFeature("openapi", "/openapi", func(id string, rc config.RouteConfig) error {
+			if rc.OpenAPI.SpecFile != "" || rc.OpenAPI.SpecID != "" { return s.openapiValidators.AddRoute(id, rc.OpenAPI) }
+			return nil
+		}, s.openapiValidators.RouteIDs, func() any { return s.openapiValidators.Stats() }),
+		newFeature("timeout", "/timeouts", func(id string, rc config.RouteConfig) error {
+			if rc.TimeoutPolicy.IsActive() { s.timeoutConfigs.AddRoute(id, rc.TimeoutPolicy) }
+			return nil
+		}, s.timeoutConfigs.RouteIDs, func() any { return s.timeoutConfigs.Stats() }),
+		newFeature("error_pages", "/error-pages", func(id string, rc config.RouteConfig) error {
+			if cfg.ErrorPages.IsActive() || rc.ErrorPages.IsActive() { return s.errorPages.AddRoute(id, cfg.ErrorPages, rc.ErrorPages) }
+			return nil
+		}, s.errorPages.RouteIDs, func() any { return s.errorPages.Stats() }),
+		newFeature("nonce", "/nonces", func(id string, rc config.RouteConfig) error {
+			if rc.Nonce.Enabled { return s.nonceCheckers.AddRoute(id, nonce.MergeNonceConfig(rc.Nonce, cfg.Nonce), g.redisClient) }
+			if cfg.Nonce.Enabled { return s.nonceCheckers.AddRoute(id, cfg.Nonce, g.redisClient) }
+			return nil
+		}, s.nonceCheckers.RouteIDs, func() any { return s.nonceCheckers.Stats() }),
+		newFeature("csrf", "/csrf", func(id string, rc config.RouteConfig) error {
+			if rc.CSRF.Enabled { return s.csrfProtectors.AddRoute(id, csrf.MergeCSRFConfig(rc.CSRF, cfg.CSRF)) }
+			if cfg.CSRF.Enabled { return s.csrfProtectors.AddRoute(id, cfg.CSRF) }
+			return nil
+		}, s.csrfProtectors.RouteIDs, func() any { return s.csrfProtectors.Stats() }),
+		newFeature("idempotency", "/idempotency", func(id string, rc config.RouteConfig) error {
+			if rc.Idempotency.Enabled { return s.idempotencyHandlers.AddRoute(id, idempotency.MergeIdempotencyConfig(rc.Idempotency, cfg.Idempotency), g.redisClient) }
+			if cfg.Idempotency.Enabled { return s.idempotencyHandlers.AddRoute(id, cfg.Idempotency, g.redisClient) }
+			return nil
+		}, s.idempotencyHandlers.RouteIDs, func() any { return s.idempotencyHandlers.Stats() }),
+		noOpFeature("outlier_detection", "/outlier-detection", s.outlierDetectors.RouteIDs, func() any { return s.outlierDetectors.Stats() }),
+		newFeature("backend_signing", "/signing", func(id string, rc config.RouteConfig) error {
+			if rc.BackendSigning.Enabled { return s.backendSigners.AddRoute(id, signing.MergeSigningConfig(rc.BackendSigning, cfg.BackendSigning)) }
+			if cfg.BackendSigning.Enabled { return s.backendSigners.AddRoute(id, cfg.BackendSigning) }
+			return nil
+		}, s.backendSigners.RouteIDs, func() any { return s.backendSigners.Stats() }),
+		newFeature("request_decompression", "/decompression", func(id string, rc config.RouteConfig) error {
+			if rc.RequestDecompression.Enabled {
+				s.decompressors.AddRoute(id, decompress.MergeDecompressionConfig(rc.RequestDecompression, cfg.RequestDecompression))
+			} else if cfg.RequestDecompression.Enabled {
+				s.decompressors.AddRoute(id, cfg.RequestDecompression)
+			}
+			return nil
+		}, s.decompressors.RouteIDs, func() any { return s.decompressors.Stats() }),
+		newFeature("response_limit", "/response-limits", func(id string, rc config.RouteConfig) error {
+			if rc.ResponseLimit.Enabled {
+				s.responseLimiters.AddRoute(id, responselimit.MergeResponseLimitConfig(rc.ResponseLimit, cfg.ResponseLimit))
+			} else if cfg.ResponseLimit.Enabled {
+				s.responseLimiters.AddRoute(id, cfg.ResponseLimit)
+			}
+			return nil
+		}, s.responseLimiters.RouteIDs, func() any { return s.responseLimiters.Stats() }),
+		newFeature("security_headers", "/security-headers", func(id string, rc config.RouteConfig) error {
+			if rc.SecurityHeaders.Enabled {
+				s.securityHeaders.AddRoute(id, securityheaders.MergeSecurityHeadersConfig(rc.SecurityHeaders, cfg.SecurityHeaders))
+			} else if cfg.SecurityHeaders.Enabled {
+				s.securityHeaders.AddRoute(id, cfg.SecurityHeaders)
+			}
+			return nil
+		}, s.securityHeaders.RouteIDs, func() any { return s.securityHeaders.Stats() }),
+		newFeature("maintenance", "/maintenance", func(id string, rc config.RouteConfig) error {
+			if rc.Maintenance.Enabled {
+				s.maintenanceHandlers.AddRoute(id, maintenance.MergeMaintenanceConfig(rc.Maintenance, cfg.Maintenance))
+			} else if cfg.Maintenance.Enabled {
+				s.maintenanceHandlers.AddRoute(id, cfg.Maintenance)
+			}
+			return nil
+		}, s.maintenanceHandlers.RouteIDs, func() any { return s.maintenanceHandlers.Stats() }),
+		newFeature("bot_detection", "/bot-detection", func(id string, rc config.RouteConfig) error {
+			if rc.BotDetection.Enabled { return s.botDetectors.AddRoute(id, botdetect.MergeBotDetectionConfig(rc.BotDetection, cfg.BotDetection)) }
+			if cfg.BotDetection.Enabled { return s.botDetectors.AddRoute(id, cfg.BotDetection) }
+			return nil
+		}, s.botDetectors.RouteIDs, func() any { return s.botDetectors.Stats() }),
+		newFeature("proxy_rate_limit", "/proxy-rate-limits", func(id string, rc config.RouteConfig) error {
+			if rc.ProxyRateLimit.Enabled { s.proxyRateLimiters.AddRoute(id, rc.ProxyRateLimit) }
+			return nil
+		}, s.proxyRateLimiters.RouteIDs, func() any { return s.proxyRateLimiters.Stats() }),
+		newFeature("mock_response", "/mock-responses", func(id string, rc config.RouteConfig) error {
+			if rc.MockResponse.Enabled { s.mockHandlers.AddRoute(id, rc.MockResponse) }
+			return nil
+		}, s.mockHandlers.RouteIDs, func() any { return s.mockHandlers.Stats() }),
+		newFeature("claims_propagation", "/claims-propagation", func(id string, rc config.RouteConfig) error {
+			if rc.ClaimsPropagation.Enabled { s.claimsPropagators.AddRoute(id, rc.ClaimsPropagation) }
+			return nil
+		}, s.claimsPropagators.RouteIDs, func() any { return s.claimsPropagators.Stats() }),
+		newFeature("backend_auth", "/backend-auth", func(id string, rc config.RouteConfig) error {
+			if rc.BackendAuth.Enabled { return s.backendAuths.AddRoute(id, rc.BackendAuth) }
+			return nil
+		}, s.backendAuths.RouteIDs, func() any { return s.backendAuths.Stats() }),
+		newFeature("status_mapping", "/status-mapping", func(id string, rc config.RouteConfig) error {
+			if rc.StatusMapping.Enabled && len(rc.StatusMapping.Mappings) > 0 { s.statusMappers.AddRoute(id, rc.StatusMapping.Mappings) }
+			return nil
+		}, s.statusMappers.RouteIDs, func() any { return s.statusMappers.Stats() }),
+		newFeature("static_files", "/static-files", func(id string, rc config.RouteConfig) error {
+			if rc.Static.Enabled { return s.staticFiles.AddRoute(id, rc.Static.Root, rc.Static.Index, rc.Static.Browse, rc.Static.CacheControl) }
+			return nil
+		}, s.staticFiles.RouteIDs, func() any { return s.staticFiles.Stats() }),
+		newFeature("spike_arrest", "/spike-arrest", func(id string, rc config.RouteConfig) error {
+			if !rc.SpikeArrest.Enabled && !cfg.SpikeArrest.Enabled { return nil }
+			s.spikeArresters.AddRoute(id, spikearrest.MergeSpikeArrestConfig(rc.SpikeArrest, cfg.SpikeArrest))
+			return nil
+		}, s.spikeArresters.RouteIDs, func() any { return s.spikeArresters.Stats() }),
+		newFeature("content_replacer", "/content-replacer", func(id string, rc config.RouteConfig) error {
+			if rc.ContentReplacer.Enabled && len(rc.ContentReplacer.Replacements) > 0 { return s.contentReplacers.AddRoute(id, rc.ContentReplacer) }
+			return nil
+		}, s.contentReplacers.RouteIDs, func() any { return s.contentReplacers.Stats() }),
+		newFeature("body_generator", "/body-generator", func(id string, rc config.RouteConfig) error {
+			if rc.BodyGenerator.Enabled { return s.bodyGenerators.AddRoute(id, rc.BodyGenerator) }
+			return nil
+		}, s.bodyGenerators.RouteIDs, func() any { return s.bodyGenerators.Stats() }),
+		newFeature("quota", "/quotas", func(id string, rc config.RouteConfig) error {
+			if rc.Quota.Enabled { s.quotaEnforcers.AddRoute(id, rc.Quota, g.redisClient) }
+			return nil
+		}, s.quotaEnforcers.RouteIDs, func() any { return s.quotaEnforcers.Stats() }),
+		noOpFeature("sequential", "/sequential", s.sequentialHandlers.RouteIDs, func() any { return s.sequentialHandlers.Stats() }),
+		noOpFeature("aggregate", "/aggregate", s.aggregateHandlers.RouteIDs, func() any { return s.aggregateHandlers.Stats() }),
+		newFeature("response_body_generator", "/response-body-generator", func(id string, rc config.RouteConfig) error {
+			if rc.ResponseBodyGenerator.Enabled { return s.respBodyGenerators.AddRoute(id, rc.ResponseBodyGenerator) }
+			return nil
+		}, s.respBodyGenerators.RouteIDs, func() any { return s.respBodyGenerators.Stats() }),
+		newFeature("param_forwarding", "/param-forwarding", func(id string, rc config.RouteConfig) error {
+			if rc.ParamForwarding.Enabled { s.paramForwarders.AddRoute(id, rc.ParamForwarding) }
+			return nil
+		}, s.paramForwarders.RouteIDs, func() any { return s.paramForwarders.Stats() }),
+		newFeature("content_negotiation", "/content-negotiation", func(id string, rc config.RouteConfig) error {
+			if rc.ContentNegotiation.Enabled { return s.contentNegotiators.AddRoute(id, rc.ContentNegotiation) }
+			return nil
+		}, s.contentNegotiators.RouteIDs, func() any { return s.contentNegotiators.Stats() }),
+		newFeature("cdn_cache_headers", "/cdn-cache-headers", func(id string, rc config.RouteConfig) error {
+			merged := cdnheaders.MergeCDNCacheConfig(rc.CDNCacheHeaders, cfg.CDNCacheHeaders)
+			if merged.Enabled { s.cdnHeaders.AddRoute(id, merged) }
+			return nil
+		}, s.cdnHeaders.RouteIDs, func() any { return s.cdnHeaders.Stats() }),
+		newFeature("backend_encoding", "/backend-encoding", func(id string, rc config.RouteConfig) error {
+			if rc.BackendEncoding.Encoding != "" { s.backendEncoders.AddRoute(id, rc.BackendEncoding) }
+			return nil
+		}, s.backendEncoders.RouteIDs, func() any { return s.backendEncoders.Stats() }),
 	}
 
 	// Initialize token revocation checker

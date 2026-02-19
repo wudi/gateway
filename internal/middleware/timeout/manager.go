@@ -1,8 +1,7 @@
 package timeout
 
 import (
-	"sync"
-
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 )
 
@@ -17,8 +16,7 @@ type TimeoutStatus struct {
 
 // TimeoutByRoute manages per-route compiled timeouts.
 type TimeoutByRoute struct {
-	mu       sync.RWMutex
-	timeouts map[string]*CompiledTimeout
+	byroute.Manager[*CompiledTimeout]
 }
 
 // NewTimeoutByRoute creates a new timeout manager.
@@ -28,39 +26,19 @@ func NewTimeoutByRoute() *TimeoutByRoute {
 
 // AddRoute registers a compiled timeout for the given route.
 func (m *TimeoutByRoute) AddRoute(routeID string, cfg config.TimeoutConfig) {
-	ct := New(cfg)
-	m.mu.Lock()
-	if m.timeouts == nil {
-		m.timeouts = make(map[string]*CompiledTimeout)
-	}
-	m.timeouts[routeID] = ct
-	m.mu.Unlock()
+	m.Add(routeID, New(cfg))
 }
 
 // GetTimeout returns the compiled timeout for a route, or nil if none configured.
 func (m *TimeoutByRoute) GetTimeout(routeID string) *CompiledTimeout {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.timeouts[routeID]
-}
-
-// RouteIDs returns all route IDs that have timeout configuration.
-func (m *TimeoutByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.timeouts))
-	for id := range m.timeouts {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns timeout status for all routes.
 func (m *TimeoutByRoute) Stats() map[string]TimeoutStatus {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make(map[string]TimeoutStatus, len(m.timeouts))
-	for id, ct := range m.timeouts {
+	result := make(map[string]TimeoutStatus)
+	m.Range(func(id string, ct *CompiledTimeout) bool {
 		s := TimeoutStatus{
 			Metrics: ct.Metrics(),
 		}
@@ -77,6 +55,7 @@ func (m *TimeoutByRoute) Stats() map[string]TimeoutStatus {
 			s.HeaderTimeout = ct.HeaderTimeout.String()
 		}
 		result[id] = s
-	}
+		return true
+	})
 	return result
 }

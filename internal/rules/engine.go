@@ -2,8 +2,8 @@ package rules
 
 import (
 	"fmt"
-	"sync"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/logging"
 	"go.uber.org/zap"
@@ -154,8 +154,7 @@ func ruleInfos(rules []*CompiledRule) []RuleInfo {
 
 // RulesByRoute manages per-route rule engines.
 type RulesByRoute struct {
-	engines map[string]*RuleEngine
-	mu      sync.RWMutex
+	byroute.Manager[*RuleEngine]
 }
 
 // NewRulesByRoute creates a new per-route rule manager.
@@ -170,21 +169,14 @@ func (rbr *RulesByRoute) AddRoute(routeID string, rules config.RulesConfig) erro
 		return fmt.Errorf("route %s: %w", routeID, err)
 	}
 
-	rbr.mu.Lock()
-	if rbr.engines == nil {
-		rbr.engines = make(map[string]*RuleEngine)
-	}
-	rbr.engines[routeID] = engine
-	rbr.mu.Unlock()
-
+	rbr.Add(routeID, engine)
 	return nil
 }
 
 // GetEngine returns the rule engine for a route, or nil.
 func (rbr *RulesByRoute) GetEngine(routeID string) *RuleEngine {
-	rbr.mu.RLock()
-	defer rbr.mu.RUnlock()
-	return rbr.engines[routeID]
+	v, _ := rbr.Get(routeID)
+	return v
 }
 
 // EngineStats is the admin API view of one rule engine.
@@ -194,29 +186,16 @@ type EngineStats struct {
 	Metrics       MetricsSnapshot `json:"metrics"`
 }
 
-// RouteIDs returns all route IDs with rule engines.
-func (rbr *RulesByRoute) RouteIDs() []string {
-	rbr.mu.RLock()
-	defer rbr.mu.RUnlock()
-	ids := make([]string, 0, len(rbr.engines))
-	for id := range rbr.engines {
-		ids = append(ids, id)
-	}
-	return ids
-}
-
 // Stats returns admin API info for all routes.
 func (rbr *RulesByRoute) Stats() map[string]EngineStats {
-	rbr.mu.RLock()
-	defer rbr.mu.RUnlock()
-
-	result := make(map[string]EngineStats, len(rbr.engines))
-	for routeID, engine := range rbr.engines {
+	result := make(map[string]EngineStats)
+	rbr.Range(func(routeID string, engine *RuleEngine) bool {
 		result[routeID] = EngineStats{
 			RequestRules:  engine.RequestRuleInfos(),
 			ResponseRules: engine.ResponseRuleInfos(),
 			Metrics:       engine.GetMetrics(),
 		}
-	}
+		return true
+	})
 	return result
 }

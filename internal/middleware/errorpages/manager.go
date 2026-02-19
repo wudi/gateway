@@ -3,15 +3,14 @@ package errorpages
 import (
 	"fmt"
 	"sort"
-	"sync"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 )
 
 // ErrorPagesByRoute manages per-route compiled error pages.
 type ErrorPagesByRoute struct {
-	mu    sync.RWMutex
-	pages map[string]*CompiledErrorPages
+	byroute.Manager[*CompiledErrorPages]
 }
 
 // NewErrorPagesByRoute creates a new error pages manager.
@@ -29,39 +28,20 @@ func (m *ErrorPagesByRoute) AddRoute(routeID string, globalCfg, routeCfg config.
 	if ep == nil {
 		return nil
 	}
-	m.mu.Lock()
-	if m.pages == nil {
-		m.pages = make(map[string]*CompiledErrorPages)
-	}
-	m.pages[routeID] = ep
-	m.mu.Unlock()
+	m.Add(routeID, ep)
 	return nil
 }
 
 // GetErrorPages returns the compiled error pages for a route, or nil if none configured.
 func (m *ErrorPagesByRoute) GetErrorPages(routeID string) *CompiledErrorPages {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.pages[routeID]
-}
-
-// RouteIDs returns all route IDs that have error pages configured.
-func (m *ErrorPagesByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.pages))
-	for id := range m.pages {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns error page status for all routes.
 func (m *ErrorPagesByRoute) Stats() map[string]ErrorPagesStatus {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make(map[string]ErrorPagesStatus, len(m.pages))
-	for id, ep := range m.pages {
+	result := make(map[string]ErrorPagesStatus)
+	m.Range(func(id string, ep *CompiledErrorPages) bool {
 		keys := make([]string, 0)
 		for code := range ep.exactPages {
 			keys = append(keys, fmt.Sprintf("%d", code))
@@ -77,6 +57,7 @@ func (m *ErrorPagesByRoute) Stats() map[string]ErrorPagesStatus {
 			PageKeys: keys,
 			Metrics:  ep.Metrics(),
 		}
-	}
+		return true
+	})
 	return result
 }

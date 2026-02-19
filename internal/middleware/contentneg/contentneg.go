@@ -9,10 +9,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 
 	"github.com/goccy/go-yaml"
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/middleware"
 )
@@ -299,8 +299,7 @@ func (n *Negotiator) Stats() map[string]interface{} {
 
 // NegotiatorByRoute manages per-route negotiators.
 type NegotiatorByRoute struct {
-	negotiators map[string]*Negotiator
-	mu          sync.RWMutex
+	byroute.Manager[*Negotiator]
 }
 
 // NewNegotiatorByRoute creates a new per-route negotiator manager.
@@ -314,40 +313,22 @@ func (m *NegotiatorByRoute) AddRoute(routeID string, cfg config.ContentNegotiati
 	if err != nil {
 		return err
 	}
-	m.mu.Lock()
-	if m.negotiators == nil {
-		m.negotiators = make(map[string]*Negotiator)
-	}
-	m.negotiators[routeID] = n
-	m.mu.Unlock()
+	m.Add(routeID, n)
 	return nil
 }
 
 // GetNegotiator returns the negotiator for a route.
 func (m *NegotiatorByRoute) GetNegotiator(routeID string) *Negotiator {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.negotiators[routeID]
-}
-
-// RouteIDs returns all route IDs with negotiators.
-func (m *NegotiatorByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.negotiators))
-	for id := range m.negotiators {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns per-route negotiator stats.
 func (m *NegotiatorByRoute) Stats() map[string]interface{} {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	stats := make(map[string]interface{}, len(m.negotiators))
-	for id, n := range m.negotiators {
+	stats := make(map[string]interface{})
+	m.Range(func(id string, n *Negotiator) bool {
 		stats[id] = n.Stats()
-	}
+		return true
+	})
 	return stats
 }

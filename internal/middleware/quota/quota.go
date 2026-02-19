@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/middleware"
 	"github.com/wudi/gateway/internal/middleware/ratelimit"
@@ -204,8 +205,7 @@ func (qe *QuotaEnforcer) Stats() map[string]interface{} {
 
 // QuotaByRoute manages per-route quota enforcers.
 type QuotaByRoute struct {
-	enforcers map[string]*QuotaEnforcer
-	mu        sync.RWMutex
+	byroute.Manager[*QuotaEnforcer]
 }
 
 // NewQuotaByRoute creates a new per-route quota manager.
@@ -215,50 +215,31 @@ func NewQuotaByRoute() *QuotaByRoute {
 
 // AddRoute adds a quota enforcer for a route.
 func (m *QuotaByRoute) AddRoute(routeID string, cfg config.QuotaConfig, redisClient *redis.Client) {
-	m.mu.Lock()
-	if m.enforcers == nil {
-		m.enforcers = make(map[string]*QuotaEnforcer)
-	}
-	m.enforcers[routeID] = New(routeID, cfg, redisClient)
-	m.mu.Unlock()
+	m.Add(routeID, New(routeID, cfg, redisClient))
 }
 
 // GetEnforcer returns the quota enforcer for a route.
 func (m *QuotaByRoute) GetEnforcer(routeID string) *QuotaEnforcer {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.enforcers[routeID]
-}
-
-// RouteIDs returns all route IDs with quota enforcers.
-func (m *QuotaByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.enforcers))
-	for id := range m.enforcers {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns per-route quota stats.
 func (m *QuotaByRoute) Stats() map[string]interface{} {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	stats := make(map[string]interface{}, len(m.enforcers))
-	for id, qe := range m.enforcers {
+	stats := make(map[string]interface{})
+	m.Range(func(id string, qe *QuotaEnforcer) bool {
 		stats[id] = qe.Stats()
-	}
+		return true
+	})
 	return stats
 }
 
 // CloseAll stops all background goroutines.
 func (m *QuotaByRoute) CloseAll() {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	for _, qe := range m.enforcers {
+	m.Range(func(_ string, qe *QuotaEnforcer) bool {
 		qe.Close()
-	}
+		return true
+	})
 }
 
 // ValidateKey checks that a quota key format is valid.

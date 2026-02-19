@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 )
 
@@ -224,8 +225,7 @@ func (al *AdaptiveLimiter) Snapshot() AdaptiveConcurrencySnapshot {
 
 // AdaptiveConcurrencyByRoute manages per-route adaptive concurrency limiters.
 type AdaptiveConcurrencyByRoute struct {
-	limiters map[string]*AdaptiveLimiter
-	mu       sync.RWMutex
+	byroute.Manager[*AdaptiveLimiter]
 }
 
 // NewAdaptiveConcurrencyByRoute creates a new manager.
@@ -235,50 +235,31 @@ func NewAdaptiveConcurrencyByRoute() *AdaptiveConcurrencyByRoute {
 
 // AddRoute creates and stores an adaptive limiter for a route.
 func (m *AdaptiveConcurrencyByRoute) AddRoute(routeID string, cfg config.AdaptiveConcurrencyConfig) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.limiters == nil {
-		m.limiters = make(map[string]*AdaptiveLimiter)
-	}
-	m.limiters[routeID] = NewAdaptiveLimiter(cfg)
+	m.Add(routeID, NewAdaptiveLimiter(cfg))
 }
 
 // GetLimiter returns the adaptive limiter for a route, or nil.
 func (m *AdaptiveConcurrencyByRoute) GetLimiter(routeID string) *AdaptiveLimiter {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.limiters[routeID]
-}
-
-// RouteIDs returns all route IDs with adaptive limiters.
-func (m *AdaptiveConcurrencyByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.limiters))
-	for id := range m.limiters {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns snapshots for all routes.
 func (m *AdaptiveConcurrencyByRoute) Stats() map[string]AdaptiveConcurrencySnapshot {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make(map[string]AdaptiveConcurrencySnapshot, len(m.limiters))
-	for id, l := range m.limiters {
+	result := make(map[string]AdaptiveConcurrencySnapshot)
+	m.Range(func(id string, l *AdaptiveLimiter) bool {
 		result[id] = l.Snapshot()
-	}
+		return true
+	})
 	return result
 }
 
 // StopAll stops all adaptive limiters.
 func (m *AdaptiveConcurrencyByRoute) StopAll() {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	for _, l := range m.limiters {
+	m.Range(func(_ string, l *AdaptiveLimiter) bool {
 		l.Stop()
-	}
+		return true
+	})
 }
 
 // MergeAdaptiveConcurrencyConfig merges a route-level config with the global config as fallback.

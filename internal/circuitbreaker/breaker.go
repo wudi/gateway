@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/sony/gobreaker/v2"
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 )
 
@@ -130,8 +131,8 @@ type BreakerSnapshot struct {
 
 // BreakerByRoute manages circuit breakers per route.
 type BreakerByRoute struct {
-	breakers      map[string]*Breaker
-	mu            sync.RWMutex
+	byroute.Manager[*Breaker]
+	mu            sync.Mutex
 	onStateChange func(routeID, from, to string)
 }
 
@@ -150,45 +151,28 @@ func (br *BreakerByRoute) SetOnStateChange(cb func(routeID, from, to string)) {
 // AddRoute adds a circuit breaker for a route.
 func (br *BreakerByRoute) AddRoute(routeID string, cfg config.CircuitBreakerConfig) {
 	br.mu.Lock()
-	defer br.mu.Unlock()
 	var cb func(from, to string)
 	if br.onStateChange != nil {
 		onSC := br.onStateChange
 		rid := routeID
 		cb = func(from, to string) { onSC(rid, from, to) }
 	}
-	if br.breakers == nil {
-		br.breakers = make(map[string]*Breaker)
-	}
-	br.breakers[routeID] = NewBreaker(cfg, cb)
+	br.mu.Unlock()
+	br.Add(routeID, NewBreaker(cfg, cb))
 }
 
 // GetBreaker returns the circuit breaker for a route.
 func (br *BreakerByRoute) GetBreaker(routeID string) *Breaker {
-	br.mu.RLock()
-	defer br.mu.RUnlock()
-	return br.breakers[routeID]
-}
-
-// RouteIDs returns all route IDs with circuit breakers.
-func (br *BreakerByRoute) RouteIDs() []string {
-	br.mu.RLock()
-	defer br.mu.RUnlock()
-	ids := make([]string, 0, len(br.breakers))
-	for id := range br.breakers {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := br.Get(routeID)
+	return v
 }
 
 // Snapshots returns snapshots of all circuit breakers.
 func (br *BreakerByRoute) Snapshots() map[string]BreakerSnapshot {
-	br.mu.RLock()
-	defer br.mu.RUnlock()
-
-	result := make(map[string]BreakerSnapshot, len(br.breakers))
-	for id, b := range br.breakers {
+	result := make(map[string]BreakerSnapshot)
+	br.Range(func(id string, b *Breaker) bool {
 		result[id] = b.Snapshot()
-	}
+		return true
+	})
 	return result
 }

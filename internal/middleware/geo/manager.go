@@ -1,15 +1,13 @@
 package geo
 
 import (
-	"sync"
-
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 )
 
 // GeoByRoute manages per-route geo filters.
 type GeoByRoute struct {
-	mu   sync.RWMutex
-	geos map[string]*CompiledGeo
+	byroute.Manager[*CompiledGeo]
 }
 
 // NewGeoByRoute creates a new GeoByRoute manager.
@@ -28,41 +26,23 @@ func (m *GeoByRoute) AddRoute(routeID string, cfg config.GeoConfig, provider Pro
 		return err
 	}
 
-	m.mu.Lock()
-	if m.geos == nil {
-		m.geos = make(map[string]*CompiledGeo)
-	}
-	m.geos[routeID] = g
-	m.mu.Unlock()
+	m.Add(routeID, g)
 
 	return nil
 }
 
 // GetGeo returns the geo filter for a route, or nil.
 func (m *GeoByRoute) GetGeo(routeID string) *CompiledGeo {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.geos[routeID]
-}
-
-// RouteIDs returns all route IDs with geo filters.
-func (m *GeoByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.geos))
-	for id := range m.geos {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns admin status for all routes.
 func (m *GeoByRoute) Stats() map[string]GeoSnapshot {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make(map[string]GeoSnapshot, len(m.geos))
-	for id, g := range m.geos {
+	result := make(map[string]GeoSnapshot)
+	m.Range(func(id string, g *CompiledGeo) bool {
 		result[id] = g.Status()
-	}
+		return true
+	})
 	return result
 }

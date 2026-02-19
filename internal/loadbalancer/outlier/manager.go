@@ -3,14 +3,15 @@ package outlier
 import (
 	"sync"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/loadbalancer"
 )
 
 // DetectorByRoute manages per-route outlier detectors.
 type DetectorByRoute struct {
-	mu        sync.RWMutex
-	detectors map[string]*Detector
+	byroute.Manager[*Detector]
+	mu        sync.Mutex
 	onEject   func(routeID, backend, reason string)
 	onRecover func(routeID, backend string)
 }
@@ -26,61 +27,47 @@ func (m *DetectorByRoute) SetCallbacks(onEject func(routeID, backend, reason str
 	defer m.mu.Unlock()
 	m.onEject = onEject
 	m.onRecover = onRecover
-	for _, d := range m.detectors {
+	m.Range(func(_ string, d *Detector) bool {
 		d.SetCallbacks(onEject, onRecover)
-	}
+		return true
+	})
 }
 
 // AddRoute creates and starts a detector for the given route.
 func (m *DetectorByRoute) AddRoute(routeID string, cfg config.OutlierDetectionConfig, balancer loadbalancer.Balancer) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	onEject := m.onEject
+	onRecover := m.onRecover
+	m.mu.Unlock()
 
 	d := NewDetector(routeID, cfg, balancer)
-	if m.onEject != nil || m.onRecover != nil {
-		d.SetCallbacks(m.onEject, m.onRecover)
+	if onEject != nil || onRecover != nil {
+		d.SetCallbacks(onEject, onRecover)
 	}
-	if m.detectors == nil {
-		m.detectors = make(map[string]*Detector)
-	}
-	m.detectors[routeID] = d
+	m.Add(routeID, d)
 }
 
 // GetDetector returns the detector for a route, or nil.
 func (m *DetectorByRoute) GetDetector(routeID string) *Detector {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.detectors[routeID]
-}
-
-// RouteIDs returns all route IDs with detectors.
-func (m *DetectorByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.detectors))
-	for id := range m.detectors {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns snapshots for all routes.
 func (m *DetectorByRoute) Stats() map[string]DetectorSnapshot {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make(map[string]DetectorSnapshot, len(m.detectors))
-	for id, d := range m.detectors {
+	result := make(map[string]DetectorSnapshot)
+	m.Range(func(id string, d *Detector) bool {
 		result[id] = d.Snapshot()
-	}
+		return true
+	})
 	return result
 }
 
-// StopAll stops all detectors.
+// StopAll stops all detectors and removes them.
 func (m *DetectorByRoute) StopAll() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, d := range m.detectors {
+	m.Range(func(_ string, d *Detector) bool {
 		d.Stop()
-	}
-	m.detectors = make(map[string]*Detector)
+		return true
+	})
+	m.Clear()
 }

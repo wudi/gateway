@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 )
 
@@ -127,8 +127,7 @@ func MergeCDNCacheConfig(perRoute, global config.CDNCacheConfig) config.CDNCache
 
 // CDNHeadersByRoute manages CDN headers per route.
 type CDNHeadersByRoute struct {
-	handlers map[string]*CDNHeaders
-	mu       sync.RWMutex
+	byroute.Manager[*CDNHeaders]
 }
 
 // NewCDNHeadersByRoute creates a new CDN headers manager.
@@ -138,39 +137,21 @@ func NewCDNHeadersByRoute() *CDNHeadersByRoute {
 
 // AddRoute adds a CDN headers handler for a route.
 func (br *CDNHeadersByRoute) AddRoute(routeID string, cfg config.CDNCacheConfig) {
-	br.mu.Lock()
-	defer br.mu.Unlock()
-	if br.handlers == nil {
-		br.handlers = make(map[string]*CDNHeaders)
-	}
-	br.handlers[routeID] = New(cfg)
+	br.Add(routeID, New(cfg))
 }
 
 // GetHandler returns the CDN headers handler for a route.
 func (br *CDNHeadersByRoute) GetHandler(routeID string) *CDNHeaders {
-	br.mu.RLock()
-	defer br.mu.RUnlock()
-	return br.handlers[routeID]
-}
-
-// RouteIDs returns all route IDs with CDN headers.
-func (br *CDNHeadersByRoute) RouteIDs() []string {
-	br.mu.RLock()
-	defer br.mu.RUnlock()
-	ids := make([]string, 0, len(br.handlers))
-	for id := range br.handlers {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := br.Get(routeID)
+	return v
 }
 
 // Stats returns CDN headers statistics for all routes.
 func (br *CDNHeadersByRoute) Stats() map[string]Snapshot {
-	br.mu.RLock()
-	defer br.mu.RUnlock()
-	result := make(map[string]Snapshot, len(br.handlers))
-	for id, h := range br.handlers {
+	result := make(map[string]Snapshot)
+	br.Range(func(id string, h *CDNHeaders) bool {
 		result[id] = h.Stats()
-	}
+		return true
+	})
 	return result
 }

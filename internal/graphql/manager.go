@@ -1,15 +1,13 @@
 package graphql
 
 import (
-	"sync"
-
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 )
 
 // GraphQLByRoute manages per-route GraphQL parsers.
 type GraphQLByRoute struct {
-	parsers map[string]*Parser
-	mu      sync.RWMutex
+	byroute.Manager[*Parser]
 }
 
 // NewGraphQLByRoute creates a new route-based GraphQL manager.
@@ -23,40 +21,22 @@ func (m *GraphQLByRoute) AddRoute(routeID string, cfg config.GraphQLConfig) erro
 	if err != nil {
 		return err
 	}
-	m.mu.Lock()
-	if m.parsers == nil {
-		m.parsers = make(map[string]*Parser)
-	}
-	m.parsers[routeID] = p
-	m.mu.Unlock()
+	m.Add(routeID, p)
 	return nil
 }
 
 // GetParser returns the GraphQL parser for a route.
 func (m *GraphQLByRoute) GetParser(routeID string) *Parser {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.parsers[routeID]
-}
-
-// RouteIDs returns all route IDs with GraphQL parsers.
-func (m *GraphQLByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.parsers))
-	for id := range m.parsers {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns stats from all per-route parsers.
 func (m *GraphQLByRoute) Stats() map[string]interface{} {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make(map[string]interface{}, len(m.parsers))
-	for id, p := range m.parsers {
+	result := make(map[string]interface{})
+	m.Range(func(id string, p *Parser) bool {
 		result[id] = p.Stats()
-	}
+		return true
+	})
 	return result
 }

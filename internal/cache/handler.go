@@ -14,6 +14,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/graphql"
 )
@@ -347,11 +348,11 @@ func WriteCachedResponse(w http.ResponseWriter, r *http.Request, entry *Entry, c
 
 // CacheByRoute manages cache handlers per route.
 type CacheByRoute struct {
-	handlers     map[string]*Handler
+	byroute.Manager[*Handler]
+	extraMu      sync.RWMutex
 	bucketStores map[string]Store
 	buckets      map[string]string // routeID → bucket name
 	redisClient  *redis.Client
-	mu           sync.RWMutex
 }
 
 // NewCacheByRoute creates a new route-based cache manager.
@@ -364,18 +365,16 @@ func NewCacheByRoute(redisClient *redis.Client) *CacheByRoute {
 
 // SetRedisClient sets the Redis client for distributed caching.
 func (cbr *CacheByRoute) SetRedisClient(client *redis.Client) {
-	cbr.mu.Lock()
-	defer cbr.mu.Unlock()
+	cbr.extraMu.Lock()
+	defer cbr.extraMu.Unlock()
 	cbr.redisClient = client
 }
 
 // AddRoute adds a cache handler for a route.
 func (cbr *CacheByRoute) AddRoute(routeID string, cfg config.CacheConfig) {
-	cbr.mu.Lock()
-	defer cbr.mu.Unlock()
+	cbr.extraMu.Lock()
 
-	if cbr.handlers == nil {
-		cbr.handlers = make(map[string]*Handler)
+	if cbr.bucketStores == nil {
 		cbr.bucketStores = make(map[string]Store)
 		cbr.buckets = make(map[string]string)
 	}
@@ -399,7 +398,8 @@ func (cbr *CacheByRoute) AddRoute(routeID string, cfg config.CacheConfig) {
 		store = cbr.createStore(cfg, "gw:cache:"+routeID+":", ttl)
 	}
 
-	cbr.handlers[routeID] = NewHandler(cfg, store)
+	cbr.extraMu.Unlock()
+	cbr.Add(routeID, NewHandler(cfg, store))
 }
 
 // createStore creates a Store based on config mode.
@@ -416,34 +416,24 @@ func (cbr *CacheByRoute) createStore(cfg config.CacheConfig, redisPrefix string,
 
 // GetHandler returns the cache handler for a route.
 func (cbr *CacheByRoute) GetHandler(routeID string) *Handler {
-	cbr.mu.RLock()
-	defer cbr.mu.RUnlock()
-	return cbr.handlers[routeID]
-}
-
-// RouteIDs returns all route IDs with cache handlers.
-func (cbr *CacheByRoute) RouteIDs() []string {
-	cbr.mu.RLock()
-	defer cbr.mu.RUnlock()
-	ids := make([]string, 0, len(cbr.handlers))
-	for id := range cbr.handlers {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := cbr.Get(routeID)
+	return v
 }
 
 // Stats returns cache statistics for all routes.
 func (cbr *CacheByRoute) Stats() map[string]CacheStats {
-	cbr.mu.RLock()
-	defer cbr.mu.RUnlock()
+	cbr.extraMu.RLock()
+	buckets := cbr.buckets
+	cbr.extraMu.RUnlock()
 
-	result := make(map[string]CacheStats, len(cbr.handlers))
-	for id, h := range cbr.handlers {
+	result := make(map[string]CacheStats)
+	cbr.Range(func(id string, h *Handler) bool {
 		stats := h.Stats()
-		if bucket, ok := cbr.buckets[id]; ok {
+		if bucket, ok := buckets[id]; ok {
 			stats.Bucket = bucket
 		}
 		result[id] = stats
-	}
+		return true
+	})
 	return result
 }

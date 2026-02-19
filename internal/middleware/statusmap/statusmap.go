@@ -2,9 +2,9 @@ package statusmap
 
 import (
 	"net/http"
-	"sync"
 	"sync/atomic"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/middleware"
 )
 
@@ -91,8 +91,7 @@ func (w *mappingWriter) Unwrap() http.ResponseWriter {
 
 // StatusMapByRoute manages per-route status mappers.
 type StatusMapByRoute struct {
-	mappers map[string]*StatusMapper
-	mu      sync.RWMutex
+	byroute.Manager[*StatusMapper]
 }
 
 // NewStatusMapByRoute creates a new per-route status map manager.
@@ -102,40 +101,21 @@ func NewStatusMapByRoute() *StatusMapByRoute {
 
 // AddRoute adds a status mapper for a route.
 func (m *StatusMapByRoute) AddRoute(routeID string, mappings map[int]int) {
-	sm := New(routeID, mappings)
-	m.mu.Lock()
-	if m.mappers == nil {
-		m.mappers = make(map[string]*StatusMapper)
-	}
-	m.mappers[routeID] = sm
-	m.mu.Unlock()
+	m.Add(routeID, New(routeID, mappings))
 }
 
 // GetMapper returns the status mapper for a route.
 func (m *StatusMapByRoute) GetMapper(routeID string) *StatusMapper {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.mappers[routeID]
-}
-
-// RouteIDs returns all route IDs with status mapping configured.
-func (m *StatusMapByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.mappers))
-	for id := range m.mappers {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns per-route status mapping stats.
 func (m *StatusMapByRoute) Stats() map[string]interface{} {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	stats := make(map[string]interface{}, len(m.mappers))
-	for id, sm := range m.mappers {
+	stats := make(map[string]interface{})
+	m.Range(func(id string, sm *StatusMapper) bool {
 		stats[id] = sm.Stats()
-	}
+		return true
+	})
 	return stats
 }

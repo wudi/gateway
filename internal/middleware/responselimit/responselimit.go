@@ -3,9 +3,9 @@ package responselimit
 import (
 	"net/http"
 	"strconv"
-	"sync"
 	"sync/atomic"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 )
 
@@ -198,8 +198,7 @@ func MergeResponseLimitConfig(perRoute, global config.ResponseLimitConfig) confi
 
 // ResponseLimitByRoute manages response limiters per route.
 type ResponseLimitByRoute struct {
-	limiters map[string]*ResponseLimiter
-	mu       sync.RWMutex
+	byroute.Manager[*ResponseLimiter]
 }
 
 // NewResponseLimitByRoute creates a new per-route response limit manager.
@@ -209,39 +208,21 @@ func NewResponseLimitByRoute() *ResponseLimitByRoute {
 
 // AddRoute adds a response limiter for a route.
 func (m *ResponseLimitByRoute) AddRoute(routeID string, cfg config.ResponseLimitConfig) {
-	m.mu.Lock()
-	if m.limiters == nil {
-		m.limiters = make(map[string]*ResponseLimiter)
-	}
-	m.limiters[routeID] = New(cfg)
-	m.mu.Unlock()
+	m.Add(routeID, New(cfg))
 }
 
 // GetLimiter returns the response limiter for a route.
 func (m *ResponseLimitByRoute) GetLimiter(routeID string) *ResponseLimiter {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.limiters[routeID]
-}
-
-// RouteIDs returns all route IDs with response limiters.
-func (m *ResponseLimitByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.limiters))
-	for id := range m.limiters {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns per-route response limit statistics.
 func (m *ResponseLimitByRoute) Stats() map[string]Snapshot {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make(map[string]Snapshot, len(m.limiters))
-	for id, rl := range m.limiters {
+	result := make(map[string]Snapshot)
+	m.Range(func(id string, rl *ResponseLimiter) bool {
 		result[id] = rl.Stats()
-	}
+		return true
+	})
 	return result
 }

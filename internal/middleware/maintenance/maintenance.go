@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
-	"sync"
 	"sync/atomic"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 )
 
@@ -207,8 +207,7 @@ func MergeMaintenanceConfig(perRoute, global config.MaintenanceConfig) config.Ma
 
 // MaintenanceByRoute is a ByRoute manager for per-route maintenance mode.
 type MaintenanceByRoute struct {
-	mu       sync.RWMutex
-	handlers map[string]*CompiledMaintenance
+	byroute.Manager[*CompiledMaintenance]
 }
 
 // NewMaintenanceByRoute creates a new manager.
@@ -218,39 +217,21 @@ func NewMaintenanceByRoute() *MaintenanceByRoute {
 
 // AddRoute adds compiled maintenance mode for a route.
 func (m *MaintenanceByRoute) AddRoute(routeID string, cfg config.MaintenanceConfig) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.handlers == nil {
-		m.handlers = make(map[string]*CompiledMaintenance)
-	}
-	m.handlers[routeID] = New(cfg)
+	m.Add(routeID, New(cfg))
 }
 
 // GetMaintenance returns the compiled maintenance for a route, or nil.
 func (m *MaintenanceByRoute) GetMaintenance(routeID string) *CompiledMaintenance {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.handlers[routeID]
-}
-
-// RouteIDs returns all route IDs with maintenance configured.
-func (m *MaintenanceByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.handlers))
-	for id := range m.handlers {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns per-route snapshots.
 func (m *MaintenanceByRoute) Stats() map[string]Snapshot {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	out := make(map[string]Snapshot, len(m.handlers))
-	for id, h := range m.handlers {
+	out := make(map[string]Snapshot)
+	m.Range(func(id string, h *CompiledMaintenance) bool {
 		out[id] = h.Snapshot()
-	}
+		return true
+	})
 	return out
 }

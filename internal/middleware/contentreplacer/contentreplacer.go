@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"sync"
 	"sync/atomic"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/middleware"
 )
@@ -173,8 +173,7 @@ func (w *bufferingWriter) flush() {
 
 // ContentReplacerByRoute manages per-route content replacers.
 type ContentReplacerByRoute struct {
-	replacers map[string]*ContentReplacer
-	mu        sync.RWMutex
+	byroute.Manager[*ContentReplacer]
 }
 
 // NewContentReplacerByRoute creates a new per-route content replacer manager.
@@ -188,40 +187,22 @@ func (m *ContentReplacerByRoute) AddRoute(routeID string, cfg config.ContentRepl
 	if err != nil {
 		return err
 	}
-	m.mu.Lock()
-	if m.replacers == nil {
-		m.replacers = make(map[string]*ContentReplacer)
-	}
-	m.replacers[routeID] = cr
-	m.mu.Unlock()
+	m.Add(routeID, cr)
 	return nil
 }
 
 // GetReplacer returns the content replacer for a route.
 func (m *ContentReplacerByRoute) GetReplacer(routeID string) *ContentReplacer {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.replacers[routeID]
-}
-
-// RouteIDs returns all route IDs with content replacers.
-func (m *ContentReplacerByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.replacers))
-	for id := range m.replacers {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns per-route content replacer metrics.
 func (m *ContentReplacerByRoute) Stats() map[string]interface{} {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	stats := make(map[string]interface{}, len(m.replacers))
-	for id, cr := range m.replacers {
+	stats := make(map[string]interface{})
+	m.Range(func(id string, cr *ContentReplacer) bool {
 		stats[id] = cr.Stats()
-	}
+		return true
+	})
 	return stats
 }

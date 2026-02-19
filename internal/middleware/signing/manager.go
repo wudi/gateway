@@ -1,15 +1,13 @@
 package signing
 
 import (
-	"sync"
-
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 )
 
 // SigningByRoute manages per-route request signers.
 type SigningByRoute struct {
-	mu      sync.RWMutex
-	signers map[string]*CompiledSigner
+	byroute.Manager[*CompiledSigner]
 }
 
 // NewSigningByRoute creates a new SigningByRoute manager.
@@ -23,40 +21,22 @@ func (m *SigningByRoute) AddRoute(routeID string, cfg config.BackendSigningConfi
 	if err != nil {
 		return err
 	}
-	m.mu.Lock()
-	if m.signers == nil {
-		m.signers = make(map[string]*CompiledSigner)
-	}
-	m.signers[routeID] = s
-	m.mu.Unlock()
+	m.Add(routeID, s)
 	return nil
 }
 
 // GetSigner returns the signer for a route, or nil if none.
 func (m *SigningByRoute) GetSigner(routeID string) *CompiledSigner {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.signers[routeID]
-}
-
-// RouteIDs returns all route IDs with signers.
-func (m *SigningByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.signers))
-	for id := range m.signers {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns signing status for all routes.
 func (m *SigningByRoute) Stats() map[string]SigningStatus {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	stats := make(map[string]SigningStatus, len(m.signers))
-	for id, s := range m.signers {
+	stats := make(map[string]SigningStatus)
+	m.Range(func(id string, s *CompiledSigner) bool {
 		stats[id] = s.Status()
-	}
+		return true
+	})
 	return stats
 }

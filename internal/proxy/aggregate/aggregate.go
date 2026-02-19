@@ -12,6 +12,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/variables"
 )
@@ -332,8 +333,7 @@ func (ah *AggregateHandler) Stats() map[string]interface{} {
 
 // AggregateByRoute manages per-route aggregate handlers.
 type AggregateByRoute struct {
-	handlers map[string]*AggregateHandler
-	mu       sync.RWMutex
+	byroute.Manager[*AggregateHandler]
 }
 
 // NewAggregateByRoute creates a new per-route aggregate handler manager.
@@ -347,40 +347,22 @@ func (m *AggregateByRoute) AddRoute(routeID string, cfg config.AggregateConfig, 
 	if err != nil {
 		return err
 	}
-	m.mu.Lock()
-	if m.handlers == nil {
-		m.handlers = make(map[string]*AggregateHandler)
-	}
-	m.handlers[routeID] = ah
-	m.mu.Unlock()
+	m.Add(routeID, ah)
 	return nil
 }
 
 // GetHandler returns the aggregate handler for a route.
 func (m *AggregateByRoute) GetHandler(routeID string) *AggregateHandler {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.handlers[routeID]
-}
-
-// RouteIDs returns all route IDs with aggregate handlers.
-func (m *AggregateByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.handlers))
-	for id := range m.handlers {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns per-route aggregate handler stats.
 func (m *AggregateByRoute) Stats() map[string]interface{} {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	stats := make(map[string]interface{}, len(m.handlers))
-	for id, ah := range m.handlers {
+	stats := make(map[string]interface{})
+	m.Range(func(id string, ah *AggregateHandler) bool {
 		stats[id] = ah.Stats()
-	}
+		return true
+	})
 	return stats
 }

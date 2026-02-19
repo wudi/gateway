@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/loadbalancer"
 	"github.com/wudi/gateway/internal/logging"
@@ -416,9 +417,9 @@ func (c *Controller) adjustWeights(canaryWeight int) {
 
 // CanaryByRoute manages canary controllers per route.
 type CanaryByRoute struct {
-	controllers map[string]*Controller
-	mu          sync.RWMutex
-	onEvent     func(routeID, eventType string, data map[string]interface{})
+	byroute.Manager[*Controller]
+	eventMu sync.RWMutex
+	onEvent func(routeID, eventType string, data map[string]interface{})
 }
 
 // NewCanaryByRoute creates a new CanaryByRoute manager.
@@ -428,59 +429,41 @@ func NewCanaryByRoute() *CanaryByRoute {
 
 // SetOnEvent registers a callback invoked on canary state transitions.
 func (m *CanaryByRoute) SetOnEvent(cb func(routeID, eventType string, data map[string]interface{})) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.eventMu.Lock()
+	defer m.eventMu.Unlock()
 	m.onEvent = cb
 }
 
 // AddRoute adds a canary controller for a route.
 func (m *CanaryByRoute) AddRoute(routeID string, cfg config.CanaryConfig, wb *loadbalancer.WeightedBalancer) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	ctrl := NewController(routeID, cfg, wb)
+	m.eventMu.RLock()
 	ctrl.onEvent = m.onEvent
-	if m.controllers == nil {
-		m.controllers = make(map[string]*Controller)
-	}
-	m.controllers[routeID] = ctrl
+	m.eventMu.RUnlock()
+	m.Add(routeID, ctrl)
 	return nil
 }
 
 // GetController returns the controller for a route (may be nil).
 func (m *CanaryByRoute) GetController(routeID string) *Controller {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.controllers[routeID]
-}
-
-// RouteIDs returns all route IDs with canary controllers.
-func (m *CanaryByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.controllers))
-	for id := range m.controllers {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns snapshots for all canary controllers.
 func (m *CanaryByRoute) Stats() map[string]CanarySnapshot {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make(map[string]CanarySnapshot, len(m.controllers))
-	for id, ctrl := range m.controllers {
+	result := make(map[string]CanarySnapshot)
+	m.Range(func(id string, ctrl *Controller) bool {
 		result[id] = ctrl.Snapshot()
-	}
+		return true
+	})
 	return result
 }
 
 // StopAll stops all controller goroutines.
 func (m *CanaryByRoute) StopAll() {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	for _, ctrl := range m.controllers {
+	m.Range(func(_ string, ctrl *Controller) bool {
 		ctrl.Stop()
-	}
+		return true
+	})
 }

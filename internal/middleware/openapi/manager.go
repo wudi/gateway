@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 )
 
@@ -21,9 +22,9 @@ type OpenAPIStatus struct {
 
 // OpenAPIByRoute manages per-route OpenAPI validators with a shared spec cache.
 type OpenAPIByRoute struct {
-	validators map[string]*CompiledOpenAPI
-	specCache  map[string]*openapi3.T
-	mu         sync.RWMutex
+	byroute.Manager[*CompiledOpenAPI]
+	specMu    sync.RWMutex
+	specCache map[string]*openapi3.T
 }
 
 // NewOpenAPIByRoute creates a new per-route OpenAPI manager.
@@ -58,12 +59,7 @@ func (m *OpenAPIByRoute) AddRoute(routeID string, cfg config.OpenAPIRouteConfig)
 		return fmt.Errorf("route %s: %w", routeID, err)
 	}
 
-	m.mu.Lock()
-	if m.validators == nil {
-		m.validators = make(map[string]*CompiledOpenAPI)
-	}
-	m.validators[routeID] = compiled
-	m.mu.Unlock()
+	m.Add(routeID, compiled)
 	return nil
 }
 
@@ -75,69 +71,51 @@ func (m *OpenAPIByRoute) AddRouteWithDoc(routeID, path, method string, doc *open
 		return fmt.Errorf("route %s: %w", routeID, err)
 	}
 
-	m.mu.Lock()
-	if m.validators == nil {
-		m.validators = make(map[string]*CompiledOpenAPI)
-	}
-	m.validators[routeID] = compiled
-	m.mu.Unlock()
+	m.Add(routeID, compiled)
 	return nil
 }
 
 // GetValidator returns the OpenAPI validator for a route.
 func (m *OpenAPIByRoute) GetValidator(routeID string) *CompiledOpenAPI {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.validators[routeID]
-}
-
-// RouteIDs returns all route IDs with OpenAPI validators.
-func (m *OpenAPIByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.validators))
-	for id := range m.validators {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns per-route OpenAPI validation status.
 func (m *OpenAPIByRoute) Stats() map[string]OpenAPIStatus {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
 	result := make(map[string]OpenAPIStatus)
-	for id, v := range m.validators {
+	m.Range(func(id string, v *CompiledOpenAPI) bool {
 		result[id] = OpenAPIStatus{
 			ValidateRequest:  v.validateRequest,
 			ValidateResponse: v.validateResponse,
 			LogOnly:          v.logOnly,
 			Metrics:          v.metrics.Snapshot(),
 		}
-	}
+		return true
+	})
 	return result
 }
 
 // loadSpec loads a spec from cache or disk.
 func (m *OpenAPIByRoute) loadSpec(file string) (*openapi3.T, error) {
-	m.mu.RLock()
+	m.specMu.RLock()
 	if doc, ok := m.specCache[file]; ok {
-		m.mu.RUnlock()
+		m.specMu.RUnlock()
 		return doc, nil
 	}
-	m.mu.RUnlock()
+	m.specMu.RUnlock()
 
 	doc, err := LoadSpec(file)
 	if err != nil {
 		return nil, err
 	}
 
-	m.mu.Lock()
+	m.specMu.Lock()
 	if m.specCache == nil {
 		m.specCache = make(map[string]*openapi3.T)
 	}
 	m.specCache[file] = doc
-	m.mu.Unlock()
+	m.specMu.Unlock()
 
 	return doc, nil
 }

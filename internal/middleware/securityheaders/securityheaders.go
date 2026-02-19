@@ -2,9 +2,9 @@ package securityheaders
 
 import (
 	"net/http"
-	"sync"
 	"sync/atomic"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 )
 
@@ -151,8 +151,7 @@ func MergeSecurityHeadersConfig(perRoute, global config.SecurityHeadersConfig) c
 
 // SecurityHeadersByRoute is a ByRoute manager for per-route security headers.
 type SecurityHeadersByRoute struct {
-	mu       sync.RWMutex
-	handlers map[string]*CompiledSecurityHeaders
+	byroute.Manager[*CompiledSecurityHeaders]
 }
 
 // NewSecurityHeadersByRoute creates a new manager.
@@ -162,39 +161,21 @@ func NewSecurityHeadersByRoute() *SecurityHeadersByRoute {
 
 // AddRoute adds compiled security headers for a route.
 func (m *SecurityHeadersByRoute) AddRoute(routeID string, cfg config.SecurityHeadersConfig) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.handlers == nil {
-		m.handlers = make(map[string]*CompiledSecurityHeaders)
-	}
-	m.handlers[routeID] = New(cfg)
+	m.Add(routeID, New(cfg))
 }
 
 // GetHeaders returns the compiled security headers for a route, or nil.
 func (m *SecurityHeadersByRoute) GetHeaders(routeID string) *CompiledSecurityHeaders {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.handlers[routeID]
-}
-
-// RouteIDs returns all route IDs with security headers configured.
-func (m *SecurityHeadersByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.handlers))
-	for id := range m.handlers {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns per-route snapshots.
 func (m *SecurityHeadersByRoute) Stats() map[string]Snapshot {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	out := make(map[string]Snapshot, len(m.handlers))
-	for id, h := range m.handlers {
+	out := make(map[string]Snapshot)
+	m.Range(func(id string, h *CompiledSecurityHeaders) bool {
 		out[id] = h.Snapshot()
-	}
+		return true
+	})
 	return out
 }

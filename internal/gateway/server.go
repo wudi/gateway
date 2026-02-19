@@ -430,16 +430,24 @@ func (s *Server) adminHandler() http.Handler {
 	// Listeners endpoint
 	mux.HandleFunc("/listeners", s.handleListeners)
 
-	// Circuit breaker status
-	mux.HandleFunc("/circuit-breakers", s.handleCircuitBreakers)
+	// Auto-register admin stats endpoints from features
+	for _, f := range s.gateway.features {
+		asp, ok := f.(AdminStatsProvider)
+		if !ok {
+			continue
+		}
+		path := asp.AdminPath()
+		if path == "" {
+			continue
+		}
+		provider := asp // capture for closure
+		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(provider.AdminStats())
+		})
+	}
 
-	// Cache stats
-	mux.HandleFunc("/cache", s.handleCache)
-
-	// Retry metrics
-	mux.HandleFunc("/retries", s.handleRetries)
-
-	// Feature 5: Prometheus metrics endpoint
+	// Prometheus metrics endpoint
 	metricsPath := "/metrics"
 	if s.config.Admin.Metrics.Path != "" {
 		metricsPath = s.config.Admin.Metrics.Path
@@ -448,191 +456,31 @@ func (s *Server) adminHandler() http.Handler {
 		mux.HandleFunc(metricsPath, s.handleMetrics)
 	}
 
-	// Rules engine status
+	// Custom admin endpoints (non-boilerplate)
+	mux.HandleFunc("/retries", s.handleRetries)
 	mux.HandleFunc("/rules", s.handleRules)
-
-	// Protocol translators status
 	mux.HandleFunc("/protocol-translators", s.handleProtocolTranslators)
-
-	// Traffic shaping stats
 	mux.HandleFunc("/traffic-shaping", s.handleTrafficShaping)
-
-	// Mirror stats
-	mux.HandleFunc("/mirrors", s.handleMirrors)
-
-	// Traffic splits (A/B testing / canary)
 	mux.HandleFunc("/traffic-splits", s.handleTrafficSplits)
-
-	// Tracing status
 	mux.HandleFunc("/tracing", s.handleTracing)
-
-	// Rate limits status
 	mux.HandleFunc("/rate-limits", s.handleRateLimits)
-
-	// WAF status
-	mux.HandleFunc("/waf", s.handleWAF)
-
-	// Reload endpoints
 	mux.HandleFunc("/reload", s.handleReload)
 	mux.HandleFunc("/reload/status", s.handleReloadStatus)
-
-	// Load balancers
 	mux.HandleFunc("/load-balancers", s.handleLoadBalancers)
-
-	// GraphQL stats
-	mux.HandleFunc("/graphql", s.handleGraphQL)
-
-	// Coalesce stats
-	mux.HandleFunc("/coalesce", s.handleCoalesce)
-
-	// Adaptive concurrency
-	mux.HandleFunc("/adaptive-concurrency", s.handleAdaptiveConcurrency)
-
-	// External auth stats
-	mux.HandleFunc("/ext-auth", s.handleExtAuth)
-
-	// Versioning stats
-	mux.HandleFunc("/versioning", s.handleVersioning)
-
-	// Access log configs
-	mux.HandleFunc("/access-log", s.handleAccessLog)
-
-	// OpenAPI validation stats
-	mux.HandleFunc("/openapi", s.handleOpenAPI)
-
-	// Timeout policies
-	mux.HandleFunc("/timeouts", s.handleTimeouts)
-
-	// Error pages
-	mux.HandleFunc("/error-pages", s.handleErrorPages)
-
-	// Nonces (replay prevention)
-	mux.HandleFunc("/nonces", s.handleNonces)
-
-	// CSRF protection
-	mux.HandleFunc("/csrf", s.handleCSRF)
-
-	// Outlier detection
-	mux.HandleFunc("/outlier-detection", s.handleOutlierDetection)
-
-	// Geo filtering
-	mux.HandleFunc("/geo", s.handleGeo)
-
-	// Idempotency keys
-	mux.HandleFunc("/idempotency", s.handleIdempotency)
-
-	// Backend signing
-	mux.HandleFunc("/signing", s.handleSigning)
-
-	// Compression
-	mux.HandleFunc("/compression", s.handleCompression)
-
-	// Request decompression
-	mux.HandleFunc("/decompression", s.handleDecompression)
-
-	// Response limits
-	mux.HandleFunc("/response-limits", s.handleResponseLimits)
-
-	// Security headers
-	mux.HandleFunc("/security-headers", s.handleSecurityHeaders)
-
-	// Maintenance mode
-	mux.HandleFunc("/maintenance", s.handleMaintenance)
 	mux.HandleFunc("/maintenance/", s.handleMaintenanceAction)
-
-	// Bot detection
-	mux.HandleFunc("/bot-detection", s.handleBotDetection)
-
-	// Proxy rate limits
-	mux.HandleFunc("/proxy-rate-limits", s.handleProxyRateLimits)
-
-	// Mock responses
-	mux.HandleFunc("/mock-responses", s.handleMockResponses)
-
-	// Trusted proxies / real IP
 	mux.HandleFunc("/trusted-proxies", s.handleTrustedProxies)
-
-	// Drain / graceful shutdown
 	mux.HandleFunc("/drain", s.handleDrain)
-
-	// Webhooks
 	mux.HandleFunc("/webhooks", s.handleWebhooks)
-
-	// Transport pool
 	mux.HandleFunc("/transport", s.handleTransport)
-
-	// Upstreams
 	mux.HandleFunc("/upstreams", s.handleUpstreams)
-
-	// Canary deployments
-	mux.HandleFunc("/canary", s.handleCanary)
 	mux.HandleFunc("/canary/", s.handleCanaryAction)
-
-	// HTTPS redirect
 	mux.HandleFunc("/https-redirect", s.handleHTTPSRedirect)
-
-	// Allowed hosts
 	mux.HandleFunc("/allowed-hosts", s.handleAllowedHosts)
-
-	// Claims propagation
-	mux.HandleFunc("/claims-propagation", s.handleClaimsPropagation)
-
-	// Token revocation
 	mux.HandleFunc("/token-revocation", s.handleTokenRevocation)
 	mux.HandleFunc("/token-revocation/", s.handleTokenRevocationAction)
-
-	// Backend auth
-	mux.HandleFunc("/backend-auth", s.handleBackendAuth)
-
-	// Status mapping
-	mux.HandleFunc("/status-mapping", s.handleStatusMapping)
-
-	// Static files
-	mux.HandleFunc("/static-files", s.handleStaticFiles)
-
-	// Service rate limit
 	mux.HandleFunc("/service-rate-limit", s.handleServiceRateLimit)
-
-	// Spike arrest
-	mux.HandleFunc("/spike-arrest", s.handleSpikeArrest)
-
-	// Content replacer
-	mux.HandleFunc("/content-replacer", s.handleContentReplacer)
-
-	// Follow redirects
 	mux.HandleFunc("/follow-redirects", s.handleFollowRedirects)
-
-	// Body generator
-	mux.HandleFunc("/body-generator", s.handleBodyGenerator)
-
-	// Sequential proxy
-	mux.HandleFunc("/sequential", s.handleSequential)
-
-	// Quotas
-	mux.HandleFunc("/quotas", s.handleQuotas)
-
-	// Aggregate handlers
-	mux.HandleFunc("/aggregate", s.handleAggregate)
-
-	// Response body generator
-	mux.HandleFunc("/response-body-generator", s.handleRespBodyGenerator)
-
-	// Parameter forwarding
-	mux.HandleFunc("/param-forwarding", s.handleParamForwarding)
-
-	// Content negotiation
-	mux.HandleFunc("/content-negotiation", s.handleContentNegotiation)
-
-	// CDN cache headers
-	mux.HandleFunc("/cdn-cache-headers", s.handleCDNCacheHeaders)
-
-	// Backend encoding
-	mux.HandleFunc("/backend-encoding", s.handleBackendEncoding)
-
-	// Aggregated dashboard
 	mux.HandleFunc("/dashboard", s.handleDashboard)
-
-	// Feature 14: API Key management endpoints
 	if s.gateway.GetAPIKeyAuth() != nil {
 		mux.HandleFunc("/admin/keys", s.handleAdminKeys)
 	}
@@ -928,19 +776,6 @@ func (s *Server) handleListeners(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
-// handleCircuitBreakers handles circuit breaker status requests
-func (s *Server) handleCircuitBreakers(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	snapshots := s.gateway.GetCircuitBreakers().Snapshots()
-	json.NewEncoder(w).Encode(snapshots)
-}
-
-// handleCache handles cache stats requests
-func (s *Server) handleCache(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	stats := s.gateway.GetCaches().Stats()
-	json.NewEncoder(w).Encode(stats)
-}
 
 // handleRetries handles retry metrics requests
 func (s *Server) handleRetries(w http.ResponseWriter, r *http.Request) {
@@ -1012,12 +847,6 @@ func (s *Server) handleTrafficShaping(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
-// handleMirrors handles mirror stats requests
-func (s *Server) handleMirrors(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	stats := s.gateway.GetMirrors().Stats()
-	json.NewEncoder(w).Encode(stats)
-}
 
 // handleTrafficSplits handles traffic split / A/B testing stats requests
 func (s *Server) handleTrafficSplits(w http.ResponseWriter, r *http.Request) {
@@ -1321,33 +1150,6 @@ func boolStatus(ok bool) string {
 	return "fail"
 }
 
-// handleWAF handles WAF status requests
-func (s *Server) handleWAF(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	stats := s.gateway.GetWAFHandlers().Stats()
-	json.NewEncoder(w).Encode(stats)
-}
-
-// handleGraphQL handles GraphQL stats requests
-func (s *Server) handleGraphQL(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	stats := s.gateway.GetGraphQLParsers().Stats()
-	json.NewEncoder(w).Encode(stats)
-}
-
-// handleAdaptiveConcurrency handles adaptive concurrency stats requests
-func (s *Server) handleAdaptiveConcurrency(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	stats := s.gateway.GetAdaptiveLimiters().Stats()
-	json.NewEncoder(w).Encode(stats)
-}
-
-// handleCoalesce handles coalesce stats requests
-func (s *Server) handleCoalesce(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	stats := s.gateway.GetCoalescers().Stats()
-	json.NewEncoder(w).Encode(stats)
-}
 
 // handleLoadBalancers handles load balancer info requests
 func (s *Server) handleLoadBalancers(w http.ResponseWriter, r *http.Request) {
@@ -1380,107 +1182,6 @@ func (s *Server) handleProtocolTranslators(w http.ResponseWriter, r *http.Reques
 	json.NewEncoder(w).Encode(stats)
 }
 
-// handleExtAuth handles ext auth stats requests
-func (s *Server) handleExtAuth(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetExtAuths().Stats())
-}
-
-// handleVersioning handles versioning stats requests
-func (s *Server) handleVersioning(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetVersioners().Stats())
-}
-
-// handleAccessLog handles access log config status requests.
-func (s *Server) handleAccessLog(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetAccessLogConfigs().Stats())
-}
-
-// handleOpenAPI handles OpenAPI validation stats requests.
-func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetOpenAPIValidators().Stats())
-}
-
-// handleTimeouts handles timeout policy stats requests.
-func (s *Server) handleTimeouts(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetTimeoutConfigs().Stats())
-}
-
-// handleNonces handles nonce replay prevention stats requests.
-func (s *Server) handleNonces(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetNonceCheckers().Stats())
-}
-
-// handleCSRF handles CSRF protection stats requests.
-func (s *Server) handleCSRF(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetCSRFProtectors().Stats())
-}
-
-// handleErrorPages handles error pages stats requests.
-func (s *Server) handleErrorPages(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetErrorPages().Stats())
-}
-
-// handleOutlierDetection handles outlier detection stats requests.
-func (s *Server) handleOutlierDetection(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetOutlierDetectors().Stats())
-}
-
-// handleGeo handles geo filtering stats requests.
-func (s *Server) handleGeo(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetGeoFilters().Stats())
-}
-
-// handleIdempotency handles idempotency key stats requests.
-func (s *Server) handleIdempotency(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetIdempotencyHandlers().Stats())
-}
-
-// handleSigning handles backend signing stats requests.
-func (s *Server) handleSigning(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetBackendSigners().Stats())
-}
-
-// handleCompression handles compression stats requests.
-func (s *Server) handleCompression(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetCompressors().Stats())
-}
-
-// handleDecompression handles request decompression stats requests.
-func (s *Server) handleDecompression(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetDecompressors().Stats())
-}
-
-// handleResponseLimits handles response limit stats requests.
-func (s *Server) handleResponseLimits(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetResponseLimiters().Stats())
-}
-
-// handleSecurityHeaders handles security headers stats requests.
-func (s *Server) handleSecurityHeaders(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetSecurityHeaders().Stats())
-}
-
-// handleMaintenance handles maintenance mode status requests.
-func (s *Server) handleMaintenance(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetMaintenanceHandlers().Stats())
-}
 
 // handleMaintenanceAction handles runtime enable/disable of maintenance mode.
 // POST /maintenance/{routeID}/enable or POST /maintenance/{routeID}/disable
@@ -1525,23 +1226,6 @@ func (s *Server) handleMaintenanceAction(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-// handleBotDetection handles bot detection stats requests.
-func (s *Server) handleBotDetection(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetBotDetectors().Stats())
-}
-
-// handleProxyRateLimits handles proxy rate limit stats requests.
-func (s *Server) handleProxyRateLimits(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetProxyRateLimiters().Stats())
-}
-
-// handleMockResponses handles mock response stats requests.
-func (s *Server) handleMockResponses(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetMockHandlers().Stats())
-}
 
 // handleTrustedProxies handles trusted proxies stats requests.
 func (s *Server) handleTrustedProxies(w http.ResponseWriter, r *http.Request) {
@@ -1576,11 +1260,6 @@ func (s *Server) handleAllowedHosts(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleClaimsPropagation handles claims propagation stats requests.
-func (s *Server) handleClaimsPropagation(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetClaimsPropagators().Stats())
-}
 
 // handleTokenRevocation handles token revocation stats requests.
 func (s *Server) handleTokenRevocation(w http.ResponseWriter, r *http.Request) {
@@ -1745,13 +1424,6 @@ func (s *Server) handleTransport(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
-// handleCanary lists all canary deployments with status.
-func (s *Server) handleCanary(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	stats := s.gateway.GetCanaryControllers().Stats()
-	json.NewEncoder(w).Encode(stats)
-}
-
 // handleCanaryAction handles POST /canary/{route}/{action}.
 func (s *Server) handleCanaryAction(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -1802,20 +1474,6 @@ func (s *Server) handleCanaryAction(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": actionName, "route": routeID})
 }
 
-func (s *Server) handleBackendAuth(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetBackendAuths().Stats())
-}
-
-func (s *Server) handleStatusMapping(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetStatusMappers().Stats())
-}
-
-func (s *Server) handleStaticFiles(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetStaticFiles().Stats())
-}
 
 func (s *Server) handleServiceRateLimit(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -1827,65 +1485,12 @@ func (s *Server) handleServiceRateLimit(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(sl.Stats())
 }
 
-func (s *Server) handleSpikeArrest(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetSpikeArresters().Stats())
-}
-
-func (s *Server) handleContentReplacer(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetContentReplacers().Stats())
-}
 
 func (s *Server) handleFollowRedirects(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.gateway.GetFollowRedirectStats())
 }
 
-func (s *Server) handleBodyGenerator(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetBodyGenerators().Stats())
-}
-
-func (s *Server) handleSequential(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetSequentialHandlers().Stats())
-}
-
-func (s *Server) handleQuotas(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetQuotaEnforcers().Stats())
-}
-
-func (s *Server) handleAggregate(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetAggregateHandlers().Stats())
-}
-
-func (s *Server) handleRespBodyGenerator(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetRespBodyGenerators().Stats())
-}
-
-func (s *Server) handleParamForwarding(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetParamForwarders().Stats())
-}
-
-func (s *Server) handleContentNegotiation(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetContentNegotiators().Stats())
-}
-
-func (s *Server) handleCDNCacheHeaders(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetCDNCacheHeadersStats())
-}
-
-func (s *Server) handleBackendEncoding(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.gateway.GetBackendEncodingStats())
-}
 
 // Gateway returns the underlying gateway
 func (s *Server) Gateway() *Gateway {

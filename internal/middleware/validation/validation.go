@@ -7,10 +7,10 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"sync"
 	"sync/atomic"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/errors"
 )
@@ -213,8 +213,7 @@ func RejectValidation(w http.ResponseWriter, err error) {
 
 // ValidatorByRoute manages validators per route.
 type ValidatorByRoute struct {
-	validators map[string]*Validator
-	mu         sync.RWMutex
+	byroute.Manager[*Validator]
 }
 
 // NewValidatorByRoute creates a new per-route validator manager.
@@ -228,39 +227,20 @@ func (m *ValidatorByRoute) AddRoute(routeID string, cfg config.ValidationConfig)
 	if err != nil {
 		return err
 	}
-	m.mu.Lock()
-	if m.validators == nil {
-		m.validators = make(map[string]*Validator)
-	}
-	m.validators[routeID] = v
-	m.mu.Unlock()
+	m.Add(routeID, v)
 	return nil
 }
 
 // GetValidator returns the validator for a route.
 func (m *ValidatorByRoute) GetValidator(routeID string) *Validator {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.validators[routeID]
-}
-
-// RouteIDs returns all route IDs with validators.
-func (m *ValidatorByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.validators))
-	for id := range m.validators {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns per-route validation metrics.
 func (m *ValidatorByRoute) Stats() map[string]interface{} {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
 	result := make(map[string]interface{})
-	for id, v := range m.validators {
+	m.Range(func(id string, v *Validator) bool {
 		result[id] = map[string]interface{}{
 			"enabled":             v.enabled,
 			"has_request_schema":  v.requestSchema != nil,
@@ -268,6 +248,7 @@ func (m *ValidatorByRoute) Stats() map[string]interface{} {
 			"log_only":            v.logOnly,
 			"metrics":             v.metrics.Snapshot(),
 		}
-	}
+		return true
+	})
 	return result
 }

@@ -1,15 +1,13 @@
 package versioning
 
 import (
-	"sync"
-
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 )
 
 // VersioningByRoute manages per-route versioners.
 type VersioningByRoute struct {
-	versioners map[string]*Versioner
-	mu         sync.RWMutex
+	byroute.Manager[*Versioner]
 }
 
 // NewVersioningByRoute creates a new manager.
@@ -23,40 +21,22 @@ func (m *VersioningByRoute) AddRoute(routeID string, cfg config.VersioningConfig
 	if err != nil {
 		return err
 	}
-	m.mu.Lock()
-	if m.versioners == nil {
-		m.versioners = make(map[string]*Versioner)
-	}
-	m.versioners[routeID] = v
-	m.mu.Unlock()
+	m.Add(routeID, v)
 	return nil
 }
 
 // GetVersioner returns the versioner for a route (nil if none).
 func (m *VersioningByRoute) GetVersioner(routeID string) *Versioner {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.versioners[routeID]
-}
-
-// RouteIDs returns all route IDs with versioning configured.
-func (m *VersioningByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.versioners))
-	for id := range m.versioners {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns snapshots for all routes.
 func (m *VersioningByRoute) Stats() map[string]VersioningSnapshot {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make(map[string]VersioningSnapshot, len(m.versioners))
-	for id, v := range m.versioners {
+	result := make(map[string]VersioningSnapshot)
+	m.Range(func(id string, v *Versioner) bool {
 		result[id] = v.Snapshot()
-	}
+		return true
+	})
 	return result
 }

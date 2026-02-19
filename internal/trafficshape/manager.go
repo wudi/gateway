@@ -1,16 +1,15 @@
 package trafficshape
 
 import (
-	"sync"
 	"time"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 )
 
 // ThrottleByRoute manages per-route throttlers.
 type ThrottleByRoute struct {
-	throttlers map[string]*Throttler
-	mu         sync.RWMutex
+	byroute.Manager[*Throttler]
 }
 
 // NewThrottleByRoute creates a new ThrottleByRoute.
@@ -20,47 +19,28 @@ func NewThrottleByRoute() *ThrottleByRoute {
 
 // AddRoute creates and stores a throttler for a route.
 func (m *ThrottleByRoute) AddRoute(routeID string, cfg config.ThrottleConfig) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.throttlers == nil {
-		m.throttlers = make(map[string]*Throttler)
-	}
-	m.throttlers[routeID] = NewThrottler(cfg.Rate, cfg.Burst, cfg.MaxWait, cfg.PerIP)
+	m.Add(routeID, NewThrottler(cfg.Rate, cfg.Burst, cfg.MaxWait, cfg.PerIP))
 }
 
 // GetThrottler returns the throttler for a route, or nil.
 func (m *ThrottleByRoute) GetThrottler(routeID string) *Throttler {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.throttlers[routeID]
-}
-
-// RouteIDs returns all route IDs with throttlers.
-func (m *ThrottleByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.throttlers))
-	for id := range m.throttlers {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns snapshots for all routes.
 func (m *ThrottleByRoute) Stats() map[string]ThrottleSnapshot {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make(map[string]ThrottleSnapshot, len(m.throttlers))
-	for id, t := range m.throttlers {
+	result := make(map[string]ThrottleSnapshot)
+	m.Range(func(id string, t *Throttler) bool {
 		result[id] = t.Snapshot()
-	}
+		return true
+	})
 	return result
 }
 
 // BandwidthByRoute manages per-route bandwidth limiters.
 type BandwidthByRoute struct {
-	limiters map[string]*BandwidthLimiter
-	mu       sync.RWMutex
+	byroute.Manager[*BandwidthLimiter]
 }
 
 // NewBandwidthByRoute creates a new BandwidthByRoute.
@@ -70,47 +50,28 @@ func NewBandwidthByRoute() *BandwidthByRoute {
 
 // AddRoute creates and stores a bandwidth limiter for a route.
 func (m *BandwidthByRoute) AddRoute(routeID string, cfg config.BandwidthConfig) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.limiters == nil {
-		m.limiters = make(map[string]*BandwidthLimiter)
-	}
-	m.limiters[routeID] = NewBandwidthLimiter(cfg.RequestRate, cfg.ResponseRate, cfg.RequestBurst, cfg.ResponseBurst)
+	m.Add(routeID, NewBandwidthLimiter(cfg.RequestRate, cfg.ResponseRate, cfg.RequestBurst, cfg.ResponseBurst))
 }
 
 // GetLimiter returns the bandwidth limiter for a route, or nil.
 func (m *BandwidthByRoute) GetLimiter(routeID string) *BandwidthLimiter {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.limiters[routeID]
-}
-
-// RouteIDs returns all route IDs with bandwidth limiters.
-func (m *BandwidthByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.limiters))
-	for id := range m.limiters {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns snapshots for all routes.
 func (m *BandwidthByRoute) Stats() map[string]BandwidthSnapshot {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make(map[string]BandwidthSnapshot, len(m.limiters))
-	for id, l := range m.limiters {
+	result := make(map[string]BandwidthSnapshot)
+	m.Range(func(id string, l *BandwidthLimiter) bool {
 		result[id] = l.Snapshot()
-	}
+		return true
+	})
 	return result
 }
 
 // PriorityByRoute stores per-route priority configs for level determination.
 type PriorityByRoute struct {
-	configs map[string]config.PriorityConfig
-	mu      sync.RWMutex
+	byroute.Manager[config.PriorityConfig]
 }
 
 // NewPriorityByRoute creates a new PriorityByRoute.
@@ -120,31 +81,12 @@ func NewPriorityByRoute() *PriorityByRoute {
 
 // AddRoute stores a priority config for a route.
 func (m *PriorityByRoute) AddRoute(routeID string, cfg config.PriorityConfig) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.configs == nil {
-		m.configs = make(map[string]config.PriorityConfig)
-	}
-	m.configs[routeID] = cfg
+	m.Add(routeID, cfg)
 }
 
 // GetConfig returns the priority config for a route, or a zero value.
 func (m *PriorityByRoute) GetConfig(routeID string) (config.PriorityConfig, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	cfg, ok := m.configs[routeID]
-	return cfg, ok
-}
-
-// RouteIDs returns all route IDs with priority configs.
-func (m *PriorityByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.configs))
-	for id := range m.configs {
-		ids = append(ids, id)
-	}
-	return ids
+	return m.Get(routeID)
 }
 
 // MergeThrottleConfig merges a route-level throttle config with the global config as fallback.
@@ -197,8 +139,7 @@ func MergePriorityConfig(route, global config.PriorityConfig) config.PriorityCon
 
 // FaultInjectionByRoute manages per-route fault injectors.
 type FaultInjectionByRoute struct {
-	injectors map[string]*FaultInjector
-	mu        sync.RWMutex
+	byroute.Manager[*FaultInjector]
 }
 
 // NewFaultInjectionByRoute creates a new FaultInjectionByRoute.
@@ -208,40 +149,22 @@ func NewFaultInjectionByRoute() *FaultInjectionByRoute {
 
 // AddRoute creates and stores a fault injector for a route.
 func (m *FaultInjectionByRoute) AddRoute(routeID string, cfg config.FaultInjectionConfig) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.injectors == nil {
-		m.injectors = make(map[string]*FaultInjector)
-	}
-	m.injectors[routeID] = NewFaultInjector(cfg)
+	m.Add(routeID, NewFaultInjector(cfg))
 }
 
 // GetInjector returns the fault injector for a route, or nil.
 func (m *FaultInjectionByRoute) GetInjector(routeID string) *FaultInjector {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.injectors[routeID]
-}
-
-// RouteIDs returns all route IDs with fault injectors.
-func (m *FaultInjectionByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.injectors))
-	for id := range m.injectors {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns snapshots for all routes.
 func (m *FaultInjectionByRoute) Stats() map[string]FaultInjectionSnapshot {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make(map[string]FaultInjectionSnapshot, len(m.injectors))
-	for id, fi := range m.injectors {
+	result := make(map[string]FaultInjectionSnapshot)
+	m.Range(func(id string, fi *FaultInjector) bool {
 		result[id] = fi.Snapshot()
-	}
+		return true
+	})
 	return result
 }
 

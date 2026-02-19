@@ -9,10 +9,10 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/graphql"
 	"golang.org/x/sync/singleflight"
@@ -232,8 +232,7 @@ func (c *Coalescer) ServeCoalesced(w http.ResponseWriter, r *http.Request, next 
 
 // CoalesceByRoute manages per-route Coalescers.
 type CoalesceByRoute struct {
-	mu         sync.RWMutex
-	coalescers map[string]*Coalescer
+	byroute.Manager[*Coalescer]
 }
 
 // NewCoalesceByRoute creates a new CoalesceByRoute manager.
@@ -243,39 +242,21 @@ func NewCoalesceByRoute() *CoalesceByRoute {
 
 // AddRoute adds a Coalescer for the given route.
 func (m *CoalesceByRoute) AddRoute(routeID string, cfg config.CoalesceConfig) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.coalescers == nil {
-		m.coalescers = make(map[string]*Coalescer)
-	}
-	m.coalescers[routeID] = New(cfg)
+	m.Add(routeID, New(cfg))
 }
 
 // GetCoalescer returns the Coalescer for a route, or nil if not configured.
 func (m *CoalesceByRoute) GetCoalescer(routeID string) *Coalescer {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.coalescers[routeID]
-}
-
-// RouteIDs returns all route IDs with coalescing configured.
-func (m *CoalesceByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.coalescers))
-	for id := range m.coalescers {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns per-route coalescing metrics.
 func (m *CoalesceByRoute) Stats() map[string]Stats {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make(map[string]Stats, len(m.coalescers))
-	for id, c := range m.coalescers {
+	result := make(map[string]Stats)
+	m.Range(func(id string, c *Coalescer) bool {
 		result[id] = c.Stats()
-	}
+		return true
+	})
 	return result
 }

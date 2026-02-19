@@ -2,9 +2,9 @@ package mock
 
 import (
 	"net/http"
-	"sync"
 	"sync/atomic"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/middleware"
 )
@@ -53,8 +53,7 @@ func (m *MockHandler) Served() int64 {
 
 // MockByRoute manages per-route mock handlers.
 type MockByRoute struct {
-	handlers map[string]*MockHandler
-	mu       sync.RWMutex
+	byroute.Manager[*MockHandler]
 }
 
 // NewMockByRoute creates a new per-route mock handler manager.
@@ -64,41 +63,23 @@ func NewMockByRoute() *MockByRoute {
 
 // AddRoute adds a mock handler for a route.
 func (m *MockByRoute) AddRoute(routeID string, cfg config.MockResponseConfig) {
-	m.mu.Lock()
-	if m.handlers == nil {
-		m.handlers = make(map[string]*MockHandler)
-	}
-	m.handlers[routeID] = New(cfg)
-	m.mu.Unlock()
+	m.Add(routeID, New(cfg))
 }
 
 // GetHandler returns the mock handler for a route.
 func (m *MockByRoute) GetHandler(routeID string) *MockHandler {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.handlers[routeID]
-}
-
-// RouteIDs returns all route IDs with mock handlers.
-func (m *MockByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.handlers))
-	for id := range m.handlers {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns per-route mock stats.
 func (m *MockByRoute) Stats() map[string]interface{} {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	stats := make(map[string]interface{}, len(m.handlers))
-	for id, h := range m.handlers {
+	stats := make(map[string]interface{})
+	m.Range(func(id string, h *MockHandler) bool {
 		stats[id] = map[string]interface{}{
 			"served": h.Served(),
 		}
-	}
+		return true
+	})
 	return stats
 }

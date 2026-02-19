@@ -3,8 +3,8 @@ package ipfilter
 import (
 	"net"
 	"net/http"
-	"sync"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/errors"
 	"github.com/wudi/gateway/internal/variables"
@@ -132,8 +132,7 @@ func (f *Filter) IsEnabled() bool {
 
 // IPFilterByRoute manages IP filters per route
 type IPFilterByRoute struct {
-	filters map[string]*Filter
-	mu      sync.RWMutex
+	byroute.Manager[*Filter]
 }
 
 // NewIPFilterByRoute creates a new per-route IP filter manager
@@ -147,20 +146,14 @@ func (m *IPFilterByRoute) AddRoute(routeID string, cfg config.IPFilterConfig) er
 	if err != nil {
 		return err
 	}
-	m.mu.Lock()
-	if m.filters == nil {
-		m.filters = make(map[string]*Filter)
-	}
-	m.filters[routeID] = f
-	m.mu.Unlock()
+	m.Add(routeID, f)
 	return nil
 }
 
 // GetFilter returns the IP filter for a route
 func (m *IPFilterByRoute) GetFilter(routeID string) *Filter {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.filters[routeID]
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // CheckRequest checks if a request is allowed by the route's IP filter
@@ -170,17 +163,6 @@ func (m *IPFilterByRoute) CheckRequest(routeID string, r *http.Request) bool {
 		return true
 	}
 	return f.Check(r)
-}
-
-// RouteIDs returns all route IDs with IP filters.
-func (m *IPFilterByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.filters))
-	for id := range m.filters {
-		ids = append(ids, id)
-	}
-	return ids
 }
 
 // RejectRequest sends a 403 Forbidden response

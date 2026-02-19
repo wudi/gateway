@@ -7,11 +7,11 @@ import (
 	"io"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 
 	"github.com/goccy/go-yaml"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 )
 
@@ -238,8 +238,7 @@ func isYAML(contentType string) bool {
 
 // EncoderByRoute manages encoders per route.
 type EncoderByRoute struct {
-	encoders map[string]*Encoder
-	mu       sync.RWMutex
+	byroute.Manager[*Encoder]
 }
 
 // NewEncoderByRoute creates a new encoder manager.
@@ -249,39 +248,21 @@ func NewEncoderByRoute() *EncoderByRoute {
 
 // AddRoute adds an encoder for a route.
 func (br *EncoderByRoute) AddRoute(routeID string, cfg config.BackendEncodingConfig) {
-	br.mu.Lock()
-	defer br.mu.Unlock()
-	if br.encoders == nil {
-		br.encoders = make(map[string]*Encoder)
-	}
-	br.encoders[routeID] = New(cfg)
+	br.Add(routeID, New(cfg))
 }
 
 // GetEncoder returns the encoder for a route.
 func (br *EncoderByRoute) GetEncoder(routeID string) *Encoder {
-	br.mu.RLock()
-	defer br.mu.RUnlock()
-	return br.encoders[routeID]
-}
-
-// RouteIDs returns all route IDs with encoders.
-func (br *EncoderByRoute) RouteIDs() []string {
-	br.mu.RLock()
-	defer br.mu.RUnlock()
-	ids := make([]string, 0, len(br.encoders))
-	for id := range br.encoders {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := br.Get(routeID)
+	return v
 }
 
 // Stats returns encoder statistics for all routes.
 func (br *EncoderByRoute) Stats() map[string]Snapshot {
-	br.mu.RLock()
-	defer br.mu.RUnlock()
-	result := make(map[string]Snapshot, len(br.encoders))
-	for id, e := range br.encoders {
+	result := make(map[string]Snapshot)
+	br.Range(func(id string, e *Encoder) bool {
 		result[id] = e.Stats()
-	}
+		return true
+	})
 	return result
 }

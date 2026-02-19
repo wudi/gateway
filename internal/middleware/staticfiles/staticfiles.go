@@ -6,8 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"sync/atomic"
+
+	"github.com/wudi/gateway/internal/byroute"
 )
 
 // StaticFileHandler serves static files from a directory.
@@ -100,8 +101,7 @@ func (h *StaticFileHandler) Stats() map[string]interface{} {
 
 // StaticByRoute manages per-route static file handlers.
 type StaticByRoute struct {
-	handlers map[string]*StaticFileHandler
-	mu       sync.RWMutex
+	byroute.Manager[*StaticFileHandler]
 }
 
 // NewStaticByRoute creates a new per-route static file manager.
@@ -115,40 +115,22 @@ func (m *StaticByRoute) AddRoute(routeID string, root, index string, browse bool
 	if err != nil {
 		return err
 	}
-	m.mu.Lock()
-	if m.handlers == nil {
-		m.handlers = make(map[string]*StaticFileHandler)
-	}
-	m.handlers[routeID] = h
-	m.mu.Unlock()
+	m.Add(routeID, h)
 	return nil
 }
 
 // GetHandler returns the static file handler for a route.
 func (m *StaticByRoute) GetHandler(routeID string) *StaticFileHandler {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.handlers[routeID]
-}
-
-// RouteIDs returns all route IDs with static file serving configured.
-func (m *StaticByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.handlers))
-	for id := range m.handlers {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns per-route static file stats.
 func (m *StaticByRoute) Stats() map[string]interface{} {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	stats := make(map[string]interface{}, len(m.handlers))
-	for id, h := range m.handlers {
+	stats := make(map[string]interface{})
+	m.Range(func(id string, h *StaticFileHandler) bool {
 		stats[id] = h.Stats()
-	}
+		return true
+	})
 	return stats
 }

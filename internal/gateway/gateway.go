@@ -335,57 +335,365 @@ func New(cfg *config.Config) (*Gateway, error) {
 
 	// Register features for generic setup iteration
 	g.features = []Feature{
-		&ipFilterFeature{g.ipFilters},
-		&corsFeature{g.corsHandlers},
-		&circuitBreakerFeature{g.circuitBreakers},
-		&cacheFeature{g.caches},
-		&compressionFeature{g.compressors},
-		&validationFeature{g.validators},
-		&mirrorFeature{g.mirrors},
-		&rulesFeature{g.routeRules},
-		&throttleFeature{m: g.throttlers, global: &cfg.TrafficShaping.Throttle},
-		&bandwidthFeature{m: g.bandwidthLimiters, global: &cfg.TrafficShaping.Bandwidth},
-		&priorityFeature{m: g.priorityConfigs, global: &cfg.TrafficShaping.Priority},
-		&faultInjectionFeature{m: g.faultInjectors, global: &cfg.TrafficShaping.FaultInjection},
-		&adaptiveConcurrencyFeature{m: g.adaptiveLimiters, global: &cfg.TrafficShaping.AdaptiveConcurrency},
-		&wafFeature{g.wafHandlers},
-		&graphqlFeature{g.graphqlParsers},
-		&coalesceFeature{g.coalescers},
-		&canaryFeature{g.canaryControllers},
-		&extAuthFeature{g.extAuths},
-		&versioningFeature{g.versioners},
-		&accessLogFeature{g.accessLogConfigs},
-		&openapiFeature{g.openapiValidators},
-		&timeoutFeature{g.timeoutConfigs},
-		&errorPagesFeature{m: g.errorPages, global: &cfg.ErrorPages},
-		&nonceFeature{m: g.nonceCheckers, global: &cfg.Nonce, redis: g.redisClient},
-		&csrfFeature{m: g.csrfProtectors, global: &cfg.CSRF},
-		&idempotencyFeature{m: g.idempotencyHandlers, global: &cfg.Idempotency, redis: g.redisClient},
-		&outlierDetectionFeature{g.outlierDetectors},
-		&geoFeature{m: g.geoFilters, global: &cfg.Geo, provider: g.geoProvider},
-		&signingFeature{m: g.backendSigners, global: &cfg.BackendSigning},
-		&decompressFeature{m: g.decompressors, global: &cfg.RequestDecompression},
-		&responseLimitFeature{m: g.responseLimiters, global: &cfg.ResponseLimit},
-		&securityHeadersFeature{m: g.securityHeaders, global: &cfg.SecurityHeaders},
-		&maintenanceFeature{m: g.maintenanceHandlers, global: &cfg.Maintenance},
-		&botDetectFeature{m: g.botDetectors, global: &cfg.BotDetection},
-		&proxyRateLimitFeature{g.proxyRateLimiters},
-		&mockFeature{g.mockHandlers},
-		&claimsPropFeature{g.claimsPropagators},
-		&backendAuthFeature{g.backendAuths},
-		&statusMapFeature{g.statusMappers},
-		&staticFeature{g.staticFiles},
-		&spikeArrestFeature{m: g.spikeArresters, global: &cfg.SpikeArrest},
-		&contentReplacerFeature{g.contentReplacers},
-		&bodyGenFeature{g.bodyGenerators},
-		&quotaFeature{m: g.quotaEnforcers, redis: g.redisClient},
-		&sequentialFeature{m: g.sequentialHandlers},
-		&aggregateFeature{m: g.aggregateHandlers},
-		&respBodyGenFeature{g.respBodyGenerators},
-		&paramForwardFeature{g.paramForwarders},
-		&contentNegFeature{g.contentNegotiators},
-		&cdnHeadersFeature{m: g.cdnHeaders, global: &cfg.CDNCacheHeaders},
-		&backendEncodingFeature{g.backendEncoders},
+		// Simple features: isActive → extract → addRoute
+		newFeature("ip_filter", "", func(id string, rc config.RouteConfig) error {
+			if rc.IPFilter.Enabled {
+				return g.ipFilters.AddRoute(id, rc.IPFilter)
+			}
+			return nil
+		}, g.ipFilters.RouteIDs, nil),
+		newFeature("cors", "", func(id string, rc config.RouteConfig) error {
+			if rc.CORS.Enabled {
+				return g.corsHandlers.AddRoute(id, rc.CORS)
+			}
+			return nil
+		}, g.corsHandlers.RouteIDs, nil),
+		newFeature("circuit_breaker", "/circuit-breakers", func(id string, rc config.RouteConfig) error {
+			if rc.CircuitBreaker.Enabled {
+				g.circuitBreakers.AddRoute(id, rc.CircuitBreaker)
+			}
+			return nil
+		}, g.circuitBreakers.RouteIDs, func() any { return g.circuitBreakers.Snapshots() }),
+		newFeature("cache", "/cache", func(id string, rc config.RouteConfig) error {
+			if rc.Cache.Enabled {
+				g.caches.AddRoute(id, rc.Cache)
+			}
+			return nil
+		}, g.caches.RouteIDs, func() any { return g.caches.Stats() }),
+		newFeature("compression", "/compression", func(id string, rc config.RouteConfig) error {
+			if rc.Compression.Enabled {
+				g.compressors.AddRoute(id, rc.Compression)
+			}
+			return nil
+		}, g.compressors.RouteIDs, func() any { return g.compressors.Stats() }),
+		newFeature("validation", "", func(id string, rc config.RouteConfig) error {
+			if rc.Validation.Enabled {
+				return g.validators.AddRoute(id, rc.Validation)
+			}
+			return nil
+		}, g.validators.RouteIDs, nil),
+		newFeature("mirror", "/mirrors", func(id string, rc config.RouteConfig) error {
+			if rc.Mirror.Enabled {
+				return g.mirrors.AddRoute(id, rc.Mirror)
+			}
+			return nil
+		}, g.mirrors.RouteIDs, func() any { return g.mirrors.Stats() }),
+		newFeature("rules", "", func(id string, rc config.RouteConfig) error {
+			if len(rc.Rules.Request) > 0 || len(rc.Rules.Response) > 0 {
+				return g.routeRules.AddRoute(id, rc.Rules)
+			}
+			return nil
+		}, g.routeRules.RouteIDs, func() any { return g.routeRules.Stats() }),
+		newFeature("waf", "/waf", func(id string, rc config.RouteConfig) error {
+			if rc.WAF.Enabled {
+				return g.wafHandlers.AddRoute(id, rc.WAF)
+			}
+			return nil
+		}, g.wafHandlers.RouteIDs, func() any { return g.wafHandlers.Stats() }),
+		newFeature("graphql", "/graphql", func(id string, rc config.RouteConfig) error {
+			if rc.GraphQL.Enabled {
+				return g.graphqlParsers.AddRoute(id, rc.GraphQL)
+			}
+			return nil
+		}, g.graphqlParsers.RouteIDs, func() any { return g.graphqlParsers.Stats() }),
+		newFeature("coalesce", "/coalesce", func(id string, rc config.RouteConfig) error {
+			if rc.Coalesce.Enabled {
+				g.coalescers.AddRoute(id, rc.Coalesce)
+			}
+			return nil
+		}, g.coalescers.RouteIDs, func() any { return g.coalescers.Stats() }),
+		newFeature("ext_auth", "/ext-auth", func(id string, rc config.RouteConfig) error {
+			if rc.ExtAuth.Enabled {
+				return g.extAuths.AddRoute(id, rc.ExtAuth)
+			}
+			return nil
+		}, g.extAuths.RouteIDs, func() any { return g.extAuths.Stats() }),
+		newFeature("versioning", "/versioning", func(id string, rc config.RouteConfig) error {
+			if rc.Versioning.Enabled {
+				return g.versioners.AddRoute(id, rc.Versioning)
+			}
+			return nil
+		}, g.versioners.RouteIDs, func() any { return g.versioners.Stats() }),
+		newFeature("access_log", "/access-log", func(id string, rc config.RouteConfig) error {
+			al := rc.AccessLog
+			if al.Enabled != nil || al.Format != "" ||
+				len(al.HeadersInclude) > 0 || len(al.HeadersExclude) > 0 ||
+				al.Body.Enabled ||
+				al.Conditions.SampleRate > 0 || len(al.Conditions.StatusCodes) > 0 ||
+				len(al.Conditions.Methods) > 0 {
+				return g.accessLogConfigs.AddRoute(id, al)
+			}
+			return nil
+		}, g.accessLogConfigs.RouteIDs, func() any { return g.accessLogConfigs.Stats() }),
+		newFeature("openapi", "/openapi", func(id string, rc config.RouteConfig) error {
+			if rc.OpenAPI.SpecFile != "" || rc.OpenAPI.SpecID != "" {
+				return g.openapiValidators.AddRoute(id, rc.OpenAPI)
+			}
+			return nil
+		}, g.openapiValidators.RouteIDs, func() any { return g.openapiValidators.Stats() }),
+		newFeature("timeout", "/timeouts", func(id string, rc config.RouteConfig) error {
+			if rc.TimeoutPolicy.IsActive() {
+				g.timeoutConfigs.AddRoute(id, rc.TimeoutPolicy)
+			}
+			return nil
+		}, g.timeoutConfigs.RouteIDs, func() any { return g.timeoutConfigs.Stats() }),
+		newFeature("proxy_rate_limit", "/proxy-rate-limits", func(id string, rc config.RouteConfig) error {
+			if rc.ProxyRateLimit.Enabled {
+				g.proxyRateLimiters.AddRoute(id, rc.ProxyRateLimit)
+			}
+			return nil
+		}, g.proxyRateLimiters.RouteIDs, func() any { return g.proxyRateLimiters.Stats() }),
+		newFeature("claims_propagation", "/claims-propagation", func(id string, rc config.RouteConfig) error {
+			if rc.ClaimsPropagation.Enabled {
+				g.claimsPropagators.AddRoute(id, rc.ClaimsPropagation)
+			}
+			return nil
+		}, g.claimsPropagators.RouteIDs, func() any { return g.claimsPropagators.Stats() }),
+		newFeature("mock_response", "/mock-responses", func(id string, rc config.RouteConfig) error {
+			if rc.MockResponse.Enabled {
+				g.mockHandlers.AddRoute(id, rc.MockResponse)
+			}
+			return nil
+		}, g.mockHandlers.RouteIDs, func() any { return g.mockHandlers.Stats() }),
+		newFeature("backend_auth", "/backend-auth", func(id string, rc config.RouteConfig) error {
+			if rc.BackendAuth.Enabled {
+				return g.backendAuths.AddRoute(id, rc.BackendAuth)
+			}
+			return nil
+		}, g.backendAuths.RouteIDs, func() any { return g.backendAuths.Stats() }),
+		newFeature("status_mapping", "/status-mapping", func(id string, rc config.RouteConfig) error {
+			if rc.StatusMapping.Enabled && len(rc.StatusMapping.Mappings) > 0 {
+				g.statusMappers.AddRoute(id, rc.StatusMapping.Mappings)
+			}
+			return nil
+		}, g.statusMappers.RouteIDs, func() any { return g.statusMappers.Stats() }),
+		newFeature("static_files", "/static-files", func(id string, rc config.RouteConfig) error {
+			if rc.Static.Enabled {
+				return g.staticFiles.AddRoute(id, rc.Static.Root, rc.Static.Index, rc.Static.Browse, rc.Static.CacheControl)
+			}
+			return nil
+		}, g.staticFiles.RouteIDs, func() any { return g.staticFiles.Stats() }),
+		newFeature("content_replacer", "/content-replacer", func(id string, rc config.RouteConfig) error {
+			if rc.ContentReplacer.Enabled && len(rc.ContentReplacer.Replacements) > 0 {
+				return g.contentReplacers.AddRoute(id, rc.ContentReplacer)
+			}
+			return nil
+		}, g.contentReplacers.RouteIDs, func() any { return g.contentReplacers.Stats() }),
+		newFeature("body_generator", "/body-generator", func(id string, rc config.RouteConfig) error {
+			if rc.BodyGenerator.Enabled {
+				return g.bodyGenerators.AddRoute(id, rc.BodyGenerator)
+			}
+			return nil
+		}, g.bodyGenerators.RouteIDs, func() any { return g.bodyGenerators.Stats() }),
+		newFeature("response_body_generator", "/response-body-generator", func(id string, rc config.RouteConfig) error {
+			if rc.ResponseBodyGenerator.Enabled {
+				return g.respBodyGenerators.AddRoute(id, rc.ResponseBodyGenerator)
+			}
+			return nil
+		}, g.respBodyGenerators.RouteIDs, func() any { return g.respBodyGenerators.Stats() }),
+		newFeature("param_forwarding", "/param-forwarding", func(id string, rc config.RouteConfig) error {
+			if rc.ParamForwarding.Enabled {
+				g.paramForwarders.AddRoute(id, rc.ParamForwarding)
+			}
+			return nil
+		}, g.paramForwarders.RouteIDs, func() any { return g.paramForwarders.Stats() }),
+		newFeature("content_negotiation", "/content-negotiation", func(id string, rc config.RouteConfig) error {
+			if rc.ContentNegotiation.Enabled {
+				return g.contentNegotiators.AddRoute(id, rc.ContentNegotiation)
+			}
+			return nil
+		}, g.contentNegotiators.RouteIDs, func() any { return g.contentNegotiators.Stats() }),
+		newFeature("backend_encoding", "/backend-encoding", func(id string, rc config.RouteConfig) error {
+			if rc.BackendEncoding.Encoding != "" {
+				g.backendEncoders.AddRoute(id, rc.BackendEncoding)
+			}
+			return nil
+		}, g.backendEncoders.RouteIDs, func() any { return g.backendEncoders.Stats() }),
+
+		// Merge features: merge per-route with global config
+		newFeature("throttle", "", func(id string, rc config.RouteConfig) error {
+			tc := rc.TrafficShaping.Throttle
+			if tc.Enabled {
+				merged := trafficshape.MergeThrottleConfig(tc, cfg.TrafficShaping.Throttle)
+				g.throttlers.AddRoute(id, merged)
+			} else if cfg.TrafficShaping.Throttle.Enabled {
+				g.throttlers.AddRoute(id, cfg.TrafficShaping.Throttle)
+			}
+			return nil
+		}, g.throttlers.RouteIDs, func() any { return g.throttlers.Stats() }),
+		newFeature("bandwidth", "", func(id string, rc config.RouteConfig) error {
+			bc := rc.TrafficShaping.Bandwidth
+			if bc.Enabled {
+				merged := trafficshape.MergeBandwidthConfig(bc, cfg.TrafficShaping.Bandwidth)
+				g.bandwidthLimiters.AddRoute(id, merged)
+			} else if cfg.TrafficShaping.Bandwidth.Enabled {
+				g.bandwidthLimiters.AddRoute(id, cfg.TrafficShaping.Bandwidth)
+			}
+			return nil
+		}, g.bandwidthLimiters.RouteIDs, func() any { return g.bandwidthLimiters.Stats() }),
+		newFeature("priority", "", func(id string, rc config.RouteConfig) error {
+			pc := rc.TrafficShaping.Priority
+			if pc.Enabled {
+				merged := trafficshape.MergePriorityConfig(pc, cfg.TrafficShaping.Priority)
+				g.priorityConfigs.AddRoute(id, merged)
+			} else if cfg.TrafficShaping.Priority.Enabled {
+				g.priorityConfigs.AddRoute(id, cfg.TrafficShaping.Priority)
+			}
+			return nil
+		}, g.priorityConfigs.RouteIDs, nil),
+		newFeature("fault_injection", "", func(id string, rc config.RouteConfig) error {
+			fi := rc.TrafficShaping.FaultInjection
+			if fi.Enabled {
+				merged := trafficshape.MergeFaultInjectionConfig(fi, cfg.TrafficShaping.FaultInjection)
+				g.faultInjectors.AddRoute(id, merged)
+			} else if cfg.TrafficShaping.FaultInjection.Enabled {
+				g.faultInjectors.AddRoute(id, cfg.TrafficShaping.FaultInjection)
+			}
+			return nil
+		}, g.faultInjectors.RouteIDs, func() any { return g.faultInjectors.Stats() }),
+		newFeature("adaptive_concurrency", "/adaptive-concurrency", func(id string, rc config.RouteConfig) error {
+			ac := rc.TrafficShaping.AdaptiveConcurrency
+			if ac.Enabled {
+				merged := trafficshape.MergeAdaptiveConcurrencyConfig(ac, cfg.TrafficShaping.AdaptiveConcurrency)
+				g.adaptiveLimiters.AddRoute(id, merged)
+			} else if cfg.TrafficShaping.AdaptiveConcurrency.Enabled {
+				g.adaptiveLimiters.AddRoute(id, cfg.TrafficShaping.AdaptiveConcurrency)
+			}
+			return nil
+		}, g.adaptiveLimiters.RouteIDs, func() any { return g.adaptiveLimiters.Stats() }),
+		newFeature("error_pages", "/error-pages", func(id string, rc config.RouteConfig) error {
+			if cfg.ErrorPages.IsActive() || rc.ErrorPages.IsActive() {
+				return g.errorPages.AddRoute(id, cfg.ErrorPages, rc.ErrorPages)
+			}
+			return nil
+		}, g.errorPages.RouteIDs, func() any { return g.errorPages.Stats() }),
+		newFeature("nonce", "/nonces", func(id string, rc config.RouteConfig) error {
+			if rc.Nonce.Enabled {
+				merged := nonce.MergeNonceConfig(rc.Nonce, cfg.Nonce)
+				return g.nonceCheckers.AddRoute(id, merged, g.redisClient)
+			}
+			if cfg.Nonce.Enabled {
+				return g.nonceCheckers.AddRoute(id, cfg.Nonce, g.redisClient)
+			}
+			return nil
+		}, g.nonceCheckers.RouteIDs, func() any { return g.nonceCheckers.Stats() }),
+		newFeature("csrf", "/csrf", func(id string, rc config.RouteConfig) error {
+			if rc.CSRF.Enabled {
+				merged := csrf.MergeCSRFConfig(rc.CSRF, cfg.CSRF)
+				return g.csrfProtectors.AddRoute(id, merged)
+			}
+			if cfg.CSRF.Enabled {
+				return g.csrfProtectors.AddRoute(id, cfg.CSRF)
+			}
+			return nil
+		}, g.csrfProtectors.RouteIDs, func() any { return g.csrfProtectors.Stats() }),
+		newFeature("idempotency", "/idempotency", func(id string, rc config.RouteConfig) error {
+			if rc.Idempotency.Enabled {
+				merged := idempotency.MergeIdempotencyConfig(rc.Idempotency, cfg.Idempotency)
+				return g.idempotencyHandlers.AddRoute(id, merged, g.redisClient)
+			}
+			if cfg.Idempotency.Enabled {
+				return g.idempotencyHandlers.AddRoute(id, cfg.Idempotency, g.redisClient)
+			}
+			return nil
+		}, g.idempotencyHandlers.RouteIDs, func() any { return g.idempotencyHandlers.Stats() }),
+		newFeature("geo", "/geo", func(id string, rc config.RouteConfig) error {
+			if g.geoProvider == nil {
+				return nil
+			}
+			if rc.Geo.Enabled {
+				merged := geo.MergeGeoConfig(rc.Geo, cfg.Geo)
+				return g.geoFilters.AddRoute(id, merged, g.geoProvider)
+			}
+			if cfg.Geo.Enabled {
+				return g.geoFilters.AddRoute(id, cfg.Geo, g.geoProvider)
+			}
+			return nil
+		}, g.geoFilters.RouteIDs, func() any { return g.geoFilters.Stats() }),
+		newFeature("backend_signing", "/signing", func(id string, rc config.RouteConfig) error {
+			if rc.BackendSigning.Enabled {
+				merged := signing.MergeSigningConfig(rc.BackendSigning, cfg.BackendSigning)
+				return g.backendSigners.AddRoute(id, merged)
+			}
+			if cfg.BackendSigning.Enabled {
+				return g.backendSigners.AddRoute(id, cfg.BackendSigning)
+			}
+			return nil
+		}, g.backendSigners.RouteIDs, func() any { return g.backendSigners.Stats() }),
+		newFeature("request_decompression", "/decompression", func(id string, rc config.RouteConfig) error {
+			if rc.RequestDecompression.Enabled {
+				merged := decompress.MergeDecompressionConfig(rc.RequestDecompression, cfg.RequestDecompression)
+				g.decompressors.AddRoute(id, merged)
+			} else if cfg.RequestDecompression.Enabled {
+				g.decompressors.AddRoute(id, cfg.RequestDecompression)
+			}
+			return nil
+		}, g.decompressors.RouteIDs, func() any { return g.decompressors.Stats() }),
+		newFeature("response_limit", "/response-limits", func(id string, rc config.RouteConfig) error {
+			if rc.ResponseLimit.Enabled {
+				merged := responselimit.MergeResponseLimitConfig(rc.ResponseLimit, cfg.ResponseLimit)
+				g.responseLimiters.AddRoute(id, merged)
+			} else if cfg.ResponseLimit.Enabled {
+				g.responseLimiters.AddRoute(id, cfg.ResponseLimit)
+			}
+			return nil
+		}, g.responseLimiters.RouteIDs, func() any { return g.responseLimiters.Stats() }),
+		newFeature("security_headers", "/security-headers", func(id string, rc config.RouteConfig) error {
+			if rc.SecurityHeaders.Enabled {
+				merged := securityheaders.MergeSecurityHeadersConfig(rc.SecurityHeaders, cfg.SecurityHeaders)
+				g.securityHeaders.AddRoute(id, merged)
+			} else if cfg.SecurityHeaders.Enabled {
+				g.securityHeaders.AddRoute(id, cfg.SecurityHeaders)
+			}
+			return nil
+		}, g.securityHeaders.RouteIDs, func() any { return g.securityHeaders.Stats() }),
+		newFeature("maintenance", "/maintenance", func(id string, rc config.RouteConfig) error {
+			if rc.Maintenance.Enabled {
+				merged := maintenance.MergeMaintenanceConfig(rc.Maintenance, cfg.Maintenance)
+				g.maintenanceHandlers.AddRoute(id, merged)
+			} else if cfg.Maintenance.Enabled {
+				g.maintenanceHandlers.AddRoute(id, cfg.Maintenance)
+			}
+			return nil
+		}, g.maintenanceHandlers.RouteIDs, func() any { return g.maintenanceHandlers.Stats() }),
+		newFeature("bot_detection", "/bot-detection", func(id string, rc config.RouteConfig) error {
+			if rc.BotDetection.Enabled {
+				merged := botdetect.MergeBotDetectionConfig(rc.BotDetection, cfg.BotDetection)
+				return g.botDetectors.AddRoute(id, merged)
+			}
+			if cfg.BotDetection.Enabled {
+				return g.botDetectors.AddRoute(id, cfg.BotDetection)
+			}
+			return nil
+		}, g.botDetectors.RouteIDs, func() any { return g.botDetectors.Stats() }),
+		newFeature("spike_arrest", "/spike-arrest", func(id string, rc config.RouteConfig) error {
+			rc2 := rc.SpikeArrest
+			if !rc2.Enabled && !cfg.SpikeArrest.Enabled {
+				return nil
+			}
+			merged := spikearrest.MergeSpikeArrestConfig(rc2, cfg.SpikeArrest)
+			g.spikeArresters.AddRoute(id, merged)
+			return nil
+		}, g.spikeArresters.RouteIDs, func() any { return g.spikeArresters.Stats() }),
+		newFeature("cdn_cache_headers", "/cdn-cache-headers", func(id string, rc config.RouteConfig) error {
+			merged := cdnheaders.MergeCDNCacheConfig(rc.CDNCacheHeaders, cfg.CDNCacheHeaders)
+			if merged.Enabled {
+				g.cdnHeaders.AddRoute(id, merged)
+			}
+			return nil
+		}, g.cdnHeaders.RouteIDs, func() any { return g.cdnHeaders.Stats() }),
+		newFeature("quota", "/quotas", func(id string, rc config.RouteConfig) error {
+			if rc.Quota.Enabled {
+				g.quotaEnforcers.AddRoute(id, rc.Quota, g.redisClient)
+			}
+			return nil
+		}, g.quotaEnforcers.RouteIDs, func() any { return g.quotaEnforcers.Stats() }),
+
+		// No-op features: setup handled elsewhere (need transport/balancer)
+		noOpFeature("canary", "/canary", g.canaryControllers.RouteIDs, func() any { return g.canaryControllers.Stats() }),
+		noOpFeature("outlier_detection", "/outlier-detection", g.outlierDetectors.RouteIDs, func() any { return g.outlierDetectors.Stats() }),
+		noOpFeature("sequential", "/sequential", g.sequentialHandlers.RouteIDs, func() any { return g.sequentialHandlers.Stats() }),
+		noOpFeature("aggregate", "/aggregate", g.aggregateHandlers.RouteIDs, func() any { return g.aggregateHandlers.Stats() }),
 	}
 
 	// Initialize global IP filter
@@ -954,343 +1262,224 @@ func createBalancer(cfg config.RouteConfig, backends []*loadbalancer.Backend) lo
 // buildRouteHandler constructs the per-route middleware pipeline.
 // Chain ordering matches CLAUDE.md serveHTTP flow exactly.
 func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, route *router.Route, rp *proxy.RouteProxy) http.Handler {
-	chain := middleware.NewBuilderWithCap(48)
-
-	// 1. metricsMW — outermost: timing + status (Step 13)
-	chain = chain.Use(metricsMW(g.metricsCollector, routeID))
-
-	// 1.5. canaryObserverMW — observe traffic group outcomes (only if canary configured)
-	if ctrl := g.canaryControllers.GetController(routeID); ctrl != nil {
-		chain = chain.Use(canaryObserverMW(ctrl))
-	}
-
-	// 2. ipFilterMW — global + per-route (Step 1.1)
-	routeIPFilter := g.ipFilters.GetFilter(routeID)
-	if g.globalIPFilter != nil || routeIPFilter != nil {
-		chain = chain.Use(ipFilterMW(g.globalIPFilter, routeIPFilter))
-	}
-
-	// 2.5. geoMW — geo filtering (after IP filter, before CORS)
-	routeGeo := g.geoFilters.GetGeo(routeID)
-	if g.globalGeo != nil || routeGeo != nil {
-		chain = chain.Use(geoMW(g.globalGeo, routeGeo))
-	}
-
-	// 2.75. maintenanceMW — return 503 when route is in maintenance mode
-	if maint := g.maintenanceHandlers.GetMaintenance(routeID); maint != nil {
-		chain = chain.Use(maintenanceMW(maint))
-	}
-
-	// 2.8. botDetectMW — block denied User-Agent patterns
-	if bd := g.botDetectors.GetDetector(routeID); bd != nil {
-		chain = chain.Use(botDetectMW(bd))
-	}
-
-	// 3. corsMW — preflight + headers (Step 1.5)
-	if corsHandler := g.corsHandlers.GetHandler(routeID); corsHandler != nil && corsHandler.IsEnabled() {
-		chain = chain.Use(corsMW(corsHandler))
-	}
-
-	// 4. varContextMW — set RouteID + PathParams (Step 2)
-	chain = chain.Use(varContextMW(routeID))
-
-	// 4.05. securityHeadersMW — inject security response headers
-	if sh := g.securityHeaders.GetHeaders(routeID); sh != nil {
-		chain = chain.Use(securityHeadersMW(sh))
-	}
-
-	// 4.07. cdnHeadersMW — inject CDN cache control headers
-	if cdn := g.cdnHeaders.GetHandler(routeID); cdn != nil {
-		chain = chain.Use(cdnHeadersMW(cdn))
-	}
-
-	// 4.1. errorPagesMW — custom error page rendering
-	if ep := g.errorPages.GetErrorPages(routeID); ep != nil {
-		chain = chain.Use(errorPagesMW(ep))
-	}
-
-	// 4.25. accessLogMW — store per-route config + optional body capture
-	if alCfg := g.accessLogConfigs.GetConfig(routeID); alCfg != nil {
-		chain = chain.Use(accessLogMW(alCfg))
-	}
-
-	// 4.5. versioningMW — detect version, strip prefix, deprecation headers
-	if ver := g.versioners.GetVersioner(routeID); ver != nil {
-		chain = chain.Use(versioningMW(ver))
-	}
-
-	// 4.75. timeoutMW — request-level context deadline + Retry-After on 504
-	if ct := g.timeoutConfigs.GetTimeout(routeID); ct != nil {
-		chain = chain.Use(timeoutMW(ct))
-	}
-
-	// 5. rateLimitMW — per-route limiter (local or distributed)
-	if mw := g.rateLimiters.GetMiddleware(routeID); mw != nil {
-		chain = chain.Use(mw)
-	}
-
-	// 5.25 spikeArrestMW — continuous rate enforcement with immediate rejection
-	if sa := g.spikeArresters.GetArrester(routeID); sa != nil {
-		chain = chain.Use(spikeArrestMW(sa))
-	}
-
-	// 5.3 quotaMW — per-client usage quota enforcement (billing periods)
-	if qe := g.quotaEnforcers.GetEnforcer(routeID); qe != nil {
-		chain = chain.Use(quotaMW(qe))
-	}
-
-	// 5.5 throttleMW — delay/queue (after reject, before auth)
-	if t := g.throttlers.GetThrottler(routeID); t != nil {
-		chain = chain.Use(throttleMW(t))
-	}
-
-	// 6. authMW — authenticate (Step 3)
-	if route.Auth.Required {
-		chain = chain.Use(authMW(g, route.Auth))
-	}
-
-	// 6.05 tokenRevokeMW — reject revoked JWT tokens (after auth, before claims prop)
-	if g.tokenChecker != nil && route.Auth.Required {
-		chain = chain.Use(tokenRevokeMW(g.tokenChecker))
-	}
-
-	// 6.15 claimsPropMW — propagate JWT claims as request headers (after auth, before extAuth)
-	if cp := g.claimsPropagators.GetPropagator(routeID); cp != nil {
-		chain = chain.Use(claimsPropMW(cp))
-	}
-
-	// 6.25 extAuthMW — external auth service (after built-in auth, before priority)
-	if ea := g.extAuths.GetAuth(routeID); ea != nil {
-		chain = chain.Use(extAuthMW(ea))
-	}
-
-	// 6.3 nonceMW — replay prevention (after auth, needs Identity for per_client scope)
-	if nc := g.nonceCheckers.GetChecker(routeID); nc != nil {
-		chain = chain.Use(nonceMW(nc))
-	}
-
-	// 6.35 csrfMW — CSRF protection (after nonce, before priority)
-	if cp := g.csrfProtectors.GetProtector(routeID); cp != nil {
-		chain = chain.Use(csrfMW(cp))
-	}
-
-	// 6.4 idempotencyMW — replay cached responses for duplicate idempotency keys
-	if ih := g.idempotencyHandlers.GetHandler(routeID); ih != nil {
-		chain = chain.Use(idempotencyMW(ih))
-	}
-
-	// 6.5 priorityMW — admission control (after auth, needs Identity)
-	if g.priorityAdmitter != nil {
-		if pcfg, ok := g.priorityConfigs.GetConfig(routeID); ok {
-			chain = chain.Use(priorityMW(g.priorityAdmitter, pcfg))
-		}
-	}
-
-	// 7. requestRulesMW — global + per-route (Step 3.5)
-	routeEngine := g.routeRules.GetEngine(routeID)
-	hasReqRules := (g.globalRules != nil && g.globalRules.HasRequestRules()) ||
-		(routeEngine != nil && routeEngine.HasRequestRules())
-	if hasReqRules {
-		chain = chain.Use(requestRulesMW(g.globalRules, routeEngine))
-	}
-
-	// 7.25 wafMW — WAF inspection (after request rules, before fault injection)
-	if wafHandler := g.wafHandlers.GetWAF(routeID); wafHandler != nil {
-		chain = chain.Use(wafMW(wafHandler))
-	}
-
-	// 7.5. faultInjectionMW — inject delays/aborts (Step 7.5)
-	if fi := g.faultInjectors.GetInjector(routeID); fi != nil {
-		chain = chain.Use(faultInjectionMW(fi))
-	}
-
-	// 7.75. mockMW — return static mock response (never reaches backend)
-	if mh := g.mockHandlers.GetHandler(routeID); mh != nil {
-		chain = chain.Use(mockMW(mh))
-	}
-
 	skipBody := cfg.Passthrough
-
-	// 8. bodyLimitMW — MaxBodySize (Step 4.5)
-	if !skipBody && route.MaxBodySize > 0 {
-		chain = chain.Use(bodyLimitMW(route.MaxBodySize))
-	}
-
-	// 8.25 requestDecompressMW — decompress Content-Encoding (after body limit, before bandwidth)
-	if !skipBody {
-		if d := g.decompressors.GetDecompressor(routeID); d != nil && d.IsEnabled() {
-			chain = chain.Use(requestDecompressMW(d))
-		}
-	}
-
-	// 8.5 bandwidthMW — wrap body + writer (after body limit, before validation)
-	if !skipBody {
-		if bw := g.bandwidthLimiters.GetLimiter(routeID); bw != nil {
-			chain = chain.Use(bandwidthMW(bw))
-		}
-	}
-
-	// 9. validationMW — request validation (Step 4.6)
-	if !skipBody {
-		if v := g.validators.GetValidator(routeID); v != nil && v.IsEnabled() {
-			chain = chain.Use(validationMW(v))
-		}
-	}
-
-	// 9.1. openapiRequestMW — OpenAPI request validation
-	if !skipBody {
-		if ov := g.openapiValidators.GetValidator(routeID); ov != nil {
-			chain = chain.Use(openapiRequestMW(ov))
-		}
-	}
-
-	// 9.5. graphqlMW — parse, validate depth/complexity, rate limit by operation
-	if !skipBody {
-		if gql := g.graphqlParsers.GetParser(routeID); gql != nil {
-			chain = chain.Use(gql.Middleware())
-		}
-	}
-
-	// 10. websocketMW — WS upgrade bypass (Step 5)
-	if route.WebSocket.Enabled {
-		chain = chain.Use(websocketMW(g.wsProxy, func() loadbalancer.Balancer {
-			return rp.GetBalancer()
-		}))
-	}
-
-	// 11. cacheMW — HIT check + store (Steps 6+12)
-	if !skipBody {
-		if cacheHandler := g.caches.GetHandler(routeID); cacheHandler != nil {
-			chain = chain.Use(cacheMW(cacheHandler, g.metricsCollector, routeID))
-		}
-	}
-
-	// 11.5. coalesceMW — singleflight dedup (between cache and circuit breaker)
-	if !skipBody {
-		if c := g.coalescers.GetCoalescer(routeID); c != nil {
-			chain = chain.Use(coalesceMW(c))
-		}
-	}
-
-	// 12. circuitBreakerMW — Allow + Done (Steps 7+11)
 	isGRPC := cfg.GRPC.Enabled
-	if cb := g.circuitBreakers.GetBreaker(routeID); cb != nil {
-		chain = chain.Use(circuitBreakerMW(cb, isGRPC))
-	}
+	routeEngine := g.routeRules.GetEngine(routeID)
 
-	// 12.25. outlierDetectionMW — per-backend passive metrics
-	if det := g.outlierDetectors.GetDetector(routeID); det != nil {
-		chain = chain.Use(outlierDetectionMW(det))
-	}
-
-	// 12.5. adaptiveConcurrencyMW — AIMD concurrency limiting
-	if al := g.adaptiveLimiters.GetLimiter(routeID); al != nil {
-		chain = chain.Use(adaptiveConcurrencyMW(al))
-	}
-
-	// 12.6. proxyRateLimitMW — protect backends from overload
-	if pl := g.proxyRateLimiters.GetLimiter(routeID); pl != nil {
-		chain = chain.Use(proxyRateLimitMW(pl))
-	}
-
-	// 13. compressionMW — wrap writer (Step 8)
-	if !skipBody {
-		if compressor := g.compressors.GetCompressor(routeID); compressor != nil && compressor.IsEnabled() {
-			chain = chain.Use(compressionMW(compressor))
-		}
-	}
-
-	// 13.5. responseLimitMW — enforce max response body size from backend
-	if !skipBody {
-		if rl := g.responseLimiters.GetLimiter(routeID); rl != nil && rl.IsEnabled() {
-			chain = chain.Use(responseLimitMW(rl))
-		}
-	}
-
-	// 14. responseRulesMW — wrap writer + eval (Steps 8.5+10.2)
-	hasRespRules := (g.globalRules != nil && g.globalRules.HasResponseRules()) ||
-		(routeEngine != nil && routeEngine.HasResponseRules())
-	if hasRespRules {
-		chain = chain.Use(responseRulesMW(g.globalRules, routeEngine))
-	}
-
-	// 15. mirrorMW — buffer + async send + optional comparison (Step 10.5)
-	if mirrorHandler := g.mirrors.GetMirror(routeID); mirrorHandler != nil && mirrorHandler.IsEnabled() {
-		chain = chain.Use(mirrorMW(mirrorHandler))
-	}
-
-	// 15.5 trafficGroupMW — inject A/B variant header + sticky cookie (after mirror, before transforms)
-	if rp != nil {
-		if wb, ok := rp.GetBalancer().(*loadbalancer.WeightedBalancer); ok && wb.HasStickyPolicy() {
-			chain = chain.Use(trafficGroupMW(wb.GetStickyPolicy()))
-		}
-	}
-
-	// Compile body transforms once (skip for passthrough routes)
-	var reqBodyTransform *transform.CompiledBodyTransform
+	// Pre-compile body transforms (skip for passthrough routes)
+	var reqBodyTransform, respBodyTransform *transform.CompiledBodyTransform
 	if !skipBody && route.Transform.Request.Body.IsActive() {
 		reqBodyTransform, _ = transform.NewCompiledBodyTransform(route.Transform.Request.Body)
 	}
-	var respBodyTransform *transform.CompiledBodyTransform
 	if !skipBody && route.Transform.Response.Body.IsActive() {
 		respBodyTransform, _ = transform.NewCompiledBodyTransform(route.Transform.Response.Body)
 	}
 
-	// 16. requestTransformMW — headers + body + gRPC (Step 9)
-	chain = chain.Use(requestTransformMW(route, g.grpcHandlers[routeID], reqBodyTransform))
-
-	// 16.05. bodyGenMW — generate request body from template
-	if bg := g.bodyGenerators.GetGenerator(routeID); bg != nil {
-		chain = chain.Use(bodyGenMW(bg))
+	// Middleware chain in order. Each function returns a middleware or nil to skip.
+	// Order matches CLAUDE.md serveHTTP flow exactly — do not reorder.
+	mws := [...]func() middleware.Middleware{
+		/* 1    */ func() middleware.Middleware { return metricsMW(g.metricsCollector, routeID) },
+		/* 1.5  */ func() middleware.Middleware {
+			if ctrl := g.canaryControllers.GetController(routeID); ctrl != nil { return canaryObserverMW(ctrl) }; return nil
+		},
+		/* 2    */ func() middleware.Middleware {
+			rf := g.ipFilters.GetFilter(routeID)
+			if g.globalIPFilter != nil || rf != nil { return ipFilterMW(g.globalIPFilter, rf) }; return nil
+		},
+		/* 2.5  */ func() middleware.Middleware {
+			rg := g.geoFilters.GetGeo(routeID)
+			if g.globalGeo != nil || rg != nil { return geoMW(g.globalGeo, rg) }; return nil
+		},
+		/* 2.75 */ func() middleware.Middleware {
+			if m := g.maintenanceHandlers.GetMaintenance(routeID); m != nil { return maintenanceMW(m) }; return nil
+		},
+		/* 2.8  */ func() middleware.Middleware {
+			if bd := g.botDetectors.GetDetector(routeID); bd != nil { return botDetectMW(bd) }; return nil
+		},
+		/* 3    */ func() middleware.Middleware {
+			if ch := g.corsHandlers.GetHandler(routeID); ch != nil && ch.IsEnabled() { return corsMW(ch) }; return nil
+		},
+		/* 4    */ func() middleware.Middleware { return varContextMW(routeID) },
+		/* 4.05 */ func() middleware.Middleware {
+			if sh := g.securityHeaders.GetHeaders(routeID); sh != nil { return securityHeadersMW(sh) }; return nil
+		},
+		/* 4.07 */ func() middleware.Middleware {
+			if cdn := g.cdnHeaders.GetHandler(routeID); cdn != nil { return cdnHeadersMW(cdn) }; return nil
+		},
+		/* 4.1  */ func() middleware.Middleware {
+			if ep := g.errorPages.GetErrorPages(routeID); ep != nil { return errorPagesMW(ep) }; return nil
+		},
+		/* 4.25 */ func() middleware.Middleware {
+			if al := g.accessLogConfigs.GetConfig(routeID); al != nil { return accessLogMW(al) }; return nil
+		},
+		/* 4.5  */ func() middleware.Middleware {
+			if ver := g.versioners.GetVersioner(routeID); ver != nil { return versioningMW(ver) }; return nil
+		},
+		/* 4.75 */ func() middleware.Middleware {
+			if ct := g.timeoutConfigs.GetTimeout(routeID); ct != nil { return timeoutMW(ct) }; return nil
+		},
+		/* 5    */ func() middleware.Middleware { return g.rateLimiters.GetMiddleware(routeID) },
+		/* 5.25 */ func() middleware.Middleware {
+			if sa := g.spikeArresters.GetArrester(routeID); sa != nil { return spikeArrestMW(sa) }; return nil
+		},
+		/* 5.3  */ func() middleware.Middleware {
+			if qe := g.quotaEnforcers.GetEnforcer(routeID); qe != nil { return quotaMW(qe) }; return nil
+		},
+		/* 5.5  */ func() middleware.Middleware {
+			if t := g.throttlers.GetThrottler(routeID); t != nil { return throttleMW(t) }; return nil
+		},
+		/* 6    */ func() middleware.Middleware {
+			if route.Auth.Required { return authMW(g, route.Auth) }; return nil
+		},
+		/* 6.05 */ func() middleware.Middleware {
+			if g.tokenChecker != nil && route.Auth.Required { return tokenRevokeMW(g.tokenChecker) }; return nil
+		},
+		/* 6.15 */ func() middleware.Middleware {
+			if cp := g.claimsPropagators.GetPropagator(routeID); cp != nil { return claimsPropMW(cp) }; return nil
+		},
+		/* 6.25 */ func() middleware.Middleware {
+			if ea := g.extAuths.GetAuth(routeID); ea != nil { return extAuthMW(ea) }; return nil
+		},
+		/* 6.3  */ func() middleware.Middleware {
+			if nc := g.nonceCheckers.GetChecker(routeID); nc != nil { return nonceMW(nc) }; return nil
+		},
+		/* 6.35 */ func() middleware.Middleware {
+			if cp := g.csrfProtectors.GetProtector(routeID); cp != nil { return csrfMW(cp) }; return nil
+		},
+		/* 6.4  */ func() middleware.Middleware {
+			if ih := g.idempotencyHandlers.GetHandler(routeID); ih != nil { return idempotencyMW(ih) }; return nil
+		},
+		/* 6.5  */ func() middleware.Middleware {
+			if g.priorityAdmitter == nil { return nil }
+			if pcfg, ok := g.priorityConfigs.GetConfig(routeID); ok { return priorityMW(g.priorityAdmitter, pcfg) }; return nil
+		},
+		/* 7    */ func() middleware.Middleware {
+			hasReq := (g.globalRules != nil && g.globalRules.HasRequestRules()) ||
+				(routeEngine != nil && routeEngine.HasRequestRules())
+			if hasReq { return requestRulesMW(g.globalRules, routeEngine) }; return nil
+		},
+		/* 7.25 */ func() middleware.Middleware {
+			if wh := g.wafHandlers.GetWAF(routeID); wh != nil { return wafMW(wh) }; return nil
+		},
+		/* 7.5  */ func() middleware.Middleware {
+			if fi := g.faultInjectors.GetInjector(routeID); fi != nil { return faultInjectionMW(fi) }; return nil
+		},
+		/* 7.75 */ func() middleware.Middleware {
+			if mh := g.mockHandlers.GetHandler(routeID); mh != nil { return mockMW(mh) }; return nil
+		},
+		/* 8    */ func() middleware.Middleware {
+			if !skipBody && route.MaxBodySize > 0 { return bodyLimitMW(route.MaxBodySize) }; return nil
+		},
+		/* 8.25 */ func() middleware.Middleware {
+			if skipBody { return nil }
+			if d := g.decompressors.GetDecompressor(routeID); d != nil && d.IsEnabled() { return requestDecompressMW(d) }; return nil
+		},
+		/* 8.5  */ func() middleware.Middleware {
+			if skipBody { return nil }
+			if bw := g.bandwidthLimiters.GetLimiter(routeID); bw != nil { return bandwidthMW(bw) }; return nil
+		},
+		/* 9    */ func() middleware.Middleware {
+			if skipBody { return nil }
+			if v := g.validators.GetValidator(routeID); v != nil && v.IsEnabled() { return validationMW(v) }; return nil
+		},
+		/* 9.1  */ func() middleware.Middleware {
+			if skipBody { return nil }
+			if ov := g.openapiValidators.GetValidator(routeID); ov != nil { return openapiRequestMW(ov) }; return nil
+		},
+		/* 9.5  */ func() middleware.Middleware {
+			if skipBody { return nil }
+			if gql := g.graphqlParsers.GetParser(routeID); gql != nil { return gql.Middleware() }; return nil
+		},
+		/* 10   */ func() middleware.Middleware {
+			if route.WebSocket.Enabled {
+				return websocketMW(g.wsProxy, func() loadbalancer.Balancer { return rp.GetBalancer() })
+			}; return nil
+		},
+		/* 11   */ func() middleware.Middleware {
+			if skipBody { return nil }
+			if ch := g.caches.GetHandler(routeID); ch != nil { return cacheMW(ch, g.metricsCollector, routeID) }; return nil
+		},
+		/* 11.5 */ func() middleware.Middleware {
+			if skipBody { return nil }
+			if c := g.coalescers.GetCoalescer(routeID); c != nil { return coalesceMW(c) }; return nil
+		},
+		/* 12   */ func() middleware.Middleware {
+			if cb := g.circuitBreakers.GetBreaker(routeID); cb != nil { return circuitBreakerMW(cb, isGRPC) }; return nil
+		},
+		/* 12.25*/ func() middleware.Middleware {
+			if det := g.outlierDetectors.GetDetector(routeID); det != nil { return outlierDetectionMW(det) }; return nil
+		},
+		/* 12.5 */ func() middleware.Middleware {
+			if al := g.adaptiveLimiters.GetLimiter(routeID); al != nil { return adaptiveConcurrencyMW(al) }; return nil
+		},
+		/* 12.6 */ func() middleware.Middleware {
+			if pl := g.proxyRateLimiters.GetLimiter(routeID); pl != nil { return proxyRateLimitMW(pl) }; return nil
+		},
+		/* 13   */ func() middleware.Middleware {
+			if skipBody { return nil }
+			if c := g.compressors.GetCompressor(routeID); c != nil && c.IsEnabled() { return compressionMW(c) }; return nil
+		},
+		/* 13.5 */ func() middleware.Middleware {
+			if skipBody { return nil }
+			if rl := g.responseLimiters.GetLimiter(routeID); rl != nil && rl.IsEnabled() { return responseLimitMW(rl) }; return nil
+		},
+		/* 14   */ func() middleware.Middleware {
+			hasResp := (g.globalRules != nil && g.globalRules.HasResponseRules()) ||
+				(routeEngine != nil && routeEngine.HasResponseRules())
+			if hasResp { return responseRulesMW(g.globalRules, routeEngine) }; return nil
+		},
+		/* 15   */ func() middleware.Middleware {
+			if mh := g.mirrors.GetMirror(routeID); mh != nil && mh.IsEnabled() { return mirrorMW(mh) }; return nil
+		},
+		/* 15.5 */ func() middleware.Middleware {
+			if rp == nil { return nil }
+			if wb, ok := rp.GetBalancer().(*loadbalancer.WeightedBalancer); ok && wb.HasStickyPolicy() {
+				return trafficGroupMW(wb.GetStickyPolicy())
+			}; return nil
+		},
+		/* 16   */ func() middleware.Middleware {
+			return requestTransformMW(route, g.grpcHandlers[routeID], reqBodyTransform)
+		},
+		/* 16.05*/ func() middleware.Middleware {
+			if bg := g.bodyGenerators.GetGenerator(routeID); bg != nil { return bodyGenMW(bg) }; return nil
+		},
+		/* 16.1 */ func() middleware.Middleware {
+			if pf := g.paramForwarders.GetForwarder(routeID); pf != nil { return paramForwardMW(pf) }; return nil
+		},
+		/* 16.25*/ func() middleware.Middleware {
+			if ba := g.backendAuths.GetProvider(routeID); ba != nil { return backendAuthMW(ba) }; return nil
+		},
+		/* 16.5 */ func() middleware.Middleware {
+			if s := g.backendSigners.GetSigner(routeID); s != nil { return backendSigningMW(s) }; return nil
+		},
+		/* 17   */ func() middleware.Middleware {
+			if !skipBody && respBodyTransform != nil { return transform.ResponseBodyTransformMiddleware(respBodyTransform) }; return nil
+		},
+		/* 17.25*/ func() middleware.Middleware {
+			if sm := g.statusMappers.GetMapper(routeID); sm != nil { return statusMapMW(sm) }; return nil
+		},
+		/* 17.3 */ func() middleware.Middleware {
+			if skipBody { return nil }
+			if cr := g.contentReplacers.GetReplacer(routeID); cr != nil { return contentReplacerMW(cr) }; return nil
+		},
+		/* 17.35*/ func() middleware.Middleware {
+			if skipBody { return nil }
+			if rbg := g.respBodyGenerators.GetGenerator(routeID); rbg != nil { return respBodyGenMW(rbg) }; return nil
+		},
+		/* 17.4 */ func() middleware.Middleware {
+			if skipBody { return nil }
+			if cn := g.contentNegotiators.GetNegotiator(routeID); cn != nil { return contentNegMW(cn) }; return nil
+		},
 	}
 
-	// 16.1. paramForwardMW — strip disallowed headers/query/cookies
-	if pf := g.paramForwarders.GetForwarder(routeID); pf != nil {
-		chain = chain.Use(paramForwardMW(pf))
-	}
-
-	// 16.25. backendAuthMW — inject OAuth2 access token into backend requests
-	if ba := g.backendAuths.GetProvider(routeID); ba != nil {
-		chain = chain.Use(backendAuthMW(ba))
-	}
-
-	// 16.5. backendSigningMW — HMAC sign the final request
-	if signer := g.backendSigners.GetSigner(routeID); signer != nil {
-		chain = chain.Use(backendSigningMW(signer))
-	}
-
-	// 17. responseBodyTransformMW — buffer + replay (Steps 9.5+10.1)
-	if !skipBody && respBodyTransform != nil {
-		chain = chain.Use(transform.ResponseBodyTransformMiddleware(respBodyTransform))
-	}
-
-	// 17.25. statusMapMW — remap backend response status codes
-	if sm := g.statusMappers.GetMapper(routeID); sm != nil {
-		chain = chain.Use(statusMapMW(sm))
-	}
-
-	// 17.3. contentReplacerMW — regex replacement on response body/headers
-	if !skipBody {
-		if cr := g.contentReplacers.GetReplacer(routeID); cr != nil {
-			chain = chain.Use(contentReplacerMW(cr))
+	chain := middleware.NewBuilderWithCap(len(mws))
+	for _, build := range mws {
+		if mw := build(); mw != nil {
+			chain = chain.Use(mw)
 		}
 	}
 
-	// 17.35. respBodyGenMW — generate response body from template
-	if !skipBody {
-		if rbg := g.respBodyGenerators.GetGenerator(routeID); rbg != nil {
-			chain = chain.Use(respBodyGenMW(rbg))
-		}
-	}
-
-	// 17.4. contentNegMW — re-encode response based on Accept header
-	if !skipBody {
-		if cn := g.contentNegotiators.GetNegotiator(routeID); cn != nil {
-			chain = chain.Use(contentNegMW(cn))
-		}
-	}
-
-	// Innermost handler: aggregate, sequential, echo, static, translator, or proxy (Step 10)
+	// Innermost handler: aggregate, sequential, echo, static, translator, or proxy
 	var innermost http.Handler
 	if aggH := g.aggregateHandlers.GetHandler(routeID); aggH != nil {
 		innermost = aggH
@@ -1306,12 +1495,12 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		innermost = rp
 	}
 
-	// 17.55. backendEncodingMW — decode XML/YAML backend responses to JSON
+	// 17.55. backendEncodingMW — wraps innermost handler directly
 	if be := g.backendEncoders.GetEncoder(routeID); be != nil {
 		innermost = backendEncodingMW(be)(innermost)
 	}
 
-	// 17.5 responseValidationMW — validate raw backend response (closest to proxy)
+	// 17.5 responseValidationMW — wraps innermost (closest to proxy)
 	if !skipBody {
 		respValidator := g.validators.GetValidator(routeID)
 		openapiV := g.openapiValidators.GetValidator(routeID)

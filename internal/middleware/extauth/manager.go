@@ -1,15 +1,13 @@
 package extauth
 
 import (
-	"sync"
-
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 )
 
 // ExtAuthByRoute manages per-route external auth clients.
 type ExtAuthByRoute struct {
-	auths map[string]*ExtAuth
-	mu    sync.RWMutex
+	byroute.Manager[*ExtAuth]
 }
 
 // NewExtAuthByRoute creates a new per-route ext auth manager.
@@ -23,49 +21,30 @@ func (m *ExtAuthByRoute) AddRoute(routeID string, cfg config.ExtAuthConfig) erro
 	if err != nil {
 		return err
 	}
-	m.mu.Lock()
-	if m.auths == nil {
-		m.auths = make(map[string]*ExtAuth)
-	}
-	m.auths[routeID] = ea
-	m.mu.Unlock()
+	m.Add(routeID, ea)
 	return nil
 }
 
 // GetAuth returns the ext auth client for a route.
 func (m *ExtAuthByRoute) GetAuth(routeID string) *ExtAuth {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.auths[routeID]
-}
-
-// RouteIDs returns the list of route IDs with ext auth configured.
-func (m *ExtAuthByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.auths))
-	for id := range m.auths {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns a snapshot of ext auth metrics for all routes.
 func (m *ExtAuthByRoute) Stats() map[string]ExtAuthSnapshot {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make(map[string]ExtAuthSnapshot, len(m.auths))
-	for id, ea := range m.auths {
+	result := make(map[string]ExtAuthSnapshot)
+	m.Range(func(id string, ea *ExtAuth) bool {
 		result[id] = ea.metrics.Snapshot()
-	}
+		return true
+	})
 	return result
 }
 
 // CloseAll closes all gRPC connections.
 func (m *ExtAuthByRoute) CloseAll() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, ea := range m.auths {
+	m.Range(func(_ string, ea *ExtAuth) bool {
 		ea.Close()
-	}
+		return true
+	})
 }

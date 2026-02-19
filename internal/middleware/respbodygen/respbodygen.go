@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"sync"
 	"sync/atomic"
 	"text/template"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/middleware"
 	"github.com/wudi/gateway/internal/variables"
@@ -161,8 +161,7 @@ func (bw *bodyBufferWriter) Write(b []byte) (int, error) {
 
 // RespBodyGenByRoute manages per-route response body generators.
 type RespBodyGenByRoute struct {
-	generators map[string]*RespBodyGen
-	mu         sync.RWMutex
+	byroute.Manager[*RespBodyGen]
 }
 
 // NewRespBodyGenByRoute creates a new per-route response body generator manager.
@@ -176,43 +175,25 @@ func (m *RespBodyGenByRoute) AddRoute(routeID string, cfg config.ResponseBodyGen
 	if err != nil {
 		return err
 	}
-	m.mu.Lock()
-	if m.generators == nil {
-		m.generators = make(map[string]*RespBodyGen)
-	}
-	m.generators[routeID] = rbg
-	m.mu.Unlock()
+	m.Add(routeID, rbg)
 	return nil
 }
 
 // GetGenerator returns the response body generator for a route.
 func (m *RespBodyGenByRoute) GetGenerator(routeID string) *RespBodyGen {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.generators[routeID]
-}
-
-// RouteIDs returns all route IDs with response body generators.
-func (m *RespBodyGenByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.generators))
-	for id := range m.generators {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns per-route response body generator stats.
 func (m *RespBodyGenByRoute) Stats() map[string]interface{} {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	stats := make(map[string]interface{}, len(m.generators))
-	for id, rbg := range m.generators {
+	stats := make(map[string]interface{})
+	m.Range(func(id string, rbg *RespBodyGen) bool {
 		stats[id] = map[string]interface{}{
 			"generated":    rbg.Generated(),
 			"content_type": rbg.contentType,
 		}
-	}
+		return true
+	})
 	return stats
 }

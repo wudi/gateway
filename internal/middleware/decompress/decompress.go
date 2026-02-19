@@ -12,6 +12,7 @@ import (
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 )
 
@@ -239,8 +240,7 @@ func MergeDecompressionConfig(perRoute, global config.RequestDecompressionConfig
 
 // DecompressorByRoute manages decompressors per route.
 type DecompressorByRoute struct {
-	decompressors map[string]*Decompressor
-	mu            sync.RWMutex
+	byroute.Manager[*Decompressor]
 }
 
 // NewDecompressorByRoute creates a new per-route decompressor manager.
@@ -250,39 +250,21 @@ func NewDecompressorByRoute() *DecompressorByRoute {
 
 // AddRoute adds a decompressor for a route.
 func (m *DecompressorByRoute) AddRoute(routeID string, cfg config.RequestDecompressionConfig) {
-	m.mu.Lock()
-	if m.decompressors == nil {
-		m.decompressors = make(map[string]*Decompressor)
-	}
-	m.decompressors[routeID] = New(cfg)
-	m.mu.Unlock()
+	m.Add(routeID, New(cfg))
 }
 
 // GetDecompressor returns the decompressor for a route.
 func (m *DecompressorByRoute) GetDecompressor(routeID string) *Decompressor {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.decompressors[routeID]
-}
-
-// RouteIDs returns all route IDs with decompressors.
-func (m *DecompressorByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.decompressors))
-	for id := range m.decompressors {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns per-route decompression statistics.
 func (m *DecompressorByRoute) Stats() map[string]Snapshot {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make(map[string]Snapshot, len(m.decompressors))
-	for id, d := range m.decompressors {
+	result := make(map[string]Snapshot)
+	m.Range(func(id string, d *Decompressor) bool {
 		result[id] = d.Stats()
-	}
+		return true
+	})
 	return result
 }

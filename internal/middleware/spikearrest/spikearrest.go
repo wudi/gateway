@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/errors"
 	"github.com/wudi/gateway/internal/middleware"
@@ -140,8 +141,7 @@ func MergeSpikeArrestConfig(perRoute, global config.SpikeArrestConfig) config.Sp
 
 // SpikeArrestByRoute manages per-route spike arresters.
 type SpikeArrestByRoute struct {
-	arresters map[string]*SpikeArrester
-	mu        sync.RWMutex
+	byroute.Manager[*SpikeArrester]
 }
 
 // NewSpikeArrestByRoute creates a new per-route spike arrest manager.
@@ -151,39 +151,21 @@ func NewSpikeArrestByRoute() *SpikeArrestByRoute {
 
 // AddRoute adds a spike arrester for a route.
 func (m *SpikeArrestByRoute) AddRoute(routeID string, cfg config.SpikeArrestConfig) {
-	m.mu.Lock()
-	if m.arresters == nil {
-		m.arresters = make(map[string]*SpikeArrester)
-	}
-	m.arresters[routeID] = New(cfg)
-	m.mu.Unlock()
+	m.Add(routeID, New(cfg))
 }
 
 // GetArrester returns the spike arrester for a route.
 func (m *SpikeArrestByRoute) GetArrester(routeID string) *SpikeArrester {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.arresters[routeID]
-}
-
-// RouteIDs returns all route IDs with spike arresters.
-func (m *SpikeArrestByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.arresters))
-	for id := range m.arresters {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns per-route spike arrest metrics.
 func (m *SpikeArrestByRoute) Stats() map[string]interface{} {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	stats := make(map[string]interface{}, len(m.arresters))
-	for id, sa := range m.arresters {
+	stats := make(map[string]interface{})
+	m.Range(func(id string, sa *SpikeArrester) bool {
 		stats[id] = sa.Stats()
-	}
+		return true
+	})
 	return stats
 }

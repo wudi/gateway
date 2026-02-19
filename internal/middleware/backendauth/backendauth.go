@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/logging"
 	"github.com/wudi/gateway/internal/middleware"
@@ -177,8 +178,7 @@ func (p *TokenProvider) Stats() map[string]interface{} {
 
 // BackendAuthByRoute manages per-route backend auth token providers.
 type BackendAuthByRoute struct {
-	providers map[string]*TokenProvider
-	mu        sync.RWMutex
+	byroute.Manager[*TokenProvider]
 }
 
 // NewBackendAuthByRoute creates a new per-route backend auth manager.
@@ -192,40 +192,22 @@ func (m *BackendAuthByRoute) AddRoute(routeID string, cfg config.BackendAuthConf
 	if err != nil {
 		return err
 	}
-	m.mu.Lock()
-	if m.providers == nil {
-		m.providers = make(map[string]*TokenProvider)
-	}
-	m.providers[routeID] = p
-	m.mu.Unlock()
+	m.Add(routeID, p)
 	return nil
 }
 
 // GetProvider returns the token provider for a route.
 func (m *BackendAuthByRoute) GetProvider(routeID string) *TokenProvider {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.providers[routeID]
-}
-
-// RouteIDs returns all route IDs with backend auth configured.
-func (m *BackendAuthByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.providers))
-	for id := range m.providers {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns per-route backend auth stats.
 func (m *BackendAuthByRoute) Stats() map[string]interface{} {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	stats := make(map[string]interface{}, len(m.providers))
-	for id, p := range m.providers {
+	stats := make(map[string]interface{})
+	m.Range(func(id string, p *TokenProvider) bool {
 		stats[id] = p.Stats()
-	}
+		return true
+	})
 	return stats
 }

@@ -1,15 +1,13 @@
 package csrf
 
 import (
-	"sync"
-
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 )
 
 // CSRFByRoute manages per-route CSRF protectors.
 type CSRFByRoute struct {
-	mu         sync.RWMutex
-	protectors map[string]*CompiledCSRF
+	byroute.Manager[*CompiledCSRF]
 }
 
 // NewCSRFByRoute creates a new CSRFByRoute manager.
@@ -28,41 +26,23 @@ func (m *CSRFByRoute) AddRoute(routeID string, cfg config.CSRFConfig) error {
 		return err
 	}
 
-	m.mu.Lock()
-	if m.protectors == nil {
-		m.protectors = make(map[string]*CompiledCSRF)
-	}
-	m.protectors[routeID] = cp
-	m.mu.Unlock()
+	m.Add(routeID, cp)
 
 	return nil
 }
 
 // GetProtector returns the CSRF protector for a route, or nil.
 func (m *CSRFByRoute) GetProtector(routeID string) *CompiledCSRF {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.protectors[routeID]
-}
-
-// RouteIDs returns all route IDs with CSRF protectors.
-func (m *CSRFByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.protectors))
-	for id := range m.protectors {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns admin status for all routes.
 func (m *CSRFByRoute) Stats() map[string]CSRFStatus {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make(map[string]CSRFStatus, len(m.protectors))
-	for id, cp := range m.protectors {
+	result := make(map[string]CSRFStatus)
+	m.Range(func(id string, cp *CompiledCSRF) bool {
 		result[id] = cp.Status()
-	}
+		return true
+	})
 	return result
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 )
 
@@ -459,8 +460,7 @@ func (w *CompressingResponseWriter) Unwrap() http.ResponseWriter {
 
 // CompressorByRoute manages compressors per route.
 type CompressorByRoute struct {
-	compressors map[string]*Compressor
-	mu          sync.RWMutex
+	byroute.Manager[*Compressor]
 }
 
 // NewCompressorByRoute creates a new per-route compressor manager.
@@ -470,39 +470,21 @@ func NewCompressorByRoute() *CompressorByRoute {
 
 // AddRoute adds a compressor for a route.
 func (m *CompressorByRoute) AddRoute(routeID string, cfg config.CompressionConfig) {
-	m.mu.Lock()
-	if m.compressors == nil {
-		m.compressors = make(map[string]*Compressor)
-	}
-	m.compressors[routeID] = New(cfg)
-	m.mu.Unlock()
+	m.Add(routeID, New(cfg))
 }
 
 // GetCompressor returns the compressor for a route.
 func (m *CompressorByRoute) GetCompressor(routeID string) *Compressor {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.compressors[routeID]
-}
-
-// RouteIDs returns all route IDs with compressors.
-func (m *CompressorByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.compressors))
-	for id := range m.compressors {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns per-route compression statistics.
 func (m *CompressorByRoute) Stats() map[string]CompressionSnapshot {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make(map[string]CompressionSnapshot, len(m.compressors))
-	for id, c := range m.compressors {
+	result := make(map[string]CompressionSnapshot)
+	m.Range(func(id string, c *Compressor) bool {
 		result[id] = c.Stats()
-	}
+		return true
+	})
 	return result
 }

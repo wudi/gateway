@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"sync/atomic"
 
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/variables"
 )
@@ -87,8 +87,7 @@ func (cp *ClaimsPropagator) Stats() map[string]interface{} {
 
 // ClaimsPropByRoute manages per-route claims propagators.
 type ClaimsPropByRoute struct {
-	mu          sync.RWMutex
-	propagators map[string]*ClaimsPropagator
+	byroute.Manager[*ClaimsPropagator]
 }
 
 // NewClaimsPropByRoute creates a new claims propagation manager.
@@ -98,40 +97,21 @@ func NewClaimsPropByRoute() *ClaimsPropByRoute {
 
 // AddRoute adds a claims propagator for a route.
 func (m *ClaimsPropByRoute) AddRoute(routeID string, cfg config.ClaimsPropagationConfig) {
-	cp := New(cfg)
-	m.mu.Lock()
-	if m.propagators == nil {
-		m.propagators = make(map[string]*ClaimsPropagator)
-	}
-	m.propagators[routeID] = cp
-	m.mu.Unlock()
+	m.Add(routeID, New(cfg))
 }
 
 // GetPropagator returns the claims propagator for a route (may be nil).
 func (m *ClaimsPropByRoute) GetPropagator(routeID string) *ClaimsPropagator {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.propagators[routeID]
-}
-
-// RouteIDs returns all route IDs with claims propagation.
-func (m *ClaimsPropByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.propagators))
-	for id := range m.propagators {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns per-route propagation statistics.
 func (m *ClaimsPropByRoute) Stats() map[string]interface{} {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make(map[string]interface{}, len(m.propagators))
-	for id, cp := range m.propagators {
+	result := make(map[string]interface{})
+	m.Range(func(id string, cp *ClaimsPropagator) bool {
 		result[id] = cp.Stats()
-	}
+		return true
+	})
 	return result
 }

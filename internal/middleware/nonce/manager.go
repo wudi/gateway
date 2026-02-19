@@ -2,16 +2,15 @@ package nonce
 
 import (
 	"fmt"
-	"sync"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 )
 
 // NonceByRoute manages per-route nonce checkers.
 type NonceByRoute struct {
-	mu       sync.RWMutex
-	checkers map[string]*NonceChecker
+	byroute.Manager[*NonceChecker]
 }
 
 // NewNonceByRoute creates a new NonceByRoute manager.
@@ -38,55 +37,37 @@ func (m *NonceByRoute) AddRoute(routeID string, cfg config.NonceConfig, redisCli
 
 	nc := New(routeID, cfg, store)
 
-	m.mu.Lock()
-	if m.checkers == nil {
-		m.checkers = make(map[string]*NonceChecker)
-	}
-	if old, exists := m.checkers[routeID]; exists {
+	// Close old checker if replacing
+	if old, ok := m.Get(routeID); ok {
 		old.store.Close()
 	}
-	m.checkers[routeID] = nc
-	m.mu.Unlock()
+	m.Add(routeID, nc)
 
 	return nil
 }
 
 // GetChecker returns the nonce checker for a route, or nil.
 func (m *NonceByRoute) GetChecker(routeID string) *NonceChecker {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.checkers[routeID]
-}
-
-// RouteIDs returns all route IDs with nonce checkers.
-func (m *NonceByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.checkers))
-	for id := range m.checkers {
-		ids = append(ids, id)
-	}
-	return ids
+	v, _ := m.Get(routeID)
+	return v
 }
 
 // Stats returns admin status for all routes.
 func (m *NonceByRoute) Stats() map[string]NonceStatus {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make(map[string]NonceStatus, len(m.checkers))
-	for id, nc := range m.checkers {
+	result := make(map[string]NonceStatus)
+	m.Range(func(id string, nc *NonceChecker) bool {
 		result[id] = nc.Status()
-	}
+		return true
+	})
 	return result
 }
 
 // CloseAll stops all nonce checker cleanup goroutines.
 func (m *NonceByRoute) CloseAll() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, nc := range m.checkers {
+	m.Range(func(_ string, nc *NonceChecker) bool {
 		nc.store.Close()
-	}
+		return true
+	})
 }
 
 // Ensure NonceByRoute satisfies string formatting for error messages.
