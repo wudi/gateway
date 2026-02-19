@@ -252,3 +252,18 @@ func (m *DecompressorByRoute) GetDecompressor(routeID string) *Decompressor {
 func (m *DecompressorByRoute) Stats() map[string]Snapshot {
 	return byroute.CollectStats(&m.Manager, func(d *Decompressor) Snapshot { return d.Stats() })
 }
+
+// Middleware returns a middleware that decompresses request bodies with Content-Encoding.
+func (d *Decompressor) Middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if algo, ok := d.ShouldDecompress(r); ok {
+				if err := d.Decompress(r, algo); err != nil {
+					http.Error(w, `{"error":"request decompression failed"}`, http.StatusBadRequest)
+					return
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}

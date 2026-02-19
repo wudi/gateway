@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 
 	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/variables"
 )
 
 // versionInfo holds compiled per-version metadata.
@@ -185,4 +186,19 @@ func (v *Versioner) Snapshot() VersioningSnapshot {
 		}
 	}
 	return snap
+}
+
+// Middleware returns a middleware that detects the API version, sets it in context,
+// strips prefix if configured, and injects deprecation headers.
+func (v *Versioner) Middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			version := v.DetectVersion(r)
+			varCtx := variables.GetFromRequest(r)
+			varCtx.APIVersion = version
+			v.StripVersionPrefix(r, version)
+			v.InjectDeprecationHeaders(w, version)
+			next.ServeHTTP(w, r)
+		})
+	}
 }

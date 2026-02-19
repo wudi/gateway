@@ -1337,29 +1337,29 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 			if g.globalGeo != nil || rg != nil { return geoMW(g.globalGeo, rg) }; return nil
 		},
 		/* 2.75 */ func() middleware.Middleware {
-			if m := g.maintenanceHandlers.GetMaintenance(routeID); m != nil { return maintenanceMW(m) }; return nil
+			if m := g.maintenanceHandlers.GetMaintenance(routeID); m != nil { return m.Middleware() }; return nil
 		},
 		/* 2.8  */ func() middleware.Middleware {
 			if bd := g.botDetectors.GetDetector(routeID); bd != nil { return bd.Middleware() }; return nil
 		},
 		/* 3    */ func() middleware.Middleware {
-			if ch := g.corsHandlers.GetHandler(routeID); ch != nil && ch.IsEnabled() { return corsMW(ch) }; return nil
+			if ch := g.corsHandlers.GetHandler(routeID); ch != nil && ch.IsEnabled() { return ch.Middleware() }; return nil
 		},
 		/* 4    */ func() middleware.Middleware { return varContextMW(routeID) },
 		/* 4.05 */ func() middleware.Middleware {
-			if sh := g.securityHeaders.GetHeaders(routeID); sh != nil { return securityHeadersMW(sh) }; return nil
+			if sh := g.securityHeaders.GetHeaders(routeID); sh != nil { return sh.Middleware() }; return nil
 		},
 		/* 4.07 */ func() middleware.Middleware {
-			if cdn := g.cdnHeaders.GetHandler(routeID); cdn != nil { return cdnHeadersMW(cdn) }; return nil
+			if cdn := g.cdnHeaders.GetHandler(routeID); cdn != nil { return cdn.Middleware() }; return nil
 		},
 		/* 4.1  */ func() middleware.Middleware {
-			if ep := g.errorPages.GetErrorPages(routeID); ep != nil { return errorPagesMW(ep) }; return nil
+			if ep := g.errorPages.GetErrorPages(routeID); ep != nil { return ep.Middleware() }; return nil
 		},
 		/* 4.25 */ func() middleware.Middleware {
-			if al := g.accessLogConfigs.GetConfig(routeID); al != nil { return accessLogMW(al) }; return nil
+			if al := g.accessLogConfigs.GetConfig(routeID); al != nil { return al.Middleware() }; return nil
 		},
 		/* 4.5  */ func() middleware.Middleware {
-			if ver := g.versioners.GetVersioner(routeID); ver != nil { return versioningMW(ver) }; return nil
+			if ver := g.versioners.GetVersioner(routeID); ver != nil { return ver.Middleware() }; return nil
 		},
 		/* 4.75 */ func() middleware.Middleware {
 			if ct := g.timeoutConfigs.GetTimeout(routeID); ct != nil { return ct.Middleware() }; return nil
@@ -1372,28 +1372,28 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 			if qe := g.quotaEnforcers.GetEnforcer(routeID); qe != nil { return qe.Middleware() }; return nil
 		},
 		/* 5.5  */ func() middleware.Middleware {
-			if t := g.throttlers.GetThrottler(routeID); t != nil { return throttleMW(t) }; return nil
+			if t := g.throttlers.GetThrottler(routeID); t != nil { return t.Middleware() }; return nil
 		},
 		/* 6    */ func() middleware.Middleware {
 			if route.Auth.Required { return authMW(g, route.Auth) }; return nil
 		},
 		/* 6.05 */ func() middleware.Middleware {
-			if g.tokenChecker != nil && route.Auth.Required { return tokenRevokeMW(g.tokenChecker) }; return nil
+			if g.tokenChecker != nil && route.Auth.Required { return g.tokenChecker.Middleware() }; return nil
 		},
 		/* 6.15 */ func() middleware.Middleware {
-			if cp := g.claimsPropagators.GetPropagator(routeID); cp != nil { return claimsPropMW(cp) }; return nil
+			if cp := g.claimsPropagators.GetPropagator(routeID); cp != nil { return cp.Middleware() }; return nil
 		},
 		/* 6.25 */ func() middleware.Middleware {
-			if ea := g.extAuths.GetAuth(routeID); ea != nil { return extAuthMW(ea) }; return nil
+			if ea := g.extAuths.GetAuth(routeID); ea != nil { return ea.Middleware() }; return nil
 		},
 		/* 6.3  */ func() middleware.Middleware {
-			if nc := g.nonceCheckers.GetChecker(routeID); nc != nil { return nonceMW(nc) }; return nil
+			if nc := g.nonceCheckers.GetChecker(routeID); nc != nil { return nc.Middleware() }; return nil
 		},
 		/* 6.35 */ func() middleware.Middleware {
-			if cp := g.csrfProtectors.GetProtector(routeID); cp != nil { return csrfMW(cp) }; return nil
+			if cp := g.csrfProtectors.GetProtector(routeID); cp != nil { return cp.Middleware() }; return nil
 		},
 		/* 6.4  */ func() middleware.Middleware {
-			if ih := g.idempotencyHandlers.GetHandler(routeID); ih != nil { return idempotencyMW(ih) }; return nil
+			if ih := g.idempotencyHandlers.GetHandler(routeID); ih != nil { return ih.Middleware() }; return nil
 		},
 		/* 6.5  */ func() middleware.Middleware {
 			if g.priorityAdmitter == nil { return nil }
@@ -1408,7 +1408,7 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 			if wh := g.wafHandlers.GetWAF(routeID); wh != nil { return wh.Middleware() }; return nil
 		},
 		/* 7.5  */ func() middleware.Middleware {
-			if fi := g.faultInjectors.GetInjector(routeID); fi != nil { return faultInjectionMW(fi) }; return nil
+			if fi := g.faultInjectors.GetInjector(routeID); fi != nil { return fi.Middleware() }; return nil
 		},
 		/* 7.75 */ func() middleware.Middleware {
 			if mh := g.mockHandlers.GetHandler(routeID); mh != nil { return mh.Middleware() }; return nil
@@ -1418,15 +1418,15 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		},
 		/* 8.25 */ func() middleware.Middleware {
 			if skipBody { return nil }
-			if d := g.decompressors.GetDecompressor(routeID); d != nil && d.IsEnabled() { return requestDecompressMW(d) }; return nil
+			if d := g.decompressors.GetDecompressor(routeID); d != nil && d.IsEnabled() { return d.Middleware() }; return nil
 		},
 		/* 8.5  */ func() middleware.Middleware {
 			if skipBody { return nil }
-			if bw := g.bandwidthLimiters.GetLimiter(routeID); bw != nil { return bandwidthMW(bw) }; return nil
+			if bw := g.bandwidthLimiters.GetLimiter(routeID); bw != nil { return bw.Middleware() }; return nil
 		},
 		/* 9    */ func() middleware.Middleware {
 			if skipBody { return nil }
-			if v := g.validators.GetValidator(routeID); v != nil && v.IsEnabled() { return validationMW(v) }; return nil
+			if v := g.validators.GetValidator(routeID); v != nil && v.IsEnabled() { return v.Middleware() }; return nil
 		},
 		/* 9.1  */ func() middleware.Middleware {
 			if skipBody { return nil }
@@ -1447,13 +1447,13 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		},
 		/* 11.5 */ func() middleware.Middleware {
 			if skipBody { return nil }
-			if c := g.coalescers.GetCoalescer(routeID); c != nil { return coalesceMW(c) }; return nil
+			if c := g.coalescers.GetCoalescer(routeID); c != nil { return c.Middleware() }; return nil
 		},
 		/* 12   */ func() middleware.Middleware {
 			if cb := g.circuitBreakers.GetBreaker(routeID); cb != nil { return circuitBreakerMW(cb, isGRPC) }; return nil
 		},
 		/* 12.25*/ func() middleware.Middleware {
-			if det := g.outlierDetectors.GetDetector(routeID); det != nil { return outlierDetectionMW(det) }; return nil
+			if det := g.outlierDetectors.GetDetector(routeID); det != nil { return det.Middleware() }; return nil
 		},
 		/* 12.5 */ func() middleware.Middleware {
 			if al := g.adaptiveLimiters.GetLimiter(routeID); al != nil { return adaptiveConcurrencyMW(al) }; return nil
@@ -1463,7 +1463,7 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		},
 		/* 13   */ func() middleware.Middleware {
 			if skipBody { return nil }
-			if c := g.compressors.GetCompressor(routeID); c != nil && c.IsEnabled() { return compressionMW(c) }; return nil
+			if c := g.compressors.GetCompressor(routeID); c != nil && c.IsEnabled() { return c.Middleware() }; return nil
 		},
 		/* 13.5 */ func() middleware.Middleware {
 			if skipBody { return nil }
@@ -1475,7 +1475,7 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 			if hasResp { return responseRulesMW(g.globalRules, routeEngine) }; return nil
 		},
 		/* 15   */ func() middleware.Middleware {
-			if mh := g.mirrors.GetMirror(routeID); mh != nil && mh.IsEnabled() { return mirrorMW(mh) }; return nil
+			if mh := g.mirrors.GetMirror(routeID); mh != nil && mh.IsEnabled() { return mh.Middleware() }; return nil
 		},
 		/* 15.5 */ func() middleware.Middleware {
 			if rp == nil { return nil }
@@ -1496,7 +1496,7 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 			if ba := g.backendAuths.GetProvider(routeID); ba != nil { return ba.Middleware() }; return nil
 		},
 		/* 16.5 */ func() middleware.Middleware {
-			if s := g.backendSigners.GetSigner(routeID); s != nil { return backendSigningMW(s) }; return nil
+			if s := g.backendSigners.GetSigner(routeID); s != nil { return s.Middleware() }; return nil
 		},
 		/* 17   */ func() middleware.Middleware {
 			if !skipBody && respBodyTransform != nil { return transform.ResponseBodyTransformMiddleware(respBodyTransform) }; return nil
@@ -1543,7 +1543,7 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 
 	// 17.55. backendEncodingMW — wraps innermost handler directly
 	if be := g.backendEncoders.GetEncoder(routeID); be != nil {
-		innermost = backendEncodingMW(be)(innermost)
+		innermost = be.Middleware()(innermost)
 	}
 
 	// 17.5 responseValidationMW — wraps innermost (closest to proxy)

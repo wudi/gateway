@@ -13,6 +13,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/errors"
 )
 
 // TokenChecker checks and manages revoked tokens.
@@ -177,4 +178,17 @@ func tokenExpTTL(token string) time.Duration {
 		return 0
 	}
 	return ttl
+}
+
+// Middleware returns a middleware that rejects requests with revoked JWT tokens.
+func (tc *TokenChecker) Middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !tc.Check(r) {
+				errors.New(http.StatusUnauthorized, "Token has been revoked").WriteJSON(w)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }

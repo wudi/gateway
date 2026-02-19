@@ -6,51 +6,27 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/wudi/gateway/internal/cache"
 	"github.com/wudi/gateway/internal/canary"
 	"github.com/wudi/gateway/internal/circuitbreaker"
-	"github.com/wudi/gateway/internal/coalesce"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/errors"
 	"github.com/wudi/gateway/internal/loadbalancer"
-	"github.com/wudi/gateway/internal/loadbalancer/outlier"
-	"github.com/wudi/gateway/internal/logging"
 	"github.com/wudi/gateway/internal/metrics"
 	"github.com/wudi/gateway/internal/middleware"
-	"github.com/wudi/gateway/internal/middleware/accesslog"
-	"github.com/wudi/gateway/internal/middleware/backendenc"
-	"github.com/wudi/gateway/internal/middleware/cdnheaders"
-	"github.com/wudi/gateway/internal/middleware/claimsprop"
-	"github.com/wudi/gateway/internal/middleware/compression"
-	"github.com/wudi/gateway/internal/middleware/cors"
-	"github.com/wudi/gateway/internal/middleware/csrf"
-	"github.com/wudi/gateway/internal/middleware/idempotency"
-	"github.com/wudi/gateway/internal/middleware/errorpages"
-	"github.com/wudi/gateway/internal/middleware/extauth"
 	"github.com/wudi/gateway/internal/middleware/geo"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
-	"github.com/wudi/gateway/internal/middleware/nonce"
-	"github.com/wudi/gateway/internal/middleware/decompress"
-	"github.com/wudi/gateway/internal/middleware/maintenance"
-	"github.com/wudi/gateway/internal/middleware/securityheaders"
-	"github.com/wudi/gateway/internal/middleware/signing"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
-	"github.com/wudi/gateway/internal/middleware/tokenrevoke"
 	"github.com/wudi/gateway/internal/middleware/transform"
 	"github.com/wudi/gateway/internal/middleware/validation"
-	"github.com/wudi/gateway/internal/middleware/versioning"
-	"github.com/wudi/gateway/internal/mirror"
 	grpcproxy "github.com/wudi/gateway/internal/proxy/grpc"
 	"github.com/wudi/gateway/internal/router"
 	"github.com/wudi/gateway/internal/rules"
 	"github.com/wudi/gateway/internal/trafficshape"
 	"github.com/wudi/gateway/internal/variables"
 	"github.com/wudi/gateway/internal/websocket"
-	"go.uber.org/zap"
 )
 
 // 1. ipFilterMW checks global then per-route IP filters; rejects with 403.
@@ -93,20 +69,6 @@ func geoMW(global *geo.CompiledGeo, route *geo.CompiledGeo) middleware.Middlewar
 	}
 }
 
-// 2. corsMW handles CORS preflight and applies response headers.
-func corsMW(h *cors.Handler) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if h.IsPreflight(r) {
-				h.HandlePreflight(w, r)
-				return
-			}
-			h.ApplyHeaders(w, r)
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
 // 3. authMW authenticates requests using the gateway's auth providers.
 func authMW(g *Gateway, cfg router.RouteAuth) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
@@ -114,107 +76,6 @@ func authMW(g *Gateway, cfg router.RouteAuth) middleware.Middleware {
 			if !g.authenticate(w, r, cfg.Methods) {
 				return
 			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// 3.5. extAuthMW calls an external auth service before allowing the request.
-func extAuthMW(ea *extauth.ExtAuth) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			result, err := ea.Check(r)
-			if err != nil {
-				errors.ErrBadGateway.WriteJSON(w)
-				return
-			}
-			if !result.Allowed {
-				// Copy denied headers
-				for k, vv := range result.DeniedHeaders {
-					for _, v := range vv {
-						w.Header().Add(k, v)
-					}
-				}
-				status := result.DeniedStatus
-				if status == 0 {
-					status = http.StatusForbidden
-				}
-				w.WriteHeader(status)
-				if len(result.DeniedBody) > 0 {
-					w.Write(result.DeniedBody)
-				}
-				return
-			}
-			// Inject headers from auth service into upstream request
-			for k, v := range result.HeadersToInject {
-				r.Header.Set(k, v)
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// 3.7. nonceMW checks nonce for replay prevention.
-func nonceMW(nc *nonce.NonceChecker) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			allowed, statusCode, msg := nc.Check(r)
-			if !allowed {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(statusCode)
-				fmt.Fprintf(w, `{"error":"%s"}`, msg)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// 3.8. csrfMW validates CSRF double-submit cookie tokens.
-func csrfMW(cp *csrf.CompiledCSRF) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			allowed, statusCode, msg := cp.Check(w, r)
-			if !allowed {
-				http.Error(w, msg, statusCode)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// 3.9. idempotencyMW checks idempotency keys and replays cached responses.
-func idempotencyMW(ci *idempotency.CompiledIdempotency) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			outcome := ci.Check(r)
-			switch outcome.Result {
-			case idempotency.ResultCached, idempotency.ResultWaited:
-				idempotency.ReplayResponse(w, outcome.Response)
-				return
-			case idempotency.ResultReject:
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusUnprocessableEntity)
-				fmt.Fprintf(w, `{"error":"Idempotency-Key header is required for this request"}`)
-				return
-			case idempotency.ResultInvalid:
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusBadRequest)
-				fmt.Fprintf(w, `{"error":"Idempotency-Key is too long"}`)
-				return
-			}
-
-			// ResultProceed — wrap writer to capture response
-			if outcome.Key != "" {
-				cw := idempotency.NewCapturingWriter(w)
-				defer func() {
-					ci.RecordResponse(outcome.Key, cw.ToStoredResponse())
-				}()
-				next.ServeHTTP(cw, r)
-				return
-			}
-
 			next.ServeHTTP(w, r)
 		})
 	}
@@ -272,34 +133,6 @@ func bodyLimitMW(max int64) middleware.Middleware {
 				return
 			}
 			r.Body = http.MaxBytesReader(w, r.Body, max)
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// 6.5. requestDecompressMW decompresses request bodies with Content-Encoding.
-func requestDecompressMW(d *decompress.Decompressor) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if algo, ok := d.ShouldDecompress(r); ok {
-				if err := d.Decompress(r, algo); err != nil {
-					http.Error(w, `{"error":"request decompression failed"}`, http.StatusBadRequest)
-					return
-				}
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// 7. validationMW validates the request body against a schema.
-func validationMW(v *validation.Validator) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if err := v.Validate(r); err != nil {
-				validation.RejectValidation(w, err)
-				return
-			}
 			next.ServeHTTP(w, r)
 		})
 	}
@@ -373,19 +206,6 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 	}
 }
 
-// 9.5. coalesceMW deduplicates concurrent identical requests via singleflight.
-func coalesceMW(c *coalesce.Coalescer) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !c.ShouldCoalesce(r) {
-				next.ServeHTTP(w, r)
-				return
-			}
-			c.ServeCoalesced(w, r, next)
-		})
-	}
-}
-
 var errServerError = fmt.Errorf("server error")
 
 // 10. circuitBreakerMW checks the circuit breaker and records outcomes.
@@ -437,23 +257,6 @@ func adaptiveConcurrencyMW(al *trafficshape.AdaptiveLimiter) middleware.Middlewa
 	}
 }
 
-// 11. compressionMW wraps the response writer with negotiated compression.
-func compressionMW(c *compression.Compressor) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			algo := c.NegotiateEncoding(r)
-			if algo == "" {
-				next.ServeHTTP(w, r)
-				return
-			}
-			cw := compression.NewCompressingResponseWriter(w, c, algo)
-			r.Header.Del("Accept-Encoding")
-			next.ServeHTTP(cw, r)
-			cw.Close()
-		})
-	}
-}
-
 // 12. responseRulesMW wraps with RulesResponseWriter, evaluates response rules, then flushes.
 func responseRulesMW(global, route *rules.RuleEngine) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
@@ -484,38 +287,6 @@ func evaluateResponseRules(engine *rules.RuleEngine, rw *rules.RulesResponseWrit
 		case "log":
 			rules.ExecuteResponseLog(result.RuleID, r, rw.StatusCode(), result.Action.LogMessage)
 		}
-	}
-}
-
-// 13. mirrorMW buffers the request body and sends mirrored requests async.
-// If compare is enabled, wraps writer with CapturingWriter to capture primary response.
-func mirrorMW(m *mirror.Mirror) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !m.ShouldMirror(r) {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			mirrorBody, err := mirror.BufferRequestBody(r)
-			if err != nil {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			if m.CompareEnabled() {
-				cw := mirror.NewCapturingWriter(w)
-				next.ServeHTTP(cw, r)
-				primary := &mirror.PrimaryResponse{
-					StatusCode: cw.StatusCode(),
-					BodyHash:   cw.BodyHash(),
-				}
-				m.SendAsync(r, mirrorBody, primary)
-			} else {
-				next.ServeHTTP(w, r)
-				m.SendAsync(r, mirrorBody, nil)
-			}
-		})
 	}
 }
 
@@ -615,104 +386,6 @@ func varContextMW(routeID string) middleware.Middleware {
 	}
 }
 
-// maintenanceMW checks if the route is in maintenance mode and short-circuits with a response.
-func maintenanceMW(cm *maintenance.CompiledMaintenance) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if cm.ShouldBlock(r) {
-				cm.WriteResponse(w)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// securityHeadersMW injects configured security response headers.
-func securityHeadersMW(sh *securityheaders.CompiledSecurityHeaders) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			sh.Apply(w.Header())
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// errorPagesMW intercepts error responses and renders custom error pages.
-func errorPagesMW(ep *errorpages.CompiledErrorPages) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			epw := &errorPageWriter{
-				ResponseWriter: w,
-				ep:             ep,
-				r:              r,
-			}
-			next.ServeHTTP(epw, r)
-		})
-	}
-}
-
-// errorPageWriter intercepts WriteHeader to render custom error pages for error status codes.
-type errorPageWriter struct {
-	http.ResponseWriter
-	ep          *errorpages.CompiledErrorPages
-	r           *http.Request
-	intercepted bool
-	wroteHeader bool
-}
-
-func (w *errorPageWriter) WriteHeader(code int) {
-	if w.wroteHeader {
-		return
-	}
-	w.wroteHeader = true
-
-	if code >= 400 && w.ep.ShouldIntercept(code) {
-		w.intercepted = true
-		varCtx := variables.GetFromRequest(w.r)
-		body, contentType := w.ep.Render(code, w.r, varCtx)
-
-		// Clear any existing content headers before writing custom error page
-		w.ResponseWriter.Header().Del("Content-Encoding")
-		w.ResponseWriter.Header().Set("Content-Type", contentType)
-		w.ResponseWriter.Header().Set("Content-Length", strconv.Itoa(len(body)))
-		w.ResponseWriter.WriteHeader(code)
-		w.ResponseWriter.Write([]byte(body))
-		return
-	}
-	w.ResponseWriter.WriteHeader(code)
-}
-
-func (w *errorPageWriter) Write(b []byte) (int, error) {
-	if !w.wroteHeader {
-		w.WriteHeader(http.StatusOK)
-	}
-	if w.intercepted {
-		// Silently discard — custom body already written
-		return len(b), nil
-	}
-	return w.ResponseWriter.Write(b)
-}
-
-func (w *errorPageWriter) Flush() {
-	if f, ok := w.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
-}
-
-// 17. throttleMW delays requests using the throttler's token bucket.
-func throttleMW(t *trafficshape.Throttler) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if err := t.Throttle(r.Context(), r); err != nil {
-				errors.ErrServiceUnavailable.WithDetails("Request throttled: queue timeout exceeded").WriteJSON(w)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
 // 18. priorityMW enforces priority-based admission control.
 func priorityMW(admitter *trafficshape.PriorityAdmitter, cfg config.PriorityConfig) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
@@ -739,31 +412,6 @@ func priorityMW(admitter *trafficshape.PriorityAdmitter, cfg config.PriorityConf
 	}
 }
 
-// 19. faultInjectionMW injects delays and/or aborts for chaos testing.
-func faultInjectionMW(fi *trafficshape.FaultInjector) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			aborted, statusCode := fi.Apply(r.Context())
-			if aborted {
-				w.WriteHeader(statusCode)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// 20. bandwidthMW wraps request body and response writer with bandwidth limits.
-func bandwidthMW(bw *trafficshape.BandwidthLimiter) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			bw.WrapRequest(r)
-			wrappedW := bw.WrapResponse(w)
-			next.ServeHTTP(wrappedW, r)
-		})
-	}
-}
-
 // 22. canaryObserverMW records per-traffic-group outcomes for canary analysis.
 func canaryObserverMW(ctrl *canary.Controller) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
@@ -777,63 +425,6 @@ func canaryObserverMW(ctrl *canary.Controller) middleware.Middleware {
 				ctrl.RecordRequest(varCtx.TrafficGroup, rec.statusCode, time.Since(start))
 			}
 			putStatusRecorder(rec)
-		})
-	}
-}
-
-// versioningMW detects the API version, sets it in context, strips prefix if configured, and injects deprecation headers.
-func versioningMW(v *versioning.Versioner) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			version := v.DetectVersion(r)
-			varCtx := variables.GetFromRequest(r)
-			varCtx.APIVersion = version
-			v.StripVersionPrefix(r, version)
-			v.InjectDeprecationHeaders(w, version)
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// accessLogMW stores the per-route access log config on the variable context and
-// optionally captures request/response bodies for the global logging middleware.
-func accessLogMW(cfg *accesslog.CompiledAccessLog) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			varCtx := variables.GetFromRequest(r)
-			varCtx.AccessLogConfig = cfg
-
-			// Capture request body if configured
-			if cfg.Body.Enabled && cfg.Body.Request {
-				if cfg.ShouldCaptureBody(r.Header.Get("Content-Type")) {
-					body, err := io.ReadAll(io.LimitReader(r.Body, int64(cfg.Body.MaxSize)+1))
-					if err == nil {
-						truncated := len(body) > cfg.Body.MaxSize
-						if truncated {
-							body = body[:cfg.Body.MaxSize]
-						}
-						varCtx.Custom["_al_req_body"] = string(body)
-						// Replay body
-						r.Body = io.NopCloser(io.MultiReader(
-							strings.NewReader(string(body)),
-							r.Body,
-						))
-					}
-				}
-			}
-
-			// Capture response body if configured
-			if cfg.Body.Enabled && cfg.Body.Response {
-				bcw := accesslog.NewBodyCapturingWriter(w, cfg.Body.MaxSize)
-				next.ServeHTTP(bcw, r)
-				// Check content type after proxy wrote response
-				if cfg.ShouldCaptureBody(bcw.Header().Get("Content-Type")) {
-					varCtx.Custom["_al_resp_body"] = bcw.CapturedBody()
-				}
-				return
-			}
-
-			next.ServeHTTP(w, r)
 		})
 	}
 }
@@ -976,149 +567,3 @@ func (w *validatingResponseWriter) flush() {
 	w.ResponseWriter.WriteHeader(w.statusCode)
 	w.ResponseWriter.Write(w.buf.Bytes())
 }
-
-// outlierDetectionMW records per-backend request outcomes for outlier detection.
-func outlierDetectionMW(det *outlier.Detector) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			next.ServeHTTP(w, r)
-			varCtx := variables.GetFromRequest(r)
-			if varCtx.UpstreamAddr != "" {
-				status := varCtx.UpstreamStatus
-				if status == 0 {
-					status = 502 // connection error
-				}
-				det.Record(varCtx.UpstreamAddr, status, varCtx.UpstreamResponseTime)
-			}
-		})
-	}
-}
-
-// backendSigningMW signs outgoing requests with HMAC before they reach the backend.
-func backendSigningMW(signer *signing.CompiledSigner) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if err := signer.Sign(r); err != nil {
-				logging.Warn("backend signing failed",
-					zap.String("route_id", signer.RouteID()),
-					zap.Error(err),
-				)
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// claimsPropMW propagates JWT claims as request headers to backends.
-func claimsPropMW(cp *claimsprop.ClaimsPropagator) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			cp.Apply(r)
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// tokenRevokeMW rejects requests with revoked JWT tokens.
-func tokenRevokeMW(tc *tokenrevoke.TokenChecker) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !tc.Check(r) {
-				errors.New(http.StatusUnauthorized, "Token has been revoked").WriteJSON(w)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// cdnHeadersMW injects CDN cache control headers into responses.
-func cdnHeadersMW(cdn *cdnheaders.CDNHeaders) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			cw := &cdnHeadersWriter{
-				ResponseWriter: w,
-				cdn:            cdn,
-			}
-			next.ServeHTTP(cw, r)
-		})
-	}
-}
-
-// cdnHeadersWriter injects CDN headers on WriteHeader.
-type cdnHeadersWriter struct {
-	http.ResponseWriter
-	cdn         *cdnheaders.CDNHeaders
-	wroteHeader bool
-}
-
-func (w *cdnHeadersWriter) WriteHeader(code int) {
-	if !w.wroteHeader {
-		w.wroteHeader = true
-		w.cdn.Apply(w.ResponseWriter.Header(), w.cdn.IsOverride())
-	}
-	w.ResponseWriter.WriteHeader(code)
-}
-
-func (w *cdnHeadersWriter) Write(b []byte) (int, error) {
-	if !w.wroteHeader {
-		w.wroteHeader = true
-		w.cdn.Apply(w.ResponseWriter.Header(), w.cdn.IsOverride())
-	}
-	return w.ResponseWriter.Write(b)
-}
-
-func (w *cdnHeadersWriter) Flush() {
-	if f, ok := w.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
-}
-
-// backendEncodingMW decodes XML/YAML backend responses to JSON.
-func backendEncodingMW(enc *backendenc.Encoder) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			bw := &backendEncWriter{
-				ResponseWriter: w,
-				header:         make(http.Header),
-				statusCode:     200,
-			}
-			next.ServeHTTP(bw, r)
-
-			body := bw.body.Bytes()
-			ct := bw.header.Get("Content-Type")
-
-			decoded, ok := enc.Decode(body, ct)
-			if ok {
-				bw.header.Set("Content-Type", "application/json")
-				body = decoded
-			}
-
-			// Copy captured headers to real writer
-			for k, vv := range bw.header {
-				for _, v := range vv {
-					w.Header().Add(k, v)
-				}
-			}
-			w.Header().Set("Content-Length", strconv.Itoa(len(body)))
-			w.WriteHeader(bw.statusCode)
-			w.Write(body)
-		})
-	}
-}
-
-// backendEncWriter buffers the response for backend encoding conversion.
-type backendEncWriter struct {
-	http.ResponseWriter
-	statusCode int
-	body       bytes.Buffer
-	header     http.Header
-}
-
-func (w *backendEncWriter) Header() http.Header { return w.header }
-func (w *backendEncWriter) WriteHeader(code int) { w.statusCode = code }
-func (w *backendEncWriter) Write(b []byte) (int, error) { return w.body.Write(b) }
-
-
-// Ensure unused imports are satisfied.
-var _ = io.Discard

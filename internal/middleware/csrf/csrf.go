@@ -343,3 +343,17 @@ func (c *CompiledCSRF) setTokenCookie(w http.ResponseWriter) {
 func MergeCSRFConfig(perRoute, global config.CSRFConfig) config.CSRFConfig {
 	return config.MergeNonZero(global, perRoute)
 }
+
+// Middleware returns a middleware that validates CSRF double-submit cookie tokens.
+func (cp *CompiledCSRF) Middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			allowed, statusCode, msg := cp.Check(w, r)
+			if !allowed {
+				http.Error(w, msg, statusCode)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}

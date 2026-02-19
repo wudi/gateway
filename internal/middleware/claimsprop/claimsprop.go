@@ -110,3 +110,13 @@ func (m *ClaimsPropByRoute) GetPropagator(routeID string) *ClaimsPropagator {
 func (m *ClaimsPropByRoute) Stats() map[string]interface{} {
 	return byroute.CollectStats(&m.Manager, func(cp *ClaimsPropagator) interface{} { return cp.Stats() })
 }
+
+// Middleware returns a middleware that propagates JWT claims as request headers to backends.
+func (cp *ClaimsPropagator) Middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			cp.Apply(r)
+			next.ServeHTTP(w, r)
+		})
+	}
+}

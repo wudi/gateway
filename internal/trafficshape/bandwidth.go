@@ -149,3 +149,14 @@ func (w *rateLimitedWriter) Flush() {
 func (w *rateLimitedWriter) Unwrap() http.ResponseWriter {
 	return w.ResponseWriter
 }
+
+// Middleware returns a middleware that wraps request body and response writer with bandwidth limits.
+func (bw *BandwidthLimiter) Middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			bw.WrapRequest(r)
+			wrappedW := bw.WrapResponse(w)
+			next.ServeHTTP(wrappedW, r)
+		})
+	}
+}

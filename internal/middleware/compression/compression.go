@@ -483,3 +483,20 @@ func (m *CompressorByRoute) GetCompressor(routeID string) *Compressor {
 func (m *CompressorByRoute) Stats() map[string]CompressionSnapshot {
 	return byroute.CollectStats(&m.Manager, func(c *Compressor) CompressionSnapshot { return c.Stats() })
 }
+
+// Middleware returns a middleware that wraps the response writer with negotiated compression.
+func (c *Compressor) Middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			algo := c.NegotiateEncoding(r)
+			if algo == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			cw := NewCompressingResponseWriter(w, c, algo)
+			r.Header.Del("Accept-Encoding")
+			next.ServeHTTP(cw, r)
+			cw.Close()
+		})
+	}
+}

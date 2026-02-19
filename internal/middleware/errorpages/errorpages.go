@@ -276,3 +276,62 @@ func defaultBody(format string, data TemplateData) string {
 		return fmt.Sprintf(`{"code":%d,"message":"%s"}`, data.StatusCode, data.StatusText)
 	}
 }
+
+// Middleware returns a middleware that intercepts error responses and renders custom error pages.
+func (ep *CompiledErrorPages) Middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			epw := &errorPageWriter{
+				ResponseWriter: w,
+				ep:             ep,
+				r:              r,
+			}
+			next.ServeHTTP(epw, r)
+		})
+	}
+}
+
+type errorPageWriter struct {
+	http.ResponseWriter
+	ep          *CompiledErrorPages
+	r           *http.Request
+	intercepted bool
+	wroteHeader bool
+}
+
+func (w *errorPageWriter) WriteHeader(code int) {
+	if w.wroteHeader {
+		return
+	}
+	w.wroteHeader = true
+
+	if code >= 400 && w.ep.ShouldIntercept(code) {
+		w.intercepted = true
+		varCtx := variables.GetFromRequest(w.r)
+		body, contentType := w.ep.Render(code, w.r, varCtx)
+
+		w.ResponseWriter.Header().Del("Content-Encoding")
+		w.ResponseWriter.Header().Set("Content-Type", contentType)
+		w.ResponseWriter.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		w.ResponseWriter.WriteHeader(code)
+		w.ResponseWriter.Write([]byte(body))
+		return
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *errorPageWriter) Write(b []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	if w.intercepted {
+		return len(b), nil
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *errorPageWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}

@@ -249,3 +249,16 @@ func (m *ValidatorByRoute) Stats() map[string]interface{} {
 		}
 	})
 }
+
+// Middleware returns a middleware that validates the request body against a schema.
+func (v *Validator) Middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := v.Validate(r); err != nil {
+				RejectValidation(w, err)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}

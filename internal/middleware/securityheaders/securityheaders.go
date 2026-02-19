@@ -133,3 +133,13 @@ func (m *SecurityHeadersByRoute) GetHeaders(routeID string) *CompiledSecurityHea
 func (m *SecurityHeadersByRoute) Stats() map[string]Snapshot {
 	return byroute.CollectStats(&m.Manager, func(h *CompiledSecurityHeaders) Snapshot { return h.Snapshot() })
 }
+
+// Middleware returns a middleware that injects configured security response headers.
+func (sh *CompiledSecurityHeaders) Middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			sh.Apply(w.Header())
+			next.ServeHTTP(w, r)
+		})
+	}
+}

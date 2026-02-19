@@ -1,6 +1,7 @@
 package outlier
 
 import (
+	"net/http"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/loadbalancer"
+	"github.com/wudi/gateway/internal/variables"
 )
 
 // ejectionInfo tracks current ejection state for a backend.
@@ -321,4 +323,21 @@ func medianDuration(vals []time.Duration) time.Duration {
 		return (sorted[mid-1] + sorted[mid]) / 2
 	}
 	return sorted[mid]
+}
+
+// Middleware returns a middleware that records per-backend request outcomes for outlier detection.
+func (det *Detector) Middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r)
+			varCtx := variables.GetFromRequest(r)
+			if varCtx.UpstreamAddr != "" {
+				status := varCtx.UpstreamStatus
+				if status == 0 {
+					status = 502
+				}
+				det.Record(varCtx.UpstreamAddr, status, varCtx.UpstreamResponseTime)
+			}
+		})
+	}
 }

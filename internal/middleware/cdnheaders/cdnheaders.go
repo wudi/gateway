@@ -150,3 +150,44 @@ func (br *CDNHeadersByRoute) GetHandler(routeID string) *CDNHeaders {
 func (br *CDNHeadersByRoute) Stats() map[string]Snapshot {
 	return byroute.CollectStats(&br.Manager, func(h *CDNHeaders) Snapshot { return h.Stats() })
 }
+
+// Middleware returns a middleware that injects CDN cache control headers into responses.
+func (cdn *CDNHeaders) Middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			cw := &cdnHeadersWriter{
+				ResponseWriter: w,
+				cdn:            cdn,
+			}
+			next.ServeHTTP(cw, r)
+		})
+	}
+}
+
+type cdnHeadersWriter struct {
+	http.ResponseWriter
+	cdn         *CDNHeaders
+	wroteHeader bool
+}
+
+func (w *cdnHeadersWriter) WriteHeader(code int) {
+	if !w.wroteHeader {
+		w.wroteHeader = true
+		w.cdn.Apply(w.ResponseWriter.Header(), w.cdn.IsOverride())
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *cdnHeadersWriter) Write(b []byte) (int, error) {
+	if !w.wroteHeader {
+		w.wroteHeader = true
+		w.cdn.Apply(w.ResponseWriter.Header(), w.cdn.IsOverride())
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *cdnHeadersWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}

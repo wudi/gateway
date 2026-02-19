@@ -3,6 +3,7 @@ package idempotency
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -323,4 +324,39 @@ func ReplayResponse(w http.ResponseWriter, resp *StoredResponse) {
 // MergeIdempotencyConfig merges per-route overrides onto global config.
 func MergeIdempotencyConfig(perRoute, global config.IdempotencyConfig) config.IdempotencyConfig {
 	return config.MergeNonZero(global, perRoute)
+}
+
+// Middleware returns a middleware that checks idempotency keys and replays cached responses.
+func (ci *CompiledIdempotency) Middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			outcome := ci.Check(r)
+			switch outcome.Result {
+			case ResultCached, ResultWaited:
+				ReplayResponse(w, outcome.Response)
+				return
+			case ResultReject:
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				fmt.Fprintf(w, `{"error":"Idempotency-Key header is required for this request"}`)
+				return
+			case ResultInvalid:
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Fprintf(w, `{"error":"Idempotency-Key is too long"}`)
+				return
+			}
+
+			if outcome.Key != "" {
+				cw := NewCapturingWriter(w)
+				defer func() {
+					ci.RecordResponse(outcome.Key, cw.ToStoredResponse())
+				}()
+				next.ServeHTTP(cw, r)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }

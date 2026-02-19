@@ -217,3 +217,34 @@ func (m *MirrorByRoute) GetMirror(routeID string) *Mirror {
 func (m *MirrorByRoute) Stats() map[string]MirrorSnapshot {
 	return byroute.CollectStats(&m.Manager, func(mirror *Mirror) MirrorSnapshot { return mirror.metrics.Snapshot() })
 }
+
+// Middleware returns a middleware that buffers the request body and sends mirrored requests async.
+func (m *Mirror) Middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !m.ShouldMirror(r) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			mirrorBody, err := BufferRequestBody(r)
+			if err != nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			if m.CompareEnabled() {
+				cw := NewCapturingWriter(w)
+				next.ServeHTTP(cw, r)
+				primary := &PrimaryResponse{
+					StatusCode: cw.StatusCode(),
+					BodyHash:   cw.BodyHash(),
+				}
+				m.SendAsync(r, mirrorBody, primary)
+			} else {
+				next.ServeHTTP(w, r)
+				m.SendAsync(r, mirrorBody, nil)
+			}
+		})
+	}
+}

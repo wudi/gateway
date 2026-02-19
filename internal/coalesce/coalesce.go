@@ -255,3 +255,16 @@ func (m *CoalesceByRoute) GetCoalescer(routeID string) *Coalescer {
 func (m *CoalesceByRoute) Stats() map[string]Stats {
 	return byroute.CollectStats(&m.Manager, func(c *Coalescer) Stats { return c.Stats() })
 }
+
+// Middleware returns a middleware that deduplicates concurrent identical requests via singleflight.
+func (c *Coalescer) Middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !c.ShouldCoalesce(r) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			c.ServeCoalesced(w, r, next)
+		})
+	}
+}

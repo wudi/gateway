@@ -115,7 +115,7 @@ func TestCorsMW_Preflight(t *testing.T) {
 		called = true
 	})
 
-	mw := corsMW(h)
+	mw := h.Middleware()
 	handler := mw(next)
 
 	req := httptest.NewRequest("OPTIONS", "/test", nil)
@@ -148,7 +148,7 @@ func TestCorsMW_NormalRequest(t *testing.T) {
 		w.WriteHeader(200)
 	})
 
-	mw := corsMW(h)
+	mw := h.Middleware()
 	handler := mw(next)
 
 	req := httptest.NewRequest("GET", "/test", nil)
@@ -237,7 +237,7 @@ func TestValidationMW_Reject(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mw := validationMW(v)
+	mw := v.Middleware()
 	handler := mw(ok200())
 
 	// POST with empty JSON body — missing required "name" field
@@ -260,7 +260,7 @@ func TestValidationMW_Allow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mw := validationMW(v)
+	mw := v.Middleware()
 	handler := mw(ok200())
 
 	req := httptest.NewRequest("POST", "/test", strings.NewReader(`{"name":"test"}`))
@@ -441,7 +441,7 @@ func TestCompressionMW_Compresses(t *testing.T) {
 		w.Write([]byte(largeBody))
 	})
 
-	mw := compressionMW(c)
+	mw := c.Middleware()
 	handler := mw(backend)
 
 	req := httptest.NewRequest("GET", "/test", nil)
@@ -464,7 +464,7 @@ func TestCompressionMW_SkipsNoAcceptEncoding(t *testing.T) {
 		Level:   6,
 	})
 
-	mw := compressionMW(c)
+	mw := c.Middleware()
 	handler := mw(ok200())
 
 	req := httptest.NewRequest("GET", "/test", nil)
@@ -495,7 +495,7 @@ func TestCompressionMW_NegotiatesGzip(t *testing.T) {
 		w.Write([]byte(largeBody))
 	})
 
-	mw := compressionMW(c)
+	mw := c.Middleware()
 	handler := mw(backend)
 
 	req := httptest.NewRequest("GET", "/test", nil)

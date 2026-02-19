@@ -3,6 +3,7 @@ package trafficshape
 import (
 	"context"
 	"math/rand"
+	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -83,5 +84,19 @@ func (fi *FaultInjector) Snapshot() FaultInjectionSnapshot {
 		TotalDelayed:  fi.totalDelayed.Load(),
 		TotalAborted:  fi.totalAborted.Load(),
 		TotalDelayNs:  fi.totalDelayNs.Load(),
+	}
+}
+
+// Middleware returns a middleware that injects delays and/or aborts for chaos testing.
+func (fi *FaultInjector) Middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			aborted, statusCode := fi.Apply(r.Context())
+			if aborted {
+				w.WriteHeader(statusCode)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
 	}
 }

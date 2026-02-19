@@ -192,3 +192,17 @@ func (m *CORSByRoute) GetHandler(routeID string) *Handler {
 	v, _ := m.Get(routeID)
 	return v
 }
+
+// Middleware returns a middleware that handles CORS preflight and applies response headers.
+func (h *Handler) Middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if h.IsPreflight(r) {
+				h.HandlePreflight(w, r)
+				return
+			}
+			h.ApplyHeaders(w, r)
+			next.ServeHTTP(w, r)
+		})
+	}
+}

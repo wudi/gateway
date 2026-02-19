@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/errors"
 )
 
 // ExtAuth handles external authentication by delegating to an HTTP or gRPC service.
@@ -388,4 +389,37 @@ func buildHTTPTLSConfig(cfg config.ExtAuthTLSConfig) (*tls.Config, error) {
 	}
 
 	return tlsConfig, nil
+}
+
+// Middleware returns a middleware that calls an external auth service before allowing the request.
+func (ea *ExtAuth) Middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			result, err := ea.Check(r)
+			if err != nil {
+				errors.ErrBadGateway.WriteJSON(w)
+				return
+			}
+			if !result.Allowed {
+				for k, vv := range result.DeniedHeaders {
+					for _, v := range vv {
+						w.Header().Add(k, v)
+					}
+				}
+				status := result.DeniedStatus
+				if status == 0 {
+					status = http.StatusForbidden
+				}
+				w.WriteHeader(status)
+				if len(result.DeniedBody) > 0 {
+					w.Write(result.DeniedBody)
+				}
+				return
+			}
+			for k, v := range result.HeadersToInject {
+				r.Header.Set(k, v)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }

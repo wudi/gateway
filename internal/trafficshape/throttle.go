@@ -9,6 +9,7 @@ import (
 
 	"golang.org/x/time/rate"
 
+	"github.com/wudi/gateway/internal/errors"
 	"github.com/wudi/gateway/internal/variables"
 )
 
@@ -133,5 +134,18 @@ func (t *Throttler) Snapshot() ThrottleSnapshot {
 		TotalThrottled: throttled,
 		TotalTimedOut:  timedOut,
 		AvgWaitMs:      avgWaitMs,
+	}
+}
+
+// Middleware returns a middleware that delays requests using the throttler's token bucket.
+func (t *Throttler) Middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := t.Throttle(r.Context(), r); err != nil {
+				errors.ErrServiceUnavailable.WithDetails("Request throttled: queue timeout exceeded").WriteJSON(w)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
 	}
 }

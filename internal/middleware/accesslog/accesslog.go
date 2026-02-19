@@ -1,12 +1,14 @@
 package accesslog
 
 import (
+	"io"
 	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/variables"
 )
 
 // DefaultSensitiveHeaders are always masked unless overridden.
@@ -220,4 +222,43 @@ func (c *CompiledAccessLog) ShouldCaptureBody(contentType string) bool {
 // HasHeaderCapture returns true if any header capture is configured.
 func (c *CompiledAccessLog) HasHeaderCapture() bool {
 	return c.headersInclude != nil || c.headersExclude != nil
+}
+
+// Middleware returns a middleware that stores access log config on the variable context
+// and optionally captures request/response bodies for the global logging middleware.
+func (cfg *CompiledAccessLog) Middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			varCtx := variables.GetFromRequest(r)
+			varCtx.AccessLogConfig = cfg
+
+			if cfg.Body.Enabled && cfg.Body.Request {
+				if cfg.ShouldCaptureBody(r.Header.Get("Content-Type")) {
+					body, err := io.ReadAll(io.LimitReader(r.Body, int64(cfg.Body.MaxSize)+1))
+					if err == nil {
+						truncated := len(body) > cfg.Body.MaxSize
+						if truncated {
+							body = body[:cfg.Body.MaxSize]
+						}
+						varCtx.Custom["_al_req_body"] = string(body)
+						r.Body = io.NopCloser(io.MultiReader(
+							strings.NewReader(string(body)),
+							r.Body,
+						))
+					}
+				}
+			}
+
+			if cfg.Body.Enabled && cfg.Body.Response {
+				bcw := NewBodyCapturingWriter(w, cfg.Body.MaxSize)
+				next.ServeHTTP(bcw, r)
+				if cfg.ShouldCaptureBody(bcw.Header().Get("Content-Type")) {
+					varCtx.Custom["_al_resp_body"] = bcw.CapturedBody()
+				}
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }

@@ -201,3 +201,16 @@ func (m *MaintenanceByRoute) GetMaintenance(routeID string) *CompiledMaintenance
 func (m *MaintenanceByRoute) Stats() map[string]Snapshot {
 	return byroute.CollectStats(&m.Manager, func(h *CompiledMaintenance) Snapshot { return h.Snapshot() })
 }
+
+// Middleware returns a middleware that short-circuits with a maintenance response when active.
+func (cm *CompiledMaintenance) Middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if cm.ShouldBlock(r) {
+				cm.WriteResponse(w)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}

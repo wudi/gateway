@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/logging"
+	"go.uber.org/zap"
 )
 
 // CompiledSigner is a pre-compiled, concurrent-safe request signer for a single route.
@@ -189,4 +191,19 @@ func hasBody(method string) bool {
 		return true
 	}
 	return false
+}
+
+// Middleware returns a middleware that signs outgoing requests with HMAC before they reach the backend.
+func (s *CompiledSigner) Middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := s.Sign(r); err != nil {
+				logging.Warn("backend signing failed",
+					zap.String("route_id", s.RouteID()),
+					zap.Error(err),
+				)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }

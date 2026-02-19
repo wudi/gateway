@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"io"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -261,3 +262,46 @@ func (br *EncoderByRoute) GetEncoder(routeID string) *Encoder {
 func (br *EncoderByRoute) Stats() map[string]Snapshot {
 	return byroute.CollectStats(&br.Manager, func(e *Encoder) Snapshot { return e.Stats() })
 }
+
+// Middleware returns a middleware that decodes XML/YAML backend responses to JSON.
+func (enc *Encoder) Middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			bw := &backendEncWriter{
+				ResponseWriter: w,
+				header:         make(http.Header),
+				statusCode:     200,
+			}
+			next.ServeHTTP(bw, r)
+
+			body := bw.body.Bytes()
+			ct := bw.header.Get("Content-Type")
+
+			decoded, ok := enc.Decode(body, ct)
+			if ok {
+				bw.header.Set("Content-Type", "application/json")
+				body = decoded
+			}
+
+			for k, vv := range bw.header {
+				for _, v := range vv {
+					w.Header().Add(k, v)
+				}
+			}
+			w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+			w.WriteHeader(bw.statusCode)
+			w.Write(body)
+		})
+	}
+}
+
+type backendEncWriter struct {
+	http.ResponseWriter
+	statusCode int
+	body       bytes.Buffer
+	header     http.Header
+}
+
+func (w *backendEncWriter) Header() http.Header { return w.header }
+func (w *backendEncWriter) WriteHeader(code int) { w.statusCode = code }
+func (w *backendEncWriter) Write(b []byte) (int, error) { return w.body.Write(b) }

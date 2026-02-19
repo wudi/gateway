@@ -1,6 +1,7 @@
 package nonce
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -171,4 +172,20 @@ func MergeNonceConfig(perRoute, global config.NonceConfig) config.NonceConfig {
 	merged := config.MergeNonZero(global, perRoute)
 	merged.Enabled = true
 	return merged
+}
+
+// Middleware returns a middleware that checks nonce for replay prevention.
+func (nc *NonceChecker) Middleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			allowed, statusCode, msg := nc.Check(r)
+			if !allowed {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(statusCode)
+				fmt.Fprintf(w, `{"error":"%s"}`, msg)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
