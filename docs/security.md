@@ -506,3 +506,70 @@ Exact hosts use O(1) map lookups. Wildcard patterns (`*.example.com`) match any 
 Admin endpoint: `GET /allowed-hosts` returns the host list and rejection count.
 
 **Note:** Like HTTPS redirect, allowed hosts is part of the global handler chain and requires a restart to change.
+
+---
+
+## Inbound Request Signature Verification
+
+Verifies HMAC signatures on incoming requests — the inverse of outbound backend signing. Use this to authenticate webhook receivers, signed API clients, and inter-service calls.
+
+Supports `hmac-sha256` and `hmac-sha512`. The signing string format matches the outbound signing protocol: `METHOD\nURI\nTIMESTAMP\nSHA256(BODY)[\nheader:value...]`.
+
+```yaml
+inbound_signing:
+  enabled: true
+  algorithm: hmac-sha256
+  secret: "base64-encoded-32-byte-key"
+  max_age: 5m
+  shadow_mode: false
+```
+
+Shadow mode logs verification failures without rejecting requests — useful for gradual rollout.
+
+Admin endpoint: `GET /inbound-signing` returns per-route verification stats.
+
+See [Inbound Signing](inbound-signing.md) for full documentation.
+
+---
+
+## PII Redaction
+
+Pattern-based detection and masking of sensitive data (emails, credit card numbers, SSNs, phone numbers) in request and response bodies and headers.
+
+```yaml
+routes:
+  - id: my-route
+    pii_redaction:
+      enabled: true
+      built_ins: [email, credit_card, ssn, phone]
+      scope: response
+```
+
+Supports custom regex patterns and configurable mask characters. Only processes text-like Content-Types.
+
+Admin endpoint: `GET /pii-redaction` returns per-route redaction stats.
+
+See [PII Redaction](pii-redaction.md) for full documentation.
+
+---
+
+## Payload Field-Level Encryption
+
+AES-GCM-256 encryption of specific JSON fields in requests before forwarding and decryption in responses before returning to the client.
+
+```yaml
+routes:
+  - id: my-route
+    field_encryption:
+      enabled: true
+      algorithm: aes-gcm-256
+      key_base64: "base64-encoded-32-byte-key"
+      encrypt_fields: [password, ssn]
+      decrypt_fields: [encrypted_data]
+```
+
+Uses gjson paths for field selection. Nonces are generated per-encryption from `crypto/rand`.
+
+Admin endpoint: `GET /field-encryption` returns per-route encryption stats.
+
+See [Field Encryption](field-encryption.md) for full documentation.

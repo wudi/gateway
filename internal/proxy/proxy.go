@@ -558,6 +558,13 @@ func (rp *RouteProxy) SetPerTryTimeout(d time.Duration) {
 	}
 }
 
+// SetRetryBudget replaces the retry budget on this route's retry policy (for shared budget pools).
+func (rp *RouteProxy) SetRetryBudget(b *retry.Budget) {
+	if rp.retryPolicy != nil {
+		rp.retryPolicy.SetBudget(b)
+	}
+}
+
 // GetRetryMetrics returns the retry metrics for this route (may be nil)
 func (rp *RouteProxy) GetRetryMetrics() *retry.RouteRetryMetrics {
 	if rp.retryPolicy != nil {

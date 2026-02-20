@@ -137,6 +137,16 @@ func (l *Loader) validate(cfg *Config) error {
 		return fmt.Errorf("logging.rotation.max_age must be >= 0")
 	}
 
+	// === Retry budget pools ===
+	for name, pool := range cfg.RetryBudgets {
+		if pool.Ratio <= 0 || pool.Ratio > 1.0 {
+			return fmt.Errorf("retry_budgets[%s]: ratio must be between 0.0 and 1.0 (exclusive of 0)", name)
+		}
+		if pool.MinRetries < 0 {
+			return fmt.Errorf("retry_budgets[%s]: min_retries must be >= 0", name)
+		}
+	}
+
 	// === Routes (single loop via validateRoute) ===
 	routeIDs := make(map[string]bool)
 	for i, route := range cfg.Routes {

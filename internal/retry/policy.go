@@ -238,6 +238,11 @@ func (p *Policy) doRoundTrip(ctx context.Context, transport http.RoundTripper, r
 	return transport.RoundTrip(req)
 }
 
+// SetBudget replaces the budget on this policy (used for shared budget pools).
+func (p *Policy) SetBudget(b *Budget) {
+	p.Budget = b
+}
+
 // IsRetryable returns true if the method+status combination should be retried
 func (p *Policy) IsRetryable(method string, statusCode int) bool {
 	if !p.RetryableMethods[method] {

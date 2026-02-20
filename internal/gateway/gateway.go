@@ -73,8 +73,12 @@ import (
 	"github.com/wudi/gateway/internal/proxy"
 	grpcproxy "github.com/wudi/gateway/internal/proxy/grpc"
 	"github.com/wudi/gateway/internal/proxy/protocol"
+	"github.com/wudi/gateway/internal/bluegreen"
 	"github.com/wudi/gateway/internal/middleware/contentneg"
+	"github.com/wudi/gateway/internal/middleware/fieldencrypt"
+	"github.com/wudi/gateway/internal/middleware/inboundsigning"
 	"github.com/wudi/gateway/internal/middleware/paramforward"
+	"github.com/wudi/gateway/internal/middleware/piiredact"
 	"github.com/wudi/gateway/internal/middleware/respbodygen"
 	"github.com/wudi/gateway/internal/proxy/aggregate"
 	"github.com/wudi/gateway/internal/proxy/sequential"
@@ -186,7 +190,12 @@ type Gateway struct {
 	tokenChecker        *tokenrevoke.TokenChecker
 	globalGeo         *geo.CompiledGeo
 	webhookDispatcher *webhook.Dispatcher
-	http3AltSvcPort   string // port for Alt-Svc header; empty = no HTTP/3
+	inboundVerifiers     *inboundsigning.InboundSigningByRoute
+	piiRedactors         *piiredact.PIIRedactByRoute
+	fieldEncryptors      *fieldencrypt.FieldEncryptByRoute
+	blueGreenControllers *bluegreen.BlueGreenByRoute
+	http3AltSvcPort      string // port for Alt-Svc header; empty = no HTTP/3
+	budgetPools          map[string]*retry.Budget
 
 	features []Feature
 
@@ -321,8 +330,18 @@ func New(cfg *config.Config) (*Gateway, error) {
 		contentNegotiators:  contentneg.NewNegotiatorByRoute(),
 		cdnHeaders:          cdnheaders.NewCDNHeadersByRoute(),
 		backendEncoders:     backendenc.NewEncoderByRoute(),
-		sseHandlers:         sse.NewSSEByRoute(),
+		sseHandlers:          sse.NewSSEByRoute(),
+		inboundVerifiers:     inboundsigning.NewInboundSigningByRoute(),
+		piiRedactors:         piiredact.NewPIIRedactByRoute(),
+		fieldEncryptors:      fieldencrypt.NewFieldEncryptByRoute(),
+		blueGreenControllers: bluegreen.NewBlueGreenByRoute(),
+		budgetPools:          make(map[string]*retry.Budget),
 		watchCancels:      make(map[string]context.CancelFunc),
+	}
+
+	// Initialize shared retry budget pools
+	for name, bc := range cfg.RetryBudgets {
+		g.budgetPools[name] = retry.NewBudget(bc.Ratio, bc.MinRetries, bc.Window)
 	}
 
 	// Initialize atomic pointers for hot-path map access
@@ -518,6 +537,18 @@ func New(cfg *config.Config) (*Gateway, error) {
 			}
 			return nil
 		}, g.sseHandlers.RouteIDs, func() any { return g.sseHandlers.Stats() }),
+		newFeature("pii_redaction", "/pii-redaction", func(id string, rc config.RouteConfig) error {
+			if rc.PIIRedaction.Enabled {
+				return g.piiRedactors.AddRoute(id, rc.PIIRedaction)
+			}
+			return nil
+		}, g.piiRedactors.RouteIDs, func() any { return g.piiRedactors.Stats() }),
+		newFeature("field_encryption", "/field-encryption", func(id string, rc config.RouteConfig) error {
+			if rc.FieldEncryption.Enabled {
+				return g.fieldEncryptors.AddRoute(id, rc.FieldEncryption)
+			}
+			return nil
+		}, g.fieldEncryptors.RouteIDs, func() any { return g.fieldEncryptors.Stats() }),
 
 		// Merge features: merge per-route with global config
 		newFeature("throttle", "", func(id string, rc config.RouteConfig) error {
@@ -684,6 +715,16 @@ func New(cfg *config.Config) (*Gateway, error) {
 			g.spikeArresters.AddRoute(id, merged)
 			return nil
 		}, g.spikeArresters.RouteIDs, func() any { return g.spikeArresters.Stats() }),
+		newFeature("inbound_signing", "/inbound-signing", func(id string, rc config.RouteConfig) error {
+			if rc.InboundSigning.Enabled {
+				merged := inboundsigning.MergeInboundSigningConfig(rc.InboundSigning, cfg.InboundSigning)
+				return g.inboundVerifiers.AddRoute(id, merged)
+			}
+			if cfg.InboundSigning.Enabled {
+				return g.inboundVerifiers.AddRoute(id, cfg.InboundSigning)
+			}
+			return nil
+		}, g.inboundVerifiers.RouteIDs, func() any { return g.inboundVerifiers.Stats() }),
 		newFeature("cdn_cache_headers", "/cdn-cache-headers", func(id string, rc config.RouteConfig) error {
 			merged := cdnheaders.MergeCDNCacheConfig(rc.CDNCacheHeaders, cfg.CDNCacheHeaders)
 			if merged.Enabled {
@@ -701,6 +742,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		// No-op features: setup handled elsewhere (need transport/balancer)
 		noOpFeature("canary", "/canary", g.canaryControllers.RouteIDs, func() any { return g.canaryControllers.Stats() }),
 		noOpFeature("outlier_detection", "/outlier-detection", g.outlierDetectors.RouteIDs, func() any { return g.outlierDetectors.Stats() }),
+		noOpFeature("blue_green", "/blue-green", g.blueGreenControllers.RouteIDs, func() any { return g.blueGreenControllers.Stats() }),
 		noOpFeature("sequential", "/sequential", g.sequentialHandlers.RouteIDs, func() any { return g.sequentialHandlers.Stats() }),
 		noOpFeature("aggregate", "/aggregate", g.aggregateHandlers.RouteIDs, func() any { return g.aggregateHandlers.Stats() }),
 
@@ -714,6 +756,16 @@ func New(cfg *config.Config) (*Gateway, error) {
 			}
 			if len(result) == 0 {
 				return nil
+			}
+			return result
+		}),
+		noOpFeature("retry_budget_pools", "/retry-budget-pools", func() []string { return nil }, func() any {
+			if len(g.budgetPools) == 0 {
+				return nil
+			}
+			result := make(map[string]interface{}, len(g.budgetPools))
+			for name, b := range g.budgetPools {
+				result[name] = b.Stats()
 			}
 			return result
 		}),
@@ -1186,6 +1238,13 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 			routeProxy = proxy.NewRouteProxyWithBalancer(g.proxy, route, balancer)
 		}
 		g.storeRouteProxy(routeCfg.ID, routeProxy)
+
+		// Wire shared retry budget pool if configured
+		if routeCfg.RetryPolicy.BudgetPool != "" {
+			if pool, ok := g.budgetPools[routeCfg.RetryPolicy.BudgetPool]; ok {
+				routeProxy.SetRetryBudget(pool)
+			}
+		}
 	}
 
 	// Set up rate limiting (unique setup signature, not in feature loop)
@@ -1288,6 +1347,13 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 		}
 	}
 
+	// Set up blue-green controller (needs WeightedBalancer, only available after route proxy creation)
+	if routeCfg.BlueGreen.Enabled {
+		if wb, ok := routeProxy.GetBalancer().(*loadbalancer.WeightedBalancer); ok {
+			g.blueGreenControllers.AddRoute(routeCfg.ID, routeCfg.BlueGreen, wb, g.healthChecker)
+		}
+	}
+
 	// Set up outlier detection (needs Balancer, only available after route proxy creation)
 	if routeCfg.OutlierDetection.Enabled {
 		g.outlierDetectors.AddRoute(routeCfg.ID, routeCfg.OutlierDetection, routeProxy.GetBalancer())
@@ -1335,7 +1401,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 	mws := [...]func() middleware.Middleware{
 		/* 1    */ func() middleware.Middleware { return metricsMW(g.metricsCollector, routeID) },
 		/* 1.5  */ func() middleware.Middleware {
-			if ctrl := g.canaryControllers.GetController(routeID); ctrl != nil { return canaryObserverMW(ctrl) }; return nil
+			if ctrl := g.canaryControllers.GetController(routeID); ctrl != nil { return canaryObserverMW(ctrl) }
+			if bg := g.blueGreenControllers.GetController(routeID); bg != nil { return blueGreenObserverMW(bg) }
+			return nil
 		},
 		/* 2    */ func() middleware.Middleware {
 			rf := g.ipFilters.GetFilter(routeID)
@@ -1401,6 +1469,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		/* 6.35 */ func() middleware.Middleware {
 			if cp := g.csrfProtectors.GetProtector(routeID); cp != nil { return cp.Middleware() }; return nil
 		},
+		/* 6.37 */ func() middleware.Middleware {
+			if v := g.inboundVerifiers.GetVerifier(routeID); v != nil { return v.Middleware() }; return nil
+		},
 		/* 6.4  */ func() middleware.Middleware {
 			if ih := g.idempotencyHandlers.GetHandler(routeID); ih != nil { return ih.Middleware() }; return nil
 		},
@@ -1432,6 +1503,10 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		/* 8.5  */ func() middleware.Middleware {
 			if skipBody { return nil }
 			if bw := g.bandwidthLimiters.GetLimiter(routeID); bw != nil { return bw.Middleware() }; return nil
+		},
+		/* 8.6  */ func() middleware.Middleware {
+			if skipBody { return nil }
+			if fe := g.fieldEncryptors.GetEncryptor(routeID); fe != nil { return fe.Middleware() }; return nil
 		},
 		/* 9    */ func() middleware.Middleware {
 			if skipBody { return nil }
@@ -1519,6 +1594,10 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		/* 17.3 */ func() middleware.Middleware {
 			if skipBody { return nil }
 			if cr := g.contentReplacers.GetReplacer(routeID); cr != nil { return cr.Middleware() }; return nil
+		},
+		/* 17.31*/ func() middleware.Middleware {
+			if skipBody { return nil }
+			if pr := g.piiRedactors.GetRedactor(routeID); pr != nil { return pr.Middleware() }; return nil
 		},
 		/* 17.35*/ func() middleware.Middleware {
 			if skipBody { return nil }
@@ -2013,6 +2092,11 @@ func (g *Gateway) GetGraphQLParsers() *graphql.GraphQLByRoute {
 // GetCanaryControllers returns the canary controller manager.
 func (g *Gateway) GetCanaryControllers() *canary.CanaryByRoute {
 	return g.canaryControllers
+}
+
+// GetBlueGreenControllers returns the blue-green controller manager.
+func (g *Gateway) GetBlueGreenControllers() *bluegreen.BlueGreenByRoute {
+	return g.blueGreenControllers
 }
 
 // GetAdaptiveLimiters returns the adaptive concurrency limiter manager.

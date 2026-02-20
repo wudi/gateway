@@ -62,8 +62,13 @@ import (
 	"github.com/wudi/gateway/internal/middleware/waf"
 	"github.com/wudi/gateway/internal/mirror"
 	"github.com/wudi/gateway/internal/proxy"
+	"github.com/wudi/gateway/internal/retry"
 	grpcproxy "github.com/wudi/gateway/internal/proxy/grpc"
 	"github.com/wudi/gateway/internal/proxy/protocol"
+	"github.com/wudi/gateway/internal/bluegreen"
+	"github.com/wudi/gateway/internal/middleware/fieldencrypt"
+	"github.com/wudi/gateway/internal/middleware/inboundsigning"
+	"github.com/wudi/gateway/internal/middleware/piiredact"
 	"github.com/wudi/gateway/internal/proxy/aggregate"
 	"github.com/wudi/gateway/internal/proxy/sequential"
 	"github.com/wudi/gateway/internal/registry"
@@ -150,9 +155,14 @@ type gatewayState struct {
 	realIPExtractor     *realip.CompiledRealIP
 	tokenChecker        *tokenrevoke.TokenChecker
 	outlierDetectors    *outlier.DetectorByRoute
+	inboundVerifiers     *inboundsigning.InboundSigningByRoute
+	piiRedactors         *piiredact.PIIRedactByRoute
+	fieldEncryptors      *fieldencrypt.FieldEncryptByRoute
+	blueGreenControllers *bluegreen.BlueGreenByRoute
 	translators       *protocol.TranslatorByRoute
 	rateLimiters      *ratelimit.RateLimitByRoute
 	grpcHandlers      map[string]*grpcproxy.Handler
+	budgetPools       map[string]*retry.Budget
 
 	// Auth providers
 	apiKeyAuth *auth.APIKeyAuth
@@ -221,9 +231,19 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		backendEncoders:     backendenc.NewEncoderByRoute(),
 		sseHandlers:         sse.NewSSEByRoute(),
 		outlierDetectors:    outlier.NewDetectorByRoute(),
+		inboundVerifiers:     inboundsigning.NewInboundSigningByRoute(),
+		piiRedactors:         piiredact.NewPIIRedactByRoute(),
+		fieldEncryptors:      fieldencrypt.NewFieldEncryptByRoute(),
+		blueGreenControllers: bluegreen.NewBlueGreenByRoute(),
 		translators:       protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
 		grpcHandlers:      make(map[string]*grpcproxy.Handler),
+		budgetPools:       make(map[string]*retry.Budget),
+	}
+
+	// Initialize shared retry budget pools
+	for name, bc := range cfg.RetryBudgets {
+		s.budgetPools[name] = retry.NewBudget(bc.Ratio, bc.MinRetries, bc.Window)
 	}
 
 	// Initialize shared priority admitter if global priority is enabled
@@ -477,6 +497,38 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 			if rc.SSE.Enabled { s.sseHandlers.AddRoute(id, rc.SSE) }
 			return nil
 		}, s.sseHandlers.RouteIDs, func() any { return s.sseHandlers.Stats() }),
+
+		newFeature("pii_redaction", "/pii-redaction", func(id string, rc config.RouteConfig) error {
+			if rc.PIIRedaction.Enabled {
+				return s.piiRedactors.AddRoute(id, rc.PIIRedaction)
+			}
+			return nil
+		}, s.piiRedactors.RouteIDs, func() any { return s.piiRedactors.Stats() }),
+		newFeature("field_encryption", "/field-encryption", func(id string, rc config.RouteConfig) error {
+			if rc.FieldEncryption.Enabled {
+				return s.fieldEncryptors.AddRoute(id, rc.FieldEncryption)
+			}
+			return nil
+		}, s.fieldEncryptors.RouteIDs, func() any { return s.fieldEncryptors.Stats() }),
+		newFeature("inbound_signing", "/inbound-signing", func(id string, rc config.RouteConfig) error {
+			if rc.InboundSigning.Enabled {
+				merged := inboundsigning.MergeInboundSigningConfig(rc.InboundSigning, cfg.InboundSigning)
+				return s.inboundVerifiers.AddRoute(id, merged)
+			}
+			if cfg.InboundSigning.Enabled {
+				return s.inboundVerifiers.AddRoute(id, cfg.InboundSigning)
+			}
+			return nil
+		}, s.inboundVerifiers.RouteIDs, func() any { return s.inboundVerifiers.Stats() }),
+		noOpFeature("blue_green", "/blue-green", s.blueGreenControllers.RouteIDs, func() any { return s.blueGreenControllers.Stats() }),
+
+		// Non-per-route singleton features
+		noOpFeature("retry_budget_pools", "/retry-budget-pools", func() []string { return nil }, func() any {
+			if len(s.budgetPools) == 0 { return nil }
+			result := make(map[string]interface{}, len(s.budgetPools))
+			for name, b := range s.budgetPools { result[name] = b.Stats() }
+			return result
+		}),
 	}
 
 	// Initialize token revocation checker
@@ -680,6 +732,15 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 		s.routeProxies[routeCfg.ID] = proxy.NewRouteProxyWithBalancer(g.proxy, route, balancer)
 	}
 
+	// Wire shared retry budget pool if configured
+	if routeCfg.RetryPolicy.BudgetPool != "" {
+		if pool, ok := s.budgetPools[routeCfg.RetryPolicy.BudgetPool]; ok {
+			if rp := s.routeProxies[routeCfg.ID]; rp != nil {
+				rp.SetRetryBudget(pool)
+			}
+		}
+	}
+
 	// Rate limiting
 	if len(routeCfg.RateLimit.Tiers) > 0 {
 		tiers := make(map[string]ratelimit.Config, len(routeCfg.RateLimit.Tiers))
@@ -777,6 +838,13 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 			if err := s.canaryControllers.AddRoute(routeCfg.ID, routeCfg.Canary, wb); err != nil {
 				return fmt.Errorf("canary: route %s: %w", routeCfg.ID, err)
 			}
+		}
+	}
+
+	// Blue-green setup (needs WeightedBalancer)
+	if routeCfg.BlueGreen.Enabled {
+		if wb, ok := s.routeProxies[routeCfg.ID].GetBalancer().(*loadbalancer.WeightedBalancer); ok {
+			s.blueGreenControllers.AddRoute(routeCfg.ID, routeCfg.BlueGreen, wb, g.healthChecker)
 		}
 	}
 
@@ -911,6 +979,10 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldSSEHandlers := g.sseHandlers
 	oldRealIPExtractor := g.realIPExtractor
 	oldTokenChecker := g.tokenChecker
+	oldInboundVerifiers := g.inboundVerifiers
+	oldPIIRedactors := g.piiRedactors
+	oldFieldEncryptors := g.fieldEncryptors
+	oldBlueGreenControllers := g.blueGreenControllers
 
 	// Install new state
 	g.ipFilters = s.ipFilters
@@ -971,6 +1043,10 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.sseHandlers = s.sseHandlers
 	g.realIPExtractor = s.realIPExtractor
 	g.tokenChecker = s.tokenChecker
+	g.inboundVerifiers = s.inboundVerifiers
+	g.piiRedactors = s.piiRedactors
+	g.fieldEncryptors = s.fieldEncryptors
+	g.blueGreenControllers = s.blueGreenControllers
 
 	handler := g.buildRouteHandler(routeID, cfg, route, rp)
 
@@ -1033,6 +1109,10 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.sseHandlers = oldSSEHandlers
 	g.realIPExtractor = oldRealIPExtractor
 	g.tokenChecker = oldTokenChecker
+	g.inboundVerifiers = oldInboundVerifiers
+	g.piiRedactors = oldPIIRedactors
+	g.fieldEncryptors = oldFieldEncryptors
+	g.blueGreenControllers = oldBlueGreenControllers
 
 	return handler
 }
@@ -1065,6 +1145,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	oldTranslators := g.translators
 	oldJWT := g.jwtAuth
 	oldCanaryControllers := g.canaryControllers
+	oldBlueGreenControllers := g.blueGreenControllers
 	oldAdaptiveLimiters := g.adaptiveLimiters
 	oldExtAuths := g.extAuths
 	oldNonceCheckers := g.nonceCheckers
@@ -1139,6 +1220,11 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.translators = newState.translators
 	g.rateLimiters = newState.rateLimiters
 	g.grpcHandlers = newState.grpcHandlers
+	g.budgetPools = newState.budgetPools
+	g.inboundVerifiers = newState.inboundVerifiers
+	g.piiRedactors = newState.piiRedactors
+	g.fieldEncryptors = newState.fieldEncryptors
+	g.blueGreenControllers = newState.blueGreenControllers
 	g.apiKeyAuth = newState.apiKeyAuth
 	g.jwtAuth = newState.jwtAuth
 	g.oauthAuth = newState.oauthAuth
@@ -1173,6 +1259,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	oldTranslators.Close()
 	oldExtAuths.CloseAll()
 	oldCanaryControllers.StopAll()
+	oldBlueGreenControllers.StopAll()
 	oldAdaptiveLimiters.StopAll()
 	oldNonceCheckers.CloseAll()
 	oldOutlierDetectors.StopAll()

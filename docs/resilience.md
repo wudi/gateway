@@ -310,3 +310,33 @@ curl http://localhost:8081/maintenance
 | `maintenance.headers` | map | — | Extra response headers |
 
 See [Configuration Reference](configuration-reference.md#routes) for all fields.
+
+---
+
+## Shared Retry Budget Pools
+
+Named retry budgets shared across multiple routes to prevent cross-route retry storms. A budget pool tracks the ratio of retries to total requests across all routes that reference it.
+
+```yaml
+retry_budgets:
+  critical_pool:
+    ratio: 0.2
+    min_retries: 10
+    window: 10s
+
+routes:
+  - id: service-a
+    retry_policy:
+      max_retries: 3
+      budget_pool: critical_pool
+  - id: service-b
+    retry_policy:
+      max_retries: 2
+      budget_pool: critical_pool
+```
+
+When a route references a `budget_pool`, it uses that shared budget instead of an inline `budget.ratio`. The two are mutually exclusive.
+
+Admin endpoint: `GET /retry-budget-pools` returns utilization stats for all pools.
+
+See [Retry Budget Pools](retry-budget-pools.md) for full documentation.

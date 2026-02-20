@@ -138,6 +138,61 @@ Canary deployments are started and controlled via the admin API (`POST /canary/{
 - `hash_key` is required for `header` and `hash` modes
 - Advanced load balancers (`least_conn`, `consistent_hash`, `least_response_time`) are incompatible with traffic splits
 
+## Blue-Green Deployments
+
+Blue-green provides binary all-or-nothing traffic cutover between two backend groups, unlike canary's gradual weight-shifting approach.
+
+```yaml
+routes:
+  - id: api
+    traffic_split:
+      - name: blue
+        weight: 100
+        backends:
+          - url: http://blue-v1:8080
+      - name: green
+        weight: 0
+        backends:
+          - url: http://green-v2:8080
+    blue_green:
+      enabled: true
+      active_group: blue
+      inactive_group: green
+      rollback_on_error: true
+      error_threshold: 0.05
+      observation_window: 60s
+      min_requests: 100
+```
+
+### State Machine
+
+`inactive` -> `promoting` -> `active` / `rolled_back`
+
+### Operations
+
+- **Promote** (`POST /blue-green/{route}/promote`): Switches all traffic to the inactive group (100% weight). Starts observation window.
+- **Rollback** (`POST /blue-green/{route}/rollback`): Restores original weights. Available from promoting or active states.
+- **Status** (`GET /blue-green/{route}/status`): Returns current state, group metrics, error rates.
+
+### Auto-Rollback
+
+When `rollback_on_error: true`, the observation goroutine monitors error rate on the promoted group. If errors exceed `error_threshold` after `min_requests` are received, traffic is automatically rolled back to original weights.
+
+### Canary vs Blue-Green
+
+| Feature | Canary | Blue-Green |
+|---------|--------|------------|
+| Traffic shift | Gradual steps | All-or-nothing |
+| Rollback | Restores to step 0 | Restores original weights |
+| Observation | Per-step | Single window after promote |
+| Mutually exclusive | Yes | Yes |
+
+**Validation:** Blue-green and canary are mutually exclusive on the same route. Both require `traffic_split`.
+
+See [Blue-Green Deployments](blue-green.md) for full documentation.
+
+---
+
 ## Key Config Fields
 
 | Field | Type | Description |

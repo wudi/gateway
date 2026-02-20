@@ -22,6 +22,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/transform"
 	"github.com/wudi/gateway/internal/middleware/validation"
 	grpcproxy "github.com/wudi/gateway/internal/proxy/grpc"
+	"github.com/wudi/gateway/internal/bluegreen"
 	"github.com/wudi/gateway/internal/router"
 	"github.com/wudi/gateway/internal/rules"
 	"github.com/wudi/gateway/internal/trafficshape"
@@ -414,6 +415,22 @@ func priorityMW(admitter *trafficshape.PriorityAdmitter, cfg config.PriorityConf
 
 // 22. canaryObserverMW records per-traffic-group outcomes for canary analysis.
 func canaryObserverMW(ctrl *canary.Controller) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			rec := getStatusRecorder(w)
+			next.ServeHTTP(rec, r)
+
+			varCtx := variables.GetFromRequest(r)
+			if varCtx.TrafficGroup != "" {
+				ctrl.RecordRequest(varCtx.TrafficGroup, rec.statusCode, time.Since(start))
+			}
+			putStatusRecorder(rec)
+		})
+	}
+}
+
+func blueGreenObserverMW(ctrl *bluegreen.Controller) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()

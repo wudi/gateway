@@ -1259,6 +1259,117 @@ curl http://localhost:8081/mock-responses
 }
 ```
 
+### GET `/retry-budget-pools`
+
+Returns stats for all named retry budget pools.
+
+```json
+{
+  "critical_pool": {
+    "ratio": 0.2,
+    "min_retries": 10,
+    "window": "10s",
+    "total_reqs": 5000,
+    "total_retries": 120,
+    "utilization": 0.024
+  }
+}
+```
+
+### GET `/inbound-signing`
+
+Returns per-route inbound signature verification status.
+
+```json
+{
+  "api-route": {
+    "route_id": "api-route",
+    "algorithm": "hmac-sha256",
+    "key_id": "key-1",
+    "header_prefix": "X-Gateway-",
+    "include_body": true,
+    "max_age": "5m0s",
+    "shadow_mode": false,
+    "total_requests": 1000,
+    "verified": 995,
+    "rejected": 3,
+    "expired": 2,
+    "errors": 0
+  }
+}
+```
+
+### GET `/pii-redaction`
+
+Returns per-route PII redaction metrics.
+
+```json
+{
+  "api-route": {
+    "total": 500,
+    "redacted": 42,
+    "patterns": 3,
+    "scope": "response"
+  }
+}
+```
+
+### GET `/field-encryption`
+
+Returns per-route field encryption metrics.
+
+```json
+{
+  "api-route": {
+    "total": 1000,
+    "encrypted": 450,
+    "decrypted": 550,
+    "errors": 0,
+    "encrypt_fields": 2,
+    "decrypt_fields": 1
+  }
+}
+```
+
+### GET `/blue-green`
+
+Returns per-route blue-green deployment status.
+
+```json
+{
+  "api-route": {
+    "route_id": "api-route",
+    "state": "active",
+    "active_group": "blue",
+    "inactive_group": "green",
+    "error_threshold": 0.05,
+    "rollback_on_error": true,
+    "groups": {
+      "green": {
+        "requests": 5000,
+        "errors": 12,
+        "error_rate": 0.0024,
+        "avg_latency_ms": 45.2
+      }
+    }
+  }
+}
+```
+
+### POST `/blue-green/{route}/promote`
+
+Triggers promotion of the inactive group to active. Returns 409 if state does not allow promotion.
+
+### POST `/blue-green/{route}/rollback`
+
+Triggers rollback to original weights. Returns 409 if state does not allow rollback.
+
+### GET `/blue-green/{route}/status`
+
+Returns detailed snapshot for a specific route's blue-green deployment.
+
+---
+
 ## Key Config Fields
 
 | Field | Type | Description |

@@ -66,6 +66,8 @@ type Config struct {
 	SpikeArrest            SpikeArrestConfig            `yaml:"spike_arrest"`              // Global spike arrest defaults
 	DebugEndpoint          DebugEndpointConfig          `yaml:"debug_endpoint"`            // Debug endpoint for request inspection
 	CDNCacheHeaders        CDNCacheConfig               `yaml:"cdn_cache_headers"`         // Global CDN cache header injection
+	RetryBudgets           map[string]BudgetConfig      `yaml:"retry_budgets"`             // Named shared retry budget pools
+	InboundSigning         InboundSigningConfig         `yaml:"inbound_signing"`           // Global inbound request signature verification
 }
 
 // ListenerConfig defines a listener configuration
@@ -315,6 +317,10 @@ type RouteConfig struct {
 	CDNCacheHeaders      CDNCacheConfig              `yaml:"cdn_cache_headers"`     // Per-route CDN cache header injection
 	BackendEncoding      BackendEncodingConfig       `yaml:"backend_encoding"`      // Decode XML/YAML backend responses to JSON
 	SSE                  SSEConfig                   `yaml:"sse"`                   // Server-Sent Events proxy
+	InboundSigning       InboundSigningConfig        `yaml:"inbound_signing"`       // Per-route inbound request signature verification
+	PIIRedaction         PIIRedactionConfig          `yaml:"pii_redaction"`         // Per-route PII redaction
+	FieldEncryption      FieldEncryptionConfig       `yaml:"field_encryption"`      // Per-route field-level encryption
+	BlueGreen            BlueGreenConfig             `yaml:"blue_green"`            // Blue-green deployment
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -343,6 +349,7 @@ type RetryConfig struct {
 	RetryableMethods  []string      `yaml:"retryable_methods"`
 	PerTryTimeout     time.Duration `yaml:"per_try_timeout"`
 	Budget            BudgetConfig  `yaml:"budget"`
+	BudgetPool        string        `yaml:"budget_pool"` // reference to named shared budget in Config.RetryBudgets
 	Hedging           HedgingConfig `yaml:"hedging"`
 }
 
@@ -1288,6 +1295,65 @@ type BackendSigningConfig struct {
 	SignedHeaders []string `yaml:"signed_headers"`   // headers to include in signature
 	IncludeBody   *bool    `yaml:"include_body"`     // default true (*bool for merge semantics)
 	HeaderPrefix  string   `yaml:"header_prefix"`    // default "X-Gateway-"
+}
+
+// InboundSigningConfig defines inbound request signature verification.
+type InboundSigningConfig struct {
+	Enabled       bool          `yaml:"enabled"`
+	Algorithm     string        `yaml:"algorithm"`       // "hmac-sha256" (default), "hmac-sha512"
+	Secret        string        `yaml:"secret"`          // base64-encoded, min 32 decoded bytes
+	KeyID         string        `yaml:"key_id"`          // expected key identifier
+	SignedHeaders []string      `yaml:"signed_headers"`  // headers to include in verification
+	IncludeBody   *bool         `yaml:"include_body"`    // default true
+	HeaderPrefix  string        `yaml:"header_prefix"`   // default "X-Gateway-"
+	MaxAge        time.Duration `yaml:"max_age"`         // max age of timestamp (default 5m)
+	ShadowMode    bool          `yaml:"shadow_mode"`     // log but don't reject
+}
+
+// PIIRedactionConfig defines PII pattern redaction settings.
+type PIIRedactionConfig struct {
+	Enabled  bool        `yaml:"enabled"`
+	BuiltIns []string    `yaml:"built_ins"`  // email, credit_card, ssn, phone
+	Custom   []PIIPattern `yaml:"custom"`    // custom regex patterns
+	Scope    string      `yaml:"scope"`      // "response" (default), "request", "both"
+	MaskChar string      `yaml:"mask_char"`  // default "*"
+	Headers  []string    `yaml:"headers"`    // headers to redact
+}
+
+// PIIPattern defines a custom PII pattern.
+type PIIPattern struct {
+	Name        string `yaml:"name"`
+	Pattern     string `yaml:"pattern"`
+	Replacement string `yaml:"replacement"` // optional override
+}
+
+// FieldEncryptionConfig defines payload field-level encryption settings.
+type FieldEncryptionConfig struct {
+	Enabled       bool     `yaml:"enabled"`
+	Algorithm     string   `yaml:"algorithm"`      // "aes-gcm-256" only
+	KeyBase64     string   `yaml:"key_base64"`     // base64-encoded 32-byte key
+	EncryptFields []string `yaml:"encrypt_fields"` // gjson paths to encrypt in request
+	DecryptFields []string `yaml:"decrypt_fields"` // gjson paths to decrypt in response
+	Encoding      string   `yaml:"encoding"`       // "base64" (default), "hex"
+}
+
+// BlueGreenConfig defines blue-green deployment settings.
+type BlueGreenConfig struct {
+	Enabled           bool          `yaml:"enabled"`
+	ActiveGroup       string        `yaml:"active_group"`
+	InactiveGroup     string        `yaml:"inactive_group"`
+	HealthGate        HealthGate    `yaml:"health_gate"`
+	AutoPromoteDelay  time.Duration `yaml:"auto_promote_delay"`
+	RollbackOnError   bool          `yaml:"rollback_on_error"`
+	ErrorThreshold    float64       `yaml:"error_threshold"`
+	ObservationWindow time.Duration `yaml:"observation_window"`
+	MinRequests       int           `yaml:"min_requests"`
+}
+
+// HealthGate defines health checking requirements for blue-green promotion.
+type HealthGate struct {
+	MinHealthy int           `yaml:"min_healthy"`
+	Timeout    time.Duration `yaml:"timeout"`
 }
 
 // TransportConfig defines upstream HTTP transport (connection pool) settings.

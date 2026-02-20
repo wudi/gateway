@@ -462,6 +462,7 @@ func (s *Server) adminHandler() http.Handler {
 	mux.HandleFunc("/transport", s.handleTransport)
 	mux.HandleFunc("/upstreams", s.handleUpstreams)
 	mux.HandleFunc("/canary/", s.handleCanaryAction)
+	mux.HandleFunc("/blue-green/", s.handleBlueGreenAction)
 	mux.HandleFunc("/https-redirect", s.handleHTTPSRedirect)
 	mux.HandleFunc("/allowed-hosts", s.handleAllowedHosts)
 	mux.HandleFunc("/token-revocation", s.handleTokenRevocation)
@@ -1203,6 +1204,64 @@ func (s *Server) handleCanaryAction(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": actionName, "route": routeID})
 }
 
+
+// handleBlueGreenAction handles POST /blue-green/{route}/{action}.
+func (s *Server) handleBlueGreenAction(w http.ResponseWriter, r *http.Request) {
+	// Parse /blue-green/{route}/{action}
+	path := strings.TrimPrefix(r.URL.Path, "/blue-green/")
+	parts := strings.SplitN(path, "/", 2)
+
+	// GET /blue-green/{route}/status is allowed
+	if r.Method == http.MethodGet && len(parts) == 2 && parts[1] == "status" {
+		routeID := parts[0]
+		ctrl := s.gateway.GetBlueGreenControllers().GetController(routeID)
+		if ctrl == nil {
+			http.Error(w, fmt.Sprintf("no blue-green controller for route %q", routeID), http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(ctrl.Snapshot())
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		http.Error(w, "usage: POST /blue-green/{route}/{promote|rollback} or GET /blue-green/{route}/status", http.StatusBadRequest)
+		return
+	}
+	routeID := parts[0]
+	actionName := parts[1]
+
+	ctrl := s.gateway.GetBlueGreenControllers().GetController(routeID)
+	if ctrl == nil {
+		http.Error(w, fmt.Sprintf("no blue-green controller for route %q", routeID), http.StatusNotFound)
+		return
+	}
+
+	var err error
+	switch actionName {
+	case "promote":
+		err = ctrl.Promote()
+	case "rollback":
+		err = ctrl.Rollback()
+	default:
+		http.Error(w, fmt.Sprintf("unknown action %q (valid: promote, rollback, status)", actionName), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": actionName, "route": routeID})
+}
 
 // Gateway returns the underlying gateway
 func (s *Server) Gateway() *Gateway {

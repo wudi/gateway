@@ -89,6 +89,38 @@ func (b *Budget) RecordRetry() {
 	b.buckets[idx].retries.Add(1)
 }
 
+// BudgetStats holds a point-in-time snapshot of budget state.
+type BudgetStats struct {
+	Ratio        float64 `json:"ratio"`
+	MinRetries   int     `json:"min_retries_per_sec"`
+	Window       string  `json:"window"`
+	TotalReqs    int64   `json:"total_requests"`
+	TotalRetries int64   `json:"total_retries"`
+	Utilization  float64 `json:"utilization"`
+}
+
+// Stats returns a point-in-time snapshot of the budget.
+func (b *Budget) Stats() BudgetStats {
+	b.maybeAdvance()
+	var totalReqs, totalRetries int64
+	for i := 0; i < budgetBuckets; i++ {
+		totalReqs += b.buckets[i].requests.Load()
+		totalRetries += b.buckets[i].retries.Load()
+	}
+	var utilization float64
+	if totalReqs > 0 {
+		utilization = float64(totalRetries) / float64(totalReqs)
+	}
+	return BudgetStats{
+		Ratio:        b.ratio,
+		MinRetries:   b.minRetriesPerS,
+		Window:       b.window.String(),
+		TotalReqs:    totalReqs,
+		TotalRetries: totalRetries,
+		Utilization:  utilization,
+	}
+}
+
 // maybeAdvance checks whether the window needs rotating. The fast path
 // (no rotation needed) is lock-free — only an atomic load + comparison.
 func (b *Budget) maybeAdvance() {

@@ -135,6 +135,8 @@ func (l *Loader) validatePassthroughExclusions(route RouteConfig, _ *Config) err
 		{route.ResponseBodyGenerator.Enabled, "response_body_generator"},
 		{route.ContentNegotiation.Enabled, "content_negotiation"},
 		{route.BackendEncoding.Encoding != "", "backend_encoding"},
+		{route.PIIRedaction.Enabled, "pii_redaction"},
+		{route.FieldEncryption.Enabled, "field_encryption"},
 	}
 	for _, c := range checks {
 		if c.active {
@@ -561,6 +563,14 @@ func (l *Loader) validateResilienceFeatures(route RouteConfig, cfg *Config) erro
 			return fmt.Errorf("route %s: retry_policy budget window must be > 0", routeID)
 		}
 	}
+	if route.RetryPolicy.BudgetPool != "" {
+		if route.RetryPolicy.Budget.Ratio > 0 {
+			return fmt.Errorf("route %s: retry_policy budget_pool and inline budget.ratio are mutually exclusive", routeID)
+		}
+		if _, ok := cfg.RetryBudgets[route.RetryPolicy.BudgetPool]; !ok {
+			return fmt.Errorf("route %s: retry_policy budget_pool %q not found in retry_budgets", routeID, route.RetryPolicy.BudgetPool)
+		}
+	}
 	if route.RetryPolicy.Hedging.Enabled {
 		if route.RetryPolicy.Hedging.MaxRequests < 2 {
 			return fmt.Errorf("route %s: retry_policy hedging max_requests must be >= 2", routeID)
@@ -645,6 +655,40 @@ func (l *Loader) validateResilienceFeatures(route RouteConfig, cfg *Config) erro
 		}
 		if route.Canary.Analysis.Interval < 0 {
 			return fmt.Errorf("route %s: canary analysis interval must be >= 0", routeID)
+		}
+	}
+
+	// Blue-green
+	if route.BlueGreen.Enabled {
+		if route.Canary.Enabled {
+			return fmt.Errorf("route %s: blue_green is mutually exclusive with canary", routeID)
+		}
+		if len(route.TrafficSplit) == 0 {
+			return fmt.Errorf("route %s: blue_green requires traffic_split to be configured", routeID)
+		}
+		if route.BlueGreen.ActiveGroup == "" {
+			return fmt.Errorf("route %s: blue_green.active_group is required", routeID)
+		}
+		if route.BlueGreen.InactiveGroup == "" {
+			return fmt.Errorf("route %s: blue_green.inactive_group is required", routeID)
+		}
+		activeFound, inactiveFound := false, false
+		for _, split := range route.TrafficSplit {
+			if split.Name == route.BlueGreen.ActiveGroup {
+				activeFound = true
+			}
+			if split.Name == route.BlueGreen.InactiveGroup {
+				inactiveFound = true
+			}
+		}
+		if !activeFound {
+			return fmt.Errorf("route %s: blue_green.active_group %q not found in traffic_split groups", routeID, route.BlueGreen.ActiveGroup)
+		}
+		if !inactiveFound {
+			return fmt.Errorf("route %s: blue_green.inactive_group %q not found in traffic_split groups", routeID, route.BlueGreen.InactiveGroup)
+		}
+		if route.BlueGreen.ErrorThreshold < 0 || route.BlueGreen.ErrorThreshold > 1.0 {
+			return fmt.Errorf("route %s: blue_green.error_threshold must be 0.0-1.0", routeID)
 		}
 	}
 
@@ -1013,6 +1057,9 @@ func (l *Loader) validateDelegatedSecurity(route RouteConfig, cfg *Config) error
 			return err
 		}
 	}
+	if err := l.validateInboundSigningConfig(scope, route.InboundSigning); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -1032,6 +1079,18 @@ func (l *Loader) validateDelegatedMiddleware(route RouteConfig, _ *Config) error
 	}
 	if err := l.validateMaintenanceConfig(scope, route.Maintenance); err != nil {
 		return err
+	}
+	if err := l.validatePIIRedactionConfig(scope, route.PIIRedaction); err != nil {
+		return err
+	}
+	if route.PIIRedaction.Enabled && route.Passthrough {
+		return fmt.Errorf("%s: pii_redaction is mutually exclusive with passthrough", scope)
+	}
+	if err := l.validateFieldEncryptionConfig(scope, route.FieldEncryption); err != nil {
+		return err
+	}
+	if route.FieldEncryption.Enabled && route.Passthrough {
+		return fmt.Errorf("%s: field_encryption is mutually exclusive with passthrough", scope)
 	}
 	return nil
 }
@@ -1827,6 +1886,79 @@ func (l *Loader) validateBackendSigningConfig(scope string, cfg BackendSigningCo
 	}
 	if strings.ContainsAny(cfg.HeaderPrefix, " \t\r\n") {
 		return fmt.Errorf("%s: backend_signing.header_prefix must not contain whitespace", scope)
+	}
+	return nil
+}
+
+func (l *Loader) validateInboundSigningConfig(scope string, cfg InboundSigningConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	switch cfg.Algorithm {
+	case "", "hmac-sha256", "hmac-sha512":
+		// valid
+	default:
+		return fmt.Errorf("%s: inbound_signing.algorithm must be \"hmac-sha256\" or \"hmac-sha512\"", scope)
+	}
+	if cfg.Secret == "" {
+		return fmt.Errorf("%s: inbound_signing.secret is required", scope)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(cfg.Secret)
+	if err != nil {
+		return fmt.Errorf("%s: inbound_signing.secret must be valid base64: %v", scope, err)
+	}
+	if len(decoded) < 32 {
+		return fmt.Errorf("%s: inbound_signing.secret must decode to at least 32 bytes (got %d)", scope, len(decoded))
+	}
+	return nil
+}
+
+func (l *Loader) validatePIIRedactionConfig(scope string, cfg PIIRedactionConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	validBuiltIns := map[string]bool{"email": true, "credit_card": true, "ssn": true, "phone": true}
+	for _, name := range cfg.BuiltIns {
+		if !validBuiltIns[name] {
+			return fmt.Errorf("%s: pii_redaction.built_ins: unknown pattern %q (must be email, credit_card, ssn, phone)", scope, name)
+		}
+	}
+	for i, custom := range cfg.Custom {
+		if _, err := regexp.Compile(custom.Pattern); err != nil {
+			return fmt.Errorf("%s: pii_redaction.custom[%d]: invalid pattern: %w", scope, i, err)
+		}
+	}
+	if cfg.Scope != "" && cfg.Scope != "response" && cfg.Scope != "request" && cfg.Scope != "both" {
+		return fmt.Errorf("%s: pii_redaction.scope must be \"response\", \"request\", or \"both\"", scope)
+	}
+	if len(cfg.BuiltIns) == 0 && len(cfg.Custom) == 0 {
+		return fmt.Errorf("%s: pii_redaction requires at least one of built_ins or custom patterns", scope)
+	}
+	return nil
+}
+
+func (l *Loader) validateFieldEncryptionConfig(scope string, cfg FieldEncryptionConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	if cfg.Algorithm != "" && cfg.Algorithm != "aes-gcm-256" {
+		return fmt.Errorf("%s: field_encryption.algorithm must be \"aes-gcm-256\"", scope)
+	}
+	if cfg.KeyBase64 == "" {
+		return fmt.Errorf("%s: field_encryption.key_base64 is required", scope)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(cfg.KeyBase64)
+	if err != nil {
+		return fmt.Errorf("%s: field_encryption.key_base64 must be valid base64: %v", scope, err)
+	}
+	if len(decoded) != 32 {
+		return fmt.Errorf("%s: field_encryption.key_base64 must decode to exactly 32 bytes (got %d)", scope, len(decoded))
+	}
+	if len(cfg.EncryptFields) == 0 && len(cfg.DecryptFields) == 0 {
+		return fmt.Errorf("%s: field_encryption requires at least one of encrypt_fields or decrypt_fields", scope)
+	}
+	if cfg.Encoding != "" && cfg.Encoding != "base64" && cfg.Encoding != "hex" {
+		return fmt.Errorf("%s: field_encryption.encoding must be \"base64\" or \"hex\"", scope)
 	}
 	return nil
 }

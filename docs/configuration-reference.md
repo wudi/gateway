@@ -1884,3 +1884,129 @@ debug_endpoint:
 **Validation:** `path` must start with `/` when specified.
 
 See [Debug Endpoint](debug-endpoint.md) for details.
+
+---
+
+## Retry Budget Pools (global)
+
+```yaml
+retry_budgets:
+  pool_name:
+    ratio: float       # max retry ratio 0.0-1.0 (exclusive of 0)
+    min_retries: int   # min retries per second regardless of ratio (default 0)
+    window: duration   # sliding window duration (default 10s)
+```
+
+Per-route reference via `retry_policy.budget_pool`:
+
+```yaml
+routes:
+  - id: my-route
+    retry_policy:
+      max_retries: 3
+      budget_pool: pool_name    # references a named pool above
+```
+
+**Validation:** `budget_pool` and inline `budget.ratio` are mutually exclusive. `budget_pool` must reference an existing name in `retry_budgets`. Each pool: `ratio` must be in (0, 1.0], `min_retries` >= 0.
+
+See [Retry Budget Pools](retry-budget-pools.md) for full documentation.
+
+---
+
+## Inbound Signing (global + per-route)
+
+```yaml
+inbound_signing:
+  enabled: bool            # enable inbound signature verification
+  algorithm: string        # "hmac-sha256" or "hmac-sha512" (default "hmac-sha256")
+  secret: string           # base64-encoded shared secret (>= 32 bytes)
+  key_id: string           # expected key ID (optional)
+  signed_headers: [string] # additional headers included in signature
+  include_body: bool       # include body hash in signature (default true)
+  header_prefix: string    # header name prefix (default "X-Gateway-")
+  max_age: duration        # max timestamp age (default 5m)
+  shadow_mode: bool        # log failures without rejecting (default false)
+```
+
+Per-route config is merged with global. Per-route fields override global.
+
+**Validation:** `algorithm` must be `hmac-sha256` or `hmac-sha512`. `secret` must be valid base64 decoding to >= 32 bytes.
+
+See [Inbound Signing](inbound-signing.md) for full documentation.
+
+---
+
+## PII Redaction (per-route)
+
+```yaml
+routes:
+  - id: my-route
+    pii_redaction:
+      enabled: bool          # enable PII redaction
+      built_ins: [string]    # "email", "credit_card", "ssn", "phone"
+      custom:                # custom regex patterns
+        - name: string
+          pattern: string    # Go regex
+          replacement: string # replacement text (optional; uses mask_char if empty)
+      scope: string          # "response" (default), "request", or "both"
+      mask_char: string      # mask character (default "*")
+      headers: [string]      # response/request headers to redact
+```
+
+**Validation:** `built_ins` must be from {email, credit_card, ssn, phone}. Custom patterns must compile. `scope` must be response, request, or both. Mutually exclusive with `passthrough`.
+
+See [PII Redaction](pii-redaction.md) for full documentation.
+
+---
+
+## Field Encryption (per-route)
+
+```yaml
+routes:
+  - id: my-route
+    field_encryption:
+      enabled: bool            # enable field-level encryption
+      algorithm: string        # "aes-gcm-256" (only supported value)
+      key_base64: string       # base64-encoded 32-byte AES key
+      encrypt_fields: [string] # gjson paths to encrypt in requests
+      decrypt_fields: [string] # gjson paths to decrypt in responses
+      encoding: string         # "base64" (default) or "hex"
+```
+
+**Validation:** `algorithm` must be `aes-gcm-256`. `key_base64` must decode to exactly 32 bytes. At least one of `encrypt_fields` or `decrypt_fields` must be non-empty. Mutually exclusive with `passthrough`.
+
+See [Field Encryption](field-encryption.md) for full documentation.
+
+---
+
+## Blue-Green Deployments (per-route)
+
+```yaml
+routes:
+  - id: my-route
+    traffic_split:
+      - name: blue
+        weight: 100
+        backends:
+          - url: http://blue-v1:8080
+      - name: green
+        weight: 0
+        backends:
+          - url: http://green-v2:8080
+    blue_green:
+      enabled: bool              # enable blue-green deployment
+      active_group: string       # name of current active group
+      inactive_group: string     # name of standby group
+      health_gate:
+        min_healthy: int         # min healthy backends before cutover
+        timeout: duration        # health gate timeout
+      auto_promote_delay: duration # delay before auto-promotion
+      rollback_on_error: bool    # auto-rollback on high error rate
+      error_threshold: float     # error rate threshold 0.0-1.0
+      observation_window: duration # observation duration after promotion
+      min_requests: int          # min requests before evaluating error rate
+```
+
+**Validation:** Mutually exclusive with `canary.enabled` on the same route. Requires `traffic_split` with groups matching `active_group` and `inactive_group`. `error_threshold` must be in [0, 1.0].
+
+See [Blue-Green Deployments](blue-green.md) for full documentation.
