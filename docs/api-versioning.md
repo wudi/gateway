@@ -101,6 +101,44 @@ Sunset: 2025-12-31
 
 The detected API version is available as `api_version` in the variables context, accessible in transforms, rules, and logging.
 
+## Named Upstreams
+
+Instead of defining backends inline per version, you can reference named upstream pools:
+
+```yaml
+upstreams:
+  api-v1-pool:
+    backends:
+      - url: http://api-v1-a:8080
+      - url: http://api-v1-b:8080
+    health_check:
+      path: /health
+      interval: 10s
+  api-v2-pool:
+    backends:
+      - url: http://api-v2-a:8080
+      - url: http://api-v2-b:8080
+
+routes:
+  - id: api
+    path: /{path:*}
+    path_prefix: true
+    versioning:
+      enabled: true
+      source: header
+      header_name: "X-API-Version"
+      default_version: "2"
+      versions:
+        "1":
+          upstream: api-v1-pool
+          deprecated: true
+          sunset: "2026-12-31"
+        "2":
+          upstream: api-v2-pool
+```
+
+Using `upstream` is mutually exclusive with inline `backends` within the same version entry.
+
 ## Mutual Exclusivity
 
 - `versioning` and `traffic_split` cannot be used on the same route (both control backend selection)

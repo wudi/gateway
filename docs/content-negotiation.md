@@ -94,3 +94,15 @@ GET /content-negotiation
 ```
 
 Returns per-route stats including counts per format and 406 responses.
+
+**Response:**
+```json
+{
+  "api-flexible": {
+    "json_count": 3800,
+    "xml_count": 150,
+    "yaml_count": 50,
+    "not_acceptable": 12
+  }
+}
+```

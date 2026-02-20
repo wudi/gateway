@@ -65,3 +65,15 @@ GET /param-forwarding
 ```
 
 Returns per-route stats including stripped parameter count and whitelist sizes.
+
+**Response:**
+```json
+{
+  "secure-api": {
+    "stripped": 142,
+    "allowed_headers": 3,
+    "allowed_query": 3,
+    "allowed_cookies": 1
+  }
+}
+```

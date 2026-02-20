@@ -124,6 +124,31 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /drain` | Connection drain status (draining, drain_start, drain_duration) |
 | `POST /drain` | Initiate drain mode — readiness checks return 503 |
 | `GET /trusted-proxies` | Trusted proxy configuration and extraction metrics |
+| `GET /https-redirect` | HTTPS redirect statistics (enabled, port, redirects) |
+| `GET /allowed-hosts` | Allowed hosts config and rejection count |
+| `GET /claims-propagation` | Per-route claims propagation stats |
+| `GET /token-revocation` | Token revocation stats (checked, revoked, store size) |
+| `POST /token-revocation/revoke` | Add token/JTI to revocation blocklist |
+| `POST /token-revocation/unrevoke` | Remove token/JTI from revocation blocklist |
+| `GET /backend-auth` | Per-route OAuth2 client_credentials refresh stats |
+| `GET /status-mapping` | Per-route status code remapping stats |
+| `GET /static-files` | Per-route static file serving stats |
+| `GET /service-rate-limit` | Global service-level rate limit stats |
+| `GET /spike-arrest` | Per-route spike arrest stats |
+| `GET /content-replacer` | Per-route content replacer stats |
+| `GET /follow-redirects` | Per-route redirect following stats |
+| `GET /body-generator` | Per-route request body generator stats |
+| `GET /sequential` | Per-route sequential proxy stats |
+| `GET /quotas` | Per-route quota enforcement stats |
+| `GET /aggregate` | Per-route response aggregation stats |
+| `GET /response-body-generator` | Per-route response body generator stats |
+| `GET /param-forwarding` | Per-route parameter forwarding stats |
+| `GET /content-negotiation` | Per-route content negotiation format stats |
+| `GET /cdn-cache-headers` | Per-route CDN cache header injection stats |
+| `GET /backend-encoding` | Per-route backend encoding stats |
+| `GET /bot-detection` | Per-route bot detection block counts |
+| `GET /proxy-rate-limits` | Per-route backend-facing rate limit stats |
+| `GET /mock-responses` | Per-route mock response served count |
 
 ### Example: Querying Feature Endpoints
 
@@ -784,12 +809,31 @@ Returns HTTPS redirect statistics. Returns `{"enabled": false}` when not configu
 curl http://localhost:8081/https-redirect
 ```
 
+**Response:**
+```json
+{
+  "enabled": true,
+  "port": 443,
+  "permanent": true,
+  "redirects": 847
+}
+```
+
 ### GET `/allowed-hosts`
 
 Returns allowed hosts configuration and rejection count. Returns `{"enabled": false}` when not configured.
 
 ```bash
 curl http://localhost:8081/allowed-hosts
+```
+
+**Response:**
+```json
+{
+  "enabled": true,
+  "hosts": ["api.example.com", "*.internal.example.com"],
+  "rejected": 23
+}
 ```
 
 ### GET `/claims-propagation`
@@ -800,12 +844,31 @@ Returns per-route claims propagation statistics.
 curl http://localhost:8081/claims-propagation
 ```
 
+**Response:**
+```json
+{
+  "route-id": {
+    "claims": {"sub": "X-User-ID", "email": "X-User-Email"},
+    "propagated": 3200
+  }
+}
+```
+
 ### GET `/token-revocation`
 
 Returns token revocation statistics (checked, revoked, store size). Returns `{"enabled": false}` when not configured.
 
 ```bash
 curl http://localhost:8081/token-revocation
+```
+
+**Response:**
+```json
+{
+  "checked": 15000,
+  "revoked": 42,
+  "store_size": 38
+}
 ```
 
 ### POST `/token-revocation/revoke`
@@ -837,6 +900,17 @@ Returns per-route backend auth (OAuth2 client_credentials) stats including refre
 curl http://localhost:8081/backend-auth
 ```
 
+**Response:**
+```json
+{
+  "protected-api": {
+    "refreshes": 12,
+    "errors": 0,
+    "last_refresh_at": "2026-02-20T08:30:00Z"
+  }
+}
+```
+
 ### GET `/status-mapping`
 
 Returns per-route status code mapping stats including total requests and remapped count.
@@ -845,12 +919,34 @@ Returns per-route status code mapping stats including total requests and remappe
 curl http://localhost:8081/status-mapping
 ```
 
+**Response:**
+```json
+{
+  "api-route": {
+    "total": 1000,
+    "remapped": 42,
+    "mappings": {"404": 200, "500": 503}
+  }
+}
+```
+
 ### GET `/static-files`
 
 Returns per-route static file serving stats including root directory and served count.
 
 ```bash
 curl http://localhost:8081/static-files
+```
+
+**Response:**
+```json
+{
+  "docs": {
+    "root": "/var/www/docs",
+    "served": 5200,
+    "browse": false
+  }
+}
 ```
 
 ### GET `/service-rate-limit`
@@ -1106,6 +1202,58 @@ curl http://localhost:8081/backend-encoding
     "encoding": "xml",
     "encoded": 1500,
     "errors": 3
+  }
+}
+```
+
+### GET `/bot-detection`
+
+Returns per-route bot detection block counts.
+
+```bash
+curl http://localhost:8081/bot-detection
+```
+
+**Response:**
+```json
+{
+  "api": {
+    "blocked": 42
+  }
+}
+```
+
+### GET `/proxy-rate-limits`
+
+Returns per-route backend-facing rate limit stats.
+
+```bash
+curl http://localhost:8081/proxy-rate-limits
+```
+
+**Response:**
+```json
+{
+  "api": {
+    "allowed": 5000,
+    "rejected": 120
+  }
+}
+```
+
+### GET `/mock-responses`
+
+Returns per-route mock response served count.
+
+```bash
+curl http://localhost:8081/mock-responses
+```
+
+**Response:**
+```json
+{
+  "mock-api": {
+    "served": 156
   }
 }
 ```

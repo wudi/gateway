@@ -30,7 +30,7 @@ The status mapping middleware wraps the `http.ResponseWriter` to intercept `Writ
 
 ## Middleware Position
 
-Step 17.25 — after response body transforms (17) and before response validation (17.5). This ensures body transforms see the original status code, while response validation sees the remapped code.
+Step 17.25 — after response body transforms (17) and before content replacer (17.3), response body generator (17.35), and response validation (17.5). This ensures body transforms see the original status code, while content replacer and response body generator see the remapped code. Circuit breaker outcome recording (step 11 in the serveHTTP flow) happens before status mapping, so circuit breaker decisions are based on the original backend status code, not the remapped one.
 
 ## Admin API
 

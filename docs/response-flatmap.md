@@ -103,7 +103,9 @@ The full body transform processing order is:
 5. `remove_fields` — remove paths
 6. `rename_fields` — rename paths
 7. `flatmap` — array manipulation
-8. `template` — Go template (terminal)
+8. `template` — Go template (terminal, replaces the entire response body)
+
+The `template` step (8) is terminal — it replaces the entire response body with the template output. Prior steps (target, field filtering, flatmap) still run first, so the flatmap output becomes the template input. This means you can use flatmap to reshape data and then template to produce the final output format.
 
 ## Combined Example
 

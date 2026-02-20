@@ -73,3 +73,62 @@ GET /response-body-generator
 ```
 
 Returns per-route stats including generation count and content type.
+
+**Response:**
+```json
+{
+  "api-wrapper": {
+    "generated": 4200,
+    "content_type": "application/json"
+  }
+}
+```
+
+## Use Cases
+
+### Response Wrapping
+
+Wrap a backend's raw response in a standard envelope:
+
+```yaml
+response_body_generator:
+  enabled: true
+  template: |
+    {
+      "data": {{json .Parsed}},
+      "meta": {
+        "status": {{.StatusCode}},
+        "path": "{{.Path}}"
+      }
+    }
+```
+
+Backend returns `{"name": "Alice"}`, client receives:
+```json
+{"data": {"name": "Alice"}, "meta": {"status": 200, "path": "/api/users/1"}}
+```
+
+### Field Extraction
+
+Extract a single field from the backend response:
+
+```yaml
+response_body_generator:
+  enabled: true
+  template: '{{json .Parsed.results}}'
+```
+
+Backend returns `{"results": [1, 2, 3], "total": 3}`, client receives `[1,2,3]`.
+
+### Dynamic Content-Type
+
+Generate different output based on request context:
+
+```yaml
+response_body_generator:
+  enabled: true
+  content_type: text/plain
+  template: '{{.Method}} {{.Path}} -> {{.StatusCode}}'
+```
+
+Returns: `GET /api/users -> 200`
