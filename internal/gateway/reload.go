@@ -47,6 +47,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/respbodygen"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/serviceratelimit"
+	"github.com/wudi/gateway/internal/middleware/sse"
 	"github.com/wudi/gateway/internal/middleware/signing"
 	"github.com/wudi/gateway/internal/middleware/spikearrest"
 	"github.com/wudi/gateway/internal/middleware/staticfiles"
@@ -145,6 +146,7 @@ type gatewayState struct {
 	contentNegotiators  *contentneg.NegotiatorByRoute
 	cdnHeaders          *cdnheaders.CDNHeadersByRoute
 	backendEncoders     *backendenc.EncoderByRoute
+	sseHandlers         *sse.SSEByRoute
 	realIPExtractor     *realip.CompiledRealIP
 	tokenChecker        *tokenrevoke.TokenChecker
 	outlierDetectors    *outlier.DetectorByRoute
@@ -217,6 +219,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		contentNegotiators:  contentneg.NewNegotiatorByRoute(),
 		cdnHeaders:          cdnheaders.NewCDNHeadersByRoute(),
 		backendEncoders:     backendenc.NewEncoderByRoute(),
+		sseHandlers:         sse.NewSSEByRoute(),
 		outlierDetectors:    outlier.NewDetectorByRoute(),
 		translators:       protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
@@ -470,6 +473,10 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 			if rc.BackendEncoding.Encoding != "" { s.backendEncoders.AddRoute(id, rc.BackendEncoding) }
 			return nil
 		}, s.backendEncoders.RouteIDs, func() any { return s.backendEncoders.Stats() }),
+		newFeature("sse", "/sse", func(id string, rc config.RouteConfig) error {
+			if rc.SSE.Enabled { s.sseHandlers.AddRoute(id, rc.SSE) }
+			return nil
+		}, s.sseHandlers.RouteIDs, func() any { return s.sseHandlers.Stats() }),
 	}
 
 	// Initialize token revocation checker
@@ -901,6 +908,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldContentNegotiators := g.contentNegotiators
 	oldCdnHeaders := g.cdnHeaders
 	oldBackendEncoders := g.backendEncoders
+	oldSSEHandlers := g.sseHandlers
 	oldRealIPExtractor := g.realIPExtractor
 	oldTokenChecker := g.tokenChecker
 
@@ -960,6 +968,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.contentNegotiators = s.contentNegotiators
 	g.cdnHeaders = s.cdnHeaders
 	g.backendEncoders = s.backendEncoders
+	g.sseHandlers = s.sseHandlers
 	g.realIPExtractor = s.realIPExtractor
 	g.tokenChecker = s.tokenChecker
 
@@ -1021,6 +1030,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.contentNegotiators = oldContentNegotiators
 	g.cdnHeaders = oldCdnHeaders
 	g.backendEncoders = oldBackendEncoders
+	g.sseHandlers = oldSSEHandlers
 	g.realIPExtractor = oldRealIPExtractor
 	g.tokenChecker = oldTokenChecker
 
@@ -1123,6 +1133,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.respBodyGenerators = newState.respBodyGenerators
 	g.paramForwarders = newState.paramForwarders
 	g.contentNegotiators = newState.contentNegotiators
+	g.sseHandlers = newState.sseHandlers
 	g.realIPExtractor = newState.realIPExtractor
 	g.tokenChecker = newState.tokenChecker
 	g.translators = newState.translators

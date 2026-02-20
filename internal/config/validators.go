@@ -299,6 +299,25 @@ func (l *Loader) validateSmallRouteFeatures(route RouteConfig, _ *Config) error 
 		}
 	}
 
+	// SSE proxy
+	if route.SSE.Enabled {
+		if route.SSE.HeartbeatInterval < 0 {
+			return fmt.Errorf("route %s: sse.heartbeat_interval must be >= 0", routeID)
+		}
+		if route.SSE.RetryMS < 0 {
+			return fmt.Errorf("route %s: sse.retry_ms must be >= 0", routeID)
+		}
+		if route.SSE.MaxIdle < 0 {
+			return fmt.Errorf("route %s: sse.max_idle must be >= 0", routeID)
+		}
+		if route.Passthrough {
+			return fmt.Errorf("route %s: sse is mutually exclusive with passthrough", routeID)
+		}
+		if route.ResponseBodyGenerator.Enabled {
+			return fmt.Errorf("route %s: sse is mutually exclusive with response_body_generator", routeID)
+		}
+	}
+
 	// Content negotiation
 	if route.ContentNegotiation.Enabled {
 		validFormats := map[string]bool{"json": true, "xml": true, "yaml": true}

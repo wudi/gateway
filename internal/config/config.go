@@ -314,6 +314,7 @@ type RouteConfig struct {
 	ContentNegotiation   ContentNegotiationConfig    `yaml:"content_negotiation"`   // Accept header → response encoding
 	CDNCacheHeaders      CDNCacheConfig              `yaml:"cdn_cache_headers"`     // Per-route CDN cache header injection
 	BackendEncoding      BackendEncodingConfig       `yaml:"backend_encoding"`      // Decode XML/YAML backend responses to JSON
+	SSE                  SSEConfig                   `yaml:"sse"`                   // Server-Sent Events proxy
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -402,6 +403,17 @@ type WebSocketConfig struct {
 	WriteTimeout    time.Duration `yaml:"write_timeout"`
 	PingInterval    time.Duration `yaml:"ping_interval"`
 	PongTimeout     time.Duration `yaml:"pong_timeout"`
+}
+
+// SSEConfig defines Server-Sent Events proxy settings.
+type SSEConfig struct {
+	Enabled            bool          `yaml:"enabled"`
+	HeartbeatInterval  time.Duration `yaml:"heartbeat_interval"`   // send `: heartbeat\n\n` on idle (0 = disabled)
+	RetryMS            int           `yaml:"retry_ms"`             // inject `retry:` field on connect (0 = don't inject)
+	ConnectEvent       string        `yaml:"connect_event"`        // event data to send on connect (empty = none)
+	DisconnectEvent    string        `yaml:"disconnect_event"`     // event data to send on disconnect (empty = none)
+	MaxIdle            time.Duration `yaml:"max_idle"`             // close connection after idle (0 = no limit)
+	ForwardLastEventID bool          `yaml:"forward_last_event_id"` // forward Last-Event-ID header to backend (default true)
 }
 
 // IPFilterConfig defines IP allow/deny list settings (Feature 2)

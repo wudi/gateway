@@ -149,6 +149,7 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /bot-detection` | Per-route bot detection block counts |
 | `GET /proxy-rate-limits` | Per-route backend-facing rate limit stats |
 | `GET /mock-responses` | Per-route mock response served count |
+| `GET /sse` | Per-route SSE proxy connection and event stats |
 
 ### Example: Querying Feature Endpoints
 

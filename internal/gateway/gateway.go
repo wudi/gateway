@@ -55,6 +55,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/realip"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/serviceratelimit"
+	"github.com/wudi/gateway/internal/middleware/sse"
 	"github.com/wudi/gateway/internal/middleware/signing"
 	"github.com/wudi/gateway/internal/middleware/spikearrest"
 	"github.com/wudi/gateway/internal/middleware/staticfiles"
@@ -176,6 +177,7 @@ type Gateway struct {
 	contentNegotiators  *contentneg.NegotiatorByRoute
 	cdnHeaders          *cdnheaders.CDNHeadersByRoute
 	backendEncoders     *backendenc.EncoderByRoute
+	sseHandlers         *sse.SSEByRoute
 	serviceLimiter      *serviceratelimit.ServiceLimiter
 	debugHandler        *debug.Handler
 	realIPExtractor     *realip.CompiledRealIP
@@ -319,6 +321,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		contentNegotiators:  contentneg.NewNegotiatorByRoute(),
 		cdnHeaders:          cdnheaders.NewCDNHeadersByRoute(),
 		backendEncoders:     backendenc.NewEncoderByRoute(),
+		sseHandlers:         sse.NewSSEByRoute(),
 		watchCancels:      make(map[string]context.CancelFunc),
 	}
 
@@ -509,6 +512,12 @@ func New(cfg *config.Config) (*Gateway, error) {
 			}
 			return nil
 		}, g.backendEncoders.RouteIDs, func() any { return g.backendEncoders.Stats() }),
+		newFeature("sse", "/sse", func(id string, rc config.RouteConfig) error {
+			if rc.SSE.Enabled {
+				g.sseHandlers.AddRoute(id, rc.SSE)
+			}
+			return nil
+		}, g.sseHandlers.RouteIDs, func() any { return g.sseHandlers.Stats() }),
 
 		// Merge features: merge per-route with global config
 		newFeature("throttle", "", func(id string, rc config.RouteConfig) error {
@@ -1440,6 +1449,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 			if route.WebSocket.Enabled {
 				return websocketMW(g.wsProxy, func() loadbalancer.Balancer { return rp.GetBalancer() })
 			}; return nil
+		},
+		/* 10.5 */ func() middleware.Middleware {
+			if sh := g.sseHandlers.GetHandler(routeID); sh != nil { return sh.Middleware() }; return nil
 		},
 		/* 11   */ func() middleware.Middleware {
 			if skipBody { return nil }

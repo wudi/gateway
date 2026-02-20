@@ -1854,6 +1854,25 @@ routes:
 
 See [Backend Encoding](backend-encoding.md) for details.
 
+---
+
+### Server-Sent Events (SSE) Proxy
+
+```yaml
+    sse:
+      enabled: bool                    # enable SSE proxy mode (default false)
+      heartbeat_interval: duration     # send `: heartbeat\n\n` on idle (0 = disabled)
+      retry_ms: int                    # inject `retry:` field on connect (0 = don't inject)
+      connect_event: string            # event data to send on connect (empty = none)
+      disconnect_event: string         # event data to send on disconnect (empty = none)
+      max_idle: duration               # close connection after idle (0 = no limit)
+      forward_last_event_id: bool      # forward Last-Event-ID header to backend (default true)
+```
+
+**Validation:** `heartbeat_interval`, `retry_ms`, and `max_idle` must be >= 0. Mutually exclusive with `passthrough` and `response_body_generator`.
+
+See [SSE Proxy](sse-proxy.md) for streaming patterns and connection lifecycle.
+
 ## Debug Endpoint (global)
 
 ```yaml
