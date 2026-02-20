@@ -94,7 +94,7 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /cache` | Cache statistics (hits, misses, size, evictions). For distributed mode, size is Redis key count; hits/misses are local per-instance counters. |
 | `GET /retries` | Retry metrics per route (attempts, budget exhaustion, hedged requests) |
 | `GET /rules` | Rules engine status (global + per-route rules and metrics) |
-| `GET /protocol-translators` | Protocol translator statistics (gRPC and Thrift) |
+| `GET /protocol-translators` | Protocol translator statistics (http_to_grpc, http_to_thrift, grpc_to_rest) |
 | `GET /traffic-shaping` | Throttle, bandwidth, priority, fault injection, and adaptive concurrency stats |
 | `GET /adaptive-concurrency` | Adaptive concurrency limiter stats (limit, in-flight, EWMA, rejections) |
 | `GET /mirrors` | Mirror metrics (counts, latencies, comparisons) |
@@ -150,7 +150,8 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /bot-detection` | Per-route bot detection block counts |
 | `GET /proxy-rate-limits` | Per-route backend-facing rate limit stats |
 | `GET /mock-responses` | Per-route mock response served count |
-| `GET /sse` | Per-route SSE proxy connection and event stats |
+| `GET /sse` | Per-route SSE proxy connection and event stats (includes fan-out metrics when enabled) |
+| `GET /grpc-proxy` | Per-route gRPC proxy stats (deadline propagation, metadata transforms, message size limits) |
 
 ### Example: Querying Feature Endpoints
 
@@ -1460,6 +1461,78 @@ curl -X POST http://localhost:8081/ip-blocklist/refresh
 {
   "status": "ok",
   "refreshed": 3
+}
+```
+
+---
+
+## SSE Proxy
+
+### GET `/sse`
+
+Returns per-route SSE proxy statistics. When fan-out mode is enabled, includes hub and client metrics.
+
+```bash
+curl http://localhost:8081/sse
+```
+
+**Response (standard mode):**
+```json
+{
+  "events-api": {
+    "active_connections": 5,
+    "total_connections": 142,
+    "total_events": 8923,
+    "heartbeats_sent": 456
+  }
+}
+```
+
+**Response (fan-out mode):**
+```json
+{
+  "live-feed": {
+    "active_connections": 150,
+    "total_connections": 500,
+    "total_events": 0,
+    "heartbeats_sent": 0,
+    "fanout": {
+      "hub_connected": true,
+      "clients": 150,
+      "buffer_used": 256,
+      "reconnects": 2,
+      "dropped_events": 15,
+      "last_event_id": "evt-12000"
+    }
+  }
+}
+```
+
+---
+
+## gRPC Proxy
+
+### GET `/grpc-proxy`
+
+Returns per-route gRPC proxy configuration and statistics.
+
+```bash
+curl http://localhost:8081/grpc-proxy
+```
+
+**Response:**
+```json
+{
+  "grpc-api": {
+    "enabled": true,
+    "deadline_propagation": true,
+    "requests": 15000,
+    "deadlines_set": 12000,
+    "max_recv_msg_size": 4194304,
+    "max_send_msg_size": 4194304,
+    "authority": "grpc-backend.svc",
+    "health_check": true
+  }
 }
 ```
 

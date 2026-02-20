@@ -354,8 +354,99 @@ WebSocket connections bypass the cache and circuit breaker (they return early in
 | `protocol.thrift.methods` | map[string]ThriftMethodDef | Inline method schemas (mutually exclusive with `idl_file`) |
 | `protocol.thrift.structs` | map[string][]ThriftFieldDef | Inline struct definitions |
 | `protocol.thrift.enums` | map[string]map[string]int | Inline enum definitions |
+| `protocol.rest.timeout` | duration | Per-call timeout (default 30s) |
+| `protocol.rest.descriptor_files` | []string | Paths to `.pb` descriptor set files |
+| `protocol.rest.mappings` | []GRPCToRESTMapping | gRPC method → REST endpoint mappings (required) |
 | `grpc.enabled` | bool | Enable gRPC passthrough (mutually exclusive with protocol) |
 | `websocket.enabled` | bool | Enable WebSocket proxying |
 | `websocket.ping_interval` | duration | Keep-alive ping interval |
 
 See [Configuration Reference](configuration-reference.md#routes) for all fields.
+
+## gRPC-to-REST Translation
+
+Translates incoming gRPC requests (`application/grpc`) to REST/HTTP backend calls. This is the reverse of HTTP-to-gRPC: it accepts native gRPC clients and forwards to REST APIs.
+
+### Configuration
+
+```yaml
+routes:
+  - id: "grpc-gateway"
+    path: "/users.UserService/*"
+    backends:
+      - url: "http://rest-api:8080"
+    protocol:
+      type: "grpc_to_rest"
+      rest:
+        timeout: 30s
+        descriptor_files:
+          - /etc/proto/service.pb
+        mappings:
+          - grpc_service: "users.UserService"
+            grpc_method: "GetUser"
+            http_method: "GET"
+            http_path: "/api/users/{user_id}"
+            body: ""
+          - grpc_service: "users.UserService"
+            grpc_method: "CreateUser"
+            http_method: "POST"
+            http_path: "/api/users"
+            body: "*"
+          - grpc_service: "users.UserService"
+            grpc_method: "UpdateUser"
+            http_method: "PUT"
+            http_path: "/api/users/{user_id}"
+            body: "*"
+          - grpc_service: "users.UserService"
+            grpc_method: "DeleteUser"
+            http_method: "DELETE"
+            http_path: "/api/users/{user_id}"
+            body: ""
+```
+
+### How It Works
+
+1. The gateway receives a gRPC request (Content-Type: `application/grpc`)
+2. The gRPC path (`/users.UserService/GetUser`) is matched against configured mappings
+3. The gRPC wire-format body (5-byte header + protobuf/JSON payload) is decoded
+4. If descriptor files are loaded, the protobuf message is properly unmarshaled to JSON via `protojson`
+5. Path template variables (e.g., `{user_id}`) are substituted from the request message fields
+6. A REST request is built with the configured HTTP method, path, and JSON body
+7. The REST backend response is converted back to a gRPC wire-format response
+
+### Descriptor Files
+
+For proper protobuf ↔ JSON conversion, provide pre-compiled `.pb` descriptor set files. Generate them with:
+
+```bash
+protoc --descriptor_set_out=service.pb --include_imports service.proto
+```
+
+Without descriptor files, the translator operates in "JSON passthrough" mode: it treats the gRPC body as raw JSON and passes it through, which works with gRPC-web JSON encoding but not with standard protobuf-encoded gRPC.
+
+### Mapping Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `grpc_service` | string | Fully-qualified gRPC service name (required) |
+| `grpc_method` | string | gRPC method name (required) |
+| `http_method` | string | HTTP method: GET, POST, PUT, DELETE, PATCH (required) |
+| `http_path` | string | REST path with template variables (required) |
+| `body` | string | `"*"` = send full body as JSON, `""` = no body (query params only) |
+
+### Path Templates
+
+Path templates use `{field_name}` syntax to extract values from the gRPC request message:
+
+- `/users/{user_id}` — extracts `user_id` from the message
+- `/orgs/{org_id}/users/{user_id}` — extracts both `org_id` and `user_id`
+
+When `body: "*"`, fields used as path variables are stripped from the request body to avoid duplication.
+
+### Validation Rules
+
+- At least one mapping is required
+- Each mapping must have `grpc_service`, `grpc_method`, `http_method`, and `http_path`
+- `http_method` must be one of: GET, POST, PUT, DELETE, PATCH
+- Duplicate gRPC service/method combinations are not allowed
+- `grpc_to_rest` is mutually exclusive with `grpc.enabled`

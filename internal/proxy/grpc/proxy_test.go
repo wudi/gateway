@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/wudi/gateway/internal/config"
 )
 
 func TestIsGRPCRequest(t *testing.T) {
@@ -33,10 +35,11 @@ func TestIsGRPCRequest(t *testing.T) {
 }
 
 func TestPrepareRequest(t *testing.T) {
-	h := New(true)
+	h := New(config.GRPCConfig{Enabled: true})
 
 	r := httptest.NewRequest("POST", "/", nil)
-	h.PrepareRequest(r)
+	r, cancel := h.PrepareRequest(r)
+	defer cancel()
 
 	if r.ProtoMajor != 2 {
 		t.Errorf("expected HTTP/2, got HTTP/%d", r.ProtoMajor)
@@ -48,13 +51,114 @@ func TestPrepareRequest(t *testing.T) {
 }
 
 func TestPrepareRequestDisabled(t *testing.T) {
-	h := New(false)
+	h := New(config.GRPCConfig{Enabled: false})
 
 	r := httptest.NewRequest("POST", "/", nil)
-	h.PrepareRequest(r)
+	r, cancel := h.PrepareRequest(r)
+	defer cancel()
 
 	if r.ProtoMajor != 1 {
 		t.Errorf("disabled handler should not modify proto version")
+	}
+}
+
+func TestPrepareRequestWithAuthority(t *testing.T) {
+	h := New(config.GRPCConfig{
+		Enabled:   true,
+		Authority: "custom.authority",
+	})
+
+	r := httptest.NewRequest("POST", "/pkg.Svc/Method", nil)
+	r, cancel := h.PrepareRequest(r)
+	defer cancel()
+
+	if r.Host != "custom.authority" {
+		t.Errorf("expected host 'custom.authority', got %q", r.Host)
+	}
+}
+
+func TestPrepareRequestWithDeadline(t *testing.T) {
+	h := New(config.GRPCConfig{
+		Enabled:             true,
+		DeadlinePropagation: true,
+	})
+
+	r := httptest.NewRequest("POST", "/pkg.Svc/Method", nil)
+	r.Header.Set("grpc-timeout", "5S")
+
+	r, cancel := h.PrepareRequest(r)
+	defer cancel()
+
+	if _, ok := r.Context().Deadline(); !ok {
+		t.Error("expected deadline to be set with propagation enabled")
+	}
+
+	if h.deadlinesSet.Load() != 1 {
+		t.Errorf("expected deadlinesSet=1, got %d", h.deadlinesSet.Load())
+	}
+}
+
+func TestPrepareRequestWithMetadata(t *testing.T) {
+	h := New(config.GRPCConfig{
+		Enabled: true,
+		MetadataTransforms: config.GRPCMetadataTransforms{
+			RequestMap: map[string]string{
+				"X-Custom": "x-grpc-custom",
+			},
+		},
+	})
+
+	r := httptest.NewRequest("POST", "/pkg.Svc/Method", nil)
+	r.Header.Set("X-Custom", "value")
+
+	r, cancel := h.PrepareRequest(r)
+	defer cancel()
+
+	if v := r.Header.Get("X-Grpc-Custom"); v != "value" {
+		t.Errorf("expected metadata transform, got %q", v)
+	}
+}
+
+func TestProcessResponse(t *testing.T) {
+	h := New(config.GRPCConfig{
+		Enabled: true,
+		MetadataTransforms: config.GRPCMetadataTransforms{
+			ResponseMap: map[string]string{
+				"x-grpc-trace": "X-Trace-Id",
+			},
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	rec.Header().Set("X-Grpc-Trace", "trace123")
+
+	h.ProcessResponse(rec)
+
+	if v := rec.Header().Get("X-Trace-Id"); v != "trace123" {
+		t.Errorf("expected response metadata transform, got %q", v)
+	}
+}
+
+func TestHandlerStats(t *testing.T) {
+	h := New(config.GRPCConfig{
+		Enabled:             true,
+		DeadlinePropagation: true,
+		MaxRecvMsgSize:      4096,
+		Authority:           "test.svc",
+	})
+
+	stats := h.Stats()
+	if stats["enabled"] != true {
+		t.Error("expected enabled=true")
+	}
+	if stats["deadline_propagation"] != true {
+		t.Error("expected deadline_propagation=true")
+	}
+	if stats["max_recv_msg_size"] != 4096 {
+		t.Error("expected max_recv_msg_size=4096")
+	}
+	if stats["authority"] != "test.svc" {
+		t.Error("expected authority=test.svc")
 	}
 }
 
@@ -97,5 +201,27 @@ func TestIsRetryableGRPCStatus(t *testing.T) {
 
 	if IsRetryableGRPCStatus("5") {
 		t.Error("NOT_FOUND should not be retryable")
+	}
+}
+
+func TestGRPCByRoute(t *testing.T) {
+	m := NewGRPCByRoute()
+	m.AddRoute("route1", config.GRPCConfig{Enabled: true})
+
+	h := m.GetHandler("route1")
+	if h == nil {
+		t.Fatal("expected handler for route1")
+	}
+	if !h.IsEnabled() {
+		t.Error("expected handler to be enabled")
+	}
+
+	if m.GetHandler("unknown") != nil {
+		t.Error("expected nil for unknown route")
+	}
+
+	stats := m.Stats()
+	if _, ok := stats["route1"]; !ok {
+		t.Error("expected stats for route1")
 	}
 }

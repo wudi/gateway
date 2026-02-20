@@ -27,6 +27,8 @@ type SSEHandler struct {
 	totalConns     atomic.Int64
 	totalEvents    atomic.Int64
 	heartbeatsSent atomic.Int64
+
+	hub *Hub // non-nil when fan-out is enabled
 }
 
 // New creates an SSEHandler from config.
@@ -46,6 +48,15 @@ func New(cfg config.SSEConfig) *SSEHandler {
 func (h *SSEHandler) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Fan-out mode: serve from hub, never call next
+			if h.hub != nil {
+				h.activeConns.Add(1)
+				h.totalConns.Add(1)
+				defer h.activeConns.Add(-1)
+				h.hub.ServeClient(w, r)
+				return
+			}
+
 			// Forward Last-Event-ID to backend
 			if h.forwardLastEventID {
 				if lastID := r.Header.Get("Last-Event-ID"); lastID != "" {
@@ -64,14 +75,30 @@ func (h *SSEHandler) Middleware() middleware.Middleware {
 	}
 }
 
+// SetHub sets the fan-out hub for this handler.
+func (h *SSEHandler) SetHub(hub *Hub) {
+	h.hub = hub
+}
+
+// StopHub stops the fan-out hub if one is set.
+func (h *SSEHandler) StopHub() {
+	if h.hub != nil {
+		h.hub.Stop()
+	}
+}
+
 // Stats returns handler statistics.
 func (h *SSEHandler) Stats() map[string]interface{} {
-	return map[string]interface{}{
+	stats := map[string]interface{}{
 		"active_connections": h.activeConns.Load(),
 		"total_connections":  h.totalConns.Load(),
 		"total_events":       h.totalEvents.Load(),
 		"heartbeats_sent":    h.heartbeatsSent.Load(),
 	}
+	if h.hub != nil {
+		stats["fanout"] = h.hub.Stats()
+	}
+	return stats
 }
 
 // sseResponseWriter wraps http.ResponseWriter to handle SSE event-aware flushing.
@@ -309,5 +336,13 @@ func (m *SSEByRoute) GetHandler(routeID string) *SSEHandler {
 func (m *SSEByRoute) Stats() map[string]interface{} {
 	return byroute.CollectStats(&m.Manager, func(h *SSEHandler) interface{} {
 		return h.Stats()
+	})
+}
+
+// StopAllHubs stops all fan-out hubs across all routes.
+func (m *SSEByRoute) StopAllHubs() {
+	m.Range(func(id string, h *SSEHandler) bool {
+		h.StopHub()
+		return true
 	})
 }

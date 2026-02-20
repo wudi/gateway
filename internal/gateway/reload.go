@@ -161,7 +161,7 @@ type gatewayState struct {
 	blueGreenControllers *bluegreen.BlueGreenByRoute
 	translators       *protocol.TranslatorByRoute
 	rateLimiters      *ratelimit.RateLimitByRoute
-	grpcHandlers      map[string]*grpcproxy.Handler
+	grpcHandlers      *grpcproxy.GRPCByRoute
 	budgetPools       map[string]*retry.Budget
 
 	// Auth providers
@@ -237,7 +237,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		blueGreenControllers: bluegreen.NewBlueGreenByRoute(),
 		translators:       protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
-		grpcHandlers:      make(map[string]*grpcproxy.Handler),
+		grpcHandlers:      grpcproxy.NewGRPCByRoute(),
 		budgetPools:       make(map[string]*retry.Budget),
 	}
 
@@ -793,7 +793,7 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 
 	// gRPC handler
 	if routeCfg.GRPC.Enabled {
-		s.grpcHandlers[routeCfg.ID] = grpcproxy.New(true)
+		s.grpcHandlers.AddRoute(routeCfg.ID, routeCfg.GRPC)
 	}
 
 	// Protocol translator

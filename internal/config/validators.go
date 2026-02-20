@@ -367,6 +367,20 @@ func (l *Loader) validateSmallRouteFeatures(route RouteConfig, _ *Config) error 
 		if route.ResponseBodyGenerator.Enabled {
 			return fmt.Errorf("route %s: sse is mutually exclusive with response_body_generator", routeID)
 		}
+		if route.SSE.Fanout.Enabled {
+			if route.SSE.Fanout.BufferSize < 0 {
+				return fmt.Errorf("route %s: sse.fanout.buffer_size must be >= 0", routeID)
+			}
+			if route.SSE.Fanout.ClientBufferSize < 0 {
+				return fmt.Errorf("route %s: sse.fanout.client_buffer_size must be >= 0", routeID)
+			}
+			if route.SSE.Fanout.ReconnectDelay < 0 {
+				return fmt.Errorf("route %s: sse.fanout.reconnect_delay must be >= 0", routeID)
+			}
+			if route.SSE.Fanout.MaxReconnects < 0 {
+				return fmt.Errorf("route %s: sse.fanout.max_reconnects must be >= 0", routeID)
+			}
+		}
 	}
 
 	// Content negotiation
@@ -808,9 +822,22 @@ func (l *Loader) validateNetworkFeatures(route RouteConfig, _ *Config) error {
 		}
 	}
 
+	// gRPC proxy
+	if route.GRPC.Enabled {
+		if route.GRPC.MaxRecvMsgSize < 0 {
+			return fmt.Errorf("route %s: grpc.max_recv_msg_size must be >= 0", routeID)
+		}
+		if route.GRPC.MaxSendMsgSize < 0 {
+			return fmt.Errorf("route %s: grpc.max_send_msg_size must be >= 0", routeID)
+		}
+		if route.GRPC.HealthCheck.Enabled && !route.GRPC.Enabled {
+			return fmt.Errorf("route %s: grpc.health_check requires grpc.enabled", routeID)
+		}
+	}
+
 	// Protocol translation
 	if route.Protocol.Type != "" {
-		validProtocolTypes := map[string]bool{"http_to_grpc": true, "http_to_thrift": true}
+		validProtocolTypes := map[string]bool{"http_to_grpc": true, "http_to_thrift": true, "grpc_to_rest": true}
 		if !validProtocolTypes[route.Protocol.Type] {
 			return fmt.Errorf("route %s: unknown protocol type: %s", routeID, route.Protocol.Type)
 		}
@@ -857,6 +884,13 @@ func (l *Loader) validateNetworkFeatures(route RouteConfig, _ *Config) error {
 				if err := l.validateThriftInlineSchema(routeID, route.Protocol.Thrift); err != nil {
 					return err
 				}
+			}
+		case "grpc_to_rest":
+			if len(route.Protocol.REST.Mappings) == 0 {
+				return fmt.Errorf("route %s: grpc_to_rest requires at least one mapping", routeID)
+			}
+			if err := l.validateGRPCToRESTMappings(routeID, route.Protocol.REST); err != nil {
+				return err
 			}
 		}
 	}
@@ -2316,5 +2350,39 @@ func (l *Loader) validateIPBlocklistConfig(scope string, cfg IPBlocklistConfig) 
 			return fmt.Errorf("%s: ip_blocklist.feeds[%d]: refresh_interval must be >= 1s", scope, i)
 		}
 	}
+	return nil
+}
+
+// validateGRPCToRESTMappings validates gRPC-to-REST method mappings.
+func (l *Loader) validateGRPCToRESTMappings(routeID string, cfg RESTTranslateConfig) error {
+	validMethods := map[string]bool{
+		"GET": true, "POST": true, "PUT": true, "DELETE": true, "PATCH": true,
+	}
+
+	seen := make(map[string]bool)
+	for i, m := range cfg.Mappings {
+		if m.GRPCService == "" {
+			return fmt.Errorf("route %s: grpc_to_rest mapping %d: grpc_service is required", routeID, i)
+		}
+		if m.GRPCMethod == "" {
+			return fmt.Errorf("route %s: grpc_to_rest mapping %d: grpc_method is required", routeID, i)
+		}
+		if m.HTTPMethod == "" {
+			return fmt.Errorf("route %s: grpc_to_rest mapping %d: http_method is required", routeID, i)
+		}
+		if !validMethods[m.HTTPMethod] {
+			return fmt.Errorf("route %s: grpc_to_rest mapping %d: invalid http_method: %s", routeID, i, m.HTTPMethod)
+		}
+		if m.HTTPPath == "" {
+			return fmt.Errorf("route %s: grpc_to_rest mapping %d: http_path is required", routeID, i)
+		}
+
+		key := "/" + m.GRPCService + "/" + m.GRPCMethod
+		if seen[key] {
+			return fmt.Errorf("route %s: grpc_to_rest mapping %d: duplicate mapping for %s", routeID, i, key)
+		}
+		seen[key] = true
+	}
+
 	return nil
 }

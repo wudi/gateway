@@ -685,7 +685,7 @@ Note: The `database` field is only valid at the global level. Per-route geo conf
 
 ```yaml
     protocol:
-      type: string            # "http_to_grpc" or "http_to_thrift"
+      type: string            # "http_to_grpc", "http_to_thrift", or "grpc_to_rest"
       grpc:
         service: string       # fully-qualified gRPC service name
         method: string        # fixed method (requires service)
@@ -748,18 +748,43 @@ Note: The `database` field is only valid at the global level. Per-route geo conf
         enums:                 # inline enum definitions
           EnumName:
             VALUE_NAME: int    # enum value name → integer value
+      rest:
+        timeout: duration           # per-call timeout (default 30s)
+        descriptor_files: [string]  # paths to .pb descriptor set files (for protobuf ↔ JSON)
+        mappings:
+          - grpc_service: string    # fully-qualified gRPC service name (required)
+            grpc_method: string     # gRPC method name (required)
+            http_method: string     # GET, POST, PUT, DELETE, PATCH (required)
+            http_path: string       # REST path with {variables} (required)
+            body: string            # "*" = send full body as JSON, "" = no body (query params only)
 ```
 
 **Validation (gRPC):** Mutually exclusive with `grpc.enabled`. `method` and `mappings` are mutually exclusive. If `grpc.tls.enabled` is true, `ca_file` is required. If `mappings` is used, `service` is required. `method` requires `service`.
 
 **Validation (Thrift):** `idl_file` and `methods` are mutually exclusive; one must be provided. `service` is required. `method` and `mappings` are mutually exclusive. `protocol` must be `binary` or `compact`. `transport` must be `framed` or `buffered`. If `tls.enabled` is true, `ca_file` is required. When using `methods`: field IDs in args must be > 0; in result, ID 0 is the success return. Struct references must exist in `structs`. Enum references must exist in `enums`. Enums must have at least one value.
 
+**Validation (gRPC-to-REST):** At least one mapping is required. Each mapping must have `grpc_service`, `grpc_method`, `http_method`, and `http_path`. `http_method` must be GET/POST/PUT/DELETE/PATCH. No duplicate gRPC service/method combinations. Mutually exclusive with `grpc.enabled`.
+
 ### gRPC Passthrough
 
 ```yaml
     grpc:
       enabled: bool
+      deadline_propagation: bool      # parse grpc-timeout and set context deadline
+      max_recv_msg_size: int          # max request body in bytes (0=unlimited)
+      max_send_msg_size: int          # max response body in bytes (0=unlimited)
+      authority: string               # override :authority pseudo-header
+      metadata_transforms:
+        request_map: map[string]string  # HTTP header → gRPC metadata
+        response_map: map[string]string # gRPC metadata → HTTP header
+        strip_prefix: string            # auto-strip prefix from headers
+        passthrough: [string]           # headers to pass as-is
+      health_check:
+        enabled: bool                   # use grpc.health.v1 instead of HTTP
+        service: string                 # service name (empty = overall)
 ```
+
+**Validation:** `max_recv_msg_size` and `max_send_msg_size` must be >= 0. `grpc.enabled` is mutually exclusive with `protocol` translation.
 
 ### Traffic Shaping (per-route)
 
@@ -1887,9 +1912,17 @@ See [Backend Encoding](backend-encoding.md) for details.
       disconnect_event: string         # event data to send on disconnect (empty = none)
       max_idle: duration               # close connection after idle (0 = no limit)
       forward_last_event_id: bool      # forward Last-Event-ID header to backend (default true)
+      fanout:
+        enabled: bool                  # enable fan-out mode (default false)
+        buffer_size: int               # ring buffer size for catch-up events (default 256)
+        client_buffer_size: int        # per-client channel buffer (default 64)
+        reconnect_delay: duration      # upstream reconnect delay (default 1s)
+        max_reconnects: int            # max upstream reconnection attempts (0 = unlimited)
+        event_filtering: bool          # allow clients to filter events by type (default false)
+        filter_param: string           # query parameter for event type filtering (default "event_type")
 ```
 
-**Validation:** `heartbeat_interval`, `retry_ms`, and `max_idle` must be >= 0. Mutually exclusive with `passthrough` and `response_body_generator`.
+**Validation:** `heartbeat_interval`, `retry_ms`, and `max_idle` must be >= 0. Mutually exclusive with `passthrough` and `response_body_generator`. Fan-out requires `sse.enabled: true`. `fanout.buffer_size`, `fanout.client_buffer_size`, and `fanout.max_reconnects` must be >= 0. `fanout.reconnect_delay` must be >= 0.
 
 See [SSE Proxy](sse-proxy.md) for streaming patterns and connection lifecycle.
 

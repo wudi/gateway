@@ -419,13 +419,25 @@ type WebSocketConfig struct {
 
 // SSEConfig defines Server-Sent Events proxy settings.
 type SSEConfig struct {
-	Enabled            bool          `yaml:"enabled"`
-	HeartbeatInterval  time.Duration `yaml:"heartbeat_interval"`   // send `: heartbeat\n\n` on idle (0 = disabled)
-	RetryMS            int           `yaml:"retry_ms"`             // inject `retry:` field on connect (0 = don't inject)
-	ConnectEvent       string        `yaml:"connect_event"`        // event data to send on connect (empty = none)
-	DisconnectEvent    string        `yaml:"disconnect_event"`     // event data to send on disconnect (empty = none)
-	MaxIdle            time.Duration `yaml:"max_idle"`             // close connection after idle (0 = no limit)
-	ForwardLastEventID bool          `yaml:"forward_last_event_id"` // forward Last-Event-ID header to backend (default true)
+	Enabled            bool           `yaml:"enabled"`
+	HeartbeatInterval  time.Duration  `yaml:"heartbeat_interval"`   // send `: heartbeat\n\n` on idle (0 = disabled)
+	RetryMS            int            `yaml:"retry_ms"`             // inject `retry:` field on connect (0 = don't inject)
+	ConnectEvent       string         `yaml:"connect_event"`        // event data to send on connect (empty = none)
+	DisconnectEvent    string         `yaml:"disconnect_event"`     // event data to send on disconnect (empty = none)
+	MaxIdle            time.Duration  `yaml:"max_idle"`             // close connection after idle (0 = no limit)
+	ForwardLastEventID bool           `yaml:"forward_last_event_id"` // forward Last-Event-ID header to backend (default true)
+	Fanout             SSEFanoutConfig `yaml:"fanout"`
+}
+
+// SSEFanoutConfig defines SSE fan-out settings.
+type SSEFanoutConfig struct {
+	Enabled          bool          `yaml:"enabled"`
+	BufferSize       int           `yaml:"buffer_size"`        // ring buffer for catch-up (default 256)
+	ClientBufferSize int           `yaml:"client_buffer_size"` // per-client channel buffer (default 64)
+	ReconnectDelay   time.Duration `yaml:"reconnect_delay"`    // upstream reconnect delay (default 1s)
+	MaxReconnects    int           `yaml:"max_reconnects"`     // 0=unlimited
+	EventFiltering   bool          `yaml:"event_filtering"`    // clients filter by event type via query param
+	FilterParam      string        `yaml:"filter_param"`       // query param name (default "event_type")
 }
 
 // IPFilterConfig defines IP allow/deny list settings (Feature 2)
@@ -672,14 +684,51 @@ type MirrorCompareConfig struct {
 
 // GRPCConfig defines gRPC proxying settings (Feature 12)
 type GRPCConfig struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled             bool                   `yaml:"enabled"`
+	DeadlinePropagation bool                   `yaml:"deadline_propagation"`
+	MaxRecvMsgSize      int                    `yaml:"max_recv_msg_size"` // bytes, 0=unlimited
+	MaxSendMsgSize      int                    `yaml:"max_send_msg_size"` // bytes, 0=unlimited
+	Authority           string                 `yaml:"authority"`         // override :authority
+	MetadataTransforms  GRPCMetadataTransforms `yaml:"metadata_transforms"`
+	HealthCheck         GRPCHealthCheckConfig  `yaml:"health_check"`
+}
+
+// GRPCMetadataTransforms defines metadata mapping rules for gRPC proxying.
+type GRPCMetadataTransforms struct {
+	RequestMap  map[string]string `yaml:"request_map"`  // HTTP header → gRPC metadata
+	ResponseMap map[string]string `yaml:"response_map"` // gRPC metadata → HTTP header
+	StripPrefix string            `yaml:"strip_prefix"` // auto-strip prefix from headers
+	Passthrough []string          `yaml:"passthrough"`  // pass as-is
+}
+
+// GRPCHealthCheckConfig defines gRPC health check settings.
+type GRPCHealthCheckConfig struct {
+	Enabled bool   `yaml:"enabled"` // use grpc.health.v1 instead of HTTP
+	Service string `yaml:"service"` // service name (empty = overall)
 }
 
 // ProtocolConfig defines protocol translation settings per route.
 type ProtocolConfig struct {
-	Type   string                `yaml:"type"` // "http_to_grpc", "http_to_thrift"
+	Type   string                `yaml:"type"` // "http_to_grpc", "http_to_thrift", "grpc_to_rest"
 	GRPC   GRPCTranslateConfig   `yaml:"grpc"`
 	Thrift ThriftTranslateConfig `yaml:"thrift"`
+	REST   RESTTranslateConfig   `yaml:"rest"`
+}
+
+// RESTTranslateConfig defines gRPC-to-REST translation settings.
+type RESTTranslateConfig struct {
+	Timeout         time.Duration       `yaml:"timeout"`          // default 30s
+	DescriptorFiles []string            `yaml:"descriptor_files"` // .pb descriptor set paths
+	Mappings        []GRPCToRESTMapping `yaml:"mappings"`         // required
+}
+
+// GRPCToRESTMapping defines a gRPC method to REST endpoint mapping.
+type GRPCToRESTMapping struct {
+	GRPCService string `yaml:"grpc_service"` // fully-qualified service name
+	GRPCMethod  string `yaml:"grpc_method"`  // method name
+	HTTPMethod  string `yaml:"http_method"`  // GET/POST/PUT/DELETE/PATCH
+	HTTPPath    string `yaml:"http_path"`    // /users/{user_id}
+	Body        string `yaml:"body"`         // "*"=whole body, ""=query params only
 }
 
 // GRPCTranslateConfig defines HTTP-to-gRPC translation settings.

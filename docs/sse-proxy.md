@@ -102,6 +102,76 @@ Returns per-route SSE proxy statistics:
 }
 ```
 
+## Fan-out Mode
+
+Fan-out mode maintains a single upstream SSE connection and broadcasts events to all connected clients. This is useful when many clients need the same event stream (e.g., live scores, stock tickers, notifications).
+
+### Fan-out Configuration
+
+```yaml
+routes:
+  - id: live-feed
+    path: /live
+    backends:
+      - url: http://event-source:8080/stream
+    sse:
+      enabled: true
+      heartbeat_interval: 30s
+      fanout:
+        enabled: true
+        buffer_size: 256
+        client_buffer_size: 64
+        reconnect_delay: 1s
+        max_reconnects: 0
+        event_filtering: true
+        filter_param: event_type
+```
+
+### Fan-out Config Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `fanout.enabled` | bool | `false` | Enable fan-out mode |
+| `fanout.buffer_size` | int | `256` | Ring buffer size for catch-up events |
+| `fanout.client_buffer_size` | int | `64` | Per-client channel buffer size |
+| `fanout.reconnect_delay` | duration | `1s` | Delay before reconnecting to upstream on disconnect |
+| `fanout.max_reconnects` | int | `0` (unlimited) | Maximum upstream reconnection attempts |
+| `fanout.event_filtering` | bool | `false` | Allow clients to filter events by type |
+| `fanout.filter_param` | string | `event_type` | Query parameter name for event type filtering |
+
+### How Fan-out Works
+
+1. **Hub**: A background goroutine connects to the upstream backend and reads SSE events. Events are parsed, stored in a ring buffer, and broadcast to all connected clients.
+
+2. **Catch-up**: When a new client connects, it receives buffered events from the ring buffer. If the client sends a `Last-Event-ID` header, only events after that ID are sent.
+
+3. **Reconnection**: If the upstream connection drops, the hub automatically reconnects after `reconnect_delay`. It sends the last known event ID to the backend for stream resumption.
+
+4. **Backpressure**: Each client has a buffered channel. If a client can't keep up, events are dropped for that client (non-blocking send). The `dropped_events` counter tracks this.
+
+5. **Event filtering**: When `event_filtering` is enabled, clients can pass `?event_type=chat,system` to receive only events matching those types.
+
+### Fan-out Admin Stats
+
+```json
+{
+  "live-feed": {
+    "active_connections": 150,
+    "total_connections": 500,
+    "total_events": 0,
+    "heartbeats_sent": 0,
+    "fanout": {
+      "hub_connected": true,
+      "clients": 150,
+      "buffer_used": 256,
+      "reconnects": 2,
+      "dropped_events": 15,
+      "last_event_id": "evt-12000"
+    }
+  }
+}
+```
+
 ## Validation Rules
 
 - `heartbeat_interval` must be >= 0
@@ -109,3 +179,8 @@ Returns per-route SSE proxy statistics:
 - `max_idle` must be >= 0
 - SSE and `passthrough` are mutually exclusive
 - SSE and `response_body_generator` are mutually exclusive
+- Fan-out requires `sse.enabled: true`
+- `fanout.buffer_size` must be >= 0
+- `fanout.client_buffer_size` must be >= 0
+- `fanout.reconnect_delay` must be >= 0
+- `fanout.max_reconnects` must be >= 0

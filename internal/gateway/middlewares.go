@@ -379,9 +379,16 @@ func requestTransformMW(route *router.Route, grpcH *grpcproxy.Handler, reqBodyTr
 				reqBodyTransform.TransformRequest(r, varCtx)
 			}
 
-			// gRPC preparation
+			// gRPC preparation: deadline propagation, metadata transforms, size limits
 			if grpcH != nil && grpcproxy.IsGRPCRequest(r) {
-				grpcH.PrepareRequest(r)
+				var cancel func()
+				r, cancel = grpcH.PrepareRequest(r)
+				defer cancel()
+
+				// Wrap response writer for send size limits + response metadata
+				w = grpcH.WrapResponseWriter(w)
+
+				defer grpcH.ProcessResponse(w)
 			}
 
 			next.ServeHTTP(w, r)

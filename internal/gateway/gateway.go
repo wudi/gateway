@@ -134,7 +134,7 @@ type Gateway struct {
 	mirrors          *mirror.MirrorByRoute
 	tracer           *tracing.Tracer
 
-	grpcHandlers map[string]*grpcproxy.Handler
+	grpcHandlers *grpcproxy.GRPCByRoute
 	translators  *protocol.TranslatorByRoute
 
 	globalRules *rules.RuleEngine
@@ -294,7 +294,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		metricsCollector:  metrics.NewCollector(),
 		validators:        validation.NewValidatorByRoute(),
 		mirrors:           mirror.NewMirrorByRoute(),
-		grpcHandlers:      make(map[string]*grpcproxy.Handler),
+		grpcHandlers:      grpcproxy.NewGRPCByRoute(),
 		translators:       protocol.NewTranslatorByRoute(),
 		routeRules:        rules.NewRulesByRoute(),
 		throttlers:        trafficshape.NewThrottleByRoute(),
@@ -836,6 +836,8 @@ func New(cfg *config.Config) (*Gateway, error) {
 		}),
 		noOpFeature("protocol_translators", "/protocol-translators",
 			g.translators.RouteIDs, func() any { return g.translators.Stats() }),
+		noOpFeature("grpc_proxy", "/grpc-proxy",
+			g.grpcHandlers.RouteIDs, func() any { return g.grpcHandlers.Stats() }),
 	}
 
 	// Initialize global IP filter
@@ -1351,7 +1353,7 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 
 	// Set up gRPC handler (unique setup signature, not in feature loop)
 	if routeCfg.GRPC.Enabled {
-		g.grpcHandlers[routeCfg.ID] = grpcproxy.New(true)
+		g.grpcHandlers.AddRoute(routeCfg.ID, routeCfg.GRPC)
 	}
 
 	// Set up protocol translator (replaces RouteProxy as innermost handler; blocked by echo validation)
@@ -1409,6 +1411,15 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 	// Set up outlier detection (needs Balancer, only available after route proxy creation)
 	if routeCfg.OutlierDetection.Enabled {
 		g.outlierDetectors.AddRoute(routeCfg.ID, routeCfg.OutlierDetection, routeProxy.GetBalancer())
+	}
+
+	// Set up SSE fan-out hub (needs balancer from routeProxy)
+	if routeCfg.SSE.Enabled && routeCfg.SSE.Fanout.Enabled && routeProxy != nil {
+		hub := sse.NewHub(routeCfg.SSE.Fanout, routeProxy.GetBalancer())
+		if sh := g.sseHandlers.GetHandler(routeCfg.ID); sh != nil {
+			sh.SetHub(hub)
+			hub.Start()
+		}
 	}
 
 	// Build the per-route middleware pipeline handler
@@ -1630,7 +1641,7 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 			}; return nil
 		},
 		/* 16   */ func() middleware.Middleware {
-			return requestTransformMW(route, g.grpcHandlers[routeID], reqBodyTransform)
+			return requestTransformMW(route, g.grpcHandlers.GetHandler(routeID), reqBodyTransform)
 		},
 		/* 16.05*/ func() middleware.Middleware {
 			if bg := g.bodyGenerators.GetGenerator(routeID); bg != nil { return bg.Middleware() }; return nil
@@ -2047,6 +2058,9 @@ func (g *Gateway) Close() error {
 	if g.geoProvider != nil {
 		g.geoProvider.Close()
 	}
+
+	// Stop SSE fan-out hubs
+	g.sseHandlers.StopAllHubs()
 
 	// Close protocol translators
 	g.translators.Close()
