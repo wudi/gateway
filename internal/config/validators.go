@@ -21,6 +21,7 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		l.validateEchoExclusions,
 		l.validatePassthroughExclusions,
 		l.validateMockAndStaticFiles,
+		l.validateFastCGI,
 		l.validateBackendAuthAndStatusMapping,
 		l.validateSequentialProxy,
 		l.validateAggregateProxy,
@@ -49,7 +50,7 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 
 func (l *Loader) validateRouteBasics(route RouteConfig, _ *Config) error {
 	routeID := route.ID
-	if len(route.Backends) == 0 && route.Service.Name == "" && !route.Versioning.Enabled && route.Upstream == "" && !route.Echo && !route.Static.Enabled && !route.Sequential.Enabled && !route.Aggregate.Enabled {
+	if len(route.Backends) == 0 && route.Service.Name == "" && !route.Versioning.Enabled && route.Upstream == "" && !route.Echo && !route.Static.Enabled && !route.Sequential.Enabled && !route.Aggregate.Enabled && !route.FastCGI.Enabled {
 		return fmt.Errorf("route %s: must have either backends, service name, or upstream", routeID)
 	}
 	if route.Upstream != "" {
@@ -107,6 +108,9 @@ func (l *Loader) validateEchoExclusions(route RouteConfig, _ *Config) error {
 	if route.MockResponse.Enabled {
 		return fmt.Errorf("route %s: echo is mutually exclusive with mock_response", routeID)
 	}
+	if route.FastCGI.Enabled {
+		return fmt.Errorf("route %s: echo is mutually exclusive with fastcgi", routeID)
+	}
 	return nil
 }
 
@@ -137,6 +141,7 @@ func (l *Loader) validatePassthroughExclusions(route RouteConfig, _ *Config) err
 		{route.BackendEncoding.Encoding != "", "backend_encoding"},
 		{route.PIIRedaction.Enabled, "pii_redaction"},
 		{route.FieldEncryption.Enabled, "field_encryption"},
+		{route.FastCGI.Enabled, "fastcgi"},
 	}
 	for _, c := range checks {
 		if c.active {
@@ -163,6 +168,44 @@ func (l *Loader) validateMockAndStaticFiles(route RouteConfig, _ *Config) error 
 		if len(route.Backends) > 0 || route.Service.Name != "" || route.Upstream != "" {
 			return fmt.Errorf("route %s: static is mutually exclusive with backends, service, and upstream", routeID)
 		}
+		if route.FastCGI.Enabled {
+			return fmt.Errorf("route %s: static is mutually exclusive with fastcgi", routeID)
+		}
+	}
+	return nil
+}
+
+func (l *Loader) validateFastCGI(route RouteConfig, _ *Config) error {
+	if !route.FastCGI.Enabled {
+		return nil
+	}
+	routeID := route.ID
+	if route.FastCGI.Address == "" {
+		return fmt.Errorf("route %s: fastcgi.address is required", routeID)
+	}
+	if route.FastCGI.DocumentRoot == "" {
+		return fmt.Errorf("route %s: fastcgi.document_root is required", routeID)
+	}
+	if route.FastCGI.Network != "" && route.FastCGI.Network != "tcp" && route.FastCGI.Network != "unix" {
+		return fmt.Errorf("route %s: fastcgi.network must be 'tcp' or 'unix'", routeID)
+	}
+	if route.FastCGI.PoolSize < 0 {
+		return fmt.Errorf("route %s: fastcgi.pool_size must be >= 0", routeID)
+	}
+	if len(route.Backends) > 0 || route.Service.Name != "" || route.Upstream != "" {
+		return fmt.Errorf("route %s: fastcgi is mutually exclusive with backends, service, and upstream", routeID)
+	}
+	if route.Echo {
+		return fmt.Errorf("route %s: fastcgi is mutually exclusive with echo", routeID)
+	}
+	if route.Sequential.Enabled {
+		return fmt.Errorf("route %s: fastcgi is mutually exclusive with sequential", routeID)
+	}
+	if route.Aggregate.Enabled {
+		return fmt.Errorf("route %s: fastcgi is mutually exclusive with aggregate", routeID)
+	}
+	if route.Passthrough {
+		return fmt.Errorf("route %s: fastcgi is mutually exclusive with passthrough", routeID)
 	}
 	return nil
 }
@@ -215,6 +258,9 @@ func (l *Loader) validateSequentialProxy(route RouteConfig, _ *Config) error {
 	if route.Static.Enabled {
 		return fmt.Errorf("route %s: sequential is mutually exclusive with static", routeID)
 	}
+	if route.FastCGI.Enabled {
+		return fmt.Errorf("route %s: sequential is mutually exclusive with fastcgi", routeID)
+	}
 	return nil
 }
 
@@ -251,6 +297,9 @@ func (l *Loader) validateAggregateProxy(route RouteConfig, _ *Config) error {
 	}
 	if route.Static.Enabled {
 		return fmt.Errorf("route %s: aggregate is mutually exclusive with static", routeID)
+	}
+	if route.FastCGI.Enabled {
+		return fmt.Errorf("route %s: aggregate is mutually exclusive with fastcgi", routeID)
 	}
 	return nil
 }

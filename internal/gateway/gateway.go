@@ -71,6 +71,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/waf"
 	"github.com/wudi/gateway/internal/mirror"
 	"github.com/wudi/gateway/internal/proxy"
+	fastcgiproxy "github.com/wudi/gateway/internal/proxy/fastcgi"
 	grpcproxy "github.com/wudi/gateway/internal/proxy/grpc"
 	"github.com/wudi/gateway/internal/proxy/protocol"
 	"github.com/wudi/gateway/internal/bluegreen"
@@ -170,6 +171,7 @@ type Gateway struct {
 	backendAuths        *backendauth.BackendAuthByRoute
 	statusMappers       *statusmap.StatusMapByRoute
 	staticFiles         *staticfiles.StaticByRoute
+	fastcgiHandlers     *fastcgiproxy.FastCGIByRoute
 	spikeArresters      *spikearrest.SpikeArrestByRoute
 	contentReplacers    *contentreplacer.ContentReplacerByRoute
 	bodyGenerators      *bodygen.BodyGenByRoute
@@ -319,6 +321,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		backendAuths:        backendauth.NewBackendAuthByRoute(),
 		statusMappers:       statusmap.NewStatusMapByRoute(),
 		staticFiles:         staticfiles.NewStaticByRoute(),
+		fastcgiHandlers:     fastcgiproxy.NewFastCGIByRoute(),
 		spikeArresters:      spikearrest.NewSpikeArrestByRoute(),
 		contentReplacers:    contentreplacer.NewContentReplacerByRoute(),
 		bodyGenerators:      bodygen.NewBodyGenByRoute(),
@@ -495,6 +498,12 @@ func New(cfg *config.Config) (*Gateway, error) {
 			}
 			return nil
 		}, g.staticFiles.RouteIDs, func() any { return g.staticFiles.Stats() }),
+		newFeature("fastcgi", "/fastcgi", func(id string, rc config.RouteConfig) error {
+			if rc.FastCGI.Enabled {
+				return g.fastcgiHandlers.AddRoute(id, rc.FastCGI)
+			}
+			return nil
+		}, g.fastcgiHandlers.RouteIDs, func() any { return g.fastcgiHandlers.Stats() }),
 		newFeature("content_replacer", "/content-replacer", func(id string, rc config.RouteConfig) error {
 			if rc.ContentReplacer.Enabled && len(rc.ContentReplacer.Replacements) > 0 {
 				return g.contentReplacers.AddRoute(id, rc.ContentReplacer)
@@ -1626,6 +1635,8 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		innermost = proxy.NewEchoHandler(routeID)
 	} else if sh := g.staticFiles.GetHandler(routeID); sh != nil {
 		innermost = sh
+	} else if fcgiH := g.fastcgiHandlers.GetHandler(routeID); fcgiH != nil {
+		innermost = fcgiH
 	} else if translatorHandler := g.translators.GetHandler(routeID); translatorHandler != nil {
 		innermost = translatorHandler
 	} else {

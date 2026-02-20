@@ -133,6 +133,7 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /backend-auth` | Per-route OAuth2 client_credentials refresh stats |
 | `GET /status-mapping` | Per-route status code remapping stats |
 | `GET /static-files` | Per-route static file serving stats |
+| `GET /fastcgi` | Per-route FastCGI proxy stats |
 | `GET /service-rate-limit` | Global service-level rate limit stats |
 | `GET /spike-arrest` | Per-route spike arrest stats |
 | `GET /content-replacer` | Per-route content replacer stats |

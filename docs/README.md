@@ -75,6 +75,7 @@ A high-performance, feature-rich API gateway supporting HTTP, TCP, and UDP proxy
 - [Response Limits](response-limits.md) — Response size limiting
 - [Validation](validation.md) — Request/response JSON schema validation
 - [Static Files](static-files.md) — Static file serving
+- [FastCGI Proxy](fastcgi.md) — PHP-FPM and FastCGI backend proxying
 - [Mock Responses](mock-responses.md) — Static mock response configuration
 - [Error Pages](error-pages.md) — Custom error page templates
 

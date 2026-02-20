@@ -321,6 +321,7 @@ type RouteConfig struct {
 	PIIRedaction         PIIRedactionConfig          `yaml:"pii_redaction"`         // Per-route PII redaction
 	FieldEncryption      FieldEncryptionConfig       `yaml:"field_encryption"`      // Per-route field-level encryption
 	BlueGreen            BlueGreenConfig             `yaml:"blue_green"`            // Blue-green deployment
+	FastCGI              FastCGIConfig               `yaml:"fastcgi"`               // FastCGI proxy (replaces proxy)
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -582,6 +583,20 @@ type StaticConfig struct {
 	Index        string `yaml:"index"`         // default "index.html"
 	Browse       bool   `yaml:"browse"`        // directory listing (default false)
 	CacheControl string `yaml:"cache_control"` // Cache-Control header value
+}
+
+// FastCGIConfig defines FastCGI proxy settings for a route (replaces proxy).
+type FastCGIConfig struct {
+	Enabled      bool              `yaml:"enabled"`
+	Address      string            `yaml:"address"`        // "host:port" (TCP) or "/path/to.sock" (unix)
+	Network      string            `yaml:"network"`        // "tcp" or "unix"; auto-detected if empty
+	DocumentRoot string            `yaml:"document_root"`  // DOCUMENT_ROOT / SCRIPT_FILENAME base
+	ScriptName   string            `yaml:"script_name"`    // fixed entry point (e.g. "/index.php"); empty = filesystem mode
+	Index        string            `yaml:"index"`          // default index file (default "index.php")
+	ConnTimeout  time.Duration     `yaml:"conn_timeout"`   // connection timeout (default 5s)
+	ReadTimeout  time.Duration     `yaml:"read_timeout"`   // read timeout (default 30s)
+	Params       map[string]string `yaml:"params"`         // extra FastCGI params
+	PoolSize     int               `yaml:"pool_size"`      // connection pool size (default 8)
 }
 
 // RewriteConfig defines URL rewriting rules for a route.

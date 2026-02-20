@@ -358,6 +358,26 @@ See [Authentication](authentication.md#backend-auth-oauth2-client-credentials) f
 
 **Validation:** `root` is required and must exist. Mutually exclusive with `echo`, `backends`, `service`, and `upstream`. When enabled, the static file handler replaces the proxy as the innermost handler.
 
+### FastCGI Proxy
+
+```yaml
+    fastcgi:
+      enabled: bool
+      address: string             # "host:port" or "/path/to.sock" (required)
+      network: string             # "tcp" or "unix" (auto-detected if empty)
+      document_root: string       # DOCUMENT_ROOT base path (required)
+      script_name: string         # fixed entry point e.g. "/index.php" (empty = filesystem mode)
+      index: string               # default index file (default "index.php")
+      conn_timeout: duration      # connection timeout (default 5s)
+      read_timeout: duration      # read timeout (default 30s)
+      params: map[string]string   # extra CGI parameters
+      pool_size: int              # connection pool size (default 8)
+```
+
+**Validation:** `address` and `document_root` are required. `network` must be `tcp` or `unix`. `pool_size` must be >= 0. Mutually exclusive with `echo`, `static`, `sequential`, `aggregate`, `backends`/`service`/`upstream`, and `passthrough`. When enabled, the FastCGI handler replaces the proxy as the innermost handler.
+
+See [FastCGI Proxy](fastcgi.md) for modes, CGI parameters, and examples.
+
 ### Passthrough
 
 ```yaml
