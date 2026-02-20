@@ -286,8 +286,13 @@ func (p *Proxy) createProxyRequest(ctx context.Context, r *http.Request, target 
 	// Build target URL
 	targetURL := *target
 
-	// Apply URL rewrite rules (prefix or regex), falling back to strip_prefix
-	if route.Rewrite.Prefix != "" || route.HasRewriteRegex() {
+	// Full URL override takes precedence over all other rewrite modes
+	if route.HasFullURLRewrite() {
+		if parsed, err := route.ParseFullURLRewrite(); err == nil {
+			targetURL = *parsed
+		}
+	} else if route.Rewrite.Prefix != "" || route.HasRewriteRegex() {
+		// Apply URL rewrite rules (prefix or regex), falling back to strip_prefix
 		rewritten := route.RewritePath(r.URL.Path)
 		targetURL.Path = singleJoiningSlash(target.Path, rewritten)
 	} else if route.StripPrefix && route.PathPrefix {
@@ -297,7 +302,9 @@ func (p *Proxy) createProxyRequest(ctx context.Context, r *http.Request, target 
 		targetURL.Path = singleJoiningSlash(target.Path, r.URL.Path)
 	}
 
-	targetURL.RawQuery = r.URL.RawQuery
+	if !route.HasFullURLRewrite() {
+		targetURL.RawQuery = r.URL.RawQuery
+	}
 
 	// Construct request directly — avoids URL.String() + url.Parse() round-trip.
 	proxyReq := (&http.Request{

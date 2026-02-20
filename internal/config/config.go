@@ -72,6 +72,7 @@ type Config struct {
 	IPBlocklist            IPBlocklistConfig            `yaml:"ip_blocklist"`              // Dynamic IP blocklist
 	LoadShedding           LoadSheddingConfig           `yaml:"load_shedding"`             // System-level load shedding
 	AuditLog               AuditLogConfig               `yaml:"audit_log"`                 // Global audit logging defaults
+	CompletionHeader       bool                         `yaml:"completion_header"`         // Add X-Gateway-Completed header to aggregate/sequential responses
 }
 
 // ListenerConfig defines a listener configuration
@@ -331,6 +332,17 @@ type RouteConfig struct {
 	Baggage              BaggageConfig               `yaml:"baggage"`               // Per-route baggage propagation
 	Backpressure         BackpressureConfig          `yaml:"backpressure"`          // Per-route backend backpressure detection
 	AuditLog             AuditLogConfig              `yaml:"audit_log"`             // Per-route audit logging
+	Modifiers            []ModifierConfig            `yaml:"modifiers"`             // Martian-style request/response modifiers
+	FieldReplacer        FieldReplacerConfig         `yaml:"field_replacer"`        // Field-level content replacement
+	JMESPath             JMESPathConfig              `yaml:"jmespath"`              // JMESPath query on response body
+	BackendResponse      BackendResponseConfig       `yaml:"backend_response"`      // Backend response handling (is_collection, etc.)
+	OutputEncoding       string                      `yaml:"output_encoding"`       // Override Accept-header content negotiation (json, xml, yaml, json-collection, string)
+	ErrorHandling        ErrorHandlingConfig         `yaml:"error_handling"`        // Structured error detail modes
+	Lua                  LuaConfig                   `yaml:"lua"`                   // Lua scripting engine
+	Lambda               LambdaConfig                `yaml:"lambda"`                // AWS Lambda backend
+	AMQP                 AMQPConfig                  `yaml:"amqp"`                  // AMQP/RabbitMQ backend
+	PubSub               PubSubConfig                `yaml:"pubsub"`                // Pub/Sub backend (Go CDK)
+	CompletionHeader     bool                        `yaml:"completion_header"`     // Add X-Gateway-Completed header
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -626,6 +638,7 @@ type RewriteConfig struct {
 	Regex       string `yaml:"regex"`       // regex pattern to match on request path
 	Replacement string `yaml:"replacement"` // replacement string for regex (supports $1, $2 capture groups)
 	Host        string `yaml:"host"`        // override Host header sent to backend
+	URL         string `yaml:"url"`         // full URL override (scheme://host:port/path?query) — takes precedence when set
 }
 
 // MetricsConfig defines Prometheus metrics settings (Feature 5)
@@ -714,10 +727,12 @@ type GRPCHealthCheckConfig struct {
 
 // ProtocolConfig defines protocol translation settings per route.
 type ProtocolConfig struct {
-	Type   string                `yaml:"type"` // "http_to_grpc", "http_to_thrift", "grpc_to_rest"
-	GRPC   GRPCTranslateConfig   `yaml:"grpc"`
-	Thrift ThriftTranslateConfig `yaml:"thrift"`
-	REST   RESTTranslateConfig   `yaml:"rest"`
+	Type    string                 `yaml:"type"` // "http_to_grpc", "http_to_thrift", "grpc_to_rest", "rest_to_graphql", "rest_to_soap"
+	GRPC    GRPCTranslateConfig    `yaml:"grpc"`
+	Thrift  ThriftTranslateConfig  `yaml:"thrift"`
+	REST    RESTTranslateConfig    `yaml:"rest"`
+	GraphQL GraphQLProtocolConfig  `yaml:"graphql"`
+	SOAP    SOAPProtocolConfig     `yaml:"soap"`
 }
 
 // RESTTranslateConfig defines gRPC-to-REST translation settings.
@@ -964,6 +979,7 @@ type BodyTransformConfig struct {
 	Template     string            `yaml:"template"`
 	Target       string            `yaml:"target"`  // gjson path to extract as root response
 	Flatmap      []FlatmapOperation `yaml:"flatmap"` // array manipulation operations
+	Group        string            `yaml:"group"`   // wrap entire result under this JSON key
 }
 
 // FlatmapOperation defines a single flatmap array manipulation.
@@ -1492,9 +1508,10 @@ type FollowRedirectsConfig struct {
 
 // BodyGeneratorConfig defines a Go template that generates request bodies.
 type BodyGeneratorConfig struct {
-	Enabled     bool   `yaml:"enabled"`
-	Template    string `yaml:"template"`      // Go text/template string
-	ContentType string `yaml:"content_type"`  // default "application/json"
+	Enabled     bool              `yaml:"enabled"`
+	Template    string            `yaml:"template"`      // Go text/template string
+	ContentType string            `yaml:"content_type"`  // default "application/json"
+	Variables   map[string]string `yaml:"variables"`     // custom static variables available in templates as .Variables
 }
 
 // SequentialConfig enables chaining multiple backend calls.
@@ -1510,6 +1527,8 @@ type SequentialStep struct {
 	Headers      map[string]string `yaml:"headers"`        // Go template values
 	BodyTemplate string            `yaml:"body_template"`  // Go template for request body
 	Timeout      time.Duration     `yaml:"timeout"`        // per-step timeout (default 5s)
+	Variables    map[string]string `yaml:"variables"`      // custom static variables available in templates as .Variables
+	Encoding     string            `yaml:"encoding"`       // response encoding: "no-op" stores full metadata, "string" wraps as content
 }
 
 // QuotaConfig defines per-client usage quota enforcement.
@@ -1523,28 +1542,33 @@ type QuotaConfig struct {
 
 // AggregateConfig enables parallel multi-backend calls with JSON response merging.
 type AggregateConfig struct {
-	Enabled      bool               `yaml:"enabled"`
-	Timeout      time.Duration      `yaml:"timeout"`        // default 5s
-	FailStrategy string             `yaml:"fail_strategy"`  // "abort" (default) or "partial"
-	Backends     []AggregateBackend `yaml:"backends"`
+	Enabled           bool               `yaml:"enabled"`
+	Timeout           time.Duration      `yaml:"timeout"`            // default 5s
+	FailStrategy      string             `yaml:"fail_strategy"`      // "abort" (default) or "partial"
+	Backends          []AggregateBackend `yaml:"backends"`
+	ResponseTransform BodyTransformConfig `yaml:"response_transform"` // post-merge body transform (flatmap, allow/deny, etc.)
 }
 
 // AggregateBackend defines one backend in an aggregate call.
 type AggregateBackend struct {
-	Name     string            `yaml:"name"`      // unique name (required)
-	URL      string            `yaml:"url"`       // Go template
-	Method   string            `yaml:"method"`    // default GET
-	Headers  map[string]string `yaml:"headers"`   // Go template values
-	Group    string            `yaml:"group"`     // wrap response under this JSON key
-	Required bool              `yaml:"required"`  // abort if fails (relevant for partial)
-	Timeout  time.Duration     `yaml:"timeout"`   // per-backend override
+	Name      string            `yaml:"name"`      // unique name (required)
+	URL       string            `yaml:"url"`       // Go template
+	Method    string            `yaml:"method"`    // default GET
+	Headers   map[string]string `yaml:"headers"`   // Go template values
+	Group     string            `yaml:"group"`     // wrap response under this JSON key
+	Required  bool              `yaml:"required"`  // abort if fails (relevant for partial)
+	Timeout   time.Duration     `yaml:"timeout"`   // per-backend override
+	Variables map[string]string `yaml:"variables"` // custom static variables available in templates as .Variables
+	Encoding  string            `yaml:"encoding"`  // backend response encoding (xml, yaml, etc.) — decoded to JSON before merge
+	Transform BodyTransformConfig `yaml:"transform"` // per-backend response transform (allow/deny/rename/set/remove fields)
 }
 
 // ResponseBodyGeneratorConfig defines a Go template that rewrites the entire response body.
 type ResponseBodyGeneratorConfig struct {
-	Enabled     bool   `yaml:"enabled"`
-	Template    string `yaml:"template"`      // Go text/template string
-	ContentType string `yaml:"content_type"`  // default "application/json"
+	Enabled     bool              `yaml:"enabled"`
+	Template    string            `yaml:"template"`      // Go text/template string
+	ContentType string            `yaml:"content_type"`  // default "application/json"
+	Variables   map[string]string `yaml:"variables"`     // custom static variables available in templates as .Variables
 }
 
 // ParamForwardingConfig defines zero-trust parameter forwarding control.
@@ -1577,7 +1601,7 @@ type CDNCacheConfig struct {
 
 // BackendEncodingConfig defines backend response format decoding to JSON.
 type BackendEncodingConfig struct {
-	Encoding string `yaml:"encoding"` // "xml" or "yaml" — backend response format to decode to JSON
+	Encoding string `yaml:"encoding"` // "xml", "yaml", "safejson", "rss", "string", "fast-json" — backend response format to decode to JSON
 }
 
 // SSRFProtectionConfig defines SSRF protection for outbound proxy connections.
@@ -1660,6 +1684,129 @@ type AuditLogConfig struct {
 }
 
 // DefaultConfig returns a configuration with sensible defaults
+// ModifierConfig defines a single request/response modifier.
+type ModifierConfig struct {
+	Type      string            `yaml:"type"`       // "header_copy", "header_set", "cookie", "query", "stash", "port"
+	From      string            `yaml:"from"`       // source header (header_copy)
+	To        string            `yaml:"to"`         // destination header (header_copy)
+	Name      string            `yaml:"name"`       // header/cookie name
+	Value     string            `yaml:"value"`      // header/cookie value
+	Domain    string            `yaml:"domain"`     // cookie domain
+	Path      string            `yaml:"path"`       // cookie path
+	MaxAge    int               `yaml:"max_age"`    // cookie max age
+	Secure    bool              `yaml:"secure"`     // cookie secure flag
+	HttpOnly  bool              `yaml:"http_only"`  // cookie httponly flag
+	SameSite  string            `yaml:"same_site"`  // cookie SameSite (lax, strict, none)
+	Params    map[string]string `yaml:"params"`     // query params to add/override
+	Port      int               `yaml:"port"`       // port override
+	Scope     string            `yaml:"scope"`      // "request", "response", "both" (default "both")
+	Priority  int               `yaml:"priority"`   // execution priority (higher first, default 0)
+	Condition *ConditionConfig  `yaml:"condition"`  // optional condition for conditional execution
+	Else      *ModifierConfig   `yaml:"else"`       // modifier to apply when condition is false
+}
+
+// ConditionConfig defines a condition for conditional modifier execution.
+type ConditionConfig struct {
+	Type  string `yaml:"type"`  // "header", "cookie", "query", "path_regex"
+	Name  string `yaml:"name"`  // header/cookie/query param name
+	Value string `yaml:"value"` // optional regex pattern to match
+}
+
+// FieldReplacerConfig defines field-level content replacement on response bodies.
+type FieldReplacerConfig struct {
+	Enabled    bool                    `yaml:"enabled"`
+	Operations []FieldReplacerOperation `yaml:"operations"`
+}
+
+// FieldReplacerOperation defines a single field replacement operation.
+type FieldReplacerOperation struct {
+	Field   string `yaml:"field"`   // gjson path to field
+	Type    string `yaml:"type"`    // "regexp", "literal", "upper", "lower", "trim"
+	Find    string `yaml:"find"`    // pattern to find (regexp/literal/trim chars)
+	Replace string `yaml:"replace"` // replacement string (regexp/literal)
+}
+
+// JMESPathConfig defines JMESPath query filtering on response bodies.
+type JMESPathConfig struct {
+	Enabled         bool   `yaml:"enabled"`
+	Expression      string `yaml:"expression"`
+	WrapCollections bool   `yaml:"wrap_collections"` // wrap array results in {"collection": [...]}
+}
+
+// BackendResponseConfig controls backend response handling.
+type BackendResponseConfig struct {
+	IsCollection  bool   `yaml:"is_collection"`  // wrap array responses as object
+	CollectionKey string `yaml:"collection_key"` // key to use (default "collection")
+}
+
+// ErrorHandlingConfig controls error response format.
+type ErrorHandlingConfig struct {
+	Mode string `yaml:"mode"` // "default", "pass_status", "detailed", "message"
+}
+
+// LuaConfig defines Lua scripting for a route.
+type LuaConfig struct {
+	Enabled        bool   `yaml:"enabled"`
+	RequestScript  string `yaml:"request_script"`  // Lua code for request phase
+	ResponseScript string `yaml:"response_script"` // Lua code for response phase
+}
+
+// LambdaConfig defines AWS Lambda backend settings.
+type LambdaConfig struct {
+	Enabled      bool   `yaml:"enabled"`
+	FunctionName string `yaml:"function_name"`
+	Region       string `yaml:"region"`
+	MaxRetries   int    `yaml:"max_retries"` // default 2
+}
+
+// AMQPConfig defines AMQP/RabbitMQ backend settings.
+type AMQPConfig struct {
+	Enabled  bool             `yaml:"enabled"`
+	URL      string           `yaml:"url"`
+	Consumer AMQPConsumerConfig `yaml:"consumer"`
+	Producer AMQPProducerConfig `yaml:"producer"`
+}
+
+// AMQPConsumerConfig defines AMQP consumer settings.
+type AMQPConsumerConfig struct {
+	Queue   string `yaml:"queue"`
+	AutoAck bool   `yaml:"auto_ack"`
+}
+
+// AMQPProducerConfig defines AMQP producer settings.
+type AMQPProducerConfig struct {
+	Exchange   string `yaml:"exchange"`
+	RoutingKey string `yaml:"routing_key"`
+}
+
+// PubSubConfig defines Go CDK Pub/Sub backend settings.
+type PubSubConfig struct {
+	Enabled         bool   `yaml:"enabled"`
+	SubscriptionURL string `yaml:"subscription_url"` // Go CDK subscription URL
+	PublishURL      string `yaml:"publish_url"`       // Go CDK publish URL
+}
+
+// AggregateResponseTransformConfig allows post-merge body transforms on aggregated responses.
+type AggregateResponseTransformConfig struct {
+	BodyTransformConfig `yaml:",inline"`
+}
+
+// GraphQLProtocolConfig configures REST-to-GraphQL protocol translation.
+type GraphQLProtocolConfig struct {
+	URL           string            `yaml:"url" json:"url"`
+	Type          string            `yaml:"type" json:"type"` // "query" or "mutation"
+	Query         string            `yaml:"query" json:"query"`
+	Variables     map[string]string `yaml:"variables" json:"variables"`
+	OperationName string            `yaml:"operation_name" json:"operation_name"`
+}
+
+// SOAPProtocolConfig configures REST-to-SOAP protocol translation.
+type SOAPProtocolConfig struct {
+	URL         string `yaml:"url" json:"url"`
+	Template    string `yaml:"template" json:"template"`
+	ContentType string `yaml:"content_type" json:"content_type"`
+}
+
 func DefaultConfig() *Config {
 	return &Config{
 		Listeners: []ListenerConfig{{

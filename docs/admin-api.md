@@ -157,6 +157,14 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /baggage` | Per-route baggage propagation configuration and tag definitions |
 | `GET /backpressure` | Per-route backend backpressure status and backed-off backends |
 | `GET /audit-log` | Per-route audit logging configuration, delivery metrics, and buffer status |
+| `GET /jmespath` | Per-route JMESPath query stats (applied count, wrap_collections) |
+| `GET /field-replacer` | Per-route field replacer stats (operations count, processed count) |
+| `GET /modifiers` | Per-route modifier chain stats (modifier count, applied count) |
+| `GET /error-handling` | Per-route error handling stats (mode, total, reformatted count) |
+| `GET /lua` | Per-route Lua script execution stats (requests run, responses run, errors) |
+| `GET /lambda` | Per-route AWS Lambda invocation stats (function name, requests, errors, invokes) |
+| `GET /amqp` | Per-route AMQP stats (url, requests, errors, published, consumed) |
+| `GET /pubsub` | Per-route Pub/Sub stats (urls, requests, errors, published, consumed) |
 
 ### Example: Querying Feature Endpoints
 
@@ -1710,6 +1718,209 @@ curl http://localhost:8081/audit-log
 ```
 
 See [Audit Logging](audit-logging.md) for configuration, webhook payload format, and examples.
+
+---
+
+## JMESPath Query
+
+### GET `/jmespath`
+
+Returns per-route JMESPath query stats.
+
+```bash
+curl http://localhost:8081/jmespath
+```
+
+**Response (200 OK):**
+```json
+{
+  "api": {
+    "applied": 1500,
+    "wrap_collections": false
+  }
+}
+```
+
+See [Data Manipulation](data-manipulation.md#jmespath-query-language) for configuration.
+
+---
+
+## Field Replacer
+
+### GET `/field-replacer`
+
+Returns per-route field-level content replacer stats.
+
+```bash
+curl http://localhost:8081/field-replacer
+```
+
+**Response (200 OK):**
+```json
+{
+  "api": {
+    "operations": 4,
+    "processed": 850
+  }
+}
+```
+
+See [Data Manipulation](data-manipulation.md#field-level-content-replacer) for configuration.
+
+---
+
+## Modifiers
+
+### GET `/modifiers`
+
+Returns per-route Martian-style modifier chain stats.
+
+```bash
+curl http://localhost:8081/modifiers
+```
+
+**Response (200 OK):**
+```json
+{
+  "api": {
+    "modifier_count": 6,
+    "applied": 2500
+  }
+}
+```
+
+See [Data Manipulation](data-manipulation.md#martian-style-modifiers) for configuration.
+
+---
+
+## Error Handling
+
+### GET `/error-handling`
+
+Returns per-route error handling mode and stats.
+
+```bash
+curl http://localhost:8081/error-handling
+```
+
+**Response (200 OK):**
+```json
+{
+  "api": {
+    "mode": "pass_status",
+    "total": 5000,
+    "reformatted": 42
+  }
+}
+```
+
+See [Data Manipulation](data-manipulation.md#error-handling-modes) for configuration.
+
+---
+
+## Lua Scripting
+
+### GET `/lua`
+
+Returns per-route Lua script execution stats.
+
+```bash
+curl http://localhost:8081/lua
+```
+
+**Response (200 OK):**
+```json
+{
+  "api": {
+    "requests_run": 5000,
+    "responses_run": 5000,
+    "errors": 2
+  }
+}
+```
+
+See [Data Manipulation](data-manipulation.md#lua-scripting) for configuration.
+
+---
+
+## AWS Lambda
+
+### GET `/lambda`
+
+Returns per-route AWS Lambda invocation stats.
+
+```bash
+curl http://localhost:8081/lambda
+```
+
+**Response (200 OK):**
+```json
+{
+  "serverless-api": {
+    "function_name": "my-api-handler",
+    "total_requests": 5000,
+    "total_errors": 12,
+    "total_invokes": 5000
+  }
+}
+```
+
+See [AWS Lambda Backend](lambda.md) for configuration.
+
+---
+
+## AMQP/RabbitMQ
+
+### GET `/amqp`
+
+Returns per-route AMQP handler stats.
+
+```bash
+curl http://localhost:8081/amqp
+```
+
+**Response (200 OK):**
+```json
+{
+  "message-publisher": {
+    "url": "amqp://guest:guest@rabbitmq:5672/",
+    "total_requests": 3000,
+    "total_errors": 5,
+    "published": 2995,
+    "consumed": 0
+  }
+}
+```
+
+See [AMQP/RabbitMQ Backend](amqp.md) for configuration.
+
+---
+
+## Pub/Sub
+
+### GET `/pubsub`
+
+Returns per-route Pub/Sub handler stats.
+
+```bash
+curl http://localhost:8081/pubsub
+```
+
+**Response (200 OK):**
+```json
+{
+  "events-publish": {
+    "publish_url": "gcppubsub://my-project/my-topic",
+    "subscription_url": "",
+    "total_requests": 2000,
+    "total_errors": 3,
+    "published": 1997,
+    "consumed": 0
+  }
+}
+```
+
+See [Go CDK Pub/Sub Backend](pubsub.md) for configuration.
 
 ---
 

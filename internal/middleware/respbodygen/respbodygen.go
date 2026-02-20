@@ -13,6 +13,7 @@ import (
 	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/middleware"
+	"github.com/wudi/gateway/internal/tmplutil"
 	"github.com/wudi/gateway/internal/variables"
 )
 
@@ -28,31 +29,20 @@ type TemplateData struct {
 	PathParams map[string]string
 	Query      url.Values
 	ClientIP   string
+	Variables  map[string]string
 }
 
 // RespBodyGen generates response bodies from templates.
 type RespBodyGen struct {
 	tmpl        *template.Template
 	contentType string
+	variables   map[string]string
 	generated   atomic.Int64
-}
-
-var funcMap = template.FuncMap{
-	"json": func(v interface{}) string {
-		b, _ := json.Marshal(v)
-		return string(b)
-	},
-	"first": func(vals []string) string {
-		if len(vals) > 0 {
-			return vals[0]
-		}
-		return ""
-	},
 }
 
 // New creates a RespBodyGen from config.
 func New(cfg config.ResponseBodyGeneratorConfig) (*RespBodyGen, error) {
-	tmpl, err := template.New("respbodygen").Funcs(funcMap).Parse(cfg.Template)
+	tmpl, err := template.New("respbodygen").Funcs(tmplutil.FuncMap()).Parse(cfg.Template)
 	if err != nil {
 		return nil, fmt.Errorf("invalid response body generator template: %w", err)
 	}
@@ -65,6 +55,7 @@ func New(cfg config.ResponseBodyGeneratorConfig) (*RespBodyGen, error) {
 	return &RespBodyGen{
 		tmpl:        tmpl,
 		contentType: ct,
+		variables:   cfg.Variables,
 	}, nil
 }
 
@@ -90,6 +81,7 @@ func (rbg *RespBodyGen) Middleware() middleware.Middleware {
 				Path:       r.URL.Path,
 				Query:      r.URL.Query(),
 				ClientIP:   variables.ExtractClientIP(r),
+				Variables:  rbg.variables,
 			}
 
 			// Try to parse body as JSON

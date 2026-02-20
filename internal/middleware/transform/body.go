@@ -15,6 +15,7 @@ import (
 
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/middleware"
+	"github.com/wudi/gateway/internal/tmplutil"
 	"github.com/wudi/gateway/internal/variables"
 )
 
@@ -37,6 +38,7 @@ type CompiledBodyTransform struct {
 	resolver     *variables.Resolver
 	target       string              // gjson path to extract as root
 	flatmapOps   []compiledFlatmapOp // pre-validated flatmap operations
+	group        string              // wrap entire result under this JSON key
 }
 
 // NewCompiledBodyTransform creates a new compiled body transform from config.
@@ -66,8 +68,9 @@ func NewCompiledBodyTransform(cfg config.BodyTransformConfig) (*CompiledBodyTran
 		}
 	}
 
-	// Store target path
+	// Store target path and group
 	ct.target = cfg.Target
+	ct.group = cfg.Group
 
 	// Pre-validate flatmap operations
 	if len(cfg.Flatmap) > 0 {
@@ -82,13 +85,7 @@ func NewCompiledBodyTransform(cfg config.BodyTransformConfig) (*CompiledBodyTran
 
 	// Parse Go template
 	if cfg.Template != "" {
-		funcMap := template.FuncMap{
-			"json": func(v interface{}) (string, error) {
-				b, err := json.Marshal(v)
-				return string(b), err
-			},
-		}
-		tmpl, err := template.New("body").Funcs(funcMap).Parse(cfg.Template)
+		tmpl, err := template.New("body").Funcs(tmplutil.FuncMap()).Parse(cfg.Template)
 		if err != nil {
 			return nil, fmt.Errorf("invalid body template: %w", err)
 		}
@@ -170,6 +167,11 @@ func (ct *CompiledBodyTransform) Transform(body []byte, varCtx *variables.Contex
 	// 7. template — terminal operation
 	if ct.tmpl != nil {
 		body = ct.applyTemplate(body, varCtx)
+	}
+
+	// 8. group — wrap entire result under a JSON key
+	if ct.group != "" {
+		body = ct.applyGroup(body)
 	}
 
 	return body
@@ -414,6 +416,15 @@ func (ct *CompiledBodyTransform) applyDenyFilter(body []byte) []byte {
 		}
 	}
 	return body
+}
+
+// applyGroup wraps the entire body under a JSON key.
+func (ct *CompiledBodyTransform) applyGroup(body []byte) []byte {
+	result, err := sjson.SetRawBytes([]byte("{}"), ct.group, body)
+	if err != nil {
+		return body
+	}
+	return result
 }
 
 // applyTemplate executes the Go template with body and vars data.

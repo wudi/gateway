@@ -3,9 +3,11 @@ package gateway
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/wudi/gateway/internal/cache"
@@ -618,3 +620,51 @@ func (w *validatingResponseWriter) flush() {
 	w.ResponseWriter.WriteHeader(w.statusCode)
 	w.ResponseWriter.Write(w.buf.Bytes())
 }
+
+// isCollectionMW wraps JSON array responses as {"key": [...]} objects.
+// This runs after backend encoding, before body transforms.
+func isCollectionMW(collectionKey string) middleware.Middleware {
+	if collectionKey == "" {
+		collectionKey = "collection"
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			bw := &collectionBufferWriter{
+				ResponseWriter: w,
+				header:         make(http.Header),
+				statusCode:     200,
+			}
+			next.ServeHTTP(bw, r)
+
+			body := bw.body.Bytes()
+
+			// If JSON array response, wrap it
+			if len(body) > 0 && body[0] == '[' {
+				wrapped, err := json.Marshal(map[string]json.RawMessage{collectionKey: body})
+				if err == nil {
+					body = wrapped
+				}
+			}
+
+			for k, vv := range bw.header {
+				for _, v := range vv {
+					w.Header().Add(k, v)
+				}
+			}
+			w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+			w.WriteHeader(bw.statusCode)
+			w.Write(body)
+		})
+	}
+}
+
+type collectionBufferWriter struct {
+	http.ResponseWriter
+	statusCode int
+	body       bytes.Buffer
+	header     http.Header
+}
+
+func (w *collectionBufferWriter) Header() http.Header     { return w.header }
+func (w *collectionBufferWriter) WriteHeader(code int)     { w.statusCode = code }
+func (w *collectionBufferWriter) Write(b []byte) (int, error) { return w.body.Write(b) }

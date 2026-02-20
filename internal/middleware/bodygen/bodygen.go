@@ -2,7 +2,6 @@ package bodygen
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +13,7 @@ import (
 	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/middleware"
+	"github.com/wudi/gateway/internal/tmplutil"
 	"github.com/wudi/gateway/internal/variables"
 )
 
@@ -29,31 +29,20 @@ type TemplateData struct {
 	Body       string
 	ClientIP   string
 	RouteID    string
+	Variables  map[string]string
 }
 
 // BodyGen generates request bodies from templates.
 type BodyGen struct {
 	tmpl        *template.Template
 	contentType string
+	variables   map[string]string
 	generated   atomic.Int64
-}
-
-var funcMap = template.FuncMap{
-	"json": func(v interface{}) string {
-		b, _ := json.Marshal(v)
-		return string(b)
-	},
-	"first": func(vals []string) string {
-		if len(vals) > 0 {
-			return vals[0]
-		}
-		return ""
-	},
 }
 
 // New creates a BodyGen from config.
 func New(cfg config.BodyGeneratorConfig) (*BodyGen, error) {
-	tmpl, err := template.New("bodygen").Funcs(funcMap).Parse(cfg.Template)
+	tmpl, err := template.New("bodygen").Funcs(tmplutil.FuncMap()).Parse(cfg.Template)
 	if err != nil {
 		return nil, fmt.Errorf("invalid body generator template: %w", err)
 	}
@@ -66,6 +55,7 @@ func New(cfg config.BodyGeneratorConfig) (*BodyGen, error) {
 	return &BodyGen{
 		tmpl:        tmpl,
 		contentType: ct,
+		variables:   cfg.Variables,
 	}, nil
 }
 
@@ -96,6 +86,7 @@ func (bg *BodyGen) Middleware() middleware.Middleware {
 				Body:       origBody,
 				ClientIP:   variables.ExtractClientIP(r),
 				RouteID:    varCtx.RouteID,
+				Variables:  bg.variables,
 			}
 
 			var buf bytes.Buffer

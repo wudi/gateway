@@ -226,6 +226,7 @@ routes:
     retries: int              # simple retry count (use retry_policy for advanced)
     strip_prefix: bool
     rewrite:
+      url: string             # full URL override (scheme://host:port/path?query) — takes precedence over prefix/regex
       prefix: string          # replace matched path prefix (requires path_prefix, mutually exclusive with strip_prefix and regex)
       regex: string           # regex pattern on request path (mutually exclusive with prefix)
       replacement: string     # regex substitution (supports $1, $2 capture groups; required with regex)
@@ -2208,3 +2209,194 @@ ip_blocklist:
 **Validation:** `action` must be `"block"` or `"log"`. Static entries must be valid IPs or CIDRs. Feed `url` is required. Feed `format` must be `"text"` or `"json"`. `refresh_interval` must be >= 1s.
 
 See [Dynamic IP Blocklist](ip-blocklist.md) for details.
+
+---
+
+## JMESPath Query (per-route)
+
+```yaml
+routes:
+  - id: example
+    jmespath:
+      enabled: bool              # enable JMESPath filtering (default false)
+      expression: string         # JMESPath expression (required when enabled)
+      wrap_collections: bool     # wrap array results in {"collection": [...]} (default false)
+```
+
+**Validation:** `expression` is required when enabled and must be a valid JMESPath expression (compiled at config load time).
+
+See [Data Manipulation](data-manipulation.md#jmespath-query-language) for details.
+
+---
+
+## Field Replacer (per-route)
+
+```yaml
+routes:
+  - id: example
+    field_replacer:
+      enabled: bool              # enable field replacement (default false)
+      operations:
+        - field: string          # gjson path to target field (required)
+          type: string           # "regexp", "literal", "upper", "lower", "trim" (required)
+          find: string           # pattern/chars to find (required for regexp/literal)
+          replace: string        # replacement string (for regexp/literal)
+```
+
+**Validation:** At least one operation required when enabled. `type` must be one of: `regexp`, `literal`, `upper`, `lower`, `trim`. `regexp` type operations must have valid Go regex in `find`.
+
+See [Data Manipulation](data-manipulation.md#field-level-content-replacer) for details.
+
+---
+
+## Modifiers (per-route)
+
+```yaml
+routes:
+  - id: example
+    modifiers:
+      - type: string             # "header_copy", "header_set", "cookie", "query", "stash", "port" (required)
+        from: string             # source header (header_copy)
+        to: string               # destination header (header_copy)
+        name: string             # header/cookie name
+        value: string            # header/cookie value
+        domain: string           # cookie domain
+        path: string             # cookie path
+        max_age: int             # cookie max age
+        secure: bool             # cookie secure flag
+        http_only: bool          # cookie httponly flag
+        same_site: string        # cookie SameSite: "lax", "strict", "none"
+        params:                  # query params to add/override (query type)
+          key: value
+        port: int                # port override (port type)
+        scope: string            # "request", "response", "both" (default "both")
+        priority: int            # execution priority, higher first (default 0)
+        condition:               # optional conditional execution
+          type: string           # "header", "cookie", "query", "path_regex"
+          name: string           # header/cookie/query param name
+          value: string          # optional regex pattern to match
+        else:                    # modifier to apply when condition is false
+          type: string
+          # ... same fields as parent modifier
+```
+
+**Validation:** `type` must be a valid modifier type. `header_copy` requires `from` and `to`. `cookie` requires `name`. `query` requires non-empty `params`. `port` requires `port` > 0. Condition `type` must be `header`, `cookie`, `query`, or `path_regex`. Condition `value` must be a valid regex when set.
+
+See [Data Manipulation](data-manipulation.md#martian-style-modifiers) for details.
+
+---
+
+## Error Handling (per-route)
+
+```yaml
+routes:
+  - id: example
+    error_handling:
+      mode: string               # "default", "pass_status", "detailed", "message" (default "default")
+```
+
+**Validation:** `mode` must be one of: `default`, `pass_status`, `detailed`, `message`.
+
+See [Data Manipulation](data-manipulation.md#error-handling-modes) for details.
+
+---
+
+## Lua Scripting (per-route)
+
+```yaml
+routes:
+  - id: example
+    lua:
+      enabled: bool              # enable Lua scripting (default false)
+      request_script: string     # Lua code for request phase
+      response_script: string    # Lua code for response phase
+```
+
+**Validation:** At least one of `request_script` or `response_script` must be provided when enabled. Scripts must be valid Lua syntax (compiled at config load time).
+
+See [Data Manipulation](data-manipulation.md#lua-scripting) for details.
+
+---
+
+## Backend Response (per-route)
+
+```yaml
+routes:
+  - id: example
+    backend_response:
+      is_collection: bool        # wrap array responses in object (default false)
+      collection_key: string     # key name for wrapping (default "collection")
+```
+
+See [Data Manipulation](data-manipulation.md#backend-response-is_collection) for details.
+
+---
+
+## Output Encoding (per-route)
+
+```yaml
+routes:
+  - id: example
+    output_encoding: string      # "json", "xml", "yaml", "json-collection", "string"
+```
+
+Overrides Accept-header content negotiation with a config-declared encoding.
+
+See [Data Manipulation](data-manipulation.md#output-encoding) for details.
+
+---
+
+## AWS Lambda Backend (per-route)
+
+```yaml
+routes:
+  - id: example
+    lambda:
+      enabled: bool              # enable Lambda backend (default false)
+      function_name: string      # AWS Lambda function name or ARN (required)
+      region: string             # AWS region (default "us-east-1")
+      max_retries: int           # retry attempts for failed invocations (default 0)
+```
+
+**Validation:** `function_name` is required when enabled. Mutually exclusive with `backends`, `service`, `upstream`, `echo`, `static`, `fastcgi`, `sequential`, `aggregate`, `amqp`, `pubsub`.
+
+See [AWS Lambda Backend](lambda.md) for details.
+
+---
+
+## AMQP/RabbitMQ Backend (per-route)
+
+```yaml
+routes:
+  - id: example
+    amqp:
+      enabled: bool              # enable AMQP backend (default false)
+      url: string                # AMQP connection URL (required)
+      consumer:
+        queue: string            # queue name to consume from
+        auto_ack: bool           # auto-acknowledge messages (default false)
+      producer:
+        exchange: string         # exchange to publish to
+        routing_key: string      # routing key for published messages
+```
+
+**Validation:** `url` is required when enabled. Mutually exclusive with `backends`, `service`, `upstream`, `echo`, `static`, `fastcgi`, `sequential`, `aggregate`, `lambda`, `pubsub`.
+
+See [AMQP/RabbitMQ Backend](amqp.md) for details.
+
+---
+
+## Go CDK Pub/Sub Backend (per-route)
+
+```yaml
+routes:
+  - id: example
+    pubsub:
+      enabled: bool              # enable Pub/Sub backend (default false)
+      subscription_url: string   # Go CDK subscription URL
+      publish_url: string        # Go CDK topic URL
+```
+
+**Validation:** At least one of `subscription_url` or `publish_url` is required when enabled. Mutually exclusive with `backends`, `service`, `upstream`, `echo`, `static`, `fastcgi`, `sequential`, `aggregate`, `lambda`, `amqp`.
+
+See [Go CDK Pub/Sub Backend](pubsub.md) for details.

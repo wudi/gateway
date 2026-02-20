@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	"github.com/goccy/go-yaml"
+	"github.com/mmcdole/gofeed"
 
 	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
@@ -68,9 +69,85 @@ func (e *Encoder) Decode(data []byte, contentType string) ([]byte, bool) {
 		}
 		e.encoded.Add(1)
 		return result, true
+	case "safejson":
+		result, err := safeJSONDecode(data)
+		if err != nil {
+			e.errors.Add(1)
+			return data, false
+		}
+		e.encoded.Add(1)
+		return result, true
+	case "rss":
+		result, err := rssDecode(data)
+		if err != nil {
+			e.errors.Add(1)
+			return data, false
+		}
+		e.encoded.Add(1)
+		return result, true
+	case "string":
+		result, err := stringDecode(data)
+		if err != nil {
+			e.errors.Add(1)
+			return data, false
+		}
+		e.encoded.Add(1)
+		return result, true
 	default:
 		return data, false
 	}
+}
+
+// DecodeBytes is a standalone function for decoding bytes with a named encoding.
+// Used by aggregate/sequential for per-backend mixed encodings.
+func DecodeBytes(data []byte, encoding string) ([]byte, error) {
+	switch encoding {
+	case "xml":
+		return xmlToJSON(data)
+	case "yaml":
+		return yamlToJSON(data)
+	case "safejson":
+		return safeJSONDecode(data)
+	case "rss":
+		return rssDecode(data)
+	case "string":
+		return stringDecode(data)
+	default:
+		return data, nil
+	}
+}
+
+// safeJSONDecode attempts to parse JSON and normalizes the result to always be an object.
+func safeJSONDecode(data []byte) ([]byte, error) {
+	var raw interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		// Not valid JSON — wrap raw body as string content
+		return json.Marshal(map[string]interface{}{"content": string(data)})
+	}
+	switch v := raw.(type) {
+	case []interface{}:
+		return json.Marshal(map[string]interface{}{"collection": v})
+	case map[string]interface{}:
+		return json.Marshal(v) // already an object
+	default:
+		// string, number, bool — wrap as content
+		return json.Marshal(map[string]interface{}{"content": v})
+	}
+}
+
+// rssDecode parses RSS/Atom/JSON Feed and converts to JSON.
+func rssDecode(data []byte) ([]byte, error) {
+	fp := gofeed.NewParser()
+	feed, err := fp.Parse(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(feed)
+}
+
+// stringDecode wraps a raw response body as a JSON string content.
+func stringDecode(data []byte) ([]byte, error) {
+	return json.Marshal(map[string]interface{}{"content": string(data)})
 }
 
 // Stats returns a snapshot of encoder metrics.

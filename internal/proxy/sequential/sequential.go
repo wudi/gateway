@@ -14,6 +14,8 @@ import (
 
 	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/middleware/backendenc"
+	"github.com/wudi/gateway/internal/tmplutil"
 	"github.com/wudi/gateway/internal/variables"
 )
 
@@ -30,6 +32,7 @@ type StepContext struct {
 	}
 	// Resp0, Resp1, etc. are populated dynamically — we use a map for flexibility.
 	Responses map[string]interface{}
+	Variables map[string]string // per-step custom static variables
 }
 
 // compiledStep holds pre-compiled templates for a single step.
@@ -39,25 +42,21 @@ type compiledStep struct {
 	headerTmpls map[string]*template.Template
 	bodyTmpl    *template.Template
 	timeout     time.Duration
+	variables   map[string]string
+	encoding    string // "no-op", "string", or "" (default JSON)
 }
 
 // SequentialHandler chains multiple backend calls where each step's response
 // feeds into the next step's template context.
 type SequentialHandler struct {
-	steps     []compiledStep
-	transport http.RoundTripper
+	steps            []compiledStep
+	transport        http.RoundTripper
+	completionHeader bool
 
 	totalRequests atomic.Int64
 	totalErrors   atomic.Int64
 	stepErrors    []atomic.Int64
 	stepLatencies []atomic.Int64 // accumulated microseconds
-}
-
-var funcMap = template.FuncMap{
-	"json": func(v interface{}) string {
-		b, _ := json.Marshal(v)
-		return string(b)
-	},
 }
 
 // New creates a SequentialHandler from config.
@@ -67,7 +66,7 @@ func New(cfg config.SequentialConfig, transport http.RoundTripper) (*SequentialH
 	stepLatencies := make([]atomic.Int64, len(cfg.Steps))
 
 	for i, s := range cfg.Steps {
-		urlTmpl, err := template.New(fmt.Sprintf("step%d_url", i)).Funcs(funcMap).Parse(s.URL)
+		urlTmpl, err := template.New(fmt.Sprintf("step%d_url", i)).Funcs(tmplutil.FuncMap()).Parse(s.URL)
 		if err != nil {
 			return nil, fmt.Errorf("step %d: invalid URL template: %w", i, err)
 		}
@@ -83,15 +82,17 @@ func New(cfg config.SequentialConfig, transport http.RoundTripper) (*SequentialH
 		}
 
 		cs := compiledStep{
-			urlTmpl: urlTmpl,
-			method:  method,
-			timeout: timeout,
+			urlTmpl:   urlTmpl,
+			method:    method,
+			timeout:   timeout,
+			variables: s.Variables,
+			encoding:  s.Encoding,
 		}
 
 		if len(s.Headers) > 0 {
 			cs.headerTmpls = make(map[string]*template.Template, len(s.Headers))
 			for k, v := range s.Headers {
-				ht, err := template.New(fmt.Sprintf("step%d_header_%s", i, k)).Funcs(funcMap).Parse(v)
+				ht, err := template.New(fmt.Sprintf("step%d_header_%s", i, k)).Funcs(tmplutil.FuncMap()).Parse(v)
 				if err != nil {
 					return nil, fmt.Errorf("step %d: invalid header template for %s: %w", i, k, err)
 				}
@@ -100,7 +101,7 @@ func New(cfg config.SequentialConfig, transport http.RoundTripper) (*SequentialH
 		}
 
 		if s.BodyTemplate != "" {
-			bt, err := template.New(fmt.Sprintf("step%d_body", i)).Funcs(funcMap).Parse(s.BodyTemplate)
+			bt, err := template.New(fmt.Sprintf("step%d_body", i)).Funcs(tmplutil.FuncMap()).Parse(s.BodyTemplate)
 			if err != nil {
 				return nil, fmt.Errorf("step %d: invalid body template: %w", i, err)
 			}
@@ -138,6 +139,7 @@ func (sh *SequentialHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	for i, step := range sh.steps {
 		start := time.Now()
+		sctx.Variables = step.variables
 
 		// Render URL
 		var urlBuf bytes.Buffer
@@ -211,15 +213,43 @@ func (sh *SequentialHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Parse JSON into map
-		var parsed map[string]interface{}
-		if len(respBody) > 0 {
-			if err := json.Unmarshal(respBody, &parsed); err != nil {
-				// Not JSON — store as raw string
-				parsed = map[string]interface{}{"_raw": string(respBody)}
+		// Parse response based on step encoding
+		var stepResult interface{}
+		switch step.encoding {
+		case "no-op":
+			headerMap := make(map[string]string, len(resp.Header))
+			for k := range resp.Header {
+				headerMap[k] = resp.Header.Get(k)
 			}
+			stepResult = map[string]interface{}{
+				"body":        string(respBody),
+				"status_code": resp.StatusCode,
+				"headers":     headerMap,
+			}
+		case "string":
+			stepResult = map[string]interface{}{"content": string(respBody)}
+		case "xml", "yaml", "safejson", "rss":
+			decoded, decErr := backendenc.DecodeBytes(respBody, step.encoding)
+			if decErr != nil {
+				decoded = respBody
+			}
+			var parsed map[string]interface{}
+			if len(decoded) > 0 {
+				if err := json.Unmarshal(decoded, &parsed); err != nil {
+					parsed = map[string]interface{}{"_raw": string(decoded)}
+				}
+			}
+			stepResult = parsed
+		default:
+			var parsed map[string]interface{}
+			if len(respBody) > 0 {
+				if err := json.Unmarshal(respBody, &parsed); err != nil {
+					parsed = map[string]interface{}{"_raw": string(respBody)}
+				}
+			}
+			stepResult = parsed
 		}
-		sctx.Responses[fmt.Sprintf("Resp%d", i)] = parsed
+		sctx.Responses[fmt.Sprintf("Resp%d", i)] = stepResult
 
 		// Keep last response for final output
 		if i == len(sh.steps)-1 {
@@ -229,6 +259,9 @@ func (sh *SequentialHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				for _, v := range vv {
 					w.Header().Add(k, v)
 				}
+			}
+			if sh.completionHeader {
+				w.Header().Set("X-Gateway-Completed", "true")
 			}
 			w.WriteHeader(resp.StatusCode)
 			w.Write(respBody)
@@ -265,10 +298,13 @@ func NewSequentialByRoute() *SequentialByRoute {
 }
 
 // AddRoute adds a sequential handler for a route.
-func (m *SequentialByRoute) AddRoute(routeID string, cfg config.SequentialConfig, transport http.RoundTripper) error {
+func (m *SequentialByRoute) AddRoute(routeID string, cfg config.SequentialConfig, transport http.RoundTripper, completionHeader ...bool) error {
 	sh, err := New(cfg, transport)
 	if err != nil {
 		return err
+	}
+	if len(completionHeader) > 0 {
+		sh.completionHeader = completionHeader[0]
 	}
 	m.Add(routeID, sh)
 	return nil

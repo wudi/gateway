@@ -66,6 +66,47 @@ routes:
 
 The original request `Host` is preserved in the `X-Forwarded-Host` header (standard behavior).
 
+## Full URL Override
+
+Override the entire target URL -- scheme, host, port, path, and query string -- with a single `url` field. This takes precedence over all other rewrite modes (prefix, regex, strip_prefix). When `url` is set, the backend's original URL is completely replaced.
+
+```yaml
+routes:
+  - id: full-override
+    path: /legacy
+    path_prefix: true
+    rewrite:
+      url: "https://other-host:8443/api/v2?key=abc"
+    backends:
+      - url: http://backend:8080
+```
+
+| Request Path | Actual Target URL |
+|---|---|
+| `/legacy/anything` | `https://other-host:8443/api/v2?key=abc` |
+| `/legacy` | `https://other-host:8443/api/v2?key=abc` |
+
+The `url` field replaces the scheme, host, port, path, and query of the proxied request. The original request path and query string are discarded. This is useful for routing to a completely different endpoint while preserving all gateway middleware (auth, rate limiting, etc.).
+
+The `url` field can be combined with `host` (the `url` takes precedence for host), but combining it with `prefix` or `regex` is unnecessary since `url` overrides the entire target.
+
+### Example: Cross-Service Redirect
+
+Route a legacy path to an entirely different service and path:
+
+```yaml
+routes:
+  - id: legacy-redirect
+    path: /old-api/
+    path_prefix: true
+    rewrite:
+      url: "https://new-service.internal:9443/v3/resources"
+    backends:
+      - url: http://placeholder:8080
+```
+
+All requests to `/old-api/*` are proxied to `https://new-service.internal:9443/v3/resources` regardless of the original path suffix.
+
 ## Combined Example
 
 Prefix rewrite with host override:
@@ -88,6 +129,7 @@ Request `GET /public/api/users` becomes `GET /internal/v3/users` with `Host: api
 
 | Rule | Description |
 |---|---|
+| `url` takes precedence | When set, overrides prefix, regex, and strip_prefix behavior |
 | `prefix` + `regex` | Mutually exclusive |
 | `prefix` + `strip_prefix` | Mutually exclusive |
 | `prefix` requires `path_prefix: true` | Prefix rewrite only applies to prefix-matched routes |

@@ -2,6 +2,7 @@ package router
 
 import (
 	"net/http"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -178,6 +179,7 @@ func (route *Route) SetRewriteRegex(pattern string) {
 // For prefix rewrite: strips the route prefix and prepends the rewrite prefix.
 // For regex rewrite: applies regex substitution on the full request path.
 // Returns the path unchanged if no rewrite is configured.
+// Note: full URL override (Rewrite.URL) is handled in the proxy layer.
 func (route *Route) RewritePath(requestPath string) string {
 	if route.Rewrite.Prefix != "" {
 		// Strip route prefix from request path, prepend rewrite prefix
@@ -188,6 +190,16 @@ func (route *Route) RewritePath(requestPath string) string {
 		return route.rewriteRegex.ReplaceAllString(requestPath, route.Rewrite.Replacement)
 	}
 	return requestPath
+}
+
+// HasFullURLRewrite returns true if the route has a full URL override configured.
+func (route *Route) HasFullURLRewrite() bool {
+	return route.Rewrite.URL != ""
+}
+
+// ParseFullURLRewrite parses the full URL override and returns the target URL.
+func (route *Route) ParseFullURLRewrite() (*url.URL, error) {
+	return url.Parse(route.Rewrite.URL)
 }
 
 // stripRoutePrefix removes the route's path prefix from the request path.

@@ -82,14 +82,24 @@ import (
 	fastcgiproxy "github.com/wudi/gateway/internal/proxy/fastcgi"
 	grpcproxy "github.com/wudi/gateway/internal/proxy/grpc"
 	"github.com/wudi/gateway/internal/proxy/protocol"
+	_ "github.com/wudi/gateway/internal/proxy/protocol/graphql"
+	_ "github.com/wudi/gateway/internal/proxy/protocol/soap"
 	"github.com/wudi/gateway/internal/bluegreen"
 	"github.com/wudi/gateway/internal/middleware/contentneg"
+	"github.com/wudi/gateway/internal/middleware/errorhandling"
 	"github.com/wudi/gateway/internal/middleware/fieldencrypt"
+	"github.com/wudi/gateway/internal/middleware/fieldreplacer"
 	"github.com/wudi/gateway/internal/middleware/inboundsigning"
+	"github.com/wudi/gateway/internal/middleware/jmespath"
+	"github.com/wudi/gateway/internal/middleware/luascript"
+	"github.com/wudi/gateway/internal/middleware/modifiers"
 	"github.com/wudi/gateway/internal/middleware/paramforward"
 	"github.com/wudi/gateway/internal/middleware/piiredact"
 	"github.com/wudi/gateway/internal/middleware/respbodygen"
 	"github.com/wudi/gateway/internal/proxy/aggregate"
+	lambdaproxy "github.com/wudi/gateway/internal/proxy/lambda"
+	amqpproxy "github.com/wudi/gateway/internal/proxy/amqp"
+	pubsubproxy "github.com/wudi/gateway/internal/proxy/pubsub"
 	"github.com/wudi/gateway/internal/proxy/sequential"
 	"github.com/wudi/gateway/internal/registry"
 	"github.com/wudi/gateway/internal/registry/consul"
@@ -214,6 +224,14 @@ type Gateway struct {
 	baggagePropagators   *baggage.BaggageByRoute
 	backpressureHandlers *backpressure.BackpressureByRoute
 	auditLoggers         *auditlog.AuditLogByRoute
+	modifierChains       *modifiers.ModifiersByRoute
+	jmespathHandlers     *jmespath.JMESPathByRoute
+	fieldReplacers       *fieldreplacer.FieldReplacerByRoute
+	errorHandlers        *errorhandling.ErrorHandlerByRoute
+	luaScripters         *luascript.LuaScriptByRoute
+	lambdaHandlers       *lambdaproxy.LambdaByRoute
+	amqpHandlers         *amqpproxy.AMQPByRoute
+	pubsubHandlers       *pubsubproxy.PubSubByRoute
 
 	features []Feature
 
@@ -360,6 +378,14 @@ func New(cfg *config.Config) (*Gateway, error) {
 		baggagePropagators:   baggage.NewBaggageByRoute(),
 		backpressureHandlers: backpressure.NewBackpressureByRoute(),
 		auditLoggers:         auditlog.NewAuditLogByRoute(),
+		modifierChains:       modifiers.NewModifiersByRoute(),
+		jmespathHandlers:     jmespath.NewJMESPathByRoute(),
+		fieldReplacers:       fieldreplacer.NewFieldReplacerByRoute(),
+		errorHandlers:        errorhandling.NewErrorHandlerByRoute(),
+		luaScripters:         luascript.NewLuaScriptByRoute(),
+		lambdaHandlers:       lambdaproxy.NewLambdaByRoute(),
+		amqpHandlers:         amqpproxy.NewAMQPByRoute(),
+		pubsubHandlers:       pubsubproxy.NewPubSubByRoute(),
 		watchCancels:      make(map[string]context.CancelFunc),
 	}
 
@@ -555,8 +581,14 @@ func New(cfg *config.Config) (*Gateway, error) {
 			return nil
 		}, g.paramForwarders.RouteIDs, func() any { return g.paramForwarders.Stats() }),
 		newFeature("content_negotiation", "/content-negotiation", func(id string, rc config.RouteConfig) error {
-			if rc.ContentNegotiation.Enabled {
-				return g.contentNegotiators.AddRoute(id, rc.ContentNegotiation)
+			if rc.ContentNegotiation.Enabled || rc.OutputEncoding != "" {
+				cnCfg := rc.ContentNegotiation
+				if !cnCfg.Enabled && rc.OutputEncoding != "" {
+					cnCfg.Enabled = true
+					cnCfg.Supported = []string{"json", "xml", "yaml"}
+					cnCfg.Default = "json"
+				}
+				return g.contentNegotiators.AddRoute(id, cnCfg, rc.OutputEncoding)
 			}
 			return nil
 		}, g.contentNegotiators.RouteIDs, func() any { return g.contentNegotiators.Stats() }),
@@ -807,6 +839,37 @@ func New(cfg *config.Config) (*Gateway, error) {
 			return nil
 		}, g.auditLoggers.RouteIDs, func() any { return g.auditLoggers.Stats() }),
 
+		newFeature("modifiers", "/modifiers", func(id string, rc config.RouteConfig) error {
+			if len(rc.Modifiers) > 0 {
+				return g.modifierChains.AddRoute(id, rc.Modifiers)
+			}
+			return nil
+		}, g.modifierChains.RouteIDs, func() any { return g.modifierChains.Stats() }),
+		newFeature("jmespath", "/jmespath", func(id string, rc config.RouteConfig) error {
+			if rc.JMESPath.Enabled {
+				return g.jmespathHandlers.AddRoute(id, rc.JMESPath)
+			}
+			return nil
+		}, g.jmespathHandlers.RouteIDs, func() any { return g.jmespathHandlers.Stats() }),
+		newFeature("field_replacer", "/field-replacer", func(id string, rc config.RouteConfig) error {
+			if rc.FieldReplacer.Enabled {
+				return g.fieldReplacers.AddRoute(id, rc.FieldReplacer)
+			}
+			return nil
+		}, g.fieldReplacers.RouteIDs, func() any { return g.fieldReplacers.Stats() }),
+		newFeature("error_handling", "/error-handling", func(id string, rc config.RouteConfig) error {
+			if rc.ErrorHandling.Mode != "" && rc.ErrorHandling.Mode != "default" {
+				g.errorHandlers.AddRoute(id, rc.ErrorHandling)
+			}
+			return nil
+		}, g.errorHandlers.RouteIDs, func() any { return g.errorHandlers.Stats() }),
+		newFeature("lua", "/lua", func(id string, rc config.RouteConfig) error {
+			if rc.Lua.Enabled {
+				return g.luaScripters.AddRoute(id, rc.Lua)
+			}
+			return nil
+		}, g.luaScripters.RouteIDs, func() any { return g.luaScripters.Stats() }),
+
 		// No-op features: setup handled elsewhere (need transport/balancer)
 		noOpFeature("canary", "/canary", g.canaryControllers.RouteIDs, func() any { return g.canaryControllers.Stats() }),
 		noOpFeature("outlier_detection", "/outlier-detection", g.outlierDetectors.RouteIDs, func() any { return g.outlierDetectors.Stats() }),
@@ -814,6 +877,9 @@ func New(cfg *config.Config) (*Gateway, error) {
 		noOpFeature("blue_green", "/blue-green", g.blueGreenControllers.RouteIDs, func() any { return g.blueGreenControllers.Stats() }),
 		noOpFeature("sequential", "/sequential", g.sequentialHandlers.RouteIDs, func() any { return g.sequentialHandlers.Stats() }),
 		noOpFeature("aggregate", "/aggregate", g.aggregateHandlers.RouteIDs, func() any { return g.aggregateHandlers.Stats() }),
+		noOpFeature("lambda", "/lambda", g.lambdaHandlers.RouteIDs, func() any { return g.lambdaHandlers.Stats() }),
+		noOpFeature("amqp", "/amqp", g.amqpHandlers.RouteIDs, func() any { return g.amqpHandlers.Stats() }),
+		noOpFeature("pubsub", "/pubsub", g.pubsubHandlers.RouteIDs, func() any { return g.pubsubHandlers.Stats() }),
 
 		// Non-per-route managers exposed as Features for auto admin + dashboard
 		noOpFeature("retries", "/retries", func() []string { return nil }, func() any {
@@ -1408,7 +1474,8 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 	// Set up sequential handler (needs transport from proxy's transport pool)
 	if routeCfg.Sequential.Enabled {
 		transport := g.proxy.GetTransportPool().Get(routeCfg.Upstream)
-		if err := g.sequentialHandlers.AddRoute(routeCfg.ID, routeCfg.Sequential, transport); err != nil {
+		ch := routeCfg.CompletionHeader || g.config.CompletionHeader
+		if err := g.sequentialHandlers.AddRoute(routeCfg.ID, routeCfg.Sequential, transport, ch); err != nil {
 			return fmt.Errorf("sequential: route %s: %w", routeCfg.ID, err)
 		}
 	}
@@ -1416,8 +1483,30 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 	// Set up aggregate handler (needs transport from proxy's transport pool)
 	if routeCfg.Aggregate.Enabled {
 		transport := g.proxy.GetTransportPool().Get(routeCfg.Upstream)
-		if err := g.aggregateHandlers.AddRoute(routeCfg.ID, routeCfg.Aggregate, transport); err != nil {
+		ch := routeCfg.CompletionHeader || g.config.CompletionHeader
+		if err := g.aggregateHandlers.AddRoute(routeCfg.ID, routeCfg.Aggregate, transport, ch); err != nil {
 			return fmt.Errorf("aggregate: route %s: %w", routeCfg.ID, err)
+		}
+	}
+
+	// Set up Lambda backend handler
+	if routeCfg.Lambda.Enabled {
+		if err := g.lambdaHandlers.AddRoute(routeCfg.ID, routeCfg.Lambda); err != nil {
+			return fmt.Errorf("lambda: route %s: %w", routeCfg.ID, err)
+		}
+	}
+
+	// Set up AMQP backend handler
+	if routeCfg.AMQP.Enabled {
+		if err := g.amqpHandlers.AddRoute(routeCfg.ID, routeCfg.AMQP); err != nil {
+			return fmt.Errorf("amqp: route %s: %w", routeCfg.ID, err)
+		}
+	}
+
+	// Set up PubSub backend handler
+	if routeCfg.PubSub.Enabled {
+		if err := g.pubsubHandlers.AddRoute(routeCfg.ID, routeCfg.PubSub); err != nil {
+			return fmt.Errorf("pubsub: route %s: %w", routeCfg.ID, err)
 		}
 	}
 
@@ -1608,6 +1697,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		/* 7.75 */ func() middleware.Middleware {
 			if mh := g.mockHandlers.GetHandler(routeID); mh != nil { return mh.Middleware() }; return nil
 		},
+		/* 7.8  */ func() middleware.Middleware {
+			if ls := g.luaScripters.GetScript(routeID); ls != nil { return ls.RequestMiddleware() }; return nil
+		},
 		/* 8    */ func() middleware.Middleware {
 			if !skipBody && route.MaxBodySize > 0 { return bodyLimitMW(route.MaxBodySize) }; return nil
 		},
@@ -1694,6 +1786,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		/* 16.05*/ func() middleware.Middleware {
 			if bg := g.bodyGenerators.GetGenerator(routeID); bg != nil { return bg.Middleware() }; return nil
 		},
+		/* 16.07*/ func() middleware.Middleware {
+			if mc := g.modifierChains.GetChain(routeID); mc != nil { return mc.Middleware() }; return nil
+		},
 		/* 16.1 */ func() middleware.Middleware {
 			if pf := g.paramForwarders.GetForwarder(routeID); pf != nil { return pf.Middleware() }; return nil
 		},
@@ -1706,6 +1801,13 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		/* 17   */ func() middleware.Middleware {
 			if !skipBody && respBodyTransform != nil { return transform.ResponseBodyTransformMiddleware(respBodyTransform) }; return nil
 		},
+		/* 17.1 */ func() middleware.Middleware {
+			if ls := g.luaScripters.GetScript(routeID); ls != nil { return ls.ResponseMiddleware() }; return nil
+		},
+		/* 17.15*/ func() middleware.Middleware {
+			if skipBody { return nil }
+			if jm := g.jmespathHandlers.GetJMESPath(routeID); jm != nil { return jm.Middleware() }; return nil
+		},
 		/* 17.25*/ func() middleware.Middleware {
 			if sm := g.statusMappers.GetMapper(routeID); sm != nil { return sm.Middleware() }; return nil
 		},
@@ -1717,9 +1819,16 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 			if skipBody { return nil }
 			if pr := g.piiRedactors.GetRedactor(routeID); pr != nil { return pr.Middleware() }; return nil
 		},
+		/* 17.32*/ func() middleware.Middleware {
+			if skipBody { return nil }
+			if fr := g.fieldReplacers.GetReplacer(routeID); fr != nil { return fr.Middleware() }; return nil
+		},
 		/* 17.35*/ func() middleware.Middleware {
 			if skipBody { return nil }
 			if rbg := g.respBodyGenerators.GetGenerator(routeID); rbg != nil { return rbg.Middleware() }; return nil
+		},
+		/* 17.38*/ func() middleware.Middleware {
+			if eh := g.errorHandlers.GetHandler(routeID); eh != nil { return eh.Middleware() }; return nil
 		},
 		/* 17.4 */ func() middleware.Middleware {
 			if skipBody { return nil }
@@ -1748,6 +1857,12 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		innermost = fcgiH
 	} else if translatorHandler := g.translators.GetHandler(routeID); translatorHandler != nil {
 		innermost = translatorHandler
+	} else if lambdaH := g.lambdaHandlers.GetHandler(routeID); lambdaH != nil {
+		innermost = lambdaH
+	} else if amqpH := g.amqpHandlers.GetHandler(routeID); amqpH != nil {
+		innermost = amqpH
+	} else if pubsubH := g.pubsubHandlers.GetHandler(routeID); pubsubH != nil {
+		innermost = pubsubH
 	} else {
 		innermost = rp
 	}
@@ -1755,6 +1870,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 	// 17.55. backendEncodingMW — wraps innermost handler directly
 	if be := g.backendEncoders.GetEncoder(routeID); be != nil {
 		innermost = be.Middleware()(innermost)
+	}
+
+	// 17.56. isCollectionMW — wraps array responses as {"collection_key": [...]}
+	if cfg.BackendResponse.IsCollection {
+		innermost = isCollectionMW(cfg.BackendResponse.CollectionKey)(innermost)
 	}
 
 	// 17.5 responseValidationMW — wraps innermost (closest to proxy)

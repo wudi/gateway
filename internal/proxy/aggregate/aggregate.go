@@ -14,6 +14,9 @@ import (
 
 	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/middleware/backendenc"
+	"github.com/wudi/gateway/internal/middleware/transform"
+	"github.com/wudi/gateway/internal/tmplutil"
 	"github.com/wudi/gateway/internal/variables"
 )
 
@@ -26,26 +29,24 @@ type compiledBackend struct {
 	group      string
 	required   bool
 	timeout    time.Duration
+	variables  map[string]string
+	encoding   string                          // per-backend encoding (xml, yaml, etc.)
+	transform  *transform.CompiledBodyTransform // per-backend response transform
 }
 
 // AggregateHandler fans out requests to multiple backends and merges JSON responses.
 type AggregateHandler struct {
-	backends     []compiledBackend
-	transport    http.RoundTripper
-	timeout      time.Duration
-	failStrategy string // "abort" or "partial"
+	backends          []compiledBackend
+	transport         http.RoundTripper
+	timeout           time.Duration
+	failStrategy      string // "abort" or "partial"
+	responseTransform *transform.CompiledBodyTransform // post-merge transform
+	completionHeader  bool
 
 	totalRequests atomic.Int64
 	totalErrors   atomic.Int64
 	backendErrors []atomic.Int64
 	backendLatNs  []atomic.Int64
-}
-
-var funcMap = template.FuncMap{
-	"json": func(v interface{}) string {
-		b, _ := json.Marshal(v)
-		return string(b)
-	},
 }
 
 // New creates an AggregateHandler from config.
@@ -64,6 +65,7 @@ func New(cfg config.AggregateConfig, transport http.RoundTripper) (*AggregateHan
 		failStrategy = "abort"
 	}
 
+	funcMap := tmplutil.FuncMap()
 	backends := make([]compiledBackend, len(cfg.Backends))
 	for i, b := range cfg.Backends {
 		urlTmpl, err := template.New(b.Name + "_url").Funcs(funcMap).Parse(b.URL)
@@ -78,7 +80,7 @@ func New(cfg config.AggregateConfig, transport http.RoundTripper) (*AggregateHan
 
 		headerTmpls := make(map[string]*template.Template, len(b.Headers))
 		for hk, hv := range b.Headers {
-			ht, err := template.New(b.Name + "_header_" + hk).Funcs(funcMap).Parse(hv)
+			ht, err := template.New(b.Name + "_header_" + hk).Funcs(tmplutil.FuncMap()).Parse(hv)
 			if err != nil {
 				return nil, fmt.Errorf("backend %s: invalid header template %s: %w", b.Name, hk, err)
 			}
@@ -90,7 +92,7 @@ func New(cfg config.AggregateConfig, transport http.RoundTripper) (*AggregateHan
 			bt = timeout
 		}
 
-		backends[i] = compiledBackend{
+		cb := compiledBackend{
 			name:       b.Name,
 			urlTmpl:    urlTmpl,
 			method:     method,
@@ -98,17 +100,41 @@ func New(cfg config.AggregateConfig, transport http.RoundTripper) (*AggregateHan
 			group:      b.Group,
 			required:   b.Required,
 			timeout:    bt,
+			variables:  b.Variables,
+			encoding:   b.Encoding,
 		}
+
+		// Compile per-backend transform if configured
+		if b.Transform.IsActive() {
+			ct, err := transform.NewCompiledBodyTransform(b.Transform)
+			if err != nil {
+				return nil, fmt.Errorf("backend %s: invalid transform: %w", b.Name, err)
+			}
+			cb.transform = ct
+		}
+
+		backends[i] = cb
 	}
 
-	return &AggregateHandler{
+	ah := &AggregateHandler{
 		backends:      backends,
 		transport:     transport,
 		timeout:       timeout,
 		failStrategy:  failStrategy,
 		backendErrors: make([]atomic.Int64, len(backends)),
 		backendLatNs:  make([]atomic.Int64, len(backends)),
-	}, nil
+	}
+
+	// Compile post-merge response transform if configured
+	if cfg.ResponseTransform.IsActive() {
+		ct, err := transform.NewCompiledBodyTransform(cfg.ResponseTransform)
+		if err != nil {
+			return nil, fmt.Errorf("response_transform: %w", err)
+		}
+		ah.responseTransform = ct
+	}
+
+	return ah, nil
 }
 
 // templateContext builds the data object for templates.
@@ -121,6 +147,7 @@ type templateContext struct {
 	Headers    http.Header
 	ClientIP   string
 	RouteID    string
+	Variables  map[string]string // per-backend custom static variables
 }
 
 type backendResult struct {
@@ -158,7 +185,9 @@ func (ah *AggregateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			defer wg.Done()
 
 			start := time.Now()
-			body, err := ah.callBackend(r, backend, ctx)
+			bctx := ctx
+			bctx.Variables = backend.variables
+			body, err := ah.callBackend(r, backend, bctx)
 			ah.backendLatNs[idx].Add(time.Since(start).Nanoseconds())
 
 			if err != nil {
@@ -261,9 +290,27 @@ func (ah *AggregateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Aggregate-Partial", "true")
 	}
 
+	// Set completion header
+	if ah.completionHeader {
+		if hasAnyFailure {
+			w.Header().Set("X-Gateway-Completed", "false")
+		} else {
+			w.Header().Set("X-Gateway-Completed", "true")
+		}
+	}
+
+	// Serialize merged result
+	mergedJSON, _ := json.Marshal(merged)
+
+	// Apply post-merge response transform
+	if ah.responseTransform != nil {
+		mergedJSON = ah.responseTransform.Transform(mergedJSON, nil)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(mergedJSON)))
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(merged)
+	w.Write(mergedJSON)
 }
 
 func (ah *AggregateHandler) callBackend(origReq *http.Request, backend compiledBackend, ctx templateContext) ([]byte, error) {
@@ -310,6 +357,20 @@ func (ah *AggregateHandler) callBackend(origReq *http.Request, backend compiledB
 		return nil, fmt.Errorf("read body: %w", err)
 	}
 
+	// Apply encoding conversion (e.g., XML/YAML to JSON)
+	if backend.encoding != "" {
+		decoded, decErr := backendenc.DecodeBytes(body, backend.encoding)
+		if decErr != nil {
+			return nil, fmt.Errorf("decode %s: %w", backend.encoding, decErr)
+		}
+		body = decoded
+	}
+
+	// Apply per-backend transform
+	if backend.transform != nil {
+		body = backend.transform.Transform(body, nil)
+	}
+
 	return body, nil
 }
 
@@ -342,10 +403,13 @@ func NewAggregateByRoute() *AggregateByRoute {
 }
 
 // AddRoute adds an aggregate handler for a route.
-func (m *AggregateByRoute) AddRoute(routeID string, cfg config.AggregateConfig, transport http.RoundTripper) error {
+func (m *AggregateByRoute) AddRoute(routeID string, cfg config.AggregateConfig, transport http.RoundTripper, completionHeader ...bool) error {
 	ah, err := New(cfg, transport)
 	if err != nil {
 		return err
+	}
+	if len(completionHeader) > 0 {
+		ah.completionHeader = completionHeader[0]
 	}
 	m.Add(routeID, ah)
 	return nil

@@ -19,16 +19,17 @@ import (
 
 // Negotiator handles content negotiation for a route.
 type Negotiator struct {
-	supported    map[string]bool
-	defaultFmt   string
-	jsonCount    atomic.Int64
-	xmlCount     atomic.Int64
-	yamlCount    atomic.Int64
-	notAcceptable atomic.Int64
+	supported      map[string]bool
+	defaultFmt     string
+	outputEncoding string // if set, overrides Accept header
+	jsonCount      atomic.Int64
+	xmlCount       atomic.Int64
+	yamlCount      atomic.Int64
+	notAcceptable  atomic.Int64
 }
 
-// New creates a Negotiator from config.
-func New(cfg config.ContentNegotiationConfig) (*Negotiator, error) {
+// New creates a Negotiator from config. outputEncoding overrides Accept header when set.
+func New(cfg config.ContentNegotiationConfig, outputEncoding ...string) (*Negotiator, error) {
 	supported := make(map[string]bool, len(cfg.Supported))
 	for _, f := range cfg.Supported {
 		switch f {
@@ -47,17 +48,29 @@ func New(cfg config.ContentNegotiationConfig) (*Negotiator, error) {
 		return nil, fmt.Errorf("default format %q not in supported list", defaultFmt)
 	}
 
+	var outEnc string
+	if len(outputEncoding) > 0 {
+		outEnc = outputEncoding[0]
+	}
+
 	return &Negotiator{
-		supported:  supported,
-		defaultFmt: defaultFmt,
+		supported:      supported,
+		defaultFmt:     defaultFmt,
+		outputEncoding: outEnc,
 	}, nil
 }
 
-// Middleware returns a middleware that re-encodes response based on Accept header.
+// Middleware returns a middleware that re-encodes response based on Accept header or output_encoding.
 func (n *Negotiator) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			format := n.negotiate(r.Header.Get("Accept"))
+			// Determine format: output_encoding overrides Accept header
+			var format string
+			if n.outputEncoding != "" {
+				format = n.outputEncoding
+			} else {
+				format = n.negotiate(r.Header.Get("Accept"))
+			}
 
 			if format == "" {
 				n.notAcceptable.Add(1)
@@ -66,7 +79,6 @@ func (n *Negotiator) Middleware() middleware.Middleware {
 			}
 
 			if format == "json" {
-				// Pass through unchanged
 				n.jsonCount.Add(1)
 				next.ServeHTTP(w, r)
 				return
@@ -82,7 +94,6 @@ func (n *Negotiator) Middleware() middleware.Middleware {
 
 			body := bw.body.Bytes()
 
-			// Try to re-encode
 			var encoded []byte
 			var contentType string
 			var err error
@@ -96,10 +107,20 @@ func (n *Negotiator) Middleware() middleware.Middleware {
 				encoded, err = jsonToYAML(body)
 				contentType = "application/yaml; charset=utf-8"
 				n.yamlCount.Add(1)
+			case "json-collection":
+				encoded, err = jsonCollectionExtract(body)
+				contentType = "application/json; charset=utf-8"
+				n.jsonCount.Add(1)
+			case "string":
+				encoded = body
+				contentType = "text/plain; charset=utf-8"
+				n.jsonCount.Add(1)
+			default:
+				// Unknown output encoding — pass through
+				encoded = body
 			}
 
 			if err != nil {
-				// On conversion error, send original response
 				for k, vv := range bw.header {
 					for _, v := range vv {
 						w.Header().Add(k, v)
@@ -111,7 +132,6 @@ func (n *Negotiator) Middleware() middleware.Middleware {
 				return
 			}
 
-			// Write re-encoded response
 			for k, vv := range bw.header {
 				for _, v := range vv {
 					w.Header().Add(k, v)
@@ -123,6 +143,31 @@ func (n *Negotiator) Middleware() middleware.Middleware {
 			w.Write(encoded)
 		})
 	}
+}
+
+// jsonCollectionExtract extracts the inner array from a wrapped collection object.
+// If body is {"collection": [...]} or {"items": [...]}, returns the inner array.
+// If body is already an array, passes through.
+func jsonCollectionExtract(data []byte) ([]byte, error) {
+	var raw interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return data, nil
+	}
+
+	switch v := raw.(type) {
+	case []interface{}:
+		return data, nil // already an array
+	case map[string]interface{}:
+		for _, key := range []string{"collection", "items"} {
+			if arr, ok := v[key]; ok {
+				if _, isArr := arr.([]interface{}); isArr {
+					return json.Marshal(arr)
+				}
+			}
+		}
+	}
+
+	return data, nil
 }
 
 // negotiate parses Accept header and returns the best matching format.
@@ -307,9 +352,9 @@ func NewNegotiatorByRoute() *NegotiatorByRoute {
 	return &NegotiatorByRoute{}
 }
 
-// AddRoute adds a negotiator for a route.
-func (m *NegotiatorByRoute) AddRoute(routeID string, cfg config.ContentNegotiationConfig) error {
-	n, err := New(cfg)
+// AddRoute adds a negotiator for a route. Optional outputEncoding overrides Accept header.
+func (m *NegotiatorByRoute) AddRoute(routeID string, cfg config.ContentNegotiationConfig, outputEncoding ...string) error {
+	n, err := New(cfg, outputEncoding...)
 	if err != nil {
 		return err
 	}
