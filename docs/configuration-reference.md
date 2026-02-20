@@ -2030,3 +2030,51 @@ routes:
 **Validation:** Mutually exclusive with `canary.enabled` on the same route. Requires `traffic_split` with groups matching `active_group` and `inactive_group`. `error_threshold` must be in [0, 1.0].
 
 See [Blue-Green Deployments](blue-green.md) for full documentation.
+
+## SSRF Protection (global)
+
+```yaml
+ssrf_protection:
+  enabled: bool                  # enable SSRF protection
+  allow_cidrs: [string]          # exempt specific private CIDRs
+  block_link_local: bool         # block link-local addresses (default true)
+```
+
+**Validation:** `allow_cidrs` entries must be valid CIDR notation.
+
+See [SSRF Protection](ssrf-protection.md) for details.
+
+## Request Deduplication (per-route)
+
+```yaml
+routes:
+  - id: my-route
+    request_dedup:
+      enabled: bool              # enable request dedup
+      ttl: duration              # response cache TTL (default 60s)
+      include_headers: [string]  # headers to include in fingerprint
+      include_body: bool         # include body in fingerprint (default true)
+      max_body_size: int         # max body bytes to hash (default 1048576)
+      mode: string               # "local" or "distributed" (default "local")
+```
+
+**Validation:** `mode` must be `"local"` or `"distributed"`. Distributed mode requires `redis.address`. `ttl` must be >= 0. `max_body_size` must be >= 0.
+
+See [Request Deduplication](request-dedup.md) for details.
+
+## IP Blocklist (global + per-route)
+
+```yaml
+ip_blocklist:
+  enabled: bool                  # enable IP blocklist
+  static: [string]               # always-blocked IPs/CIDRs
+  action: string                 # "block" (default) or "log"
+  feeds:
+    - url: string                # feed URL (required)
+      refresh_interval: duration # refresh interval (default 5m)
+      format: string             # "text" (default) or "json"
+```
+
+**Validation:** `action` must be `"block"` or `"log"`. Static entries must be valid IPs or CIDRs. Feed `url` is required. Feed `format` must be `"text"` or `"json"`. `refresh_interval` must be >= 1s.
+
+See [Dynamic IP Blocklist](ip-blocklist.md) for details.

@@ -345,6 +345,16 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// === SSRF protection (global) ===
+	if err := l.validateSSRFProtectionConfig(cfg.SSRFProtection); err != nil {
+		return err
+	}
+
+	// === IP blocklist (global) ===
+	if err := l.validateIPBlocklistConfig("global", cfg.IPBlocklist); err != nil {
+		return err
+	}
+
 	// === Webhooks ===
 	if err := l.validateWebhooks(cfg.Webhooks); err != nil {
 		return err

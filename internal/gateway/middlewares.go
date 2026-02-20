@@ -17,6 +17,7 @@ import (
 	"github.com/wudi/gateway/internal/metrics"
 	"github.com/wudi/gateway/internal/middleware"
 	"github.com/wudi/gateway/internal/middleware/geo"
+	"github.com/wudi/gateway/internal/middleware/ipblocklist"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
 	"github.com/wudi/gateway/internal/middleware/transform"
@@ -40,6 +41,32 @@ func ipFilterMW(global *ipfilter.Filter, route *ipfilter.Filter) middleware.Midd
 			}
 			if route != nil && !route.Check(r) {
 				ipfilter.RejectRequest(w)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// 2.85 ipBlocklistMW checks global then per-route dynamic IP blocklists.
+func ipBlocklistMW(global *ipblocklist.Blocklist, route *ipblocklist.Blocklist) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if global != nil {
+				mw := global.Middleware()
+				mw(http.HandlerFunc(func(w2 http.ResponseWriter, r2 *http.Request) {
+					if route != nil {
+						routeMW := route.Middleware()
+						routeMW(next).ServeHTTP(w2, r2)
+						return
+					}
+					next.ServeHTTP(w2, r2)
+				})).ServeHTTP(w, r)
+				return
+			}
+			if route != nil {
+				routeMW := route.Middleware()
+				routeMW(next).ServeHTTP(w, r)
 				return
 			}
 			next.ServeHTTP(w, r)

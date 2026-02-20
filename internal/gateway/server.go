@@ -16,6 +16,7 @@ import (
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/listener"
 	"github.com/wudi/gateway/internal/logging"
+	"github.com/wudi/gateway/internal/middleware/ipblocklist"
 	"github.com/wudi/gateway/internal/proxy/tcp"
 	"github.com/wudi/gateway/internal/proxy/udp"
 	"go.uber.org/zap"
@@ -467,6 +468,13 @@ func (s *Server) adminHandler() http.Handler {
 	mux.HandleFunc("/allowed-hosts", s.handleAllowedHosts)
 	mux.HandleFunc("/token-revocation", s.handleTokenRevocation)
 	mux.HandleFunc("/token-revocation/", s.handleTokenRevocationAction)
+	mux.HandleFunc("/ssrf-protection", jsonStatsHandler(func() any {
+		if s.gateway.ssrfDialer == nil {
+			return map[string]interface{}{"enabled": false}
+		}
+		return s.gateway.ssrfDialer.Stats()
+	}))
+	mux.HandleFunc("/ip-blocklist/refresh", s.handleIPBlocklistRefresh)
 	mux.HandleFunc("/dashboard", s.handleDashboard)
 	if s.gateway.GetAPIKeyAuth() != nil {
 		mux.HandleFunc("/admin/keys", s.handleAdminKeys)
@@ -1088,7 +1096,30 @@ func (s *Server) handleTokenRevocationAction(w http.ResponseWriter, r *http.Requ
 	}
 }
 
-// handleDrain handles drain status (GET) and drain initiation (POST).
+func (s *Server) handleIPBlocklistRefresh(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+
+	refreshed := 0
+	if s.gateway.globalBlocklist != nil {
+		s.gateway.globalBlocklist.ForceRefresh()
+		refreshed++
+	}
+	s.gateway.ipBlocklists.Range(func(_ string, bl *ipblocklist.Blocklist) bool {
+		bl.ForceRefresh()
+		refreshed++
+		return true
+	})
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":    "ok",
+		"refreshed": refreshed,
+	})
+}
+
 func (s *Server) handleDrain(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 

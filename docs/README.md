@@ -54,6 +54,9 @@ A high-performance, feature-rich API gateway supporting HTTP, TCP, and UDP proxy
 - [Idempotency](idempotency.md) — Idempotency key support for safe retries
 - [Replay Prevention](replay-prevention.md) — Nonce-based replay attack prevention
 - [Bot Detection](bot-detection.md) — User-Agent regex deny/allow lists
+- [SSRF Protection](ssrf-protection.md) — Block outbound connections to private IPs
+- [Request Deduplication](request-dedup.md) — Content-hash dedup for duplicate webhook deliveries
+- [Dynamic IP Blocklist](ip-blocklist.md) — Subscribe to external threat feeds for auto-blocking
 
 ### Caching
 

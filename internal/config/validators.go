@@ -1109,6 +1109,12 @@ func (l *Loader) validateDelegatedSecurity(route RouteConfig, cfg *Config) error
 	if err := l.validateInboundSigningConfig(scope, route.InboundSigning); err != nil {
 		return err
 	}
+	if err := l.validateRequestDedupConfig(scope, route.RequestDedup, cfg.Redis.Address); err != nil {
+		return err
+	}
+	if err := l.validateIPBlocklistConfig(scope, route.IPBlocklist); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -2239,5 +2245,76 @@ func (l *Loader) validateRewriteConfig(routeID string, rc RewriteConfig, pathPre
 		}
 	}
 
+	return nil
+}
+
+// validateSSRFProtectionConfig validates the global SSRF protection config.
+func (l *Loader) validateSSRFProtectionConfig(cfg SSRFProtectionConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	for i, cidr := range cfg.AllowCIDRs {
+		if _, _, err := net.ParseCIDR(cidr); err != nil {
+			return fmt.Errorf("ssrf_protection.allow_cidrs[%d]: invalid CIDR %q: %w", i, cidr, err)
+		}
+	}
+	return nil
+}
+
+// validateRequestDedupConfig validates request dedup config for a given scope.
+func (l *Loader) validateRequestDedupConfig(scope string, cfg RequestDedupConfig, redisAddr string) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	switch cfg.Mode {
+	case "", "local", "distributed":
+		// valid
+	default:
+		return fmt.Errorf("%s: request_dedup.mode must be \"local\" or \"distributed\", got %q", scope, cfg.Mode)
+	}
+	if cfg.TTL < 0 {
+		return fmt.Errorf("%s: request_dedup.ttl must be >= 0", scope)
+	}
+	if cfg.MaxBodySize < 0 {
+		return fmt.Errorf("%s: request_dedup.max_body_size must be >= 0", scope)
+	}
+	if cfg.Mode == "distributed" && redisAddr == "" {
+		return fmt.Errorf("%s: request_dedup.mode \"distributed\" requires redis.address to be configured", scope)
+	}
+	return nil
+}
+
+// validateIPBlocklistConfig validates IP blocklist config for a given scope.
+func (l *Loader) validateIPBlocklistConfig(scope string, cfg IPBlocklistConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	switch cfg.Action {
+	case "", "block", "log":
+		// valid
+	default:
+		return fmt.Errorf("%s: ip_blocklist.action must be \"block\" or \"log\", got %q", scope, cfg.Action)
+	}
+	for i, entry := range cfg.Static {
+		if ip := net.ParseIP(entry); ip == nil {
+			if _, _, err := net.ParseCIDR(entry); err != nil {
+				return fmt.Errorf("%s: ip_blocklist.static[%d]: %q is not a valid IP or CIDR", scope, i, entry)
+			}
+		}
+	}
+	for i, feed := range cfg.Feeds {
+		if feed.URL == "" {
+			return fmt.Errorf("%s: ip_blocklist.feeds[%d]: url is required", scope, i)
+		}
+		switch feed.Format {
+		case "", "text", "json":
+			// valid
+		default:
+			return fmt.Errorf("%s: ip_blocklist.feeds[%d]: format must be \"text\" or \"json\", got %q", scope, i, feed.Format)
+		}
+		if feed.RefreshInterval > 0 && feed.RefreshInterval < time.Second {
+			return fmt.Errorf("%s: ip_blocklist.feeds[%d]: refresh_interval must be >= 1s", scope, i)
+		}
+	}
 	return nil
 }

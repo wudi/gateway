@@ -1371,6 +1371,100 @@ Returns detailed snapshot for a specific route's blue-green deployment.
 
 ---
 
+## SSRF Protection
+
+### GET `/ssrf-protection`
+
+Returns SSRF protection status and blocked request count.
+
+```bash
+curl http://localhost:8081/ssrf-protection
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "enabled": true,
+  "blocked_ranges": 9,
+  "allowed_ranges": 2,
+  "blocked_requests": 15
+}
+```
+
+---
+
+## Request Deduplication
+
+### GET `/request-dedup`
+
+Returns dedup configuration and status for all routes.
+
+```bash
+curl http://localhost:8081/request-dedup
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "webhook-receiver": {
+    "enabled": true,
+    "mode": "local",
+    "ttl": "1m0s",
+    "include_headers": ["X-Webhook-ID"],
+    "include_body": true,
+    "max_body_size": 1048576
+  }
+}
+```
+
+---
+
+## IP Blocklist
+
+### GET `/ip-blocklist`
+
+Returns IP blocklist status for all routes.
+
+```bash
+curl http://localhost:8081/ip-blocklist
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "api": {
+    "enabled": true,
+    "action": "block",
+    "static_entries": 3,
+    "feed_count": 2,
+    "total_blocked_ips": 1250,
+    "blocked_requests": 42
+  }
+}
+```
+
+### POST `/ip-blocklist/refresh`
+
+Forces an immediate refresh of all threat feeds (global and per-route).
+
+```bash
+curl -X POST http://localhost:8081/ip-blocklist/refresh
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "status": "ok",
+  "refreshed": 3
+}
+```
+
+---
+
 ## Key Config Fields
 
 | Field | Type | Description |

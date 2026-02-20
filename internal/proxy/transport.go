@@ -11,6 +11,7 @@ import (
 
 	"github.com/quic-go/quic-go/http3"
 	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/middleware/ssrf"
 )
 
 // TransportConfig configures the HTTP transport
@@ -44,6 +45,9 @@ type TransportConfig struct {
 
 	// DNS
 	Resolver *net.Resolver // nil = default OS resolver
+
+	// SSRF protection
+	SSRFProtection *config.SSRFProtectionConfig
 }
 
 // DefaultTransportConfig provides default transport settings
@@ -98,9 +102,16 @@ func NewTransport(cfg TransportConfig) *http.Transport {
 
 	tlsConfig := buildTLSConfig(cfg)
 
+	dialCtx := dialer.DialContext
+	if cfg.SSRFProtection != nil && cfg.SSRFProtection.Enabled {
+		if sd, err := ssrf.New(dialer, *cfg.SSRFProtection); err == nil {
+			dialCtx = sd.DialContext
+		}
+	}
+
 	return &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
-		DialContext:           dialer.DialContext,
+		DialContext:           dialCtx,
 		MaxIdleConns:          cfg.MaxIdleConns,
 		MaxIdleConnsPerHost:   cfg.MaxIdleConnsPerHost,
 		MaxConnsPerHost:       cfg.MaxConnsPerHost,
@@ -185,6 +196,12 @@ func MergeTransportConfigs(base TransportConfig, overlays ...config.TransportCon
 		}
 	}
 	return base
+}
+
+// WithSSRFProtection returns a copy of the config with SSRF protection applied.
+func (tc TransportConfig) WithSSRFProtection(cfg *config.SSRFProtectionConfig) TransportConfig {
+	tc.SSRFProtection = cfg
+	return tc
 }
 
 // TransportPool manages a pool of transports keyed by upstream name.

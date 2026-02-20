@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/wudi/gateway/internal/logging"
 	"go.uber.org/zap"
@@ -44,7 +45,9 @@ import (
 	"github.com/wudi/gateway/internal/middleware/extauth"
 	"github.com/wudi/gateway/internal/middleware/httpsredirect"
 	"github.com/wudi/gateway/internal/middleware/geo"
+	"github.com/wudi/gateway/internal/middleware/dedup"
 	"github.com/wudi/gateway/internal/middleware/idempotency"
+	"github.com/wudi/gateway/internal/middleware/ipblocklist"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	"github.com/wudi/gateway/internal/middleware/mtls"
 	"github.com/wudi/gateway/internal/middleware/nonce"
@@ -57,6 +60,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/serviceratelimit"
 	"github.com/wudi/gateway/internal/middleware/sse"
 	"github.com/wudi/gateway/internal/middleware/signing"
+	"github.com/wudi/gateway/internal/middleware/ssrf"
 	"github.com/wudi/gateway/internal/middleware/spikearrest"
 	"github.com/wudi/gateway/internal/middleware/staticfiles"
 	"github.com/wudi/gateway/internal/middleware/statusmap"
@@ -196,6 +200,10 @@ type Gateway struct {
 	piiRedactors         *piiredact.PIIRedactByRoute
 	fieldEncryptors      *fieldencrypt.FieldEncryptByRoute
 	blueGreenControllers *bluegreen.BlueGreenByRoute
+	dedupHandlers        *dedup.DedupByRoute
+	ipBlocklists         *ipblocklist.BlocklistByRoute
+	globalBlocklist      *ipblocklist.Blocklist
+	ssrfDialer           *ssrf.SafeDialer
 	http3AltSvcPort      string // port for Alt-Svc header; empty = no HTTP/3
 	budgetPools          map[string]*retry.Budget
 
@@ -338,6 +346,8 @@ func New(cfg *config.Config) (*Gateway, error) {
 		piiRedactors:         piiredact.NewPIIRedactByRoute(),
 		fieldEncryptors:      fieldencrypt.NewFieldEncryptByRoute(),
 		blueGreenControllers: bluegreen.NewBlueGreenByRoute(),
+		dedupHandlers:        dedup.NewDedupByRoute(),
+		ipBlocklists:         ipblocklist.NewBlocklistByRoute(),
 		budgetPools:          make(map[string]*retry.Budget),
 		watchCancels:      make(map[string]context.CancelFunc),
 	}
@@ -646,6 +656,22 @@ func New(cfg *config.Config) (*Gateway, error) {
 			}
 			return nil
 		}, g.idempotencyHandlers.RouteIDs, func() any { return g.idempotencyHandlers.Stats() }),
+		newFeature("request_dedup", "/request-dedup", func(id string, rc config.RouteConfig) error {
+			if rc.RequestDedup.Enabled {
+				return g.dedupHandlers.AddRoute(id, rc.RequestDedup, g.redisClient)
+			}
+			return nil
+		}, g.dedupHandlers.RouteIDs, func() any { return g.dedupHandlers.Stats() }),
+		newFeature("ip_blocklist", "/ip-blocklist", func(id string, rc config.RouteConfig) error {
+			if rc.IPBlocklist.Enabled {
+				merged := ipblocklist.MergeIPBlocklistConfig(rc.IPBlocklist, cfg.IPBlocklist)
+				return g.ipBlocklists.AddRoute(id, merged)
+			}
+			if cfg.IPBlocklist.Enabled {
+				return g.ipBlocklists.AddRoute(id, cfg.IPBlocklist)
+			}
+			return nil
+		}, g.ipBlocklists.RouteIDs, func() any { return g.ipBlocklists.Stats() }),
 		newFeature("geo", "/geo", func(id string, rc config.RouteConfig) error {
 			if g.geoProvider == nil {
 				return nil
@@ -896,6 +922,23 @@ func New(cfg *config.Config) (*Gateway, error) {
 	// Initialize debug endpoint
 	if cfg.DebugEndpoint.Enabled {
 		g.debugHandler = debug.New(cfg.DebugEndpoint, cfg)
+	}
+
+	// Initialize SSRF protection dialer (for admin stats)
+	if cfg.SSRFProtection.Enabled {
+		dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
+		if sd, err := ssrf.New(dialer, cfg.SSRFProtection); err == nil {
+			g.ssrfDialer = sd
+		}
+	}
+
+	// Initialize global IP blocklist
+	if cfg.IPBlocklist.Enabled {
+		var err error
+		g.globalBlocklist, err = ipblocklist.New(cfg.IPBlocklist)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize global IP blocklist: %w", err)
+		}
 	}
 
 	// Detect HTTP/3 port for Alt-Svc header
@@ -1428,6 +1471,10 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		/* 2.8  */ func() middleware.Middleware {
 			if bd := g.botDetectors.GetDetector(routeID); bd != nil { return bd.Middleware() }; return nil
 		},
+		/* 2.85 */ func() middleware.Middleware {
+			bl := g.ipBlocklists.GetBlocklist(routeID)
+			if g.globalBlocklist != nil || bl != nil { return ipBlocklistMW(g.globalBlocklist, bl) }; return nil
+		},
 		/* 3    */ func() middleware.Middleware {
 			if ch := g.corsHandlers.GetHandler(routeID); ch != nil && ch.IsEnabled() { return ch.Middleware() }; return nil
 		},
@@ -1483,6 +1530,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		},
 		/* 6.4  */ func() middleware.Middleware {
 			if ih := g.idempotencyHandlers.GetHandler(routeID); ih != nil { return ih.Middleware() }; return nil
+		},
+		/* 6.45 */ func() middleware.Middleware {
+			if dh := g.dedupHandlers.GetHandler(routeID); dh != nil { return dh.Middleware() }; return nil
 		},
 		/* 6.5  */ func() middleware.Middleware {
 			if g.priorityAdmitter == nil { return nil }
@@ -2172,6 +2222,11 @@ func (g *Gateway) buildTransportPool(cfg *config.Config) *proxy.TransportPool {
 	// Apply DNS resolver if configured
 	if len(cfg.DNSResolver.Nameservers) > 0 {
 		baseCfg.Resolver = proxy.NewResolver(cfg.DNSResolver.Nameservers, cfg.DNSResolver.Timeout)
+	}
+
+	// Apply SSRF protection if configured
+	if cfg.SSRFProtection.Enabled {
+		baseCfg.SSRFProtection = &cfg.SSRFProtection
 	}
 
 	pool := proxy.NewTransportPoolWithDefault(baseCfg)

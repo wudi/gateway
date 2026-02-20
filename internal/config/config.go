@@ -68,6 +68,8 @@ type Config struct {
 	CDNCacheHeaders        CDNCacheConfig               `yaml:"cdn_cache_headers"`         // Global CDN cache header injection
 	RetryBudgets           map[string]BudgetConfig      `yaml:"retry_budgets"`             // Named shared retry budget pools
 	InboundSigning         InboundSigningConfig         `yaml:"inbound_signing"`           // Global inbound request signature verification
+	SSRFProtection         SSRFProtectionConfig         `yaml:"ssrf_protection"`           // SSRF protection for outbound connections
+	IPBlocklist            IPBlocklistConfig            `yaml:"ip_blocklist"`              // Dynamic IP blocklist
 }
 
 // ListenerConfig defines a listener configuration
@@ -322,6 +324,8 @@ type RouteConfig struct {
 	FieldEncryption      FieldEncryptionConfig       `yaml:"field_encryption"`      // Per-route field-level encryption
 	BlueGreen            BlueGreenConfig             `yaml:"blue_green"`            // Blue-green deployment
 	FastCGI              FastCGIConfig               `yaml:"fastcgi"`               // FastCGI proxy (replaces proxy)
+	RequestDedup         RequestDedupConfig          `yaml:"request_dedup"`         // Per-route request deduplication
+	IPBlocklist          IPBlocklistConfig           `yaml:"ip_blocklist"`          // Per-route dynamic IP blocklist
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -1520,6 +1524,38 @@ type CDNCacheConfig struct {
 // BackendEncodingConfig defines backend response format decoding to JSON.
 type BackendEncodingConfig struct {
 	Encoding string `yaml:"encoding"` // "xml" or "yaml" — backend response format to decode to JSON
+}
+
+// SSRFProtectionConfig defines SSRF protection for outbound proxy connections.
+type SSRFProtectionConfig struct {
+	Enabled        bool     `yaml:"enabled"`
+	AllowCIDRs     []string `yaml:"allow_cidrs"`       // exempt specific private CIDRs
+	BlockLinkLocal *bool    `yaml:"block_link_local"`   // default true
+}
+
+// RequestDedupConfig defines per-route request deduplication settings.
+type RequestDedupConfig struct {
+	Enabled        bool          `yaml:"enabled"`
+	TTL            time.Duration `yaml:"ttl"`              // default 60s
+	IncludeHeaders []string      `yaml:"include_headers"`
+	IncludeBody    *bool         `yaml:"include_body"`     // default true
+	MaxBodySize    int64         `yaml:"max_body_size"`    // default 1MB
+	Mode           string        `yaml:"mode"`             // "local" or "distributed"
+}
+
+// IPBlocklistConfig defines dynamic IP blocklist settings.
+type IPBlocklistConfig struct {
+	Enabled bool              `yaml:"enabled"`
+	Feeds   []IPBlocklistFeed `yaml:"feeds"`
+	Static  []string          `yaml:"static"`   // always-blocked IPs/CIDRs
+	Action  string            `yaml:"action"`   // "block" (default) or "log"
+}
+
+// IPBlocklistFeed defines a single IP blocklist feed source.
+type IPBlocklistFeed struct {
+	URL             string        `yaml:"url"`
+	RefreshInterval time.Duration `yaml:"refresh_interval"` // default 5m
+	Format          string        `yaml:"format"`           // "text" or "json"
 }
 
 // DefaultConfig returns a configuration with sensible defaults
