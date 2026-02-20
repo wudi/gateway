@@ -1181,6 +1181,54 @@ func (l *Loader) validateDelegatedMiddleware(route RouteConfig, _ *Config) error
 	if route.FieldEncryption.Enabled && route.Passthrough {
 		return fmt.Errorf("%s: field_encryption is mutually exclusive with passthrough", scope)
 	}
+	if route.Baggage.Enabled {
+		if len(route.Baggage.Tags) == 0 {
+			return fmt.Errorf("%s: baggage requires at least one tag", scope)
+		}
+		validPrefixes := []string{"header:", "jwt_claim:", "query:", "cookie:", "static:"}
+		for i, tag := range route.Baggage.Tags {
+			if tag.Name == "" {
+				return fmt.Errorf("%s: baggage.tags[%d].name is required", scope, i)
+			}
+			if tag.Header == "" {
+				return fmt.Errorf("%s: baggage.tags[%d].header is required", scope, i)
+			}
+			valid := false
+			for _, p := range validPrefixes {
+				if strings.HasPrefix(tag.Source, p) {
+					valid = true
+					break
+				}
+			}
+			if !valid {
+				return fmt.Errorf("%s: baggage.tags[%d].source must start with header:, jwt_claim:, query:, cookie:, or static:", scope, i)
+			}
+		}
+	}
+	if route.Backpressure.Enabled {
+		for _, code := range route.Backpressure.StatusCodes {
+			if code < 100 || code > 599 {
+				return fmt.Errorf("%s: backpressure.status_codes contains invalid code %d (must be 100-599)", scope, code)
+			}
+		}
+		if route.Backpressure.MaxRetryAfter < 0 {
+			return fmt.Errorf("%s: backpressure.max_retry_after must be >= 0", scope)
+		}
+		if route.Backpressure.DefaultDelay < 0 {
+			return fmt.Errorf("%s: backpressure.default_delay must be >= 0", scope)
+		}
+	}
+	if route.AuditLog.Enabled {
+		if route.AuditLog.WebhookURL == "" {
+			return fmt.Errorf("%s: audit_log.webhook_url is required when enabled", scope)
+		}
+		if route.AuditLog.SampleRate < 0 || route.AuditLog.SampleRate > 1.0 {
+			return fmt.Errorf("%s: audit_log.sample_rate must be between 0.0 and 1.0", scope)
+		}
+		if route.AuditLog.MaxBodySize < 0 {
+			return fmt.Errorf("%s: audit_log.max_body_size must be >= 0", scope)
+		}
+	}
 	return nil
 }
 

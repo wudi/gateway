@@ -221,3 +221,118 @@ The cache check happens before the circuit breaker. A cache hit never touches th
 | `coalesce.methods` | []string | Eligible HTTP methods (default `["GET", "HEAD"]`) |
 
 See [Configuration Reference](configuration-reference.md#routes) for all fields.
+
+## Cache Invalidation API
+
+The gateway provides an admin API endpoint for programmatic cache purging. This allows you to invalidate cached responses without waiting for TTL expiration — useful when backend data changes and stale responses must be evicted immediately.
+
+### POST `/cache/purge`
+
+Purge cached entries by route, by specific key, or globally.
+
+#### Purge all entries for a route
+
+```bash
+curl -X POST http://localhost:8081/cache/purge \
+  -H "Content-Type: application/json" \
+  -d '{"route": "my-route"}'
+```
+
+**Response (200 OK):**
+```json
+{
+  "purged": true,
+  "entries_removed": 42
+}
+```
+
+This removes every cached entry belonging to the specified route. For local mode, this clears the in-memory LRU for that route. For distributed mode, this deletes all Redis keys under the `gw:cache:{routeID}:` prefix.
+
+#### Purge a specific cache key
+
+```bash
+curl -X POST http://localhost:8081/cache/purge \
+  -H "Content-Type: application/json" \
+  -d '{"route": "my-route", "key": "/api/products?category=shoes"}'
+```
+
+**Response (200 OK):**
+```json
+{
+  "purged": true,
+  "entries_removed": 1
+}
+```
+
+The `key` value should match the request path and query string of the cached response. The cache key is computed from the method + path + query string (plus any `key_headers`), so the `key` field corresponds to the path+query portion. If the key does not exist, `entries_removed` is `0` and `purged` is still `true`.
+
+#### Purge all caches globally
+
+```bash
+curl -X POST http://localhost:8081/cache/purge \
+  -H "Content-Type: application/json" \
+  -d '{"all": true}'
+```
+
+**Response (200 OK):**
+```json
+{
+  "purged": true,
+  "entries_removed": 1500
+}
+```
+
+This clears every cached entry across all routes.
+
+#### Error responses
+
+**400 Bad Request** — invalid JSON or missing required fields:
+```json
+{
+  "error": "must specify 'route', 'route'+'key', or 'all'"
+}
+```
+
+**404 Not Found** — specified route does not have caching enabled:
+```json
+{
+  "error": "route 'unknown-route' not found or caching not enabled"
+}
+```
+
+### Example: Purge on deploy
+
+Integrate cache purging into your deployment pipeline to ensure users see fresh content after a release:
+
+```bash
+#!/bin/bash
+# After deploying new backend version
+curl -s -X POST http://gateway:8081/cache/purge \
+  -H "Content-Type: application/json" \
+  -d '{"all": true}' | jq .
+```
+
+### Example: Targeted invalidation via webhook
+
+Combine with [webhooks](webhooks.md) to trigger cache purges when specific resources change:
+
+```yaml
+routes:
+  - id: "products"
+    path: "/api/products"
+    path_prefix: true
+    backends:
+      - url: "http://product-service:9000"
+    cache:
+      enabled: true
+      ttl: 10m
+      max_size: 5000
+      methods: ["GET"]
+```
+
+```bash
+# When product ID 123 is updated, purge its cache entry
+curl -X POST http://gateway:8081/cache/purge \
+  -H "Content-Type: application/json" \
+  -d '{"route": "products", "key": "/api/products/123"}'
+```

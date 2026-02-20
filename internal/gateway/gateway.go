@@ -29,7 +29,10 @@ import (
 	"github.com/wudi/gateway/internal/middleware/allowedhosts"
 	"github.com/wudi/gateway/internal/middleware/altsvc"
 	"github.com/wudi/gateway/internal/middleware/auth"
+	"github.com/wudi/gateway/internal/middleware/auditlog"
 	"github.com/wudi/gateway/internal/middleware/backendauth"
+	"github.com/wudi/gateway/internal/middleware/backpressure"
+	"github.com/wudi/gateway/internal/middleware/baggage"
 	"github.com/wudi/gateway/internal/middleware/backendenc"
 	"github.com/wudi/gateway/internal/middleware/bodygen"
 	"github.com/wudi/gateway/internal/middleware/botdetect"
@@ -49,6 +52,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/idempotency"
 	"github.com/wudi/gateway/internal/middleware/ipblocklist"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
+	"github.com/wudi/gateway/internal/middleware/loadshed"
 	"github.com/wudi/gateway/internal/middleware/mtls"
 	"github.com/wudi/gateway/internal/middleware/nonce"
 	"github.com/wudi/gateway/internal/middleware/maintenance"
@@ -206,6 +210,10 @@ type Gateway struct {
 	ssrfDialer           *ssrf.SafeDialer
 	http3AltSvcPort      string // port for Alt-Svc header; empty = no HTTP/3
 	budgetPools          map[string]*retry.Budget
+	loadShedder          *loadshed.LoadShedder
+	baggagePropagators   *baggage.BaggageByRoute
+	backpressureHandlers *backpressure.BackpressureByRoute
+	auditLoggers         *auditlog.AuditLogByRoute
 
 	features []Feature
 
@@ -349,6 +357,9 @@ func New(cfg *config.Config) (*Gateway, error) {
 		dedupHandlers:        dedup.NewDedupByRoute(),
 		ipBlocklists:         ipblocklist.NewBlocklistByRoute(),
 		budgetPools:          make(map[string]*retry.Budget),
+		baggagePropagators:   baggage.NewBaggageByRoute(),
+		backpressureHandlers: backpressure.NewBackpressureByRoute(),
+		auditLoggers:         auditlog.NewAuditLogByRoute(),
 		watchCancels:      make(map[string]context.CancelFunc),
 	}
 
@@ -366,6 +377,11 @@ func New(cfg *config.Config) (*Gateway, error) {
 	// Initialize shared priority admitter if global priority is enabled
 	if cfg.TrafficShaping.Priority.Enabled {
 		g.priorityAdmitter = trafficshape.NewPriorityAdmitter(cfg.TrafficShaping.Priority.MaxConcurrent)
+	}
+
+	// Initialize load shedder if enabled
+	if cfg.LoadShedding.Enabled {
+		g.loadShedder = loadshed.New(cfg.LoadShedding)
 	}
 
 	// Register features for generic setup iteration
@@ -774,9 +790,27 @@ func New(cfg *config.Config) (*Gateway, error) {
 			return nil
 		}, g.quotaEnforcers.RouteIDs, func() any { return g.quotaEnforcers.Stats() }),
 
+		newFeature("baggage", "/baggage", func(id string, rc config.RouteConfig) error {
+			if rc.Baggage.Enabled {
+				return g.baggagePropagators.AddRoute(id, rc.Baggage)
+			}
+			return nil
+		}, g.baggagePropagators.RouteIDs, func() any { return g.baggagePropagators.Stats() }),
+		newFeature("audit_log", "/audit-log", func(id string, rc config.RouteConfig) error {
+			if rc.AuditLog.Enabled {
+				merged := auditlog.MergeAuditLogConfig(rc.AuditLog, cfg.AuditLog)
+				return g.auditLoggers.AddRoute(id, merged)
+			}
+			if cfg.AuditLog.Enabled {
+				return g.auditLoggers.AddRoute(id, cfg.AuditLog)
+			}
+			return nil
+		}, g.auditLoggers.RouteIDs, func() any { return g.auditLoggers.Stats() }),
+
 		// No-op features: setup handled elsewhere (need transport/balancer)
 		noOpFeature("canary", "/canary", g.canaryControllers.RouteIDs, func() any { return g.canaryControllers.Stats() }),
 		noOpFeature("outlier_detection", "/outlier-detection", g.outlierDetectors.RouteIDs, func() any { return g.outlierDetectors.Stats() }),
+		noOpFeature("backpressure", "/backpressure", g.backpressureHandlers.RouteIDs, func() any { return g.backpressureHandlers.Stats() }),
 		noOpFeature("blue_green", "/blue-green", g.blueGreenControllers.RouteIDs, func() any { return g.blueGreenControllers.Stats() }),
 		noOpFeature("sequential", "/sequential", g.sequentialHandlers.RouteIDs, func() any { return g.sequentialHandlers.Stats() }),
 		noOpFeature("aggregate", "/aggregate", g.aggregateHandlers.RouteIDs, func() any { return g.aggregateHandlers.Stats() }),
@@ -1413,6 +1447,11 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 		g.outlierDetectors.AddRoute(routeCfg.ID, routeCfg.OutlierDetection, routeProxy.GetBalancer())
 	}
 
+	// Set up backend backpressure (needs Balancer, only available after route proxy creation)
+	if routeCfg.Backpressure.Enabled && routeProxy != nil {
+		g.backpressureHandlers.AddRoute(routeCfg.ID, routeCfg.Backpressure, routeProxy.GetBalancer())
+	}
+
 	// Set up SSE fan-out hub (needs balancer from routeProxy)
 	if routeCfg.SSE.Enabled && routeCfg.SSE.Fanout.Enabled && routeProxy != nil {
 		hub := sse.NewHub(routeCfg.SSE.Fanout, routeProxy.GetBalancer())
@@ -1502,6 +1541,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		/* 4.25 */ func() middleware.Middleware {
 			if al := g.accessLogConfigs.GetConfig(routeID); al != nil { return al.Middleware() }; return nil
 		},
+		/* 4.3  */ func() middleware.Middleware {
+			if al := g.auditLoggers.GetLogger(routeID); al != nil { return al.Middleware() }; return nil
+		},
 		/* 4.5  */ func() middleware.Middleware {
 			if ver := g.versioners.GetVersioner(routeID); ver != nil { return ver.Middleware() }; return nil
 		},
@@ -1548,6 +1590,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		/* 6.5  */ func() middleware.Middleware {
 			if g.priorityAdmitter == nil { return nil }
 			if pcfg, ok := g.priorityConfigs.GetConfig(routeID); ok { return priorityMW(g.priorityAdmitter, pcfg) }; return nil
+		},
+		/* 6.55 */ func() middleware.Middleware {
+			if bp := g.baggagePropagators.GetPropagator(routeID); bp != nil { return bp.Middleware() }; return nil
 		},
 		/* 7    */ func() middleware.Middleware {
 			hasReq := (g.globalRules != nil && g.globalRules.HasRequestRules()) ||
@@ -1614,6 +1659,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		},
 		/* 12.5 */ func() middleware.Middleware {
 			if al := g.adaptiveLimiters.GetLimiter(routeID); al != nil { return adaptiveConcurrencyMW(al) }; return nil
+		},
+		/* 12.55*/ func() middleware.Middleware {
+			if bp := g.backpressureHandlers.GetHandler(routeID); bp != nil { return bp.Middleware() }; return nil
 		},
 		/* 12.6 */ func() middleware.Middleware {
 			if pl := g.proxyRateLimiters.GetLimiter(routeID); pl != nil { return pl.Middleware() }; return nil
@@ -1893,6 +1941,11 @@ func (g *Gateway) Handler() http.Handler {
 
 	chain = chain.Use(middleware.RequestID())
 
+	// Load shedding (after RequestID, before service rate limit)
+	if g.loadShedder != nil {
+		chain = chain.Use(g.loadShedder.Middleware())
+	}
+
 	// Service-level rate limit (after RequestID, before Alt-Svc)
 	if g.serviceLimiter != nil {
 		chain = chain.Use(g.serviceLimiter.Middleware())
@@ -2050,6 +2103,17 @@ func (g *Gateway) Close() error {
 	if g.tokenChecker != nil {
 		g.tokenChecker.Close()
 	}
+
+	// Close load shedder
+	if g.loadShedder != nil {
+		g.loadShedder.Close()
+	}
+
+	// Close backpressure handlers
+	g.backpressureHandlers.CloseAll()
+
+	// Close audit loggers
+	g.auditLoggers.CloseAll()
 
 	// Close ext auth clients
 	g.extAuths.CloseAll()

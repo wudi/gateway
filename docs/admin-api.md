@@ -152,6 +152,11 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /mock-responses` | Per-route mock response served count |
 | `GET /sse` | Per-route SSE proxy connection and event stats (includes fan-out metrics when enabled) |
 | `GET /grpc-proxy` | Per-route gRPC proxy stats (deadline propagation, metadata transforms, message size limits) |
+| `POST /cache/purge` | Purge cached entries by route, key, or all (see [Caching](caching.md#cache-invalidation-api)) |
+| `GET /load-shedding` | Load shedding status and system metrics (CPU, memory, goroutines, rejected/allowed counts) |
+| `GET /baggage` | Per-route baggage propagation configuration and tag definitions |
+| `GET /backpressure` | Per-route backend backpressure status and backed-off backends |
+| `GET /audit-log` | Per-route audit logging configuration, delivery metrics, and buffer status |
 
 ### Example: Querying Feature Endpoints
 
@@ -1535,6 +1540,176 @@ curl http://localhost:8081/grpc-proxy
   }
 }
 ```
+
+---
+
+## Cache Purge
+
+### POST `/cache/purge`
+
+Purge cached entries by route, by specific cache key, or globally across all routes.
+
+```bash
+# Purge all entries for a route
+curl -X POST http://localhost:8081/cache/purge \
+  -H "Content-Type: application/json" \
+  -d '{"route": "my-route"}'
+
+# Purge a specific cache key
+curl -X POST http://localhost:8081/cache/purge \
+  -H "Content-Type: application/json" \
+  -d '{"route": "my-route", "key": "/api/products?category=shoes"}'
+
+# Purge all caches globally
+curl -X POST http://localhost:8081/cache/purge \
+  -H "Content-Type: application/json" \
+  -d '{"all": true}'
+```
+
+**Response (200 OK):**
+```json
+{
+  "purged": true,
+  "entries_removed": 42
+}
+```
+
+Returns `400` if the request body is invalid or missing required fields. Returns `404` if the specified route does not have caching enabled.
+
+See [Caching](caching.md#cache-invalidation-api) for full documentation.
+
+---
+
+## Load Shedding
+
+### GET `/load-shedding`
+
+Returns load shedding status and current system metrics.
+
+```bash
+curl http://localhost:8081/load-shedding
+```
+
+**Response (200 OK):**
+```json
+{
+  "enabled": true,
+  "shedding": false,
+  "rejected": 1250,
+  "allowed": 458000,
+  "cpu_percent": 72.5,
+  "memory_percent": 61.3,
+  "goroutine_count": 1842
+}
+```
+
+**Response (not configured):**
+```json
+{
+  "enabled": false
+}
+```
+
+See [Load Shedding](load-shedding.md) for configuration and behavior details.
+
+---
+
+## Baggage Propagation
+
+### GET `/baggage`
+
+Returns per-route baggage propagation configuration.
+
+```bash
+curl http://localhost:8081/baggage
+```
+
+**Response (200 OK):**
+```json
+{
+  "my-api": {
+    "enabled": true,
+    "tags": [
+      {"name": "X-Tenant-ID", "source": "jwt_claim:tenant_id"},
+      {"name": "X-Request-Source", "source": "header:X-Source"},
+      {"name": "X-Environment", "source": "static:production"}
+    ]
+  }
+}
+```
+
+See [Baggage Propagation](baggage-propagation.md) for configuration and source types.
+
+---
+
+## Backend Backpressure
+
+### GET `/backpressure`
+
+Returns per-route backpressure status including currently backed-off backends.
+
+```bash
+curl http://localhost:8081/backpressure
+```
+
+**Response (200 OK):**
+```json
+{
+  "my-api": {
+    "enabled": true,
+    "status_codes": [429, 503],
+    "max_retry_after": "1m0s",
+    "default_delay": "5s",
+    "backed_off_backends": {
+      "http://backend-2:9000": {
+        "until": "2026-02-20T10:35:30Z",
+        "remaining": "25s",
+        "reason": 429
+      }
+    },
+    "total_backoffs": 12,
+    "active_backoffs": 1
+  }
+}
+```
+
+See [Backend Backpressure](backpressure.md) for configuration and behavior details.
+
+---
+
+## Audit Logging
+
+### GET `/audit-log`
+
+Returns per-route audit logging configuration and delivery metrics.
+
+```bash
+curl http://localhost:8081/audit-log
+```
+
+**Response (200 OK):**
+```json
+{
+  "payments": {
+    "enabled": true,
+    "webhook_url": "https://audit.example.com/events",
+    "sample_rate": 1.0,
+    "include_body": true,
+    "max_body_size": 16384,
+    "buffer_size": 1000,
+    "batch_size": 10,
+    "flush_interval": "5s",
+    "methods": [],
+    "status_codes": [],
+    "events_captured": 5200,
+    "events_delivered": 5180,
+    "events_dropped": 0,
+    "delivery_errors": 2
+  }
+}
+```
+
+See [Audit Logging](audit-logging.md) for configuration, webhook payload format, and examples.
 
 ---
 

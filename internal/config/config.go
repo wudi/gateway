@@ -70,6 +70,8 @@ type Config struct {
 	InboundSigning         InboundSigningConfig         `yaml:"inbound_signing"`           // Global inbound request signature verification
 	SSRFProtection         SSRFProtectionConfig         `yaml:"ssrf_protection"`           // SSRF protection for outbound connections
 	IPBlocklist            IPBlocklistConfig            `yaml:"ip_blocklist"`              // Dynamic IP blocklist
+	LoadShedding           LoadSheddingConfig           `yaml:"load_shedding"`             // System-level load shedding
+	AuditLog               AuditLogConfig               `yaml:"audit_log"`                 // Global audit logging defaults
 }
 
 // ListenerConfig defines a listener configuration
@@ -326,6 +328,9 @@ type RouteConfig struct {
 	FastCGI              FastCGIConfig               `yaml:"fastcgi"`               // FastCGI proxy (replaces proxy)
 	RequestDedup         RequestDedupConfig          `yaml:"request_dedup"`         // Per-route request deduplication
 	IPBlocklist          IPBlocklistConfig           `yaml:"ip_blocklist"`          // Per-route dynamic IP blocklist
+	Baggage              BaggageConfig               `yaml:"baggage"`               // Per-route baggage propagation
+	Backpressure         BackpressureConfig          `yaml:"backpressure"`          // Per-route backend backpressure detection
+	AuditLog             AuditLogConfig              `yaml:"audit_log"`             // Per-route audit logging
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -1605,6 +1610,53 @@ type IPBlocklistFeed struct {
 	URL             string        `yaml:"url"`
 	RefreshInterval time.Duration `yaml:"refresh_interval"` // default 5m
 	Format          string        `yaml:"format"`           // "text" or "json"
+}
+
+// BaggageConfig defines baggage propagation settings for a route.
+type BaggageConfig struct {
+	Enabled bool            `yaml:"enabled"`
+	Tags    []BaggageTagDef `yaml:"tags"`
+}
+
+// BaggageTagDef defines a single baggage tag to extract and propagate.
+type BaggageTagDef struct {
+	Name   string `yaml:"name"`   // logical name for the tag (used in variable context)
+	Source string `yaml:"source"` // extraction source: header:<name>, jwt_claim:<name>, query:<name>, cookie:<name>, static:<value>
+	Header string `yaml:"header"` // backend header name to propagate as
+}
+
+// BackpressureConfig defines backend backpressure detection settings.
+type BackpressureConfig struct {
+	Enabled       bool          `yaml:"enabled"`
+	StatusCodes   []int         `yaml:"status_codes"`    // default [429, 503]
+	MaxRetryAfter time.Duration `yaml:"max_retry_after"` // cap on Retry-After, default 60s
+	DefaultDelay  time.Duration `yaml:"default_delay"`   // delay when no Retry-After header, default 5s
+}
+
+// LoadSheddingConfig defines system-level load shedding settings.
+type LoadSheddingConfig struct {
+	Enabled          bool          `yaml:"enabled"`
+	CPUThreshold     float64       `yaml:"cpu_threshold"`     // CPU percent (0-100), default 90
+	MemoryThreshold  float64       `yaml:"memory_threshold"`  // heap/sys percent (0-100), default 85
+	GoroutineLimit   int           `yaml:"goroutine_limit"`   // max goroutines (0 = disabled)
+	SampleInterval   time.Duration `yaml:"sample_interval"`   // default 1s
+	CooldownDuration time.Duration `yaml:"cooldown_duration"` // stay in shedding mode for this long after thresholds drop, default 5s
+	RetryAfter       int           `yaml:"retry_after"`       // Retry-After header value in seconds, default 5
+}
+
+// AuditLogConfig defines audit logging settings (global + per-route merge).
+type AuditLogConfig struct {
+	Enabled       bool              `yaml:"enabled"`
+	WebhookURL    string            `yaml:"webhook_url"`
+	Headers       map[string]string `yaml:"headers"`
+	SampleRate    float64           `yaml:"sample_rate"`     // 0.0-1.0, default 1.0
+	IncludeBody   bool              `yaml:"include_body"`
+	MaxBodySize   int               `yaml:"max_body_size"`   // default 64KB
+	BufferSize    int               `yaml:"buffer_size"`     // channel size, default 1000
+	BatchSize     int               `yaml:"batch_size"`      // entries per webhook call, default 10
+	FlushInterval time.Duration     `yaml:"flush_interval"`  // default 5s
+	Methods       []string          `yaml:"methods"`         // filter (empty=all)
+	StatusCodes   []int             `yaml:"status_codes"`    // filter (empty=all)
 }
 
 // DefaultConfig returns a configuration with sensible defaults

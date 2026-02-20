@@ -474,6 +474,13 @@ func (s *Server) adminHandler() http.Handler {
 		}
 		return s.gateway.ssrfDialer.Stats()
 	}))
+	mux.HandleFunc("/cache/purge", s.handleCachePurge)
+	mux.HandleFunc("/load-shedding", jsonStatsHandler(func() any {
+		if s.gateway.loadShedder == nil {
+			return map[string]interface{}{"enabled": false}
+		}
+		return s.gateway.loadShedder.Stats()
+	}))
 	mux.HandleFunc("/ip-blocklist/refresh", s.handleIPBlocklistRefresh)
 	mux.HandleFunc("/dashboard", s.handleDashboard)
 	if s.gateway.GetAPIKeyAuth() != nil {
@@ -1118,6 +1125,54 @@ func (s *Server) handleIPBlocklistRefresh(w http.ResponseWriter, r *http.Request
 		"status":    "ok",
 		"refreshed": refreshed,
 	})
+}
+
+func (s *Server) handleCachePurge(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var req struct {
+		Route string `json:"route"`
+		Key   string `json:"key"`
+		All   bool   `json:"all"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid JSON body"})
+		return
+	}
+
+	if req.All {
+		total := s.gateway.caches.PurgeAll()
+		json.NewEncoder(w).Encode(map[string]interface{}{"purged": true, "entries_removed": total})
+		return
+	}
+	if req.Route == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "route is required (or set all: true)"})
+		return
+	}
+	if req.Key != "" {
+		ok := s.gateway.caches.PurgeRouteKey(req.Route, req.Key)
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": "route not found"})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"purged": true, "entries_removed": 1})
+		return
+	}
+	count, ok := s.gateway.caches.PurgeRoute(req.Route)
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "route not found"})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"purged": true, "entries_removed": count})
 }
 
 func (s *Server) handleDrain(w http.ResponseWriter, r *http.Request) {

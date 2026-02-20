@@ -420,6 +420,38 @@ func (cbr *CacheByRoute) GetHandler(routeID string) *Handler {
 	return v
 }
 
+// PurgeRoute purges all cache entries for a specific route. Returns pre-purge size and whether the route was found.
+func (cbr *CacheByRoute) PurgeRoute(routeID string) (int, bool) {
+	h := cbr.GetHandler(routeID)
+	if h == nil {
+		return 0, false
+	}
+	size := h.Stats().Size
+	h.Purge()
+	return size, true
+}
+
+// PurgeRouteKey deletes a specific key from a route's cache. Returns true if the route was found.
+func (cbr *CacheByRoute) PurgeRouteKey(routeID, key string) bool {
+	h := cbr.GetHandler(routeID)
+	if h == nil {
+		return false
+	}
+	h.cache.Delete(key)
+	return true
+}
+
+// PurgeAll purges all cache entries across all routes. Returns total pre-purge entry count.
+func (cbr *CacheByRoute) PurgeAll() int {
+	total := 0
+	cbr.Range(func(_ string, h *Handler) bool {
+		total += h.Stats().Size
+		h.Purge()
+		return true
+	})
+	return total
+}
+
 // Stats returns cache statistics for all routes.
 func (cbr *CacheByRoute) Stats() map[string]CacheStats {
 	cbr.extraMu.RLock()

@@ -137,6 +137,29 @@ func (l *Loader) validate(cfg *Config) error {
 		return fmt.Errorf("logging.rotation.max_age must be >= 0")
 	}
 
+	// === Load shedding ===
+	if cfg.LoadShedding.Enabled {
+		if cfg.LoadShedding.CPUThreshold < 0 || cfg.LoadShedding.CPUThreshold > 100 {
+			return fmt.Errorf("load_shedding: cpu_threshold must be between 0 and 100")
+		}
+		if cfg.LoadShedding.MemoryThreshold < 0 || cfg.LoadShedding.MemoryThreshold > 100 {
+			return fmt.Errorf("load_shedding: memory_threshold must be between 0 and 100")
+		}
+		if cfg.LoadShedding.GoroutineLimit < 0 {
+			return fmt.Errorf("load_shedding: goroutine_limit must be >= 0")
+		}
+	}
+
+	// === Global audit log ===
+	if cfg.AuditLog.Enabled {
+		if cfg.AuditLog.WebhookURL == "" {
+			return fmt.Errorf("audit_log: webhook_url is required when enabled")
+		}
+		if cfg.AuditLog.SampleRate < 0 || cfg.AuditLog.SampleRate > 1.0 {
+			return fmt.Errorf("audit_log: sample_rate must be between 0.0 and 1.0")
+		}
+	}
+
 	// === Retry budget pools ===
 	for name, pool := range cfg.RetryBudgets {
 		if pool.Ratio <= 0 || pool.Ratio > 1.0 {

@@ -2064,6 +2064,65 @@ routes:
 
 See [Blue-Green Deployments](blue-green.md) for full documentation.
 
+## Load Shedding (global)
+
+```yaml
+load_shedding:
+  enabled: bool               # enable system-level load shedding (default false)
+  cpu_threshold: int           # CPU usage % threshold, 0-100 (default 90)
+  memory_threshold: int        # memory usage % threshold, 0-100 (default 85)
+  goroutine_limit: int         # max goroutines before shedding, 0 = unlimited (default 0)
+  sample_interval: duration    # metric sampling interval (default 1s)
+  cooldown_duration: duration  # min shedding duration after activation (default 5s)
+  retry_after: int             # Retry-After header value in seconds (default 5)
+```
+
+**Validation:** `cpu_threshold` must be 0-100. `memory_threshold` must be 0-100. `goroutine_limit` must be >= 0. `sample_interval` and `cooldown_duration` must be >= 0. `retry_after` must be > 0.
+
+Load shedding runs in the global handler chain after RequestID and before the service rate limit. When any threshold is exceeded, the gateway returns `503 Service Unavailable` with a `Retry-After` header.
+
+See [Load Shedding](load-shedding.md) for details.
+
+---
+
+## Audit Logging (global + per-route)
+
+```yaml
+# Global defaults
+audit_log:
+  enabled: bool               # enable audit logging (default false)
+  webhook_url: string          # URL to POST audit events to (required when enabled)
+  headers:                     # HTTP headers for webhook requests
+    Header-Name: "value"
+  sample_rate: float           # fraction of requests to audit, 0.0-1.0 (default 1.0)
+  include_body: bool           # capture request/response bodies (default false)
+  max_body_size: int           # max body size to capture in bytes (default 65536 = 64KB)
+  buffer_size: int             # internal event buffer capacity (default 1000)
+  batch_size: int              # events per webhook batch (default 10)
+  flush_interval: duration     # max time between webhook deliveries (default 5s)
+  methods: [string]            # HTTP methods to audit (empty = all)
+  status_codes: [int]          # HTTP status codes to audit (empty = all)
+
+# Per-route (same fields, overrides global)
+routes:
+  - id: example
+    audit_log:
+      enabled: bool
+      include_body: bool
+      max_body_size: int
+      sample_rate: float
+      methods: [string]
+      status_codes: [int]
+```
+
+Per-route config is merged with the global `audit_log:` block. Per-route fields override global fields.
+
+**Validation:** `webhook_url` is required when enabled. `sample_rate` must be 0.0-1.0. `max_body_size` must be >= 0. `buffer_size` must be > 0. `batch_size` must be > 0. `flush_interval` must be > 0. `methods` must be valid HTTP methods. `status_codes` must be valid HTTP status codes (100-599).
+
+See [Audit Logging](audit-logging.md) for webhook payload format, delivery semantics, and examples.
+
+---
+
 ## SSRF Protection (global)
 
 ```yaml
@@ -2076,6 +2135,44 @@ ssrf_protection:
 **Validation:** `allow_cidrs` entries must be valid CIDR notation.
 
 See [SSRF Protection](ssrf-protection.md) for details.
+
+## Baggage Propagation (per-route)
+
+```yaml
+routes:
+  - id: my-route
+    baggage:
+      enabled: bool              # enable baggage propagation (default false)
+      tags:                      # list of baggage tag definitions
+        - name: string           # header name to inject (required)
+          source: string         # source expression (required)
+```
+
+Source types: `header:<name>`, `jwt_claim:<name>`, `query:<name>`, `cookie:<name>`, `static:<value>`.
+
+**Validation:** At least one tag required when enabled. Each tag must have `name` and `source`. `source` must use a valid prefix (`header:`, `jwt_claim:`, `query:`, `cookie:`, `static:`). `jwt_claim` sources require auth to be configured on the route.
+
+See [Baggage Propagation](baggage-propagation.md) for details.
+
+---
+
+## Backend Backpressure (per-route)
+
+```yaml
+routes:
+  - id: my-route
+    backpressure:
+      enabled: bool              # enable backend backpressure detection (default false)
+      status_codes: [int]        # overload status codes (default [429, 503])
+      max_retry_after: duration  # max backoff duration (default 60s)
+      default_delay: duration    # backoff when no Retry-After header (default 5s)
+```
+
+**Validation:** `status_codes` must be valid HTTP status codes (100-599). `max_retry_after` must be > 0. `default_delay` must be > 0. `default_delay` must be <= `max_retry_after`.
+
+See [Backend Backpressure](backpressure.md) for details.
+
+---
 
 ## Request Deduplication (per-route)
 

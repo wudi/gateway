@@ -19,7 +19,10 @@ import (
 	"github.com/wudi/gateway/internal/middleware/accesslog"
 	"github.com/wudi/gateway/internal/middleware/allowedhosts"
 	"github.com/wudi/gateway/internal/middleware/auth"
+	"github.com/wudi/gateway/internal/middleware/auditlog"
 	"github.com/wudi/gateway/internal/middleware/backendauth"
+	"github.com/wudi/gateway/internal/middleware/backpressure"
+	"github.com/wudi/gateway/internal/middleware/baggage"
 	"github.com/wudi/gateway/internal/middleware/backendenc"
 	"github.com/wudi/gateway/internal/middleware/bodygen"
 	"github.com/wudi/gateway/internal/middleware/compression"
@@ -33,6 +36,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/httpsredirect"
 	"github.com/wudi/gateway/internal/middleware/idempotency"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
+	"github.com/wudi/gateway/internal/middleware/loadshed"
 	"github.com/wudi/gateway/internal/middleware/nonce"
 	"github.com/wudi/gateway/internal/middleware/decompress"
 	"github.com/wudi/gateway/internal/middleware/botdetect"
@@ -160,9 +164,12 @@ type gatewayState struct {
 	fieldEncryptors      *fieldencrypt.FieldEncryptByRoute
 	blueGreenControllers *bluegreen.BlueGreenByRoute
 	translators       *protocol.TranslatorByRoute
-	rateLimiters      *ratelimit.RateLimitByRoute
-	grpcHandlers      *grpcproxy.GRPCByRoute
-	budgetPools       map[string]*retry.Budget
+	rateLimiters         *ratelimit.RateLimitByRoute
+	grpcHandlers         *grpcproxy.GRPCByRoute
+	budgetPools          map[string]*retry.Budget
+	baggagePropagators   *baggage.BaggageByRoute
+	backpressureHandlers *backpressure.BackpressureByRoute
+	auditLoggers         *auditlog.AuditLogByRoute
 
 	// Auth providers
 	apiKeyAuth *auth.APIKeyAuth
@@ -237,8 +244,11 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		blueGreenControllers: bluegreen.NewBlueGreenByRoute(),
 		translators:       protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
-		grpcHandlers:      grpcproxy.NewGRPCByRoute(),
-		budgetPools:       make(map[string]*retry.Budget),
+		grpcHandlers:         grpcproxy.NewGRPCByRoute(),
+		budgetPools:          make(map[string]*retry.Budget),
+		baggagePropagators:   baggage.NewBaggageByRoute(),
+		backpressureHandlers: backpressure.NewBackpressureByRoute(),
+		auditLoggers:         auditlog.NewAuditLogByRoute(),
 	}
 
 	// Initialize shared retry budget pools
@@ -520,6 +530,18 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 			}
 			return nil
 		}, s.inboundVerifiers.RouteIDs, func() any { return s.inboundVerifiers.Stats() }),
+		newFeature("baggage", "/baggage", func(id string, rc config.RouteConfig) error {
+			if rc.Baggage.Enabled { return s.baggagePropagators.AddRoute(id, rc.Baggage) }
+			return nil
+		}, s.baggagePropagators.RouteIDs, func() any { return s.baggagePropagators.Stats() }),
+		newFeature("audit_log", "/audit-log", func(id string, rc config.RouteConfig) error {
+			if rc.AuditLog.Enabled {
+				return s.auditLoggers.AddRoute(id, auditlog.MergeAuditLogConfig(rc.AuditLog, cfg.AuditLog))
+			}
+			if cfg.AuditLog.Enabled { return s.auditLoggers.AddRoute(id, cfg.AuditLog) }
+			return nil
+		}, s.auditLoggers.RouteIDs, func() any { return s.auditLoggers.Stats() }),
+		noOpFeature("backpressure", "/backpressure", s.backpressureHandlers.RouteIDs, func() any { return s.backpressureHandlers.Stats() }),
 		noOpFeature("blue_green", "/blue-green", s.blueGreenControllers.RouteIDs, func() any { return s.blueGreenControllers.Stats() }),
 
 		// Non-per-route singleton features
@@ -853,6 +875,13 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 		s.outlierDetectors.AddRoute(routeCfg.ID, routeCfg.OutlierDetection, s.routeProxies[routeCfg.ID].GetBalancer())
 	}
 
+	// Backpressure setup (needs Balancer)
+	if routeCfg.Backpressure.Enabled {
+		if rp := s.routeProxies[routeCfg.ID]; rp != nil {
+			s.backpressureHandlers.AddRoute(routeCfg.ID, routeCfg.Backpressure, rp.GetBalancer())
+		}
+	}
+
 	// Build middleware pipeline - we need a temporary gateway-like context
 	handler := g.buildRouteHandlerForState(s, routeCfg.ID, routeCfg, route, s.routeProxies[routeCfg.ID])
 	s.routeHandlers[routeCfg.ID] = handler
@@ -983,6 +1012,9 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldPIIRedactors := g.piiRedactors
 	oldFieldEncryptors := g.fieldEncryptors
 	oldBlueGreenControllers := g.blueGreenControllers
+	oldBaggagePropagators := g.baggagePropagators
+	oldBackpressureHandlers2 := g.backpressureHandlers
+	oldAuditLoggers2 := g.auditLoggers
 
 	// Install new state
 	g.ipFilters = s.ipFilters
@@ -1047,6 +1079,9 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.piiRedactors = s.piiRedactors
 	g.fieldEncryptors = s.fieldEncryptors
 	g.blueGreenControllers = s.blueGreenControllers
+	g.baggagePropagators = s.baggagePropagators
+	g.backpressureHandlers = s.backpressureHandlers
+	g.auditLoggers = s.auditLoggers
 
 	handler := g.buildRouteHandler(routeID, cfg, route, rp)
 
@@ -1113,6 +1148,9 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.piiRedactors = oldPIIRedactors
 	g.fieldEncryptors = oldFieldEncryptors
 	g.blueGreenControllers = oldBlueGreenControllers
+	g.baggagePropagators = oldBaggagePropagators
+	g.backpressureHandlers = oldBackpressureHandlers2
+	g.auditLoggers = oldAuditLoggers2
 
 	return handler
 }
@@ -1154,6 +1192,9 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	oldBackendSigners := g.backendSigners
 	oldTokenChecker := g.tokenChecker
 	oldQuotaEnforcers := g.quotaEnforcers
+	oldLoadShedder := g.loadShedder
+	oldBackpressureHandlers := g.backpressureHandlers
+	oldAuditLoggers := g.auditLoggers
 
 	// Swap all state under write lock
 	g.mu.Lock()
@@ -1221,6 +1262,9 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.rateLimiters = newState.rateLimiters
 	g.grpcHandlers = newState.grpcHandlers
 	g.budgetPools = newState.budgetPools
+	g.baggagePropagators = newState.baggagePropagators
+	g.backpressureHandlers = newState.backpressureHandlers
+	g.auditLoggers = newState.auditLoggers
 	g.inboundVerifiers = newState.inboundVerifiers
 	g.piiRedactors = newState.piiRedactors
 	g.fieldEncryptors = newState.fieldEncryptors
@@ -1250,6 +1294,11 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	} else {
 		g.allowedHosts = nil
 	}
+	if newCfg.LoadShedding.Enabled {
+		g.loadShedder = loadshed.New(newCfg.LoadShedding)
+	} else {
+		g.loadShedder = nil
+	}
 	g.mu.Unlock()
 
 	// Clean up old state (after releasing lock — in-flight requests already hold handler refs)
@@ -1266,6 +1315,11 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	oldIdempotencyHandlers.CloseAll()
 	_ = oldBackendSigners // no cleanup needed (stateless)
 	oldQuotaEnforcers.CloseAll()
+	oldBackpressureHandlers.CloseAll()
+	oldAuditLoggers.CloseAll()
+	if oldLoadShedder != nil {
+		oldLoadShedder.Close()
+	}
 	if oldTokenChecker != nil {
 		oldTokenChecker.Close()
 	}

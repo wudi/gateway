@@ -659,6 +659,87 @@ func TestSharedBucket_Stats(t *testing.T) {
 	}
 }
 
+func TestCacheByRoute_PurgeRoute(t *testing.T) {
+	cbr := NewCacheByRoute(nil)
+	cbr.AddRoute("route1", config.CacheConfig{Enabled: true, MaxSize: 100})
+
+	h := cbr.GetHandler("route1")
+	req := httptest.NewRequest("GET", "/api/data", nil)
+	h.Store(req, &Entry{StatusCode: 200, Body: []byte("cached")})
+
+	size, ok := cbr.PurgeRoute("route1")
+	if !ok {
+		t.Fatal("expected route found")
+	}
+	if size != 1 {
+		t.Errorf("expected 1 entry purged, got %d", size)
+	}
+
+	// Verify cache is empty
+	if _, hit := h.Get(req); hit {
+		t.Error("expected cache miss after purge")
+	}
+}
+
+func TestCacheByRoute_PurgeRouteKey(t *testing.T) {
+	cbr := NewCacheByRoute(nil)
+	cbr.AddRoute("route1", config.CacheConfig{Enabled: true, MaxSize: 100})
+
+	h := cbr.GetHandler("route1")
+	req := httptest.NewRequest("GET", "/api/data", nil)
+	h.Store(req, &Entry{StatusCode: 200, Body: []byte("cached")})
+
+	key := h.BuildKey(req, h.keyHeaders)
+	ok := cbr.PurgeRouteKey("route1", key)
+	if !ok {
+		t.Fatal("expected route found")
+	}
+
+	if _, hit := h.Get(req); hit {
+		t.Error("expected cache miss after key purge")
+	}
+}
+
+func TestCacheByRoute_PurgeAll(t *testing.T) {
+	cbr := NewCacheByRoute(nil)
+	cbr.AddRoute("route1", config.CacheConfig{Enabled: true, MaxSize: 100})
+	cbr.AddRoute("route2", config.CacheConfig{Enabled: true, MaxSize: 100})
+
+	h1 := cbr.GetHandler("route1")
+	h2 := cbr.GetHandler("route2")
+	req := httptest.NewRequest("GET", "/api/data", nil)
+	h1.Store(req, &Entry{StatusCode: 200, Body: []byte("r1")})
+	h2.Store(req, &Entry{StatusCode: 200, Body: []byte("r2")})
+
+	total := cbr.PurgeAll()
+	if total != 2 {
+		t.Errorf("expected 2 entries purged, got %d", total)
+	}
+
+	if _, hit := h1.Get(req); hit {
+		t.Error("expected cache miss on route1 after purge all")
+	}
+	if _, hit := h2.Get(req); hit {
+		t.Error("expected cache miss on route2 after purge all")
+	}
+}
+
+func TestCacheByRoute_PurgeRoute_NotFound(t *testing.T) {
+	cbr := NewCacheByRoute(nil)
+	_, ok := cbr.PurgeRoute("nonexistent")
+	if ok {
+		t.Error("expected not found for nonexistent route")
+	}
+}
+
+func TestCacheByRoute_PurgeRouteKey_NotFound(t *testing.T) {
+	cbr := NewCacheByRoute(nil)
+	ok := cbr.PurgeRouteKey("nonexistent", "somekey")
+	if ok {
+		t.Error("expected not found for nonexistent route")
+	}
+}
+
 func TestCacheByRouteDistributedFallback(t *testing.T) {
 	// When no Redis client is configured, distributed mode falls back to local
 	cbr := NewCacheByRoute(nil)
