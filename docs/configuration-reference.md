@@ -2400,3 +2400,37 @@ routes:
 **Validation:** At least one of `subscription_url` or `publish_url` is required when enabled. Mutually exclusive with `backends`, `service`, `upstream`, `echo`, `static`, `fastcgi`, `sequential`, `aggregate`, `lambda`, `amqp`.
 
 See [Go CDK Pub/Sub Backend](pubsub.md) for details.
+
+---
+
+## WASM Runtime (global)
+
+```yaml
+wasm:
+  runtime_mode: string         # "compiler" (default, AOT) or "interpreter"
+  max_memory_pages: int        # per-instance memory limit in 64KB pages (default 256 = 16MB)
+```
+
+See [WASM Plugins](wasm-plugins.md) for details.
+
+---
+
+## WASM Plugins (per-route)
+
+```yaml
+routes:
+  - id: example
+    wasm_plugins:
+      - enabled: bool             # enable this plugin (default false)
+        name: string              # human-readable name for metrics/admin
+        path: string              # path to .wasm file (required)
+        phase: string             # "request", "response", or "both" (default "both")
+        config:                   # arbitrary k/v passed to guest
+          key: value
+        timeout: duration         # per-invocation timeout (default 5ms)
+        pool_size: int            # pre-instantiated instance pool (default 4)
+```
+
+**Validation:** `path` is required and must exist. `phase` must be `request`, `response`, or `both`. `timeout` and `pool_size` must be non-negative. Mutually exclusive with `passthrough`.
+
+See [WASM Plugins](wasm-plugins.md) for details.

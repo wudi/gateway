@@ -1924,6 +1924,41 @@ See [Go CDK Pub/Sub Backend](pubsub.md) for configuration.
 
 ---
 
+## WASM Plugins
+
+```
+GET /wasm-plugins
+```
+
+Returns per-route WASM plugin chain statistics including invocation counts, errors, timeouts, latency, and pool usage.
+
+**Response (200 OK):**
+```json
+{
+  "my-api": [
+    {
+      "name": "auth-enricher",
+      "phase": "request",
+      "request_invocations": 15000,
+      "response_invocations": 0,
+      "errors": 2,
+      "timeouts": 0,
+      "total_latency_ns": 45000000,
+      "pool": {
+        "borrows": 15000,
+        "returns": 15000,
+        "pool_misses": 3,
+        "pool_size": 10
+      }
+    }
+  ]
+}
+```
+
+See [WASM Plugins](wasm-plugins.md) for configuration.
+
+---
+
 ## Key Config Fields
 
 | Field | Type | Description |

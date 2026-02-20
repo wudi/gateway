@@ -1229,6 +1229,40 @@ func (l *Loader) validateDelegatedMiddleware(route RouteConfig, _ *Config) error
 			return fmt.Errorf("%s: audit_log.max_body_size must be >= 0", scope)
 		}
 	}
+	if err := l.validateWasmPlugins(scope, route); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (l *Loader) validateWasmPlugins(scope string, route RouteConfig) error {
+	for i, wp := range route.WasmPlugins {
+		if !wp.Enabled {
+			continue
+		}
+		if wp.Path == "" {
+			return fmt.Errorf("%s: wasm_plugins[%d].path is required", scope, i)
+		}
+		if _, err := os.Stat(wp.Path); err != nil {
+			return fmt.Errorf("%s: wasm_plugins[%d].path: %w", scope, i, err)
+		}
+		phase := wp.Phase
+		if phase == "" {
+			phase = "both"
+		}
+		if phase != "request" && phase != "response" && phase != "both" {
+			return fmt.Errorf("%s: wasm_plugins[%d].phase must be 'request', 'response', or 'both'", scope, i)
+		}
+		if wp.Timeout < 0 {
+			return fmt.Errorf("%s: wasm_plugins[%d].timeout must be >= 0", scope, i)
+		}
+		if wp.PoolSize < 0 {
+			return fmt.Errorf("%s: wasm_plugins[%d].pool_size must be >= 0", scope, i)
+		}
+		if route.Passthrough {
+			return fmt.Errorf("%s: wasm_plugins is mutually exclusive with passthrough", scope)
+		}
+	}
 	return nil
 }
 

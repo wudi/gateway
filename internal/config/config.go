@@ -72,6 +72,7 @@ type Config struct {
 	IPBlocklist            IPBlocklistConfig            `yaml:"ip_blocklist"`              // Dynamic IP blocklist
 	LoadShedding           LoadSheddingConfig           `yaml:"load_shedding"`             // System-level load shedding
 	AuditLog               AuditLogConfig               `yaml:"audit_log"`                 // Global audit logging defaults
+	Wasm                   WasmConfig                   `yaml:"wasm"`                      // WASM plugin runtime settings
 	CompletionHeader       bool                         `yaml:"completion_header"`         // Add X-Gateway-Completed header to aggregate/sequential responses
 }
 
@@ -339,6 +340,7 @@ type RouteConfig struct {
 	OutputEncoding       string                      `yaml:"output_encoding"`       // Override Accept-header content negotiation (json, xml, yaml, json-collection, string)
 	ErrorHandling        ErrorHandlingConfig         `yaml:"error_handling"`        // Structured error detail modes
 	Lua                  LuaConfig                   `yaml:"lua"`                   // Lua scripting engine
+	WasmPlugins          []WasmPluginConfig          `yaml:"wasm_plugins"`          // WASM plugin chain
 	Lambda               LambdaConfig                `yaml:"lambda"`                // AWS Lambda backend
 	AMQP                 AMQPConfig                  `yaml:"amqp"`                  // AMQP/RabbitMQ backend
 	PubSub               PubSubConfig                `yaml:"pubsub"`                // Pub/Sub backend (Go CDK)
@@ -1749,6 +1751,23 @@ type LuaConfig struct {
 	Enabled        bool   `yaml:"enabled"`
 	RequestScript  string `yaml:"request_script"`  // Lua code for request phase
 	ResponseScript string `yaml:"response_script"` // Lua code for response phase
+}
+
+// WasmConfig defines global WASM plugin runtime settings.
+type WasmConfig struct {
+	RuntimeMode    string `yaml:"runtime_mode"`     // "compiler" (default, AOT) or "interpreter"
+	MaxMemoryPages int    `yaml:"max_memory_pages"` // per-instance memory limit (pages × 64KB); default 256 = 16MB
+}
+
+// WasmPluginConfig defines a single WASM plugin for a route.
+type WasmPluginConfig struct {
+	Enabled  bool              `yaml:"enabled"`
+	Name     string            `yaml:"name"`      // human-readable name for metrics/admin
+	Path     string            `yaml:"path"`      // path to .wasm file
+	Phase    string            `yaml:"phase"`     // "request", "response", or "both" (default)
+	Config   map[string]string `yaml:"config"`    // arbitrary k/v passed to guest via host_get_property("config.key")
+	Timeout  time.Duration     `yaml:"timeout"`   // per-invocation execution timeout
+	PoolSize int               `yaml:"pool_size"` // pre-instantiated module pool size
 }
 
 // LambdaConfig defines AWS Lambda backend settings.

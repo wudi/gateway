@@ -92,6 +92,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/inboundsigning"
 	"github.com/wudi/gateway/internal/middleware/jmespath"
 	"github.com/wudi/gateway/internal/middleware/luascript"
+	wasmPlugin "github.com/wudi/gateway/internal/middleware/wasm"
 	"github.com/wudi/gateway/internal/middleware/modifiers"
 	"github.com/wudi/gateway/internal/middleware/paramforward"
 	"github.com/wudi/gateway/internal/middleware/piiredact"
@@ -229,6 +230,7 @@ type Gateway struct {
 	fieldReplacers       *fieldreplacer.FieldReplacerByRoute
 	errorHandlers        *errorhandling.ErrorHandlerByRoute
 	luaScripters         *luascript.LuaScriptByRoute
+	wasmPlugins          *wasmPlugin.WasmByRoute
 	lambdaHandlers       *lambdaproxy.LambdaByRoute
 	amqpHandlers         *amqpproxy.AMQPByRoute
 	pubsubHandlers       *pubsubproxy.PubSubByRoute
@@ -383,6 +385,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		fieldReplacers:       fieldreplacer.NewFieldReplacerByRoute(),
 		errorHandlers:        errorhandling.NewErrorHandlerByRoute(),
 		luaScripters:         luascript.NewLuaScriptByRoute(),
+		wasmPlugins:          wasmPlugin.NewWasmByRoute(cfg.Wasm),
 		lambdaHandlers:       lambdaproxy.NewLambdaByRoute(),
 		amqpHandlers:         amqpproxy.NewAMQPByRoute(),
 		pubsubHandlers:       pubsubproxy.NewPubSubByRoute(),
@@ -869,6 +872,12 @@ func New(cfg *config.Config) (*Gateway, error) {
 			}
 			return nil
 		}, g.luaScripters.RouteIDs, func() any { return g.luaScripters.Stats() }),
+		newFeature("wasm", "/wasm-plugins", func(id string, rc config.RouteConfig) error {
+			if len(rc.WasmPlugins) > 0 {
+				return g.wasmPlugins.AddRoute(id, rc.WasmPlugins)
+			}
+			return nil
+		}, g.wasmPlugins.RouteIDs, func() any { return g.wasmPlugins.Stats() }),
 
 		// No-op features: setup handled elsewhere (need transport/balancer)
 		noOpFeature("canary", "/canary", g.canaryControllers.RouteIDs, func() any { return g.canaryControllers.Stats() }),
@@ -1700,6 +1709,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		/* 7.8  */ func() middleware.Middleware {
 			if ls := g.luaScripters.GetScript(routeID); ls != nil { return ls.RequestMiddleware() }; return nil
 		},
+		/* 7.85 */ func() middleware.Middleware {
+			if wc := g.wasmPlugins.GetChain(routeID); wc != nil { return wc.RequestMiddleware() }; return nil
+		},
 		/* 8    */ func() middleware.Middleware {
 			if !skipBody && route.MaxBodySize > 0 { return bodyLimitMW(route.MaxBodySize) }; return nil
 		},
@@ -1800,6 +1812,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		},
 		/* 17   */ func() middleware.Middleware {
 			if !skipBody && respBodyTransform != nil { return transform.ResponseBodyTransformMiddleware(respBodyTransform) }; return nil
+		},
+		/* 17.05*/ func() middleware.Middleware {
+			if wc := g.wasmPlugins.GetChain(routeID); wc != nil { return wc.ResponseMiddleware() }; return nil
 		},
 		/* 17.1 */ func() middleware.Middleware {
 			if ls := g.luaScripters.GetScript(routeID); ls != nil { return ls.ResponseMiddleware() }; return nil
@@ -2245,6 +2260,9 @@ func (g *Gateway) Close() error {
 
 	// Stop SSE fan-out hubs
 	g.sseHandlers.StopAllHubs()
+
+	// Close WASM plugin runtime and pools
+	g.wasmPlugins.Close(context.Background())
 
 	// Close protocol translators
 	g.translators.Close()
