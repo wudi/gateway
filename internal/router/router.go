@@ -1,6 +1,8 @@
 package router
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -9,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/julienschmidt/httprouter"
+	"github.com/tidwall/gjson"
 	"github.com/wudi/gateway/internal/config"
 )
 
@@ -94,7 +97,56 @@ func ReleaseMatch(m *Match) {
 // RouteGroup holds an ordered slice of candidate routes sharing a path pattern.
 // Routes are sorted by specificity (descending), with config insertion order as tie-breaker.
 type RouteGroup struct {
-	routes []*Route
+	routes    []*Route
+	needsBody bool // true if any route in the group has body matchers
+}
+
+// readBodyForMatching reads the request body for body-based route matching.
+// Returns nil if the body is nil, Content-Type isn't application/json, or the body
+// exceeds the max size. The request body is always restored for downstream handlers.
+func readBodyForMatching(r *http.Request, routes []*Route) []byte {
+	if r.Body == nil || r.Body == http.NoBody {
+		return nil
+	}
+
+	ct := r.Header.Get("Content-Type")
+	if !strings.HasPrefix(ct, "application/json") {
+		return nil
+	}
+
+	// Determine max size across all candidate routes
+	var maxSize int64
+	for _, route := range routes {
+		if route.matcher.HasBodyMatchers() {
+			ms := route.matcher.MaxMatchBodySize()
+			if ms > maxSize {
+				maxSize = ms
+			}
+		}
+	}
+	if maxSize == 0 {
+		maxSize = defaultMaxMatchBodySize
+	}
+
+	// Read up to maxSize+1 to detect oversized bodies
+	data, err := io.ReadAll(io.LimitReader(r.Body, maxSize+1))
+	// Restore body regardless
+	r.Body = io.NopCloser(bytes.NewReader(data))
+	if err != nil {
+		return nil
+	}
+
+	// Oversized body — don't match
+	if int64(len(data)) > maxSize {
+		return nil
+	}
+
+	// Validate JSON
+	if !gjson.ValidBytes(data) {
+		return nil
+	}
+
+	return data
 }
 
 // ServeHTTP is called by httprouter for a matched path. It type-asserts the writer
@@ -115,8 +167,14 @@ func (rg *RouteGroup) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Read body once if any route needs body matching
+	var body []byte
+	if rg.needsBody {
+		body = readBodyForMatching(r, rg.routes)
+	}
+
 	for _, route := range rg.routes {
-		if route.matcher.Matches(r) {
+		if route.matcher.MatchesWithBody(r, body) {
 			m := matchPool.Get().(*Match)
 			m.Route = route
 			m.PathParams = pathParams
@@ -129,6 +187,9 @@ func (rg *RouteGroup) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // addRoute adds a route to the group and re-sorts by specificity.
 func (rg *RouteGroup) addRoute(route *Route) {
 	rg.routes = append(rg.routes, route)
+	if route.matcher.HasBodyMatchers() {
+		rg.needsBody = true
+	}
 	sort.SliceStable(rg.routes, func(i, j int) bool {
 		si := rg.routes[i].matcher.Specificity()
 		sj := rg.routes[j].matcher.Specificity()
@@ -144,6 +205,14 @@ func (rg *RouteGroup) removeRoute(id string) bool {
 	for i, route := range rg.routes {
 		if route.ID == id {
 			rg.routes = append(rg.routes[:i], rg.routes[i+1:]...)
+			// Recalculate needsBody
+			rg.needsBody = false
+			for _, r := range rg.routes {
+				if r.matcher.HasBodyMatchers() {
+					rg.needsBody = true
+					break
+				}
+			}
 			return true
 		}
 	}
@@ -459,9 +528,15 @@ func (rt *Router) matchPrefix(r *http.Request) *Match {
 			continue
 		}
 
+		// Read body once if any route in the group needs body matching
+		var body []byte
+		if pr.group.needsBody {
+			body = readBodyForMatching(r, pr.group.routes)
+		}
+
 		// Check each route in the group
 		for _, route := range pr.group.routes {
-			if route.matcher.Matches(r) {
+			if route.matcher.MatchesWithBody(r, body) {
 				m := matchPool.Get().(*Match)
 				m.Route = route
 				m.PathParams = nil

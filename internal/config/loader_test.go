@@ -3604,6 +3604,186 @@ routes:
 	}
 }
 
+func TestLoaderValidateBodyMatch(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid body exact match",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    match:
+      body:
+        - name: "action"
+          value: "create"
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid body present check",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    match:
+      body:
+        - name: "metadata"
+          present: true
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid body regex",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    match:
+      body:
+        - name: "user.role"
+          regex: "^admin.*$"
+`,
+			wantErr: false,
+		},
+		{
+			name: "body missing name",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    match:
+      body:
+        - value: "create"
+`,
+			wantErr: true,
+			errMsg:  "match body 0: name is required",
+		},
+		{
+			name: "body no criterion set",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    match:
+      body:
+        - name: "action"
+`,
+			wantErr: true,
+			errMsg:  "must set exactly one of",
+		},
+		{
+			name: "body two criteria set",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    match:
+      body:
+        - name: "action"
+          value: "create"
+          regex: "^create$"
+`,
+			wantErr: true,
+			errMsg:  "must set exactly one of",
+		},
+		{
+			name: "body invalid regex",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    match:
+      body:
+        - name: "action"
+          regex: "[invalid"
+`,
+			wantErr: true,
+			errMsg:  "invalid regex",
+		},
+		{
+			name: "negative max_match_body_size",
+			yaml: `
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: test
+    path: /test
+    backends:
+      - url: http://localhost:9000
+    match:
+      max_match_body_size: -1
+`,
+			wantErr: true,
+			errMsg:  "max_match_body_size must be >= 0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				} else if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("expected error containing %q, got %q", tt.errMsg, err.Error())
+				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestLoaderValidateTransportCertFiles(t *testing.T) {
 	base := `
 listeners:

@@ -2,9 +2,11 @@ package router
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/wudi/gateway/internal/config"
@@ -982,6 +984,436 @@ func TestAddRouteCompilesRewriteRegex(t *testing.T) {
 	}
 	if !route.HasRewriteRegex() {
 		t.Error("expected rewrite regex to be compiled in AddRoute")
+	}
+}
+
+func TestBodyMatchExact(t *testing.T) {
+	r := New()
+
+	r.AddRoute(config.RouteConfig{
+		ID:   "create",
+		Path: "/api/actions",
+		Match: config.MatchConfig{
+			Body: []config.BodyMatchConfig{
+				{Name: "action", Value: "create"},
+			},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	// Matching body
+	req := httptest.NewRequest("POST", "/api/actions", strings.NewReader(`{"action":"create"}`))
+	req.Header.Set("Content-Type", "application/json")
+	match := r.Match(req)
+	if match == nil {
+		t.Fatal("expected match for exact body field")
+	}
+	if match.Route.ID != "create" {
+		t.Errorf("expected route 'create', got %s", match.Route.ID)
+	}
+
+	// Non-matching body
+	req = httptest.NewRequest("POST", "/api/actions", strings.NewReader(`{"action":"update"}`))
+	req.Header.Set("Content-Type", "application/json")
+	match = r.Match(req)
+	if match != nil {
+		t.Error("should not match different body field value")
+	}
+}
+
+func TestBodyMatchPresent(t *testing.T) {
+	r := New()
+
+	trueVal := true
+	falseVal := false
+
+	r.AddRoute(config.RouteConfig{
+		ID:   "with-meta",
+		Path: "/api/data",
+		Match: config.MatchConfig{
+			Body: []config.BodyMatchConfig{
+				{Name: "metadata", Present: &trueVal},
+			},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	r.AddRoute(config.RouteConfig{
+		ID:   "without-debug",
+		Path: "/api/data",
+		Match: config.MatchConfig{
+			Body: []config.BodyMatchConfig{
+				{Name: "debug", Present: &falseVal},
+			},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9002"}},
+	})
+
+	// Field present — matches "with-meta"
+	req := httptest.NewRequest("POST", "/api/data", strings.NewReader(`{"metadata":{"key":"val"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	match := r.Match(req)
+	if match == nil || match.Route.ID != "with-meta" {
+		t.Errorf("expected 'with-meta' match, got %v", match)
+	}
+
+	// Field absent — matches "without-debug" (debug is absent)
+	req = httptest.NewRequest("POST", "/api/data", strings.NewReader(`{"name":"test"}`))
+	req.Header.Set("Content-Type", "application/json")
+	match = r.Match(req)
+	if match == nil || match.Route.ID != "without-debug" {
+		t.Errorf("expected 'without-debug' match, got %v", match)
+	}
+}
+
+func TestBodyMatchRegex(t *testing.T) {
+	r := New()
+
+	r.AddRoute(config.RouteConfig{
+		ID:   "admin-action",
+		Path: "/api/actions",
+		Match: config.MatchConfig{
+			Body: []config.BodyMatchConfig{
+				{Name: "role", Regex: "^admin.*$"},
+			},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	// Matching regex
+	req := httptest.NewRequest("POST", "/api/actions", strings.NewReader(`{"role":"admin_super"}`))
+	req.Header.Set("Content-Type", "application/json")
+	match := r.Match(req)
+	if match == nil || match.Route.ID != "admin-action" {
+		t.Error("expected match for regex body field")
+	}
+
+	// Non-matching regex
+	req = httptest.NewRequest("POST", "/api/actions", strings.NewReader(`{"role":"user"}`))
+	req.Header.Set("Content-Type", "application/json")
+	match = r.Match(req)
+	if match != nil {
+		t.Error("should not match non-matching regex")
+	}
+}
+
+func TestBodyMatchNestedPath(t *testing.T) {
+	r := New()
+
+	r.AddRoute(config.RouteConfig{
+		ID:   "admin-route",
+		Path: "/api/users",
+		Match: config.MatchConfig{
+			Body: []config.BodyMatchConfig{
+				{Name: "user.role", Value: "admin"},
+			},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	req := httptest.NewRequest("POST", "/api/users", strings.NewReader(`{"user":{"role":"admin","name":"alice"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	match := r.Match(req)
+	if match == nil || match.Route.ID != "admin-route" {
+		t.Error("expected match for nested gjson path")
+	}
+
+	req = httptest.NewRequest("POST", "/api/users", strings.NewReader(`{"user":{"role":"viewer","name":"bob"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	match = r.Match(req)
+	if match != nil {
+		t.Error("should not match wrong nested value")
+	}
+}
+
+func TestBodyMatchNoBody(t *testing.T) {
+	r := New()
+
+	r.AddRoute(config.RouteConfig{
+		ID:   "body-route",
+		Path: "/api/actions",
+		Match: config.MatchConfig{
+			Body: []config.BodyMatchConfig{
+				{Name: "action", Value: "create"},
+			},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	// No body at all
+	req := httptest.NewRequest("GET", "/api/actions", nil)
+	req.Header.Set("Content-Type", "application/json")
+	match := r.Match(req)
+	if match != nil {
+		t.Error("should not match request with no body")
+	}
+}
+
+func TestBodyMatchNonJSONContentType(t *testing.T) {
+	r := New()
+
+	r.AddRoute(config.RouteConfig{
+		ID:   "body-route",
+		Path: "/api/actions",
+		Match: config.MatchConfig{
+			Body: []config.BodyMatchConfig{
+				{Name: "action", Value: "create"},
+			},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	req := httptest.NewRequest("POST", "/api/actions", strings.NewReader(`{"action":"create"}`))
+	req.Header.Set("Content-Type", "text/plain")
+	match := r.Match(req)
+	if match != nil {
+		t.Error("should not match non-JSON content type")
+	}
+}
+
+func TestBodyMatchInvalidJSON(t *testing.T) {
+	r := New()
+
+	r.AddRoute(config.RouteConfig{
+		ID:   "body-route",
+		Path: "/api/actions",
+		Match: config.MatchConfig{
+			Body: []config.BodyMatchConfig{
+				{Name: "action", Value: "create"},
+			},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	req := httptest.NewRequest("POST", "/api/actions", strings.NewReader(`{not valid json`))
+	req.Header.Set("Content-Type", "application/json")
+	match := r.Match(req)
+	if match != nil {
+		t.Error("should not match invalid JSON body")
+	}
+}
+
+func TestBodyMatchMultipleFieldsAND(t *testing.T) {
+	r := New()
+
+	r.AddRoute(config.RouteConfig{
+		ID:   "specific-action",
+		Path: "/api/actions",
+		Match: config.MatchConfig{
+			Body: []config.BodyMatchConfig{
+				{Name: "action", Value: "create"},
+				{Name: "type", Value: "user"},
+			},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	// Both fields match
+	req := httptest.NewRequest("POST", "/api/actions", strings.NewReader(`{"action":"create","type":"user"}`))
+	req.Header.Set("Content-Type", "application/json")
+	match := r.Match(req)
+	if match == nil || match.Route.ID != "specific-action" {
+		t.Error("expected match when all body fields match")
+	}
+
+	// Only one field matches
+	req = httptest.NewRequest("POST", "/api/actions", strings.NewReader(`{"action":"create","type":"order"}`))
+	req.Header.Set("Content-Type", "application/json")
+	match = r.Match(req)
+	if match != nil {
+		t.Error("should not match when only one body field matches")
+	}
+}
+
+func TestBodyMatchSpecificity(t *testing.T) {
+	r := New()
+
+	// Route without body matcher (less specific)
+	r.AddRoute(config.RouteConfig{
+		ID:       "fallback",
+		Path:     "/api/actions",
+		Backends: []config.BackendConfig{{URL: "http://localhost:9002"}},
+	})
+
+	// Route with body matcher (more specific)
+	r.AddRoute(config.RouteConfig{
+		ID:   "body-specific",
+		Path: "/api/actions",
+		Match: config.MatchConfig{
+			Body: []config.BodyMatchConfig{
+				{Name: "action", Value: "create"},
+			},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	// Body-matched request should prefer the more specific route
+	req := httptest.NewRequest("POST", "/api/actions", strings.NewReader(`{"action":"create"}`))
+	req.Header.Set("Content-Type", "application/json")
+	match := r.Match(req)
+	if match == nil || match.Route.ID != "body-specific" {
+		t.Errorf("expected 'body-specific' route, got %v", match)
+	}
+
+	// Non-matching body should fall through to fallback
+	req = httptest.NewRequest("POST", "/api/actions", strings.NewReader(`{"action":"delete"}`))
+	req.Header.Set("Content-Type", "application/json")
+	match = r.Match(req)
+	if match == nil || match.Route.ID != "fallback" {
+		t.Errorf("expected 'fallback' route, got %v", match)
+	}
+}
+
+func TestBodyMatchBodyRestored(t *testing.T) {
+	r := New()
+
+	r.AddRoute(config.RouteConfig{
+		ID:   "body-route",
+		Path: "/api/actions",
+		Match: config.MatchConfig{
+			Body: []config.BodyMatchConfig{
+				{Name: "action", Value: "create"},
+			},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	body := `{"action":"create"}`
+	req := httptest.NewRequest("POST", "/api/actions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	match := r.Match(req)
+	if match == nil {
+		t.Fatal("expected match")
+	}
+
+	// Body should still be readable after matching
+	data, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatalf("failed to read body after matching: %v", err)
+	}
+	if string(data) != body {
+		t.Errorf("body not restored: got %q, want %q", string(data), body)
+	}
+}
+
+func TestBodyMatchMaxSizeExceeded(t *testing.T) {
+	r := New()
+
+	r.AddRoute(config.RouteConfig{
+		ID:   "body-route",
+		Path: "/api/actions",
+		Match: config.MatchConfig{
+			Body: []config.BodyMatchConfig{
+				{Name: "action", Value: "create"},
+			},
+			MaxMatchBodySize: 20, // very small limit
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	// Body exceeds max size — should not match
+	largeBody := `{"action":"create","extra":"` + strings.Repeat("x", 100) + `"}`
+	req := httptest.NewRequest("POST", "/api/actions", strings.NewReader(largeBody))
+	req.Header.Set("Content-Type", "application/json")
+	match := r.Match(req)
+	if match != nil {
+		t.Error("should not match when body exceeds max_match_body_size")
+	}
+
+	// Body should still be restored (though possibly truncated to limit+1)
+	data, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatalf("failed to read body after match: %v", err)
+	}
+	if len(data) == 0 {
+		t.Error("body should be restored even when oversized")
+	}
+}
+
+func TestBodyMatchMixedMatchers(t *testing.T) {
+	r := New()
+
+	r.AddRoute(config.RouteConfig{
+		ID:      "mixed",
+		Path:    "/api/actions",
+		Methods: []string{"POST"},
+		Match: config.MatchConfig{
+			Headers: []config.HeaderMatchConfig{
+				{Name: "X-Tenant", Value: "acme"},
+			},
+			Body: []config.BodyMatchConfig{
+				{Name: "action", Value: "create"},
+			},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	// All match: method + header + body
+	req := httptest.NewRequest("POST", "/api/actions", strings.NewReader(`{"action":"create"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant", "acme")
+	match := r.Match(req)
+	if match == nil || match.Route.ID != "mixed" {
+		t.Error("expected match when method, header, and body all match")
+	}
+
+	// Wrong header
+	req = httptest.NewRequest("POST", "/api/actions", strings.NewReader(`{"action":"create"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant", "other")
+	match = r.Match(req)
+	if match != nil {
+		t.Error("should not match with wrong header")
+	}
+
+	// Wrong body
+	req = httptest.NewRequest("POST", "/api/actions", strings.NewReader(`{"action":"delete"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant", "acme")
+	match = r.Match(req)
+	if match != nil {
+		t.Error("should not match with wrong body")
+	}
+
+	// Wrong method
+	req = httptest.NewRequest("GET", "/api/actions", strings.NewReader(`{"action":"create"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant", "acme")
+	match = r.Match(req)
+	if match != nil {
+		t.Error("should not match with wrong method")
+	}
+}
+
+func TestBodyMatchPrefixRoute(t *testing.T) {
+	r := New()
+
+	r.AddRoute(config.RouteConfig{
+		ID:         "prefix-body",
+		Path:       "/api",
+		PathPrefix: true,
+		Match: config.MatchConfig{
+			Body: []config.BodyMatchConfig{
+				{Name: "version", Value: "2"},
+			},
+		},
+		Backends: []config.BackendConfig{{URL: "http://localhost:9001"}},
+	})
+
+	// Subpath with matching body
+	req := httptest.NewRequest("POST", "/api/users/create", strings.NewReader(`{"version":"2"}`))
+	req.Header.Set("Content-Type", "application/json")
+	match := r.Match(req)
+	if match == nil || match.Route.ID != "prefix-body" {
+		t.Error("expected match for prefix route with body matcher")
+	}
+
+	// Subpath with non-matching body
+	req = httptest.NewRequest("POST", "/api/users/create", strings.NewReader(`{"version":"1"}`))
+	req.Header.Set("Content-Type", "application/json")
+	match = r.Match(req)
+	if match != nil {
+		t.Error("should not match prefix route with wrong body")
 	}
 }
 

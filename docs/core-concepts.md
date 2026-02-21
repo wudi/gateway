@@ -99,6 +99,43 @@ The `match` block adds additional constraints beyond path:
 - **Query**: same as headers but for query parameters
 - **Cookies**: same as headers but for request cookies
 
+### Body Field Matching
+
+Routes can match on JSON request body fields using [gjson](https://github.com/tidwall/gjson) path syntax. Body matching requires `Content-Type: application/json`; non-JSON requests skip body matchers.
+
+The body is read once per route group and restored for downstream handlers. A configurable `max_match_body_size` (default 1MB) caps how much of the body is read — oversized bodies cause body matchers to evaluate as false without error.
+
+```yaml
+routes:
+  - id: "create-user"
+    path: /api/actions
+    match:
+      body:
+        - name: "action"
+          value: "create"
+        - name: "entity.type"
+          value: "user"
+    backends:
+      - url: "http://create-svc:9000"
+
+  - id: "delete-action"
+    path: /api/actions
+    match:
+      body:
+        - name: "action"
+          value: "delete"
+      max_match_body_size: 524288  # 512KB
+    backends:
+      - url: "http://delete-svc:9000"
+```
+
+Supported match modes per field (mutually exclusive):
+- **`value`**: exact string match on the field value
+- **`present`**: `true` requires the field to exist, `false` requires it to be absent
+- **`regex`**: regex match on the field's string value
+
+The `name` field uses gjson path syntax for nested access: `"user.role"`, `"items.#"`, `"meta.tags.0"`.
+
 ### TCP and UDP Routes
 
 L4 routes reference a listener by ID and define their own backends:

@@ -209,6 +209,12 @@ routes:
           value: string
           present: bool
           regex: string
+      body:
+        - name: string        # gjson path (required)
+          value: string       # exact match (mutually exclusive)
+          present: bool       # presence check (mutually exclusive)
+          regex: string       # regex match (mutually exclusive)
+      max_match_body_size: int64  # max body bytes for matching (default: 1048576)
     backends:
       - url: string           # required, backend URL
         weight: int           # load balancer weight (0-100)

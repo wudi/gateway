@@ -1014,10 +1014,12 @@ func (c BodyTransformConfig) IsActive() bool {
 
 // MatchConfig defines route match criteria for domain/header/query/cookie matching
 type MatchConfig struct {
-	Domains []string             `yaml:"domains"`
-	Headers []HeaderMatchConfig  `yaml:"headers"`
-	Query   []QueryMatchConfig   `yaml:"query"`
-	Cookies []CookieMatchConfig  `yaml:"cookies"`
+	Domains          []string             `yaml:"domains"`
+	Headers          []HeaderMatchConfig  `yaml:"headers"`
+	Query            []QueryMatchConfig   `yaml:"query"`
+	Cookies          []CookieMatchConfig  `yaml:"cookies"`
+	Body             []BodyMatchConfig    `yaml:"body"`
+	MaxMatchBodySize int64                `yaml:"max_match_body_size"`
 }
 
 // HeaderMatchConfig defines a single header match criterion
@@ -1042,6 +1044,14 @@ type CookieMatchConfig struct {
 	Value   string `yaml:"value"`
 	Present *bool  `yaml:"present"`
 	Regex   string `yaml:"regex"`
+}
+
+// BodyMatchConfig defines a single request body field match criterion using gjson paths.
+type BodyMatchConfig struct {
+	Name    string `yaml:"name"`    // gjson path (required)
+	Value   string `yaml:"value"`   // exact match
+	Present *bool  `yaml:"present"` // field existence check
+	Regex   string `yaml:"regex"`   // regex match on string value
 }
 
 // BackendConfig defines a static backend

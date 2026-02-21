@@ -5,16 +5,23 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/tidwall/gjson"
 	"github.com/wudi/gateway/internal/config"
 )
 
 // CompiledMatcher evaluates domain, header, query, and cookie match criteria for a route.
+// defaultMaxMatchBodySize is the default maximum body size read for matching (1MB).
+const defaultMaxMatchBodySize = 1 << 20
+
+// CompiledMatcher evaluates domain, header, query, cookie, and body match criteria for a route.
 type CompiledMatcher struct {
-	domains []domainMatcher
-	headers []headerMatcher
-	queries []queryMatcher
-	cookies []cookieMatcher
-	methods map[string]bool // nil = all methods allowed
+	domains          []domainMatcher
+	headers          []headerMatcher
+	queries          []queryMatcher
+	cookies          []cookieMatcher
+	bodies           []bodyMatcher
+	methods          map[string]bool // nil = all methods allowed
+	maxMatchBodySize int64
 }
 
 type domainMatcher struct {
@@ -38,6 +45,13 @@ type queryMatcher struct {
 
 type cookieMatcher struct {
 	name    string
+	exact   string
+	present *bool
+	regex   *regexp.Regexp
+}
+
+type bodyMatcher struct {
+	path    string // gjson path
 	exact   string
 	present *bool
 	regex   *regexp.Regexp
@@ -96,6 +110,22 @@ func NewCompiledMatcher(mc config.MatchConfig, methods []string) *CompiledMatche
 		cm.cookies = append(cm.cookies, ck)
 	}
 
+	// Compile body matchers
+	for _, b := range mc.Body {
+		bm := bodyMatcher{path: b.Name}
+		if b.Value != "" {
+			bm.exact = b.Value
+		} else if b.Present != nil {
+			bm.present = b.Present
+		} else if b.Regex != "" {
+			bm.regex = regexp.MustCompile(b.Regex) // already validated in loader
+		}
+		cm.bodies = append(cm.bodies, bm)
+	}
+
+	// Max match body size
+	cm.maxMatchBodySize = mc.MaxMatchBodySize
+
 	// Methods
 	if len(methods) > 0 {
 		cm.methods = make(map[string]bool, len(methods))
@@ -107,8 +137,28 @@ func NewCompiledMatcher(mc config.MatchConfig, methods []string) *CompiledMatche
 	return cm
 }
 
-// Matches evaluates all criteria against the request.
+// HasBodyMatchers returns true if this matcher has body match criteria.
+func (cm *CompiledMatcher) HasBodyMatchers() bool {
+	return len(cm.bodies) > 0
+}
+
+// MaxMatchBodySize returns the configured max body size for matching, or the default (1MB).
+func (cm *CompiledMatcher) MaxMatchBodySize() int64 {
+	if cm.maxMatchBodySize > 0 {
+		return cm.maxMatchBodySize
+	}
+	return defaultMaxMatchBodySize
+}
+
+// Matches evaluates all non-body criteria against the request.
+// Body matchers are skipped — use MatchesWithBody when body data is available.
 func (cm *CompiledMatcher) Matches(r *http.Request) bool {
+	return cm.MatchesWithBody(r, nil)
+}
+
+// MatchesWithBody evaluates all criteria including body field matchers.
+// If body matchers exist but body is nil, returns false.
+func (cm *CompiledMatcher) MatchesWithBody(r *http.Request, body []byte) bool {
 	// Method check
 	if cm.methods != nil && !cm.methods[r.Method] {
 		return false
@@ -215,6 +265,38 @@ func (cm *CompiledMatcher) Matches(r *http.Request) bool {
 		}
 	}
 
+	// Body field checks — all must match (AND)
+	if len(cm.bodies) > 0 {
+		if body == nil {
+			return false
+		}
+		for _, bm := range cm.bodies {
+			result := gjson.GetBytes(body, bm.path)
+			if bm.present != nil {
+				if result.Exists() != *bm.present {
+					return false
+				}
+				continue
+			}
+			if !result.Exists() {
+				return false // field not found, and we need exact/regex match
+			}
+			val := result.String()
+			if bm.exact != "" {
+				if val != bm.exact {
+					return false
+				}
+				continue
+			}
+			if bm.regex != nil {
+				if !bm.regex.MatchString(val) {
+					return false
+				}
+				continue
+			}
+		}
+	}
+
 	return true
 }
 
@@ -231,6 +313,7 @@ func (cm *CompiledMatcher) Specificity() int {
 	score += len(cm.headers) * 10
 	score += len(cm.queries) * 10
 	score += len(cm.cookies) * 10
+	score += len(cm.bodies) * 10
 	if cm.methods != nil {
 		score += 5
 	}

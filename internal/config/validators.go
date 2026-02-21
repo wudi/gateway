@@ -1868,6 +1868,34 @@ func (l *Loader) validateMatchConfig(routeID string, mc MatchConfig) error {
 		}
 	}
 
+	for i, b := range mc.Body {
+		if b.Name == "" {
+			return fmt.Errorf("route %s: match body %d: name is required", routeID, i)
+		}
+		count := 0
+		if b.Value != "" {
+			count++
+		}
+		if b.Present != nil {
+			count++
+		}
+		if b.Regex != "" {
+			count++
+		}
+		if count != 1 {
+			return fmt.Errorf("route %s: match body %q: must set exactly one of value, present, or regex", routeID, b.Name)
+		}
+		if b.Regex != "" {
+			if _, err := regexp.Compile(b.Regex); err != nil {
+				return fmt.Errorf("route %s: match body %q: invalid regex: %w", routeID, b.Name, err)
+			}
+		}
+	}
+
+	if mc.MaxMatchBodySize < 0 {
+		return fmt.Errorf("route %s: max_match_body_size must be >= 0", routeID)
+	}
+
 	return nil
 }
 
