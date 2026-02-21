@@ -244,6 +244,7 @@ func (r *Registry) watchService(ctx context.Context, serviceName string, ch chan
 			continue
 		}
 
+	watchLoop:
 		for {
 			select {
 			case <-ctx.Done():
@@ -251,7 +252,7 @@ func (r *Registry) watchService(ctx context.Context, serviceName string, ch chan
 				return
 			case event, ok := <-watcher.ResultChan():
 				if !ok {
-					break
+					break watchLoop
 				}
 
 				switch event.Type {
