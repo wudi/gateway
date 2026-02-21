@@ -80,6 +80,32 @@ States:
 
 The circuit breaker operates after the cache check — a cache hit never touches the circuit breaker.
 
+### Distributed Circuit Breaker
+
+By default, circuit breaker state is local to each gateway instance. For multi-instance deployments, use `mode: distributed` to share state via Redis:
+
+```yaml
+redis:
+  address: redis:6379
+
+routes:
+  - id: "api"
+    path: "/api"
+    path_prefix: true
+    backends:
+      - url: "http://backend:9000"
+    circuit_breaker:
+      enabled: true
+      failure_threshold: 5
+      max_requests: 1
+      timeout: 30s
+      mode: distributed
+```
+
+In distributed mode, all gateway instances share failure counts and state transitions through Redis using Lua scripts for atomicity. If Redis becomes unreachable, the circuit breaker fails open (allows requests) to avoid cascading failures.
+
+Redis key prefix: `gw:cb:{routeID}:`
+
 ## Timeouts
 
 Set per-route timeout policies with four levels of control:

@@ -221,6 +221,32 @@ func TestCurrentWindow_Monthly(t *testing.T) {
 	}
 }
 
+func TestCurrentWindow_Yearly(t *testing.T) {
+	qe := &QuotaEnforcer{period: "yearly"}
+	now := time.Date(2024, 6, 15, 14, 30, 0, 0, time.UTC)
+	start, end := qe.currentWindow(now)
+
+	expected := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	if !start.Equal(expected) {
+		t.Errorf("expected start %v, got %v", expected, start)
+	}
+	expectedEnd := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	if !end.Equal(expectedEnd) {
+		t.Errorf("expected end %v, got %v", expectedEnd, end)
+	}
+
+	// Verify Jan 1 boundary
+	jan1 := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	start2, end2 := qe.currentWindow(jan1)
+	if !start2.Equal(jan1) {
+		t.Errorf("Jan 1 boundary: expected start %v, got %v", jan1, start2)
+	}
+	expectedEnd2 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if !end2.Equal(expectedEnd2) {
+		t.Errorf("Jan 1 boundary: expected end %v, got %v", expectedEnd2, end2)
+	}
+}
+
 func TestQuotaByRoute(t *testing.T) {
 	m := NewQuotaByRoute()
 

@@ -191,6 +191,25 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// === Tenants ===
+	if cfg.Tenants.Enabled {
+		if err := l.validateTenants(cfg.Tenants, routeIDs); err != nil {
+			return err
+		}
+	}
+	for _, route := range cfg.Routes {
+		if route.Tenant.Required && !cfg.Tenants.Enabled {
+			return fmt.Errorf("route %s: tenant.required requires tenants to be enabled", route.ID)
+		}
+		for _, tid := range route.Tenant.Allowed {
+			if cfg.Tenants.Enabled && cfg.Tenants.Tenants[tid].Routes == nil && len(cfg.Tenants.Tenants) > 0 {
+				if _, ok := cfg.Tenants.Tenants[tid]; !ok {
+					return fmt.Errorf("route %s: tenant.allowed references unknown tenant %q", route.ID, tid)
+				}
+			}
+		}
+	}
+
 	// === TCP routes ===
 	tcpRouteIDs := make(map[string]bool)
 	for i, route := range cfg.TCPRoutes {

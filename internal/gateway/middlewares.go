@@ -240,7 +240,7 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 var errServerError = fmt.Errorf("server error")
 
 // 10. circuitBreakerMW checks the circuit breaker and records outcomes.
-func circuitBreakerMW(cb *circuitbreaker.Breaker, isGRPC bool) middleware.Middleware {
+func circuitBreakerMW(cb circuitbreaker.BreakerInterface, isGRPC bool) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			done, err := cb.Allow()

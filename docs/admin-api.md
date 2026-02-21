@@ -90,7 +90,7 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /routes` | All routes with matchers (path, methods, domains, headers, query). Echo routes include `"echo": true`. |
 | `GET /registry` | Configured registry type |
 | `GET /backends` | Backend health status with latency, last check time, and health check config |
-| `GET /circuit-breakers` | Circuit breaker state per route (closed/open/half-open) |
+| `GET /circuit-breakers` | Circuit breaker state per route (closed/open/half-open). Includes `mode` field (`local` or `distributed`). |
 | `GET /cache` | Cache statistics (hits, misses, size, evictions). For distributed mode, size is Redis key count; hits/misses are local per-instance counters. |
 | `GET /retries` | Retry metrics per route (attempts, budget exhaustion, hedged requests) |
 | `GET /rules` | Rules engine status (global + per-route rules and metrics) |
@@ -146,6 +146,7 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /body-generator` | Per-route request body generator stats |
 | `GET /sequential` | Per-route sequential proxy stats |
 | `GET /quotas` | Per-route quota enforcement stats |
+| `GET /tenants` | Multi-tenancy stats: per-tenant allowed/rejected/rate-limited/quota-exceeded counts |
 | `GET /aggregate` | Per-route response aggregation stats |
 | `GET /response-body-generator` | Per-route response body generator stats |
 | `GET /param-forwarding` | Per-route parameter forwarding stats |

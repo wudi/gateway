@@ -1,10 +1,10 @@
 # Quota Enforcement
 
-Quota enforcement tracks per-client usage over billing periods (hourly, daily, monthly). Unlike rate limiting which controls short-term burst, quotas enforce long-term usage caps aligned to calendar boundaries.
+Quota enforcement tracks per-client usage over billing periods (hourly, daily, monthly, yearly). Unlike rate limiting which controls short-term burst, quotas enforce long-term usage caps aligned to calendar boundaries.
 
 ## How It Works
 
-Each request increments a counter keyed by client identifier and billing window. Windows are aligned to clock boundaries: hourly resets at the top of each hour, daily at midnight UTC, monthly on the 1st of each month. When the count exceeds the configured limit, requests are rejected with `429 Too Many Requests`.
+Each request increments a counter keyed by client identifier and billing window. Windows are aligned to clock boundaries: hourly resets at the top of each hour, daily at midnight UTC, monthly on the 1st of each month, yearly on January 1st. When the count exceeds the configured limit, requests are rejected with `429 Too Many Requests`.
 
 Supports in-memory (single instance) and Redis-backed (distributed) counting.
 
@@ -30,7 +30,7 @@ routes:
 |-------|------|---------|-------------|
 | `enabled` | bool | `false` | Enable quota enforcement |
 | `limit` | int | - | Maximum requests per period (required, > 0) |
-| `period` | string | - | Billing period: `hourly`, `daily`, or `monthly` |
+| `period` | string | - | Billing period: `hourly`, `daily`, `monthly`, or `yearly` |
 | `key` | string | - | Client identifier key (required) |
 | `redis` | bool | `false` | Use Redis for distributed counting |
 

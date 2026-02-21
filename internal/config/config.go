@@ -74,6 +74,7 @@ type Config struct {
 	LoadShedding           LoadSheddingConfig           `yaml:"load_shedding"`             // System-level load shedding
 	AuditLog               AuditLogConfig               `yaml:"audit_log"`                 // Global audit logging defaults
 	Wasm                   WasmConfig                   `yaml:"wasm"`                      // WASM plugin runtime settings
+	Tenants                TenantsConfig                `yaml:"tenants"`                   // Multi-tenancy configuration
 	CompletionHeader       bool                         `yaml:"completion_header"`         // Add X-Gateway-Completed header to aggregate/sequential responses
 }
 
@@ -357,6 +358,7 @@ type RouteConfig struct {
 	Lambda               LambdaConfig                `yaml:"lambda"`                // AWS Lambda backend
 	AMQP                 AMQPConfig                  `yaml:"amqp"`                  // AMQP/RabbitMQ backend
 	PubSub               PubSubConfig                `yaml:"pubsub"`                // Pub/Sub backend (Go CDK)
+	Tenant               RouteTenantConfig            `yaml:"tenant"`                // Per-route tenant restrictions
 	CompletionHeader     bool                        `yaml:"completion_header"`     // Add X-Gateway-Completed header
 }
 
@@ -423,6 +425,7 @@ type CircuitBreakerConfig struct {
 	FailureThreshold int           `yaml:"failure_threshold"`
 	MaxRequests      int           `yaml:"max_requests"`
 	Timeout          time.Duration `yaml:"timeout"`
+	Mode             string        `yaml:"mode"` // "local" (default) or "distributed"
 }
 
 // CacheConfig defines request caching settings
@@ -1592,9 +1595,46 @@ type SequentialStep struct {
 type QuotaConfig struct {
 	Enabled bool   `yaml:"enabled"`
 	Limit   int64  `yaml:"limit"`   // max requests per period
-	Period  string `yaml:"period"`  // "hourly", "daily", "monthly"
+	Period  string `yaml:"period"`  // "hourly", "daily", "monthly", "yearly"
 	Key     string `yaml:"key"`     // "ip", "client_id", "header:<name>", "jwt_claim:<name>"
 	Redis   bool   `yaml:"redis"`   // use Redis for distributed tracking
+}
+
+// TenantsConfig defines multi-tenancy settings.
+type TenantsConfig struct {
+	Enabled       bool                    `yaml:"enabled"`
+	Key           string                  `yaml:"key"`            // "header:<name>", "jwt_claim:<name>", "client_id"
+	DefaultTenant string                  `yaml:"default_tenant"` // fallback tenant ID (empty = reject unknown)
+	Tenants       map[string]TenantConfig `yaml:"tenants"`
+}
+
+// TenantConfig defines per-tenant resource governance.
+type TenantConfig struct {
+	RateLimit   *TenantRateLimitConfig `yaml:"rate_limit,omitempty"`
+	Quota       *TenantQuotaConfig     `yaml:"quota,omitempty"`
+	Routes      []string               `yaml:"routes,omitempty"`       // allowed route IDs (empty = all)
+	MaxBodySize int64                  `yaml:"max_body_size,omitempty"`
+	Priority    int                    `yaml:"priority,omitempty"`
+	Metadata    map[string]string      `yaml:"metadata,omitempty"`
+}
+
+// TenantRateLimitConfig defines per-tenant rate limiting.
+type TenantRateLimitConfig struct {
+	Rate   int           `yaml:"rate"`
+	Period time.Duration `yaml:"period"`
+	Burst  int           `yaml:"burst"`
+}
+
+// TenantQuotaConfig defines per-tenant usage quotas.
+type TenantQuotaConfig struct {
+	Limit  int64  `yaml:"limit"`
+	Period string `yaml:"period"` // "hourly", "daily", "monthly", "yearly"
+}
+
+// RouteTenantConfig defines per-route tenant restrictions.
+type RouteTenantConfig struct {
+	Required bool     `yaml:"required"` // reject if no tenant resolved
+	Allowed  []string `yaml:"allowed"`  // restrict to specific tenant IDs
 }
 
 // AggregateConfig enables parallel multi-backend calls with JSON response merging.

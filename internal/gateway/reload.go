@@ -49,6 +49,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/proxyratelimit"
 	"github.com/wudi/gateway/internal/middleware/quota"
 	"github.com/wudi/gateway/internal/middleware/realip"
+	"github.com/wudi/gateway/internal/middleware/tenant"
 	"github.com/wudi/gateway/internal/middleware/respbodygen"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/serviceratelimit"
@@ -175,6 +176,8 @@ type gatewayState struct {
 	backpressureHandlers *backpressure.BackpressureByRoute
 	auditLoggers         *auditlog.AuditLogByRoute
 
+	tenantManager *tenant.Manager
+
 	// Auth providers
 	apiKeyAuth *auth.APIKeyAuth
 	jwtAuth    *auth.JWTAuth
@@ -257,6 +260,11 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		auditLoggers:         auditlog.NewAuditLogByRoute(),
 	}
 
+	// Initialize tenant manager
+	if cfg.Tenants.Enabled {
+		s.tenantManager = tenant.NewManager(cfg.Tenants, g.redisClient)
+	}
+
 	// Initialize shared retry budget pools
 	for name, bc := range cfg.RetryBudgets {
 		s.budgetPools[name] = retry.NewBudget(bc.Ratio, bc.MinRetries, bc.Window)
@@ -278,7 +286,13 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 			return nil
 		}, s.corsHandlers.RouteIDs, nil),
 		newFeature("circuit_breaker", "/circuit-breakers", func(id string, rc config.RouteConfig) error {
-			if rc.CircuitBreaker.Enabled { s.circuitBreakers.AddRoute(id, rc.CircuitBreaker) }
+			if rc.CircuitBreaker.Enabled {
+				if rc.CircuitBreaker.Mode == "distributed" && g.redisClient != nil {
+					s.circuitBreakers.AddRouteDistributed(id, rc.CircuitBreaker, g.redisClient)
+				} else {
+					s.circuitBreakers.AddRoute(id, rc.CircuitBreaker)
+				}
+			}
 			return nil
 		}, s.circuitBreakers.RouteIDs, func() any { return s.circuitBreakers.Snapshots() }),
 		newFeature("cache", "/cache", func(id string, rc config.RouteConfig) error {
@@ -495,6 +509,13 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 			if rc.Quota.Enabled { s.quotaEnforcers.AddRoute(id, rc.Quota, g.redisClient) }
 			return nil
 		}, s.quotaEnforcers.RouteIDs, func() any { return s.quotaEnforcers.Stats() }),
+		newFeature("tenant", "/tenants", func(id string, rc config.RouteConfig) error {
+			return nil
+		}, func() []string {
+			if s.tenantManager != nil { return []string{"global"} }; return nil
+		}, func() any {
+			if s.tenantManager != nil { return s.tenantManager.Stats() }; return nil
+		}),
 		noOpFeature("sequential", "/sequential", s.sequentialHandlers.RouteIDs, func() any { return s.sequentialHandlers.Stats() }),
 		noOpFeature("aggregate", "/aggregate", s.aggregateHandlers.RouteIDs, func() any { return s.aggregateHandlers.Stats() }),
 		newFeature("response_body_generator", "/response-body-generator", func(id string, rc config.RouteConfig) error {
@@ -1047,6 +1068,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldBaggagePropagators := g.baggagePropagators
 	oldBackpressureHandlers2 := g.backpressureHandlers
 	oldAuditLoggers2 := g.auditLoggers
+	oldTenantManager := g.tenantManager
 
 	// Install new state
 	g.ipFilters = s.ipFilters
@@ -1116,6 +1138,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.baggagePropagators = s.baggagePropagators
 	g.backpressureHandlers = s.backpressureHandlers
 	g.auditLoggers = s.auditLoggers
+	g.tenantManager = s.tenantManager
 
 	handler := g.buildRouteHandler(routeID, cfg, route, rp)
 
@@ -1187,6 +1210,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.baggagePropagators = oldBaggagePropagators
 	g.backpressureHandlers = oldBackpressureHandlers2
 	g.auditLoggers = oldAuditLoggers2
+	g.tenantManager = oldTenantManager
 
 	return handler
 }
@@ -1310,6 +1334,12 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.apiKeyAuth = newState.apiKeyAuth
 	g.jwtAuth = newState.jwtAuth
 	g.oauthAuth = newState.oauthAuth
+	// Swap tenant manager (close old one's quota goroutines)
+	oldTenantMgr := g.tenantManager
+	g.tenantManager = newState.tenantManager
+	if oldTenantMgr != nil {
+		oldTenantMgr.Close()
+	}
 	// Rebuild global singletons from new config
 	if newCfg.ServiceRateLimit.Enabled {
 		g.serviceLimiter = serviceratelimit.New(newCfg.ServiceRateLimit)

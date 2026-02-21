@@ -424,9 +424,9 @@ func (l *Loader) validateSmallRouteFeatures(route RouteConfig, _ *Config) error 
 		if route.Quota.Limit <= 0 {
 			return fmt.Errorf("route %s: quota limit must be > 0", routeID)
 		}
-		validPeriods := map[string]bool{"hourly": true, "daily": true, "monthly": true}
+		validPeriods := map[string]bool{"hourly": true, "daily": true, "monthly": true, "yearly": true}
 		if !validPeriods[route.Quota.Period] {
-			return fmt.Errorf("route %s: quota period must be hourly, daily, or monthly", routeID)
+			return fmt.Errorf("route %s: quota period must be hourly, daily, monthly, or yearly", routeID)
 		}
 		if route.Quota.Key == "" {
 			return fmt.Errorf("route %s: quota key is required", routeID)
@@ -667,6 +667,12 @@ func (l *Loader) validateResilienceFeatures(route RouteConfig, cfg *Config) erro
 		}
 		if route.CircuitBreaker.Timeout != 0 && route.CircuitBreaker.Timeout < 0 {
 			return fmt.Errorf("route %s: circuit_breaker timeout must be > 0", routeID)
+		}
+		if route.CircuitBreaker.Mode != "" && route.CircuitBreaker.Mode != "local" && route.CircuitBreaker.Mode != "distributed" {
+			return fmt.Errorf("route %s: circuit_breaker mode must be 'local' or 'distributed'", routeID)
+		}
+		if route.CircuitBreaker.Mode == "distributed" && cfg.Redis.Address == "" {
+			return fmt.Errorf("route %s: circuit_breaker mode 'distributed' requires redis configuration", routeID)
 		}
 	}
 
@@ -2577,5 +2583,52 @@ func (l *Loader) validateGRPCToRESTMappings(routeID string, cfg RESTTranslateCon
 		seen[key] = true
 	}
 
+	return nil
+}
+
+func (l *Loader) validateTenants(tc TenantsConfig, routeIDs map[string]bool) error {
+	if tc.Key == "" {
+		return fmt.Errorf("tenants: key is required when enabled")
+	}
+	validKey := false
+	if tc.Key == "client_id" {
+		validKey = true
+	}
+	if strings.HasPrefix(tc.Key, "header:") && len(tc.Key) > len("header:") {
+		validKey = true
+	}
+	if strings.HasPrefix(tc.Key, "jwt_claim:") && len(tc.Key) > len("jwt_claim:") {
+		validKey = true
+	}
+	if !validKey {
+		return fmt.Errorf("tenants: key must be 'client_id', 'header:<name>', or 'jwt_claim:<name>'")
+	}
+	if len(tc.Tenants) == 0 {
+		return fmt.Errorf("tenants: at least one tenant must be defined")
+	}
+	if tc.DefaultTenant != "" {
+		if _, ok := tc.Tenants[tc.DefaultTenant]; !ok {
+			return fmt.Errorf("tenants: default_tenant %q not found in tenants map", tc.DefaultTenant)
+		}
+	}
+	validPeriods := map[string]bool{"hourly": true, "daily": true, "monthly": true, "yearly": true}
+	for name, t := range tc.Tenants {
+		if t.RateLimit != nil && t.RateLimit.Rate <= 0 {
+			return fmt.Errorf("tenants[%s]: rate_limit.rate must be > 0", name)
+		}
+		if t.Quota != nil {
+			if t.Quota.Limit <= 0 {
+				return fmt.Errorf("tenants[%s]: quota.limit must be > 0", name)
+			}
+			if !validPeriods[t.Quota.Period] {
+				return fmt.Errorf("tenants[%s]: quota.period must be hourly, daily, monthly, or yearly", name)
+			}
+		}
+		for _, rid := range t.Routes {
+			if !routeIDs[rid] {
+				return fmt.Errorf("tenants[%s]: references unknown route %q", name, rid)
+			}
+		}
+	}
 	return nil
 }

@@ -454,6 +454,7 @@ See [FastCGI Proxy](fastcgi.md) for modes, CGI parameters, and examples.
       failure_threshold: int    # > 0
       max_requests: int         # > 0 (half-open limit)
       timeout: duration         # > 0 (open → half-open)
+      mode: string              # "local" (default) or "distributed" (requires redis)
 ```
 
 ### Cache
@@ -1819,14 +1820,49 @@ routes:
     quota:
       enabled: bool              # enable quota enforcement (default false)
       limit: int                 # max requests per period (required, > 0)
-      period: string             # "hourly", "daily", or "monthly" (required)
+      period: string             # "hourly", "daily", "monthly", or "yearly" (required)
       key: string                # client key: "ip", "client_id", "header:<name>", "jwt_claim:<name>" (required)
       redis: bool                # use Redis for distributed counting (default false)
 ```
 
-**Validation:** `limit` must be > 0. `period` must be one of `hourly`, `daily`, `monthly`. `key` must be a valid key format.
+**Validation:** `limit` must be > 0. `period` must be one of `hourly`, `daily`, `monthly`, `yearly`. `key` must be a valid key format.
 
 See [Quota](quota.md) for details.
+
+## Multi-Tenancy (global)
+
+```yaml
+tenants:
+  enabled: bool                  # enable multi-tenancy (default false)
+  key: string                    # tenant ID key: "header:<name>", "jwt_claim:<name>", "client_id" (required)
+  default_tenant: string         # fallback tenant ID (empty = reject unknown)
+  tenants:                       # tenant definitions (at least one required)
+    <tenant-id>:
+      rate_limit:
+        rate: int                # requests per period (> 0)
+        period: duration         # rate limit window
+        burst: int               # max burst (defaults to rate)
+      quota:
+        limit: int               # max requests per period (> 0)
+        period: string           # "hourly", "daily", "monthly", "yearly"
+      routes: [string]           # allowed route IDs (empty = all)
+      metadata:                  # key-value pairs propagated as X-Tenant-* headers
+        <key>: <value>
+```
+
+**Per-route:**
+
+```yaml
+routes:
+  - id: example
+    tenant:
+      required: bool             # reject if no tenant resolved (default false)
+      allowed: [string]          # restrict to specific tenant IDs
+```
+
+**Validation:** `key` must be `client_id`, `header:<name>`, or `jwt_claim:<name>`. At least one tenant must be defined. `default_tenant` must reference an existing tenant. Per-tenant rate limit rate must be > 0. Per-tenant quota limit must be > 0 with valid period. `tenant.required` requires global tenants enabled. `tenant.allowed` IDs must exist in tenants map.
+
+See [Multi-Tenancy](multi-tenancy.md) for details.
 
 ## Response Aggregation (per-route)
 

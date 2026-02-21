@@ -154,6 +154,9 @@ func (qe *QuotaEnforcer) currentWindow(now time.Time) (time.Time, time.Time) {
 	case "monthly":
 		start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 		return start, start.AddDate(0, 1, 0)
+	case "yearly":
+		start := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, time.UTC)
+		return start, start.AddDate(1, 0, 0)
 	default:
 		// Default to daily
 		start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)

@@ -60,6 +60,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/mock"
 	"github.com/wudi/gateway/internal/middleware/proxyratelimit"
 	"github.com/wudi/gateway/internal/middleware/quota"
+	"github.com/wudi/gateway/internal/middleware/tenant"
 	"github.com/wudi/gateway/internal/middleware/realip"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
 	"github.com/wudi/gateway/internal/middleware/serviceratelimit"
@@ -241,6 +242,8 @@ type Gateway struct {
 	lambdaHandlers       *lambdaproxy.LambdaByRoute
 	amqpHandlers         *amqpproxy.AMQPByRoute
 	pubsubHandlers       *pubsubproxy.PubSubByRoute
+
+	tenantManager *tenant.Manager
 
 	features []Feature
 
@@ -440,7 +443,11 @@ func New(cfg *config.Config) (*Gateway, error) {
 		}, g.corsHandlers.RouteIDs, nil),
 		newFeature("circuit_breaker", "/circuit-breakers", func(id string, rc config.RouteConfig) error {
 			if rc.CircuitBreaker.Enabled {
-				g.circuitBreakers.AddRoute(id, rc.CircuitBreaker)
+				if rc.CircuitBreaker.Mode == "distributed" && g.redisClient != nil {
+					g.circuitBreakers.AddRouteDistributed(id, rc.CircuitBreaker, g.redisClient)
+				} else {
+					g.circuitBreakers.AddRoute(id, rc.CircuitBreaker)
+				}
 			}
 			return nil
 		}, g.circuitBreakers.RouteIDs, func() any { return g.circuitBreakers.Snapshots() }),
@@ -854,6 +861,13 @@ func New(cfg *config.Config) (*Gateway, error) {
 			}
 			return nil
 		}, g.quotaEnforcers.RouteIDs, func() any { return g.quotaEnforcers.Stats() }),
+		newFeature("tenant", "/tenants", func(id string, rc config.RouteConfig) error {
+			return nil // global manager, no per-route setup needed
+		}, func() []string {
+			if g.tenantManager != nil { return []string{"global"} }; return nil
+		}, func() any {
+			if g.tenantManager != nil { return g.tenantManager.Stats() }; return nil
+		}),
 
 		newFeature("baggage", "/baggage", func(id string, rc config.RouteConfig) error {
 			if rc.Baggage.Enabled {
@@ -1039,6 +1053,11 @@ func New(cfg *config.Config) (*Gateway, error) {
 			DialTimeout: cfg.Redis.DialTimeout,
 		})
 		g.caches.SetRedisClient(g.redisClient)
+	}
+
+	// Initialize tenant manager
+	if cfg.Tenants.Enabled {
+		g.tenantManager = tenant.NewManager(cfg.Tenants, g.redisClient)
 	}
 
 	// Initialize HTTPS redirect
@@ -1746,6 +1765,10 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		/* 6.55 */ func() middleware.Middleware {
 			if bp := g.baggagePropagators.GetPropagator(routeID); bp != nil { return bp.Middleware() }; return nil
 		},
+		/* 6.6  */ func() middleware.Middleware {
+			if g.tenantManager == nil { return nil }
+			return g.tenantManager.Middleware(cfg.Tenant.Allowed, cfg.Tenant.Required)
+		},
 		/* 7    */ func() middleware.Middleware {
 			hasReq := (g.globalRules != nil && g.globalRules.HasRequestRules()) ||
 				(routeEngine != nil && routeEngine.HasRequestRules())
@@ -2261,6 +2284,11 @@ func (g *Gateway) Close() error {
 	// Close tracer
 	if g.tracer != nil {
 		g.tracer.Close()
+	}
+
+	// Close tenant manager
+	if g.tenantManager != nil {
+		g.tenantManager.Close()
 	}
 
 	// Close Redis client

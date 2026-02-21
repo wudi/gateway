@@ -5,10 +5,17 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/sony/gobreaker/v2"
 	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 )
+
+// BreakerInterface is implemented by both local and distributed circuit breakers.
+type BreakerInterface interface {
+	Allow() (func(error), error)
+	Snapshot() BreakerSnapshot
+}
 
 // Breaker wraps gobreaker.TwoStepCircuitBreaker with lifetime counters.
 type Breaker struct {
@@ -105,6 +112,7 @@ func (b *Breaker) Snapshot() BreakerSnapshot {
 	counts := b.cb.Counts()
 	return BreakerSnapshot{
 		State:            stateString(b.cb.State()),
+		Mode:             "local",
 		FailureCount:     int(counts.ConsecutiveFailures),
 		SuccessCount:     int(counts.ConsecutiveSuccesses),
 		FailureThreshold: b.failureThreshold,
@@ -119,6 +127,7 @@ func (b *Breaker) Snapshot() BreakerSnapshot {
 // BreakerSnapshot is a point-in-time view of a circuit breaker.
 type BreakerSnapshot struct {
 	State            string `json:"state"`
+	Mode             string `json:"mode"`
 	FailureCount     int    `json:"failure_count"`
 	SuccessCount     int    `json:"success_count"`
 	FailureThreshold int    `json:"failure_threshold"`
@@ -131,7 +140,7 @@ type BreakerSnapshot struct {
 
 // BreakerByRoute manages circuit breakers per route.
 type BreakerByRoute struct {
-	byroute.Manager[*Breaker]
+	byroute.Manager[BreakerInterface]
 	mu            sync.Mutex
 	onStateChange func(routeID, from, to string)
 }
@@ -148,7 +157,7 @@ func (br *BreakerByRoute) SetOnStateChange(cb func(routeID, from, to string)) {
 	br.onStateChange = cb
 }
 
-// AddRoute adds a circuit breaker for a route.
+// AddRoute adds a local circuit breaker for a route.
 func (br *BreakerByRoute) AddRoute(routeID string, cfg config.CircuitBreakerConfig) {
 	br.mu.Lock()
 	var cb func(from, to string)
@@ -161,8 +170,21 @@ func (br *BreakerByRoute) AddRoute(routeID string, cfg config.CircuitBreakerConf
 	br.Add(routeID, NewBreaker(cfg, cb))
 }
 
+// AddRouteDistributed adds a Redis-backed distributed circuit breaker for a route.
+func (br *BreakerByRoute) AddRouteDistributed(routeID string, cfg config.CircuitBreakerConfig, client *redis.Client) {
+	br.mu.Lock()
+	var cb func(from, to string)
+	if br.onStateChange != nil {
+		onSC := br.onStateChange
+		rid := routeID
+		cb = func(from, to string) { onSC(rid, from, to) }
+	}
+	br.mu.Unlock()
+	br.Add(routeID, NewRedisBreaker(routeID, cfg, client, cb))
+}
+
 // GetBreaker returns the circuit breaker for a route.
-func (br *BreakerByRoute) GetBreaker(routeID string) *Breaker {
+func (br *BreakerByRoute) GetBreaker(routeID string) BreakerInterface {
 	v, _ := br.Get(routeID)
 	return v
 }
@@ -170,7 +192,7 @@ func (br *BreakerByRoute) GetBreaker(routeID string) *Breaker {
 // Snapshots returns snapshots of all circuit breakers.
 func (br *BreakerByRoute) Snapshots() map[string]BreakerSnapshot {
 	result := make(map[string]BreakerSnapshot)
-	br.Range(func(id string, b *Breaker) bool {
+	br.Range(func(id string, b BreakerInterface) bool {
 		result[id] = b.Snapshot()
 		return true
 	})
