@@ -17,6 +17,7 @@ import (
 	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/graphql"
+	"github.com/wudi/gateway/internal/middleware/tenant"
 )
 
 // Entry represents a cached response.
@@ -77,8 +78,13 @@ func NewHandler(cfg config.CacheConfig, store Store) *Handler {
 
 // BuildKey constructs a cache key from the request.
 // keyHeaders must already be sorted (done at construction time).
+// If a tenant is resolved, its ID is prepended to isolate cache entries per tenant.
 func (h *Handler) BuildKey(r *http.Request, keyHeaders []string) string {
 	hash := sha256.New()
+	if ti := tenant.FromContext(r.Context()); ti != nil {
+		io.WriteString(hash, ti.ID)
+		hash.Write([]byte{'|'})
+	}
 	io.WriteString(hash, r.Method)
 	hash.Write([]byte{'|'})
 	io.WriteString(hash, r.URL.Path)

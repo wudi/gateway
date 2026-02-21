@@ -37,6 +37,7 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		l.validateOutlierDetection,
 		l.validateDelegatedSecurity,
 		l.validateDelegatedMiddleware,
+		l.validateTenantBackends,
 	}
 	for _, v := range validators {
 		if err := v(route, cfg); err != nil {
@@ -2611,8 +2612,44 @@ func (l *Loader) validateTenants(tc TenantsConfig, routeIDs map[string]bool) err
 			return fmt.Errorf("tenants: default_tenant %q not found in tenants map", tc.DefaultTenant)
 		}
 	}
+	// Validate tiers
+	for tierName, tier := range tc.Tiers {
+		if tier.MaxBodySize < 0 {
+			return fmt.Errorf("tenants.tiers[%s]: max_body_size must be >= 0", tierName)
+		}
+		if tier.Priority < 0 || tier.Priority > 10 {
+			return fmt.Errorf("tenants.tiers[%s]: priority must be between 0 and 10", tierName)
+		}
+		if tier.Timeout < 0 {
+			return fmt.Errorf("tenants.tiers[%s]: timeout must be >= 0", tierName)
+		}
+		if tier.RateLimit != nil && tier.RateLimit.Rate <= 0 {
+			return fmt.Errorf("tenants.tiers[%s]: rate_limit.rate must be > 0", tierName)
+		}
+		if tier.Quota != nil {
+			validPeriods := map[string]bool{"hourly": true, "daily": true, "monthly": true, "yearly": true}
+			if tier.Quota.Limit <= 0 {
+				return fmt.Errorf("tenants.tiers[%s]: quota.limit must be > 0", tierName)
+			}
+			if !validPeriods[tier.Quota.Period] {
+				return fmt.Errorf("tenants.tiers[%s]: quota.period must be hourly, daily, monthly, or yearly", tierName)
+			}
+		}
+		for k := range tier.ResponseHeaders {
+			if k == "" {
+				return fmt.Errorf("tenants.tiers[%s]: response_headers contains empty header name", tierName)
+			}
+		}
+	}
+
 	validPeriods := map[string]bool{"hourly": true, "daily": true, "monthly": true, "yearly": true}
 	for name, t := range tc.Tenants {
+		// Validate tier reference exists
+		if t.Tier != "" {
+			if _, ok := tc.Tiers[t.Tier]; !ok {
+				return fmt.Errorf("tenants[%s]: references unknown tier %q", name, t.Tier)
+			}
+		}
 		if t.RateLimit != nil && t.RateLimit.Rate <= 0 {
 			return fmt.Errorf("tenants[%s]: rate_limit.rate must be > 0", name)
 		}
@@ -2624,9 +2661,46 @@ func (l *Loader) validateTenants(tc TenantsConfig, routeIDs map[string]bool) err
 				return fmt.Errorf("tenants[%s]: quota.period must be hourly, daily, monthly, or yearly", name)
 			}
 		}
+		if t.MaxBodySize < 0 {
+			return fmt.Errorf("tenants[%s]: max_body_size must be >= 0", name)
+		}
+		if t.Priority < 0 || t.Priority > 10 {
+			return fmt.Errorf("tenants[%s]: priority must be between 0 and 10", name)
+		}
+		if t.Timeout < 0 {
+			return fmt.Errorf("tenants[%s]: timeout must be >= 0", name)
+		}
+		for k := range t.ResponseHeaders {
+			if k == "" {
+				return fmt.Errorf("tenants[%s]: response_headers contains empty header name", name)
+			}
+		}
 		for _, rid := range t.Routes {
 			if !routeIDs[rid] {
 				return fmt.Errorf("tenants[%s]: references unknown route %q", name, rid)
+			}
+		}
+	}
+	return nil
+}
+
+func (l *Loader) validateTenantBackends(route RouteConfig, cfg *Config) error {
+	if len(route.TenantBackends) == 0 {
+		return nil
+	}
+	for tid, backends := range route.TenantBackends {
+		if !cfg.Tenants.Enabled {
+			return fmt.Errorf("route %s: tenant_backends requires tenants.enabled", route.ID)
+		}
+		if _, ok := cfg.Tenants.Tenants[tid]; !ok {
+			return fmt.Errorf("route %s: tenant_backends references unknown tenant %q", route.ID, tid)
+		}
+		if len(backends) == 0 {
+			return fmt.Errorf("route %s: tenant_backends[%s] must have at least one backend", route.ID, tid)
+		}
+		for i, b := range backends {
+			if b.URL == "" {
+				return fmt.Errorf("route %s: tenant_backends[%s][%d] missing url", route.ID, tid, i)
 			}
 		}
 	}

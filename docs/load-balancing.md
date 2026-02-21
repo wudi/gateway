@@ -88,4 +88,24 @@ The gateway performs active health checks against each backend at its `/health` 
 | `consistent_hash.header_name` | string | Header/cookie name (required for header/cookie modes) |
 | `consistent_hash.replicas` | int | Virtual nodes per backend (default 150) |
 
+## Per-Tenant Backend Routing
+
+When multi-tenancy is enabled, you can route specific tenants to dedicated backend pools using `tenant_backends`:
+
+```yaml
+routes:
+  - id: api
+    path: /api
+    backends:
+      - url: http://shared:8080
+    tenant_backends:
+      acme:
+        - url: http://acme-1:8080
+        - url: http://acme-2:8080
+      startup:
+        - url: http://startup-pool:8080
+```
+
+Tenants with dedicated backends are routed to their pool; others use the default backends. The same load balancing algorithm configured for the route is used for tenant backend pools. Health checks and marks apply across all balancers.
+
 See [Configuration Reference](configuration-reference.md#routes) for all fields.

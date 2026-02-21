@@ -106,6 +106,19 @@ In distributed mode, all gateway instances share failure counts and state transi
 
 Redis key prefix: `gw:cb:{routeID}:`
 
+### Per-Tenant Circuit Breaker Isolation
+
+When multi-tenancy is enabled, you can isolate circuit breakers per tenant so that one tenant's failures don't trip the breaker for others:
+
+```yaml
+    circuit_breaker:
+      enabled: true
+      failure_threshold: 5
+      tenant_isolation: true
+```
+
+Each tenant gets a lazily-created independent breaker. Requests without a resolved tenant use the route-level breaker. Works with both `local` and `distributed` modes.
+
 ## Timeouts
 
 Set per-route timeout policies with four levels of control:

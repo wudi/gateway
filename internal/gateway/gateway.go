@@ -1449,8 +1449,27 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 			}
 			routeProxy = proxy.NewRouteProxyWithBalancer(g.proxy, route, wb)
 		} else {
-			balancer := createBalancer(routeCfg, backends)
-			routeProxy = proxy.NewRouteProxyWithBalancer(g.proxy, route, balancer)
+			bal := createBalancer(routeCfg, backends)
+			// Wrap with tenant-aware balancer if per-tenant backends configured
+			if len(routeCfg.TenantBackends) > 0 {
+				tenantBals := make(map[string]loadbalancer.Balancer, len(routeCfg.TenantBackends))
+				for tid, tBackends := range routeCfg.TenantBackends {
+					var tBacks []*loadbalancer.Backend
+					for _, b := range tBackends {
+						weight := b.Weight
+						if weight == 0 {
+							weight = 1
+						}
+						tbe := &loadbalancer.Backend{URL: b.URL, Weight: weight, Healthy: true}
+						tbe.InitParsedURL()
+						tBacks = append(tBacks, tbe)
+						g.healthChecker.AddBackend(upstreamHealthCheck(b.URL, g.config.HealthCheck, nil, b.HealthCheck))
+					}
+					tenantBals[tid] = createBalancerForBackends(routeCfg, tBacks)
+				}
+				bal = loadbalancer.NewTenantAwareBalancer(bal, tenantBals)
+			}
+			routeProxy = proxy.NewRouteProxyWithBalancer(g.proxy, route, bal)
 		}
 		g.storeRouteProxy(routeCfg.ID, routeProxy)
 
@@ -1634,6 +1653,11 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 
 // createBalancer creates a load balancer for the given route config and backends.
 func createBalancer(cfg config.RouteConfig, backends []*loadbalancer.Backend) loadbalancer.Balancer {
+	return createBalancerForBackends(cfg, backends)
+}
+
+// createBalancerForBackends creates a load balancer for the given backend set using route LB config.
+func createBalancerForBackends(cfg config.RouteConfig, backends []*loadbalancer.Backend) loadbalancer.Balancer {
 	switch cfg.LoadBalancer {
 	case "least_conn":
 		return loadbalancer.NewLeastConnections(backends)

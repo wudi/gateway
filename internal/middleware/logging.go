@@ -140,6 +140,9 @@ func LoggingWithConfig(cfg LoggingConfig) Middleware {
 				if varCtx.UpstreamAddr != "" {
 					fields[n] = zap.String("upstream_addr", varCtx.UpstreamAddr); n++
 				}
+				if varCtx.TenantID != "" {
+					fields[n] = zap.String("tenant_id", varCtx.TenantID); n++
+				}
 				if varCtx.Identity != nil {
 					fields[n] = zap.String("auth_client_id", varCtx.Identity.ClientID); n++
 				}

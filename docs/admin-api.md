@@ -146,7 +146,11 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /body-generator` | Per-route request body generator stats |
 | `GET /sequential` | Per-route sequential proxy stats |
 | `GET /quotas` | Per-route quota enforcement stats |
-| `GET /tenants` | Multi-tenancy stats: per-tenant allowed/rejected/rate-limited/quota-exceeded counts |
+| `GET /tenants` | Multi-tenancy stats: per-tenant allowed/rejected/rate-limited/quota-exceeded counts + usage analytics |
+| `GET /tenants/{id}` | Get specific tenant config |
+| `POST /tenants/{id}` | Create a new tenant at runtime (JSON body) |
+| `PUT /tenants/{id}` | Update an existing tenant at runtime (JSON body) |
+| `DELETE /tenants/{id}` | Remove a tenant at runtime |
 | `GET /aggregate` | Per-route response aggregation stats |
 | `GET /response-body-generator` | Per-route response body generator stats |
 | `GET /param-forwarding` | Per-route parameter forwarding stats |

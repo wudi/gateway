@@ -358,8 +358,9 @@ type RouteConfig struct {
 	Lambda               LambdaConfig                `yaml:"lambda"`                // AWS Lambda backend
 	AMQP                 AMQPConfig                  `yaml:"amqp"`                  // AMQP/RabbitMQ backend
 	PubSub               PubSubConfig                `yaml:"pubsub"`                // Pub/Sub backend (Go CDK)
-	Tenant               RouteTenantConfig            `yaml:"tenant"`                // Per-route tenant restrictions
-	CompletionHeader     bool                        `yaml:"completion_header"`     // Add X-Gateway-Completed header
+	Tenant               RouteTenantConfig              `yaml:"tenant"`                 // Per-route tenant restrictions
+	TenantBackends       map[string][]BackendConfig    `yaml:"tenant_backends,omitempty"` // Per-tenant dedicated backends
+	CompletionHeader     bool                          `yaml:"completion_header"`      // Add X-Gateway-Completed header
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -425,7 +426,8 @@ type CircuitBreakerConfig struct {
 	FailureThreshold int           `yaml:"failure_threshold"`
 	MaxRequests      int           `yaml:"max_requests"`
 	Timeout          time.Duration `yaml:"timeout"`
-	Mode             string        `yaml:"mode"` // "local" (default) or "distributed"
+	Mode             string        `yaml:"mode"`              // "local" (default) or "distributed"
+	TenantIsolation  bool          `yaml:"tenant_isolation"`  // when true, each tenant gets its own circuit breaker
 }
 
 // CacheConfig defines request caching settings
@@ -1602,20 +1604,36 @@ type QuotaConfig struct {
 
 // TenantsConfig defines multi-tenancy settings.
 type TenantsConfig struct {
-	Enabled       bool                    `yaml:"enabled"`
-	Key           string                  `yaml:"key"`            // "header:<name>", "jwt_claim:<name>", "client_id"
-	DefaultTenant string                  `yaml:"default_tenant"` // fallback tenant ID (empty = reject unknown)
-	Tenants       map[string]TenantConfig `yaml:"tenants"`
+	Enabled       bool                          `yaml:"enabled"`
+	Key           string                        `yaml:"key"`            // "header:<name>", "jwt_claim:<name>", "client_id"
+	DefaultTenant string                        `yaml:"default_tenant"` // fallback tenant ID (empty = reject unknown)
+	Tiers         map[string]TenantTierConfig   `yaml:"tiers,omitempty"`
+	Tenants       map[string]TenantConfig       `yaml:"tenants"`
+}
+
+// TenantTierConfig defines defaults for a plan/tier. Tenants referencing this tier
+// inherit these values unless overridden with tenant-specific settings.
+type TenantTierConfig struct {
+	RateLimit       *TenantRateLimitConfig `yaml:"rate_limit,omitempty"`
+	Quota           *TenantQuotaConfig     `yaml:"quota,omitempty"`
+	MaxBodySize     int64                  `yaml:"max_body_size,omitempty"`
+	Priority        int                    `yaml:"priority,omitempty"`
+	Timeout         time.Duration          `yaml:"timeout,omitempty"`
+	Metadata        map[string]string      `yaml:"metadata,omitempty"`
+	ResponseHeaders map[string]string      `yaml:"response_headers,omitempty"`
 }
 
 // TenantConfig defines per-tenant resource governance.
 type TenantConfig struct {
-	RateLimit   *TenantRateLimitConfig `yaml:"rate_limit,omitempty"`
-	Quota       *TenantQuotaConfig     `yaml:"quota,omitempty"`
-	Routes      []string               `yaml:"routes,omitempty"`       // allowed route IDs (empty = all)
-	MaxBodySize int64                  `yaml:"max_body_size,omitempty"`
-	Priority    int                    `yaml:"priority,omitempty"`
-	Metadata    map[string]string      `yaml:"metadata,omitempty"`
+	RateLimit       *TenantRateLimitConfig `yaml:"rate_limit,omitempty"`
+	Quota           *TenantQuotaConfig     `yaml:"quota,omitempty"`
+	Routes          []string               `yaml:"routes,omitempty"`           // allowed route IDs (empty = all)
+	MaxBodySize     int64                  `yaml:"max_body_size,omitempty"`
+	Priority        int                    `yaml:"priority,omitempty"`
+	Timeout         time.Duration          `yaml:"timeout,omitempty"`          // per-tenant request timeout
+	Metadata        map[string]string      `yaml:"metadata,omitempty"`
+	ResponseHeaders map[string]string      `yaml:"response_headers,omitempty"` // custom response headers per tenant
+	Tier            string                 `yaml:"tier,omitempty"`             // tier/plan reference
 }
 
 // TenantRateLimitConfig defines per-tenant rate limiting.

@@ -299,6 +299,9 @@ type Context struct {
 	// API versioning
 	APIVersion string
 
+	// Tenant identification
+	TenantID string
+
 	// Access log config (interface{} to avoid import cycle)
 	AccessLogConfig interface{}
 
@@ -341,6 +344,7 @@ func ReleaseContext(c *Context) {
 	c.ServerPort = 0
 	c.TrafficGroup = ""
 	c.APIVersion = ""
+	c.TenantID = ""
 	c.AccessLogConfig = nil
 	c.Custom = nil
 	contextPool.Put(c)
@@ -370,6 +374,7 @@ func (c *Context) Clone() *Context {
 		ServerPort:           c.ServerPort,
 		TrafficGroup:         c.TrafficGroup,
 		APIVersion:           c.APIVersion,
+		TenantID:             c.TenantID,
 		AccessLogConfig:      c.AccessLogConfig,
 	}
 

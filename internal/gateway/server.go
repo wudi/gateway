@@ -485,6 +485,7 @@ func (s *Server) adminHandler() http.Handler {
 	}))
 	mux.HandleFunc("/ip-blocklist/refresh", s.handleIPBlocklistRefresh)
 	mux.HandleFunc("/dashboard", s.handleDashboard)
+	mux.HandleFunc("/tenants/", s.handleTenantCRUD)
 	if s.gateway.GetAPIKeyAuth() != nil {
 		mux.HandleFunc("/admin/keys", s.handleAdminKeys)
 	}
@@ -1437,4 +1438,93 @@ func (s *Server) GetTCPProxy() *tcp.Proxy {
 // GetUDPProxy returns the UDP proxy
 func (s *Server) GetUDPProxy() *udp.Proxy {
 	return s.udpProxy
+}
+
+// handleTenantCRUD handles CRUD operations on /tenants/{id}.
+func (s *Server) handleTenantCRUD(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if s.gateway.tenantManager == nil {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "multi-tenancy not enabled"})
+		return
+	}
+
+	// Extract tenant ID from path: /tenants/{id}
+	parts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/tenants/"), "/", 2)
+	tenantID := parts[0]
+
+	switch r.Method {
+	case http.MethodGet:
+		if tenantID == "" {
+			// List all tenants
+			json.NewEncoder(w).Encode(s.gateway.tenantManager.Stats())
+			return
+		}
+		tc, ok := s.gateway.tenantManager.GetTenant(tenantID)
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": "tenant not found"})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":     tenantID,
+			"config": tc,
+		})
+
+	case http.MethodPost:
+		if tenantID == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "tenant ID required"})
+			return
+		}
+		var tc config.TenantConfig
+		if err := json.NewDecoder(r.Body).Decode(&tc); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		if err := s.gateway.tenantManager.AddTenant(tenantID, tc); err != nil {
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{"status": "created", "id": tenantID})
+
+	case http.MethodPut:
+		if tenantID == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "tenant ID required"})
+			return
+		}
+		var tc config.TenantConfig
+		if err := json.NewDecoder(r.Body).Decode(&tc); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		if err := s.gateway.tenantManager.UpdateTenant(tenantID, tc); err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "updated", "id": tenantID})
+
+	case http.MethodDelete:
+		if tenantID == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "tenant ID required"})
+			return
+		}
+		if err := s.gateway.tenantManager.RemoveTenant(tenantID); err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "id": tenantID})
+
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
 }

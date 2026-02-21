@@ -1836,8 +1836,23 @@ tenants:
   enabled: bool                  # enable multi-tenancy (default false)
   key: string                    # tenant ID key: "header:<name>", "jwt_claim:<name>", "client_id" (required)
   default_tenant: string         # fallback tenant ID (empty = reject unknown)
+  tiers:                         # tier/plan definitions with shared defaults
+    <tier-id>:
+      rate_limit:
+        rate: int
+        period: duration
+        burst: int
+      quota:
+        limit: int
+        period: string
+      max_body_size: int         # max request body size in bytes
+      priority: int              # priority level (1-10)
+      timeout: duration          # request timeout
+      metadata: {key: value}
+      response_headers: {key: value}
   tenants:                       # tenant definitions (at least one required)
     <tenant-id>:
+      tier: string               # reference to a tier (inherits defaults)
       rate_limit:
         rate: int                # requests per period (> 0)
         period: duration         # rate limit window
@@ -1846,8 +1861,13 @@ tenants:
         limit: int               # max requests per period (> 0)
         period: string           # "hourly", "daily", "monthly", "yearly"
       routes: [string]           # allowed route IDs (empty = all)
+      max_body_size: int         # max body size; enforced as min(route, tenant)
+      priority: int              # priority override (1-10, 0 = use configured levels)
+      timeout: duration          # per-tenant request timeout
       metadata:                  # key-value pairs propagated as X-Tenant-* headers
         <key>: <value>
+      response_headers:          # custom response headers per tenant
+        <header>: <value>
 ```
 
 **Per-route:**
@@ -1858,9 +1878,15 @@ routes:
     tenant:
       required: bool             # reject if no tenant resolved (default false)
       allowed: [string]          # restrict to specific tenant IDs
+    tenant_backends:             # per-tenant dedicated backends
+      <tenant-id>:
+        - url: string
+          weight: int
+    circuit_breaker:
+      tenant_isolation: bool     # per-tenant circuit breaker isolation (default false)
 ```
 
-**Validation:** `key` must be `client_id`, `header:<name>`, or `jwt_claim:<name>`. At least one tenant must be defined. `default_tenant` must reference an existing tenant. Per-tenant rate limit rate must be > 0. Per-tenant quota limit must be > 0 with valid period. `tenant.required` requires global tenants enabled. `tenant.allowed` IDs must exist in tenants map.
+**Validation:** `key` must be `client_id`, `header:<name>`, or `jwt_claim:<name>`. At least one tenant must be defined. `default_tenant` must reference an existing tenant. Per-tenant rate limit rate must be > 0. Per-tenant quota limit must be > 0 with valid period. `tenant.required` requires global tenants enabled. `tenant.allowed` IDs must exist in tenants map. `tier` must reference an existing tier. `max_body_size` must be >= 0. `priority` must be 0-10. `timeout` must be >= 0. `tenant_backends` tenant IDs must exist in tenants map. `tenant_isolation` works with both local and distributed circuit breakers.
 
 See [Multi-Tenancy](multi-tenancy.md) for details.
 

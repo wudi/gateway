@@ -104,7 +104,12 @@ func (pa *PriorityAdmitter) Snapshot() PrioritySnapshot {
 
 // DetermineLevel checks configured priority levels and returns the first matching
 // level, or the default level if nothing matches.
-func DetermineLevel(r *http.Request, identity *variables.Identity, cfg config.PriorityConfig) int {
+// If tenantPriority > 0, it overrides all configured levels immediately.
+func DetermineLevel(r *http.Request, identity *variables.Identity, cfg config.PriorityConfig, tenantPriority int) int {
+	if tenantPriority > 0 {
+		return tenantPriority
+	}
+
 	defaultLevel := cfg.DefaultLevel
 	if defaultLevel == 0 {
 		defaultLevel = 5

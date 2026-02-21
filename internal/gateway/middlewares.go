@@ -22,6 +22,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/ipblocklist"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
+	"github.com/wudi/gateway/internal/middleware/tenant"
 	"github.com/wudi/gateway/internal/middleware/transform"
 	"github.com/wudi/gateway/internal/middleware/validation"
 	grpcproxy "github.com/wudi/gateway/internal/proxy/grpc"
@@ -154,16 +155,24 @@ func evaluateRequestRules(engine *rules.RuleEngine, w http.ResponseWriter, r *ht
 }
 
 // 6. bodyLimitMW enforces a request body size limit.
+// If the resolved tenant has a MaxBodySize configured, the effective limit is
+// min(routeMax, tenantMax) so that tenants cannot exceed their allocation.
 func bodyLimitMW(max int64) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.ContentLength > max {
+			limit := max
+			if ti := tenant.FromContext(r.Context()); ti != nil && ti.Config.MaxBodySize > 0 {
+				if ti.Config.MaxBodySize < limit {
+					limit = ti.Config.MaxBodySize
+				}
+			}
+			if r.ContentLength > limit {
 				errors.ErrRequestEntityTooLarge.WithDetails(
-					fmt.Sprintf("Request body exceeds maximum size of %d bytes", max),
+					fmt.Sprintf("Request body exceeds maximum size of %d bytes", limit),
 				).WriteJSON(w)
 				return
 			}
-			r.Body = http.MaxBytesReader(w, r.Body, max)
+			r.Body = http.MaxBytesReader(w, r.Body, limit)
 			next.ServeHTTP(w, r)
 		})
 	}
@@ -240,10 +249,23 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 var errServerError = fmt.Errorf("server error")
 
 // 10. circuitBreakerMW checks the circuit breaker and records outcomes.
+// If the breaker supports tenant isolation, requests are routed to per-tenant breakers.
 func circuitBreakerMW(cb circuitbreaker.BreakerInterface, isGRPC bool) middleware.Middleware {
+	tenantCB, isTenantAware := cb.(circuitbreaker.TenantAwareBreakerInterface)
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			done, err := cb.Allow()
+			var done func(error)
+			var err error
+			if isTenantAware {
+				tenantID := ""
+				if ti := tenant.FromContext(r.Context()); ti != nil {
+					tenantID = ti.ID
+				}
+				done, err = tenantCB.AllowForTenant(tenantID)
+			} else {
+				done, err = cb.Allow()
+			}
 			if err != nil {
 				errors.ErrServiceUnavailable.WithDetails("Circuit breaker is open").WriteJSON(w)
 				return
@@ -429,7 +451,11 @@ func priorityMW(admitter *trafficshape.PriorityAdmitter, cfg config.PriorityConf
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			varCtx := variables.GetFromRequest(r)
-			level := trafficshape.DetermineLevel(r, varCtx.Identity, cfg)
+			var tenantPriority int
+			if ti := tenant.FromContext(r.Context()); ti != nil {
+				tenantPriority = ti.Config.Priority
+			}
+			level := trafficshape.DetermineLevel(r, varCtx.Identity, cfg, tenantPriority)
 
 			ctx := r.Context()
 			if cfg.MaxWait > 0 {

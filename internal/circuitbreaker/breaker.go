@@ -126,16 +126,18 @@ func (b *Breaker) Snapshot() BreakerSnapshot {
 
 // BreakerSnapshot is a point-in-time view of a circuit breaker.
 type BreakerSnapshot struct {
-	State            string `json:"state"`
-	Mode             string `json:"mode"`
-	FailureCount     int    `json:"failure_count"`
-	SuccessCount     int    `json:"success_count"`
-	FailureThreshold int    `json:"failure_threshold"`
-	MaxRequests      int    `json:"max_requests"`
-	TotalRequests    int64  `json:"total_requests"`
-	TotalFailures    int64  `json:"total_failures"`
-	TotalSuccesses   int64  `json:"total_successes"`
-	TotalRejected    int64  `json:"total_rejected"`
+	State            string                    `json:"state"`
+	Mode             string                    `json:"mode"`
+	FailureCount     int                       `json:"failure_count"`
+	SuccessCount     int                       `json:"success_count"`
+	FailureThreshold int                       `json:"failure_threshold"`
+	MaxRequests      int                       `json:"max_requests"`
+	TotalRequests    int64                     `json:"total_requests"`
+	TotalFailures    int64                     `json:"total_failures"`
+	TotalSuccesses   int64                     `json:"total_successes"`
+	TotalRejected    int64                     `json:"total_rejected"`
+	TenantIsolation  bool                      `json:"tenant_isolation,omitempty"`
+	TenantBreakers   map[string]BreakerSnapshot `json:"tenant_breakers,omitempty"`
 }
 
 // BreakerByRoute manages circuit breakers per route.
@@ -158,6 +160,7 @@ func (br *BreakerByRoute) SetOnStateChange(cb func(routeID, from, to string)) {
 }
 
 // AddRoute adds a local circuit breaker for a route.
+// If cfg.TenantIsolation is true, the breaker is wrapped with a TenantAwareBreaker.
 func (br *BreakerByRoute) AddRoute(routeID string, cfg config.CircuitBreakerConfig) {
 	br.mu.Lock()
 	var cb func(from, to string)
@@ -167,10 +170,16 @@ func (br *BreakerByRoute) AddRoute(routeID string, cfg config.CircuitBreakerConf
 		cb = func(from, to string) { onSC(rid, from, to) }
 	}
 	br.mu.Unlock()
-	br.Add(routeID, NewBreaker(cfg, cb))
+	b := NewBreaker(cfg, cb)
+	if cfg.TenantIsolation {
+		br.Add(routeID, NewTenantAwareBreaker(b, cfg, routeID, nil, cb))
+	} else {
+		br.Add(routeID, b)
+	}
 }
 
 // AddRouteDistributed adds a Redis-backed distributed circuit breaker for a route.
+// If cfg.TenantIsolation is true, the breaker is wrapped with a TenantAwareBreaker.
 func (br *BreakerByRoute) AddRouteDistributed(routeID string, cfg config.CircuitBreakerConfig, client *redis.Client) {
 	br.mu.Lock()
 	var cb func(from, to string)
@@ -180,7 +189,12 @@ func (br *BreakerByRoute) AddRouteDistributed(routeID string, cfg config.Circuit
 		cb = func(from, to string) { onSC(rid, from, to) }
 	}
 	br.mu.Unlock()
-	br.Add(routeID, NewRedisBreaker(routeID, cfg, client, cb))
+	b := NewRedisBreaker(routeID, cfg, client, cb)
+	if cfg.TenantIsolation {
+		br.Add(routeID, NewTenantAwareBreaker(b, cfg, routeID, client, cb))
+	} else {
+		br.Add(routeID, b)
+	}
 }
 
 // GetBreaker returns the circuit breaker for a route.
@@ -190,10 +204,15 @@ func (br *BreakerByRoute) GetBreaker(routeID string) BreakerInterface {
 }
 
 // Snapshots returns snapshots of all circuit breakers.
+// For tenant-aware breakers, tenant sub-snapshots are included.
 func (br *BreakerByRoute) Snapshots() map[string]BreakerSnapshot {
 	result := make(map[string]BreakerSnapshot)
 	br.Range(func(id string, b BreakerInterface) bool {
-		result[id] = b.Snapshot()
+		snap := b.Snapshot()
+		if tab, ok := b.(TenantAwareBreakerInterface); ok {
+			snap.TenantBreakers = tab.TenantSnapshots()
+		}
+		result[id] = snap
 		return true
 	})
 	return result

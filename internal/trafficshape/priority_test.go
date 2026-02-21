@@ -164,7 +164,7 @@ func TestDetermineLevel_Default(t *testing.T) {
 		DefaultLevel: 5,
 	}
 
-	level := DetermineLevel(r, nil, cfg)
+	level := DetermineLevel(r, nil, cfg, 0)
 	if level != 5 {
 		t.Errorf("expected level 5, got %d", level)
 	}
@@ -174,7 +174,7 @@ func TestDetermineLevel_DefaultZero(t *testing.T) {
 	r := httptest.NewRequest("GET", "/", nil)
 	cfg := config.PriorityConfig{}
 
-	level := DetermineLevel(r, nil, cfg)
+	level := DetermineLevel(r, nil, cfg, 0)
 	if level != 5 {
 		t.Errorf("expected default level 5 when not set, got %d", level)
 	}
@@ -191,7 +191,7 @@ func TestDetermineLevel_HeaderMatch(t *testing.T) {
 		},
 	}
 
-	level := DetermineLevel(r, nil, cfg)
+	level := DetermineLevel(r, nil, cfg, 0)
 	if level != 1 {
 		t.Errorf("expected level 1, got %d", level)
 	}
@@ -208,7 +208,7 @@ func TestDetermineLevel_ClientIDMatch(t *testing.T) {
 		},
 	}
 
-	level := DetermineLevel(r, identity, cfg)
+	level := DetermineLevel(r, identity, cfg, 0)
 	if level != 2 {
 		t.Errorf("expected level 2, got %d", level)
 	}
@@ -225,8 +225,32 @@ func TestDetermineLevel_NoMatch(t *testing.T) {
 		},
 	}
 
-	level := DetermineLevel(r, nil, cfg)
+	level := DetermineLevel(r, nil, cfg, 0)
 	if level != 7 {
 		t.Errorf("expected level 7, got %d", level)
+	}
+}
+
+func TestDetermineLevel_TenantPriorityOverride(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Header.Set("X-Priority", "high")
+
+	cfg := config.PriorityConfig{
+		DefaultLevel: 5,
+		Levels: []config.PriorityLevelConfig{
+			{Level: 1, Headers: map[string]string{"X-Priority": "high"}},
+		},
+	}
+
+	// Tenant priority overrides even when header-level match exists
+	level := DetermineLevel(r, nil, cfg, 3)
+	if level != 3 {
+		t.Errorf("expected tenant priority 3, got %d", level)
+	}
+
+	// Zero tenant priority falls through to normal matching
+	level = DetermineLevel(r, nil, cfg, 0)
+	if level != 1 {
+		t.Errorf("expected header-matched level 1, got %d", level)
 	}
 }
