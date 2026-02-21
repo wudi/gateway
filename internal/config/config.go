@@ -868,6 +868,7 @@ type CoalesceConfig struct {
 type CanaryConfig struct {
 	Enabled     bool                 `yaml:"enabled"`
 	CanaryGroup string               `yaml:"canary_group"`
+	AutoStart   bool                 `yaml:"auto_start"`
 	Steps       []CanaryStepConfig   `yaml:"steps"`
 	Analysis    CanaryAnalysisConfig `yaml:"analysis"`
 }
@@ -880,10 +881,13 @@ type CanaryStepConfig struct {
 
 // CanaryAnalysisConfig defines health analysis thresholds for canary rollback.
 type CanaryAnalysisConfig struct {
-	ErrorThreshold   float64       `yaml:"error_threshold"`   // 0.0-1.0
-	LatencyThreshold time.Duration `yaml:"latency_threshold"` // max p99
-	MinRequests      int           `yaml:"min_requests"`      // min samples before eval
-	Interval         time.Duration `yaml:"interval"`          // eval frequency
+	ErrorThreshold       float64       `yaml:"error_threshold"`         // 0.0-1.0
+	LatencyThreshold     time.Duration `yaml:"latency_threshold"`       // max p99
+	MaxErrorRateIncrease float64       `yaml:"max_error_rate_increase"` // canary/baseline error ratio (0 = disabled)
+	MaxLatencyIncrease   float64       `yaml:"max_latency_increase"`    // canary/baseline p99 ratio (0 = disabled)
+	MaxFailures          int           `yaml:"max_failures"`            // consecutive failures before rollback (0 = immediate)
+	MinRequests          int           `yaml:"min_requests"`            // min samples before eval
+	Interval             time.Duration `yaml:"interval"`                // eval frequency
 }
 
 // ExtAuthConfig configures external authentication for a route.

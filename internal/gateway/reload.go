@@ -860,6 +860,13 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 			if err := s.canaryControllers.AddRoute(routeCfg.ID, routeCfg.Canary, wb); err != nil {
 				return fmt.Errorf("canary: route %s: %w", routeCfg.ID, err)
 			}
+			if routeCfg.Canary.AutoStart {
+				if ctrl := s.canaryControllers.GetController(routeCfg.ID); ctrl != nil {
+					if err := ctrl.Start(); err != nil {
+						return fmt.Errorf("canary auto-start: route %s: %w", routeCfg.ID, err)
+					}
+				}
+			}
 		}
 	}
 

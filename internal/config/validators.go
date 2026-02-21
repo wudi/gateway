@@ -733,6 +733,15 @@ func (l *Loader) validateResilienceFeatures(route RouteConfig, cfg *Config) erro
 		if route.Canary.Analysis.Interval < 0 {
 			return fmt.Errorf("route %s: canary analysis interval must be >= 0", routeID)
 		}
+		if route.Canary.Analysis.MaxErrorRateIncrease < 0 {
+			return fmt.Errorf("route %s: canary analysis max_error_rate_increase must be >= 0", routeID)
+		}
+		if route.Canary.Analysis.MaxLatencyIncrease < 0 {
+			return fmt.Errorf("route %s: canary analysis max_latency_increase must be >= 0", routeID)
+		}
+		if route.Canary.Analysis.MaxFailures < 0 {
+			return fmt.Errorf("route %s: canary analysis max_failures must be >= 0", routeID)
+		}
 	}
 
 	// Blue-green

@@ -474,18 +474,22 @@ See [FastCGI Proxy](fastcgi.md) for modes, CGI parameters, and examples.
 ```yaml
     canary:
       enabled: bool
-      canary_group: string        # must match a traffic_split group name
+      canary_group: string              # must match a traffic_split group name
+      auto_start: bool                  # start progression on route load (default false)
       steps:
-        - weight: int             # 0-100, monotonically non-decreasing
-          pause: duration         # hold duration before next step
+        - weight: int                   # 0-100, monotonically non-decreasing
+          pause: duration               # hold duration before next step
       analysis:
-        error_threshold: float    # 0.0-1.0 (rollback threshold)
-        latency_threshold: duration  # max p99 before rollback
-        min_requests: int         # min samples before evaluation
-        interval: duration        # evaluation frequency (default 30s)
+        error_threshold: float          # 0.0-1.0 (absolute rollback threshold)
+        latency_threshold: duration     # max p99 before rollback (absolute)
+        max_error_rate_increase: float  # canary/baseline error ratio (0 = disabled)
+        max_latency_increase: float     # canary/baseline p99 ratio (0 = disabled)
+        max_failures: int               # consecutive failures before rollback (0 = immediate)
+        min_requests: int               # min samples before evaluation
+        interval: duration              # evaluation frequency (default 30s)
 ```
 
-**Validation:** Requires `traffic_split`. `canary_group` must exist in traffic splits. At least one step required. Step weights must be 0-100 and monotonically non-decreasing. `error_threshold` must be 0.0-1.0.
+**Validation:** Requires `traffic_split`. `canary_group` must exist in traffic splits. At least one step required. Step weights must be 0-100 and monotonically non-decreasing. `error_threshold` must be 0.0-1.0. `max_error_rate_increase`, `max_latency_increase`, and `max_failures` must be >= 0.
 
 See [Canary Deployments](canary-deployments.md) for full documentation.
 

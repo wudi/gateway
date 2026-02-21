@@ -489,3 +489,513 @@ func TestSnapshot(t *testing.T) {
 		t.Fatalf("expected original stable=90, got %d", snap.OriginalWeights["stable"])
 	}
 }
+
+func TestBaselineGroupDetermination(t *testing.T) {
+	// Single non-canary group
+	wb := makeBalancer(map[string]int{"stable": 90, "canary": 10})
+	cfg := defaultCanaryCfg()
+	ctrl := NewController("test", cfg, wb)
+	if ctrl.baselineGroup != "stable" {
+		t.Fatalf("expected baseline=stable, got %s", ctrl.baselineGroup)
+	}
+
+	// Multiple non-canary groups — pick highest weight
+	wb2 := makeBalancer(map[string]int{"stable": 60, "beta": 30, "canary": 10})
+	ctrl2 := NewController("test2", cfg, wb2)
+	if ctrl2.baselineGroup != "stable" {
+		t.Fatalf("expected baseline=stable, got %s", ctrl2.baselineGroup)
+	}
+
+	// Tied weights — pick alphabetically first
+	wb3 := makeBalancer(map[string]int{"bravo": 45, "alpha": 45, "canary": 10})
+	ctrl3 := NewController("test3", cfg, wb3)
+	if ctrl3.baselineGroup != "alpha" {
+		t.Fatalf("expected baseline=alpha (alphabetical tiebreak), got %s", ctrl3.baselineGroup)
+	}
+}
+
+func TestComparativeAnalysis_ErrorRateRollback(t *testing.T) {
+	wb := makeBalancer(map[string]int{"stable": 90, "canary": 10})
+	cfg := config.CanaryConfig{
+		Enabled:     true,
+		CanaryGroup: "canary",
+		Steps: []config.CanaryStepConfig{
+			{Weight: 50, Pause: time.Hour},
+		},
+		Analysis: config.CanaryAnalysisConfig{
+			MaxErrorRateIncrease: 1.5,
+			MinRequests:          5,
+			Interval:             10 * time.Millisecond,
+		},
+	}
+	ctrl := NewController("test", cfg, wb)
+	if err := ctrl.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Baseline: 2% error rate (2 errors / 100 requests)
+	for i := 0; i < 98; i++ {
+		ctrl.RecordRequest("stable", 200, time.Millisecond)
+	}
+	for i := 0; i < 2; i++ {
+		ctrl.RecordRequest("stable", 500, time.Millisecond)
+	}
+
+	// Canary: 5% error rate = 2.5x baseline → exceeds 1.5x threshold
+	for i := 0; i < 95; i++ {
+		ctrl.RecordRequest("canary", 200, time.Millisecond)
+	}
+	for i := 0; i < 5; i++ {
+		ctrl.RecordRequest("canary", 500, time.Millisecond)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if ctrl.State() != StateRolledBack {
+		t.Fatalf("expected rolled_back, got %s", ctrl.State())
+	}
+	ctrl.Stop()
+}
+
+func TestComparativeAnalysis_LatencyRollback(t *testing.T) {
+	wb := makeBalancer(map[string]int{"stable": 90, "canary": 10})
+	cfg := config.CanaryConfig{
+		Enabled:     true,
+		CanaryGroup: "canary",
+		Steps: []config.CanaryStepConfig{
+			{Weight: 50, Pause: time.Hour},
+		},
+		Analysis: config.CanaryAnalysisConfig{
+			MaxLatencyIncrease: 2.0,
+			MinRequests:        5,
+			Interval:           10 * time.Millisecond,
+		},
+	}
+	ctrl := NewController("test", cfg, wb)
+	if err := ctrl.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Baseline: ~100ms p99
+	for i := 0; i < 100; i++ {
+		ctrl.RecordRequest("stable", 200, 100*time.Millisecond)
+	}
+	// Canary: ~300ms p99 = 3x baseline → exceeds 2.0x threshold
+	for i := 0; i < 100; i++ {
+		ctrl.RecordRequest("canary", 200, 300*time.Millisecond)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if ctrl.State() != StateRolledBack {
+		t.Fatalf("expected rolled_back, got %s", ctrl.State())
+	}
+	ctrl.Stop()
+}
+
+func TestComparativeAnalysis_PassesWhenBelowRatio(t *testing.T) {
+	wb := makeBalancer(map[string]int{"stable": 90, "canary": 10})
+	cfg := config.CanaryConfig{
+		Enabled:     true,
+		CanaryGroup: "canary",
+		Steps: []config.CanaryStepConfig{
+			{Weight: 50, Pause: time.Hour},
+		},
+		Analysis: config.CanaryAnalysisConfig{
+			MaxErrorRateIncrease: 2.0,
+			MinRequests:          5,
+			Interval:             10 * time.Millisecond,
+		},
+	}
+	ctrl := NewController("test", cfg, wb)
+	if err := ctrl.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Baseline: 4% error rate
+	for i := 0; i < 96; i++ {
+		ctrl.RecordRequest("stable", 200, time.Millisecond)
+	}
+	for i := 0; i < 4; i++ {
+		ctrl.RecordRequest("stable", 500, time.Millisecond)
+	}
+
+	// Canary: 5% error rate = 1.25x baseline → below 2.0x threshold
+	for i := 0; i < 95; i++ {
+		ctrl.RecordRequest("canary", 200, time.Millisecond)
+	}
+	for i := 0; i < 5; i++ {
+		ctrl.RecordRequest("canary", 500, time.Millisecond)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if ctrl.State() != StateProgressing {
+		t.Fatalf("expected progressing (within ratio), got %s", ctrl.State())
+	}
+	ctrl.Stop()
+}
+
+func TestComparativeAnalysis_BaselineZeroErrors(t *testing.T) {
+	wb := makeBalancer(map[string]int{"stable": 90, "canary": 10})
+	cfg := config.CanaryConfig{
+		Enabled:     true,
+		CanaryGroup: "canary",
+		Steps: []config.CanaryStepConfig{
+			{Weight: 50, Pause: time.Hour},
+		},
+		Analysis: config.CanaryAnalysisConfig{
+			MaxErrorRateIncrease: 1.5,
+			MinRequests:          5,
+			Interval:             10 * time.Millisecond,
+		},
+	}
+	ctrl := NewController("test", cfg, wb)
+	if err := ctrl.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Baseline: 0 errors — comparative check should be skipped
+	for i := 0; i < 100; i++ {
+		ctrl.RecordRequest("stable", 200, time.Millisecond)
+	}
+	// Canary: some errors, but comparative is skipped when baseline is 0
+	for i := 0; i < 95; i++ {
+		ctrl.RecordRequest("canary", 200, time.Millisecond)
+	}
+	for i := 0; i < 5; i++ {
+		ctrl.RecordRequest("canary", 500, time.Millisecond)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	// Should still be progressing since no absolute threshold set and comparative skipped
+	if ctrl.State() != StateProgressing {
+		t.Fatalf("expected progressing (baseline zero errors, comparative skipped), got %s", ctrl.State())
+	}
+	ctrl.Stop()
+}
+
+func TestConsecutiveFailures_RollbackAfterN(t *testing.T) {
+	wb := makeBalancer(map[string]int{"stable": 90, "canary": 10})
+	cfg := config.CanaryConfig{
+		Enabled:     true,
+		CanaryGroup: "canary",
+		Steps: []config.CanaryStepConfig{
+			{Weight: 50, Pause: time.Hour},
+		},
+		Analysis: config.CanaryAnalysisConfig{
+			ErrorThreshold: 0.1,
+			MaxFailures:    3,
+			MinRequests:    5,
+			Interval:       50 * time.Millisecond,
+		},
+	}
+	ctrl := NewController("test", cfg, wb)
+	if err := ctrl.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Record high error rate for canary
+	for i := 0; i < 10; i++ {
+		ctrl.RecordRequest("canary", 500, time.Millisecond)
+	}
+
+	// After 1 eval (~50ms), failure count should be 1 but no rollback yet
+	time.Sleep(70 * time.Millisecond)
+	if ctrl.State() == StateRolledBack {
+		t.Fatal("should not rollback after 1 failure when max_failures=3")
+	}
+
+	// Wait for remaining evaluations to trigger rollback
+	time.Sleep(200 * time.Millisecond)
+	if ctrl.State() != StateRolledBack {
+		t.Fatalf("expected rolled_back after 3 consecutive failures, got %s", ctrl.State())
+	}
+	ctrl.Stop()
+}
+
+func TestConsecutiveFailures_ResetOnPassingEval(t *testing.T) {
+	wb := makeBalancer(map[string]int{"stable": 90, "canary": 10})
+	cfg := config.CanaryConfig{
+		Enabled:     true,
+		CanaryGroup: "canary",
+		Steps: []config.CanaryStepConfig{
+			{Weight: 50, Pause: time.Hour},
+		},
+		Analysis: config.CanaryAnalysisConfig{
+			ErrorThreshold: 0.5,
+			MaxFailures:    5, // high tolerance so we don't rollback during test
+			MinRequests:    5,
+			Interval:       50 * time.Millisecond,
+		},
+	}
+	ctrl := NewController("test", cfg, wb)
+	if err := ctrl.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Start with high error rate (100% errors)
+	for i := 0; i < 10; i++ {
+		ctrl.RecordRequest("canary", 500, time.Millisecond)
+	}
+
+	// Wait for 1-2 failing evaluations
+	time.Sleep(80 * time.Millisecond)
+	ctrl.mu.RLock()
+	fc := ctrl.failureCount
+	ctrl.mu.RUnlock()
+	if fc == 0 {
+		t.Fatal("expected non-zero failure count")
+	}
+
+	// Now flood with good requests to bring error rate well below threshold
+	for i := 0; i < 500; i++ {
+		ctrl.RecordRequest("canary", 200, time.Millisecond)
+	}
+
+	// Wait for a passing evaluation
+	time.Sleep(80 * time.Millisecond)
+	ctrl.mu.RLock()
+	fc = ctrl.failureCount
+	ctrl.mu.RUnlock()
+	if fc != 0 {
+		t.Fatalf("expected failure count reset to 0, got %d", fc)
+	}
+
+	if ctrl.State() != StateProgressing {
+		t.Fatalf("expected progressing, got %s", ctrl.State())
+	}
+	ctrl.Stop()
+}
+
+func TestConsecutiveFailures_Default(t *testing.T) {
+	// max_failures=0 → immediate rollback (backward compat)
+	wb := makeBalancer(map[string]int{"stable": 90, "canary": 10})
+	cfg := config.CanaryConfig{
+		Enabled:     true,
+		CanaryGroup: "canary",
+		Steps: []config.CanaryStepConfig{
+			{Weight: 50, Pause: time.Hour},
+		},
+		Analysis: config.CanaryAnalysisConfig{
+			ErrorThreshold: 0.1,
+			MaxFailures:    0, // default — immediate rollback
+			MinRequests:    5,
+			Interval:       10 * time.Millisecond,
+		},
+	}
+	ctrl := NewController("test", cfg, wb)
+	if err := ctrl.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 10; i++ {
+		ctrl.RecordRequest("canary", 500, time.Millisecond)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if ctrl.State() != StateRolledBack {
+		t.Fatalf("expected immediate rollback with max_failures=0, got %s", ctrl.State())
+	}
+	ctrl.Stop()
+}
+
+func TestConsecutiveFailures_ResetOnStepAdvance(t *testing.T) {
+	wb := makeBalancer(map[string]int{"stable": 90, "canary": 10})
+	cfg := config.CanaryConfig{
+		Enabled:     true,
+		CanaryGroup: "canary",
+		Steps: []config.CanaryStepConfig{
+			{Weight: 20, Pause: 30 * time.Millisecond},
+			{Weight: 50, Pause: time.Hour},
+		},
+		Analysis: config.CanaryAnalysisConfig{
+			ErrorThreshold: 0.5,
+			MaxFailures:    5, // high tolerance
+			MinRequests:    3,
+			Interval:       10 * time.Millisecond,
+		},
+	}
+	ctrl := NewController("test", cfg, wb)
+	if err := ctrl.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Feed healthy requests to advance through step 0
+	go func() {
+		for i := 0; i < 200; i++ {
+			ctrl.RecordRequest("canary", 200, time.Millisecond)
+			ctrl.RecordRequest("stable", 200, time.Millisecond)
+			time.Sleep(2 * time.Millisecond)
+		}
+	}()
+
+	// Wait for step advance
+	deadline := time.After(2 * time.Second)
+	for {
+		ctrl.mu.RLock()
+		step := ctrl.currentStep
+		ctrl.mu.RUnlock()
+		if step == 1 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for step advance")
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	// After step advance, failure count should be 0
+	ctrl.mu.RLock()
+	fc := ctrl.failureCount
+	ctrl.mu.RUnlock()
+	if fc != 0 {
+		t.Fatalf("expected failure count reset after step advance, got %d", fc)
+	}
+	ctrl.Stop()
+}
+
+func TestAutoStart(t *testing.T) {
+	wb := makeBalancer(map[string]int{"stable": 90, "canary": 10})
+	cfg := config.CanaryConfig{
+		Enabled:     true,
+		CanaryGroup: "canary",
+		AutoStart:   true,
+		Steps: []config.CanaryStepConfig{
+			{Weight: 20, Pause: 30 * time.Millisecond},
+			{Weight: 100},
+		},
+		Analysis: config.CanaryAnalysisConfig{
+			ErrorThreshold: 0.5,
+			MinRequests:    3,
+			Interval:       10 * time.Millisecond,
+		},
+	}
+
+	m := NewCanaryByRoute()
+	if err := m.AddRoute("auto-route", cfg, wb); err != nil {
+		t.Fatal(err)
+	}
+
+	ctrl := m.GetController("auto-route")
+
+	// Simulate auto-start (as gateway.go does after AddRoute)
+	if cfg.AutoStart {
+		if err := ctrl.Start(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if ctrl.State() != StateProgressing {
+		t.Fatalf("expected progressing after auto-start, got %s", ctrl.State())
+	}
+
+	// Feed healthy requests to complete
+	go func() {
+		for i := 0; i < 200; i++ {
+			ctrl.RecordRequest("canary", 200, time.Millisecond)
+			time.Sleep(2 * time.Millisecond)
+		}
+	}()
+
+	deadline := time.After(2 * time.Second)
+	for {
+		if ctrl.State() == StateCompleted {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for completion, state=%s", ctrl.State())
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	ctrl.Stop()
+}
+
+func TestSnapshot_NewFields(t *testing.T) {
+	wb := makeBalancer(map[string]int{"stable": 90, "canary": 10})
+	cfg := config.CanaryConfig{
+		Enabled:     true,
+		CanaryGroup: "canary",
+		Steps:       []config.CanaryStepConfig{{Weight: 50}},
+		Analysis: config.CanaryAnalysisConfig{
+			MaxFailures: 3,
+			Interval:    time.Hour,
+		},
+	}
+	ctrl := NewController("test", cfg, wb)
+
+	snap := ctrl.Snapshot()
+	if snap.BaselineGroup != "stable" {
+		t.Fatalf("expected baseline_group=stable, got %s", snap.BaselineGroup)
+	}
+	if snap.ConsecutiveFailures != 0 {
+		t.Fatalf("expected consecutive_failures=0, got %d", snap.ConsecutiveFailures)
+	}
+	if snap.MaxFailures != 3 {
+		t.Fatalf("expected max_failures=3, got %d", snap.MaxFailures)
+	}
+}
+
+func TestRollbackEvent_ConsecutiveFailures(t *testing.T) {
+	wb := makeBalancer(map[string]int{"stable": 90, "canary": 10})
+	cfg := config.CanaryConfig{
+		Enabled:     true,
+		CanaryGroup: "canary",
+		Steps: []config.CanaryStepConfig{
+			{Weight: 50, Pause: time.Hour},
+		},
+		Analysis: config.CanaryAnalysisConfig{
+			ErrorThreshold: 0.1,
+			MaxFailures:    2,
+			MinRequests:    5,
+			Interval:       10 * time.Millisecond,
+		},
+	}
+
+	var eventData map[string]interface{}
+	var eventMu sync.Mutex
+
+	m := NewCanaryByRoute()
+	m.SetOnEvent(func(routeID, eventType string, data map[string]interface{}) {
+		if eventType == "canary.rolled_back" {
+			eventMu.Lock()
+			eventData = data
+			eventMu.Unlock()
+		}
+	})
+	if err := m.AddRoute("ev-route", cfg, wb); err != nil {
+		t.Fatal(err)
+	}
+
+	ctrl := m.GetController("ev-route")
+	if err := ctrl.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Record high error rate
+	for i := 0; i < 10; i++ {
+		ctrl.RecordRequest("canary", 500, time.Millisecond)
+	}
+
+	// Wait for rollback (2 consecutive failures)
+	time.Sleep(200 * time.Millisecond)
+	if ctrl.State() != StateRolledBack {
+		t.Fatalf("expected rolled_back, got %s", ctrl.State())
+	}
+
+	eventMu.Lock()
+	defer eventMu.Unlock()
+	if eventData == nil {
+		t.Fatal("expected rollback event data")
+	}
+	fc, ok := eventData["consecutive_failures"]
+	if !ok {
+		t.Fatal("expected consecutive_failures in event data")
+	}
+	if fc.(int) != 2 {
+		t.Fatalf("expected consecutive_failures=2 in event, got %v", fc)
+	}
+	ctrl.Stop()
+}

@@ -1533,6 +1533,13 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 			if err := g.canaryControllers.AddRoute(routeCfg.ID, routeCfg.Canary, wb); err != nil {
 				return fmt.Errorf("canary: route %s: %w", routeCfg.ID, err)
 			}
+			if routeCfg.Canary.AutoStart {
+				if ctrl := g.canaryControllers.GetController(routeCfg.ID); ctrl != nil {
+					if err := ctrl.Start(); err != nil {
+						return fmt.Errorf("canary auto-start: route %s: %w", routeCfg.ID, err)
+					}
+				}
+			}
 		}
 	}
 

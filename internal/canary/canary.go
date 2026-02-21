@@ -50,6 +50,8 @@ type Controller struct {
 	done            chan struct{}
 	mu              sync.RWMutex
 	onEvent         func(routeID, eventType string, data map[string]interface{})
+	baselineGroup   string // highest-weight non-canary group
+	failureCount    int    // consecutive failing evaluations
 }
 
 // NewController creates a new canary controller.
@@ -63,6 +65,19 @@ func NewController(routeID string, cfg config.CanaryConfig, wb *loadbalancer.Wei
 		gm[name] = NewGroupMetrics()
 	}
 
+	// Determine baseline group: highest-weight non-canary group, ties broken alphabetically
+	var baselineGroup string
+	bestWeight := -1
+	for name, w := range origWeights {
+		if name == cfg.CanaryGroup {
+			continue
+		}
+		if w > bestWeight || (w == bestWeight && name < baselineGroup) {
+			baselineGroup = name
+			bestWeight = w
+		}
+	}
+
 	return &Controller{
 		routeID:         routeID,
 		cfg:             cfg,
@@ -72,6 +87,7 @@ func NewController(routeID string, cfg config.CanaryConfig, wb *loadbalancer.Wei
 		metrics:         gm,
 		actionCh:        make(chan action, 1),
 		done:            make(chan struct{}),
+		baselineGroup:   baselineGroup,
 	}
 }
 
@@ -196,27 +212,33 @@ func (c *Controller) Snapshot() CanarySnapshot {
 	}
 
 	return CanarySnapshot{
-		RouteID:         c.routeID,
-		State:           string(c.state),
-		CurrentStep:     c.currentStep,
-		TotalSteps:      len(c.cfg.Steps),
-		CanaryGroup:     c.cfg.CanaryGroup,
-		CurrentWeights:  c.balancer.GetGroupWeights(),
-		OriginalWeights: c.originalWeights,
-		Groups:          groupSnapshots,
+		RouteID:             c.routeID,
+		State:               string(c.state),
+		CurrentStep:         c.currentStep,
+		TotalSteps:          len(c.cfg.Steps),
+		CanaryGroup:         c.cfg.CanaryGroup,
+		BaselineGroup:       c.baselineGroup,
+		ConsecutiveFailures: c.failureCount,
+		MaxFailures:         c.cfg.Analysis.MaxFailures,
+		CurrentWeights:      c.balancer.GetGroupWeights(),
+		OriginalWeights:     c.originalWeights,
+		Groups:              groupSnapshots,
 	}
 }
 
 // CanarySnapshot is a JSON-serializable view of a canary deployment.
 type CanarySnapshot struct {
-	RouteID         string                   `json:"route_id"`
-	State           string                   `json:"state"`
-	CurrentStep     int                      `json:"current_step"`
-	TotalSteps      int                      `json:"total_steps"`
-	CanaryGroup     string                   `json:"canary_group"`
-	CurrentWeights  map[string]int           `json:"current_weights"`
-	OriginalWeights map[string]int           `json:"original_weights"`
-	Groups          map[string]GroupSnapshot `json:"groups"`
+	RouteID             string                   `json:"route_id"`
+	State               string                   `json:"state"`
+	CurrentStep         int                      `json:"current_step"`
+	TotalSteps          int                      `json:"total_steps"`
+	CanaryGroup         string                   `json:"canary_group"`
+	BaselineGroup       string                   `json:"baseline_group"`
+	ConsecutiveFailures int                      `json:"consecutive_failures"`
+	MaxFailures         int                      `json:"max_failures"`
+	CurrentWeights      map[string]int           `json:"current_weights"`
+	OriginalWeights     map[string]int           `json:"original_weights"`
+	Groups              map[string]GroupSnapshot `json:"groups"`
 }
 
 // run is the background goroutine that manages the canary lifecycle.
@@ -290,19 +312,77 @@ func (c *Controller) run(ctx context.Context) {
 				continue
 			}
 
-			// Check error rate
-			if c.cfg.Analysis.ErrorThreshold > 0 && canaryMetrics.ErrorRate() > c.cfg.Analysis.ErrorThreshold {
-				c.doRollback(fmt.Sprintf("error rate %.2f exceeds threshold %.2f",
-					canaryMetrics.ErrorRate(), c.cfg.Analysis.ErrorThreshold))
-				return
+			// Determine max consecutive failures before rollback (0 means immediate)
+			maxFailures := c.cfg.Analysis.MaxFailures
+			if maxFailures <= 0 {
+				maxFailures = 1
 			}
 
-			// Check p99 latency
-			if c.cfg.Analysis.LatencyThreshold > 0 && canaryMetrics.P99() > c.cfg.Analysis.LatencyThreshold {
-				c.doRollback(fmt.Sprintf("p99 latency %v exceeds threshold %v",
-					canaryMetrics.P99(), c.cfg.Analysis.LatencyThreshold))
-				return
+			failed := false
+			var failReason string
+
+			// 1. Absolute threshold checks
+			if c.cfg.Analysis.ErrorThreshold > 0 && canaryMetrics.ErrorRate() > c.cfg.Analysis.ErrorThreshold {
+				failed = true
+				failReason = fmt.Sprintf("error rate %.4f exceeds threshold %.4f",
+					canaryMetrics.ErrorRate(), c.cfg.Analysis.ErrorThreshold)
 			}
+			if !failed && c.cfg.Analysis.LatencyThreshold > 0 && canaryMetrics.P99() > c.cfg.Analysis.LatencyThreshold {
+				failed = true
+				failReason = fmt.Sprintf("p99 latency %v exceeds threshold %v",
+					canaryMetrics.P99(), c.cfg.Analysis.LatencyThreshold)
+			}
+
+			// 2. Comparative checks (canary vs baseline)
+			if !failed && c.baselineGroup != "" {
+				if baselineMetrics, bOK := c.metrics[c.baselineGroup]; bOK {
+					// Error rate comparison
+					if c.cfg.Analysis.MaxErrorRateIncrease > 0 {
+						baselineErr := baselineMetrics.ErrorRate()
+						canaryErr := canaryMetrics.ErrorRate()
+						if baselineErr > 0 && canaryErr/baselineErr > c.cfg.Analysis.MaxErrorRateIncrease {
+							failed = true
+							failReason = fmt.Sprintf("canary error rate %.4f is %.2fx baseline %.4f (threshold %.2fx)",
+								canaryErr, canaryErr/baselineErr, baselineErr, c.cfg.Analysis.MaxErrorRateIncrease)
+						}
+					}
+					// Latency comparison
+					if !failed && c.cfg.Analysis.MaxLatencyIncrease > 0 {
+						baselineP99 := baselineMetrics.P99()
+						canaryP99 := canaryMetrics.P99()
+						if baselineP99 > 0 && float64(canaryP99)/float64(baselineP99) > c.cfg.Analysis.MaxLatencyIncrease {
+							failed = true
+							failReason = fmt.Sprintf("canary p99 %v is %.2fx baseline %v (threshold %.2fx)",
+								canaryP99, float64(canaryP99)/float64(baselineP99), baselineP99, c.cfg.Analysis.MaxLatencyIncrease)
+						}
+					}
+				}
+			}
+
+			// 3. Handle failure / success
+			if failed {
+				c.mu.Lock()
+				c.failureCount++
+				fc := c.failureCount
+				c.mu.Unlock()
+
+				if fc >= maxFailures {
+					c.doRollback(failReason)
+					return
+				}
+				logging.Warn("Canary evaluation failed (within tolerance)",
+					zap.String("route", c.routeID),
+					zap.String("reason", failReason),
+					zap.Int("consecutive_failures", fc),
+					zap.Int("max_failures", maxFailures),
+				)
+				continue
+			}
+
+			// Passed — reset failure counter
+			c.mu.Lock()
+			c.failureCount = 0
+			c.mu.Unlock()
 
 			// Check if step pause has elapsed
 			c.mu.RLock()
@@ -333,10 +413,14 @@ func (c *Controller) run(ctx context.Context) {
 			c.mu.Lock()
 			c.currentStep = nextStep
 			c.stepStartedAt = time.Now()
+			c.failureCount = 0
 			c.mu.Unlock()
 
 			// Reset metrics for fresh evaluation at new weight
 			canaryMetrics.Reset()
+			if baselineMetrics, bOK := c.metrics[c.baselineGroup]; bOK {
+				baselineMetrics.Reset()
+			}
 
 			c.adjustWeights(c.cfg.Steps[nextStep].Weight)
 			logging.Info("Canary advanced to next step",
@@ -356,13 +440,16 @@ func (c *Controller) doRollback(reason string) {
 	c.balancer.SetGroupWeights(c.originalWeights)
 	c.mu.Lock()
 	c.state = StateRolledBack
+	fc := c.failureCount
 	c.mu.Unlock()
 	logging.Warn("Canary rolled back",
 		zap.String("route", c.routeID),
 		zap.String("reason", reason),
+		zap.Int("consecutive_failures", fc),
 	)
 	c.emitEvent("canary.rolled_back", map[string]interface{}{
-		"reason": reason,
+		"reason":               reason,
+		"consecutive_failures": fc,
 	})
 }
 

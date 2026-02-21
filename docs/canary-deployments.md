@@ -7,7 +7,7 @@ Canary deployments progressively shift traffic from stable backends to a new (ca
 1. Define traffic split groups with a `canary` group at a low initial weight
 2. Configure canary steps — each step increases the canary weight and holds for a pause duration
 3. The canary controller evaluates health at a configurable interval
-4. If error rate or p99 latency exceeds thresholds, traffic is immediately rolled back to original weights
+4. If error rate or p99 latency exceeds thresholds (absolute or comparative), the deployment is rolled back
 5. If all steps complete successfully, the canary is marked as completed
 
 Weight changes are applied to the existing `WeightedBalancer` instance — sticky sessions and health state are preserved.
@@ -31,6 +31,7 @@ routes:
     canary:
       enabled: true
       canary_group: canary
+      auto_start: true
       steps:
         - weight: 5
           pause: 5m
@@ -40,10 +41,13 @@ routes:
           pause: 15m
         - weight: 100
       analysis:
-        error_threshold: 0.05     # rollback if > 5% errors
-        latency_threshold: 500ms  # rollback if p99 > 500ms
-        min_requests: 100         # skip evaluation below this count
-        interval: 30s             # evaluation frequency
+        error_threshold: 0.05           # rollback if > 5% errors (absolute)
+        latency_threshold: 500ms        # rollback if p99 > 500ms (absolute)
+        max_error_rate_increase: 1.5    # rollback if canary errors > 1.5x baseline
+        max_latency_increase: 2.0       # rollback if canary p99 > 2x baseline
+        max_failures: 3                 # tolerate up to 2 consecutive bad evals
+        min_requests: 100               # skip evaluation below this count
+        interval: 30s                   # evaluation frequency
 ```
 
 ### Config Fields
@@ -52,10 +56,14 @@ routes:
 |-------|------|-------------|
 | `canary.enabled` | bool | Enable canary deployment for this route |
 | `canary.canary_group` | string | Name of the canary traffic split group |
+| `canary.auto_start` | bool | Start progression automatically on route load (default false) |
 | `canary.steps[].weight` | int | Target weight (0-100) for this step |
 | `canary.steps[].pause` | duration | Hold duration before advancing to next step |
 | `canary.analysis.error_threshold` | float | Max error rate (0.0-1.0) before rollback |
 | `canary.analysis.latency_threshold` | duration | Max p99 latency before rollback |
+| `canary.analysis.max_error_rate_increase` | float | Max canary/baseline error rate ratio (0 = disabled) |
+| `canary.analysis.max_latency_increase` | float | Max canary/baseline p99 latency ratio (0 = disabled) |
+| `canary.analysis.max_failures` | int | Consecutive failing evaluations before rollback (0 = immediate) |
 | `canary.analysis.min_requests` | int | Minimum requests before evaluation begins |
 | `canary.analysis.interval` | duration | How often to evaluate health |
 
@@ -67,22 +75,54 @@ routes:
 - Step weights must be 0-100 and monotonically non-decreasing
 - `error_threshold` must be 0.0-1.0
 - `interval` must be >= 0
+- `max_error_rate_increase` must be >= 0
+- `max_latency_increase` must be >= 0
+- `max_failures` must be >= 0
+
+## Auto-Start
+
+When `auto_start: true` is set, the canary controller transitions from `pending` to `progressing` automatically when the route is loaded (or reloaded). This enables fully automated progressive delivery — no manual `POST /canary/{route}/start` is required.
+
+Without `auto_start`, the deployment remains in `pending` state until started via the admin API.
+
+## Comparative Analysis
+
+Comparative analysis evaluates canary health relative to a baseline group rather than using absolute thresholds alone. This catches relative degradation that absolute thresholds might miss — for example, a canary error rate of 5% is acceptable if the baseline is also at 4.5%, but alarming if the baseline is at 0.1%.
+
+**Baseline group selection:** The highest-weight non-canary traffic split group is automatically selected as the baseline. Ties are broken alphabetically for determinism.
+
+**How it works:**
+- `max_error_rate_increase: 1.5` — rollback if `canary_error_rate / baseline_error_rate > 1.5`
+- `max_latency_increase: 2.0` — rollback if `canary_p99 / baseline_p99 > 2.0`
+- If the baseline has zero errors or zero latency, the comparative check is skipped (division by zero guard)
+- Comparative checks run after absolute threshold checks — a request can fail either check
+
+Comparative and absolute thresholds can be used together. Set either to `0` to disable it.
+
+## Consecutive Failure Tolerance
+
+By default (`max_failures: 0`), a single failing evaluation triggers an immediate rollback. This can cause flapping during transient spikes. Setting `max_failures` to a value greater than 1 requires that many consecutive failing evaluations before rolling back.
+
+- `max_failures: 3` — tolerate up to 2 consecutive bad evaluations; rollback on the 3rd
+- The failure counter resets to 0 on any passing evaluation
+- The failure counter resets to 0 when advancing to a new step
+- The current failure count is visible in the `/canary` admin endpoint snapshot
 
 ## State Machine
 
 ```
-          Start()
-pending ──────────> progressing
-                     |    ^
-              Pause()|    |Resume()
-                     v    |
-                    paused
+          Start() or auto_start
+pending ──────────────────────> progressing
+                                 |    ^
+                          Pause()|    |Resume()
+                                 v    |
+                                paused
 
 progressing ──(healthy + all steps done)──> completed
-progressing ──(unhealthy)──────────────────> rolled_back
-progressing ──Promote()────────────────────> completed (100%)
-progressing ──Rollback()───────────────────> rolled_back
-paused ──────Rollback()────────────────────> rolled_back
+progressing ──(N consecutive failures)────> rolled_back
+progressing ──Promote()───────────────────> completed (100%)
+progressing ──Rollback()──────────────────> rolled_back
+paused ──────Rollback()───────────────────> rolled_back
 ```
 
 ## Weight Redistribution
@@ -103,7 +143,7 @@ The last non-canary group absorbs any rounding remainder to ensure weights alway
 curl http://localhost:8081/canary
 ```
 
-Returns per-route canary status including current state, step, weights, and group metrics.
+Returns per-route canary status including current state, step, weights, group metrics, baseline group, consecutive failure count, and max failures.
 
 ### Control a Canary Deployment
 
@@ -137,7 +177,7 @@ The canary controller records per-group metrics:
 
 These metrics are visible in the `/canary` admin endpoint and included in `/dashboard`.
 
-Metrics are reset when advancing to the next step, so each step is evaluated on fresh data.
+Metrics are reset for both canary and baseline groups when advancing to the next step, so each step is evaluated on fresh data.
 
 See [Traffic Management](traffic-management.md) for traffic splitting and sticky sessions.
 See [Configuration Reference](configuration-reference.md#canary-deployments) for all fields.
