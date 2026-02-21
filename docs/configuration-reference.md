@@ -46,7 +46,7 @@ listeners:
 
 ```yaml
 registry:
-  type: string     # required: "consul", "etcd", "kubernetes", or "memory"
+  type: string     # required: "consul", "etcd", "kubernetes", "memory", or "dns"
   consul:
     address: string      # default "localhost:8500"
     scheme: string       # "http" or "https"
@@ -70,6 +70,11 @@ registry:
   memory:
     api_enabled: bool    # enable REST API for registration
     api_port: int        # default 8082
+  dns:
+    domain: string          # required: base domain (e.g., "service.consul")
+    protocol: string        # default "tcp"
+    nameserver: string      # optional custom DNS server "host:port"
+    poll_interval: duration # default 30s
 ```
 
 ---

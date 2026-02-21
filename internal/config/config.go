@@ -148,11 +148,21 @@ func (m *TCPMatchConfig) ParsedSourceCIDRs() ([]*net.IPNet, error) {
 
 // RegistryConfig defines service registry settings
 type RegistryConfig struct {
-	Type       string           `yaml:"type"` // consul, etcd, kubernetes, memory
+	Type       string           `yaml:"type"` // consul, etcd, kubernetes, memory, dns
 	Consul     ConsulConfig     `yaml:"consul"`
 	Etcd       EtcdConfig       `yaml:"etcd"`
 	Kubernetes KubernetesConfig `yaml:"kubernetes"`
 	Memory     MemoryConfig     `yaml:"memory"`
+	DNSSRV     DNSSRVConfig     `yaml:"dns"`
+}
+
+// DNSSRVConfig defines DNS SRV service discovery settings.
+// Not to be confused with DNSResolverConfig which handles custom DNS for backend connections.
+type DNSSRVConfig struct {
+	Domain       string        `yaml:"domain"`        // required: e.g. "service.consul", "svc.cluster.local"
+	Protocol     string        `yaml:"protocol"`      // default "tcp"
+	Nameserver   string        `yaml:"nameserver"`    // optional custom DNS server "host:port"
+	PollInterval time.Duration `yaml:"poll_interval"` // default 30s
 }
 
 // ConsulConfig defines Consul-specific settings
@@ -1855,6 +1865,10 @@ func DefaultConfig() *Config {
 			Memory: MemoryConfig{
 				APIEnabled: true,
 				APIPort:    8082,
+			},
+			DNSSRV: DNSSRVConfig{
+				Protocol:     "tcp",
+				PollInterval: 30 * time.Second,
 			},
 		},
 		Authentication: AuthenticationConfig{

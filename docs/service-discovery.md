@@ -85,6 +85,32 @@ registry:
     # kube_config: "/home/user/.kube/config"
 ```
 
+### DNS SRV
+
+Discover backends via DNS SRV records (RFC 2782). Works with any DNS-based service discovery system — Consul DNS interface, Kubernetes CoreDNS, AWS Cloud Map, HashiCorp Nomad, or any compliant DNS server. No external client library required.
+
+```yaml
+registry:
+  type: "dns"
+  dns:
+    domain: "service.consul"       # required: base domain for SRV queries
+    protocol: "tcp"                # default "tcp"
+    nameserver: "10.0.0.53:8600"   # optional: custom DNS server
+    poll_interval: 30s             # default 30s
+```
+
+The provider queries `_<service>._<protocol>.<domain>` SRV records and resolves each target hostname to an IP address. SRV priority and weight are stored in service metadata (`srv_priority`, `srv_weight`, `srv_target`). Results are sorted by priority ascending (lower = preferred per RFC 2782), then weight descending.
+
+DNS SRV is a read-only registry — `Register` and `Deregister` are no-ops. Health is always reported as `passing` since the gateway's own health checker probes backends separately. Tags are not supported (DNS SRV has no tag concept); `DiscoverWithTags` returns all instances.
+
+Common domain patterns:
+
+| System | Domain | Example SRV query |
+|--------|--------|-------------------|
+| Consul DNS | `service.consul` | `_web._tcp.service.consul` |
+| Kubernetes CoreDNS | `svc.cluster.local` | `_http._tcp.web.default.svc.cluster.local` |
+| AWS Cloud Map | `<namespace>` | `_api._tcp.production.local` |
+
 ## Using Service Discovery in Routes
 
 Reference a service name instead of (or alongside) static backends:
@@ -105,7 +131,7 @@ The gateway watches the registry for changes and updates the backend list withou
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `registry.type` | string | `consul`, `etcd`, `kubernetes`, or `memory` |
+| `registry.type` | string | `consul`, `etcd`, `kubernetes`, `memory`, or `dns` |
 | `service.name` | string | Service name to look up in the registry |
 | `service.tags` | []string | Filter service instances by tags |
 

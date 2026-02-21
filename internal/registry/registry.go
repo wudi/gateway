@@ -60,6 +60,7 @@ const (
 	TypeEtcd       RegistryType = "etcd"
 	TypeKubernetes RegistryType = "kubernetes"
 	TypeMemory     RegistryType = "memory"
+	TypeDNS        RegistryType = "dns"
 )
 
 // ErrServiceNotFound is returned when a service is not found

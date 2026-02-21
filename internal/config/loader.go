@@ -84,9 +84,12 @@ func (l *Loader) validate(cfg *Config) error {
 	if len(cfg.Listeners) == 0 {
 		return fmt.Errorf("at least one listener is required")
 	}
-	validTypes := map[string]bool{"consul": true, "etcd": true, "kubernetes": true, "memory": true}
+	validTypes := map[string]bool{"consul": true, "etcd": true, "kubernetes": true, "memory": true, "dns": true}
 	if cfg.Registry.Type != "" && !validTypes[cfg.Registry.Type] {
 		return fmt.Errorf("invalid registry type: %s", cfg.Registry.Type)
+	}
+	if cfg.Registry.Type == "dns" && cfg.Registry.DNSSRV.Domain == "" {
+		return fmt.Errorf("registry.dns.domain is required when registry type is 'dns'")
 	}
 	listenerIDs := make(map[string]bool)
 	for i, listener := range cfg.Listeners {

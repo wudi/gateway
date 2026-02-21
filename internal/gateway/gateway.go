@@ -104,6 +104,7 @@ import (
 	"github.com/wudi/gateway/internal/proxy/sequential"
 	"github.com/wudi/gateway/internal/registry"
 	"github.com/wudi/gateway/internal/registry/consul"
+	dnsregistry "github.com/wudi/gateway/internal/registry/dns"
 	"github.com/wudi/gateway/internal/registry/etcd"
 	"github.com/wudi/gateway/internal/registry/memory"
 	"github.com/wudi/gateway/internal/retry"
@@ -1159,6 +1160,8 @@ func (g *Gateway) initRegistry() error {
 		} else {
 			g.registry = memory.New()
 		}
+	case "dns":
+		g.registry, err = dnsregistry.New(g.config.Registry.DNSSRV)
 	default:
 		g.registry = memory.New()
 	}
