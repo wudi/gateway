@@ -708,8 +708,13 @@ type MirrorConditionsConfig struct {
 
 // MirrorCompareConfig defines response comparison settings for mirrored traffic.
 type MirrorCompareConfig struct {
-	Enabled       bool `yaml:"enabled"`
-	LogMismatches bool `yaml:"log_mismatches"`
+	Enabled          bool     `yaml:"enabled"`
+	LogMismatches    bool     `yaml:"log_mismatches"`
+	DetailedDiff     bool     `yaml:"detailed_diff"`
+	MaxBodyCapture   int64    `yaml:"max_body_capture"`
+	MaxMismatches    int      `yaml:"max_mismatches"`
+	IgnoreHeaders    []string `yaml:"ignore_headers"`
+	IgnoreJSONFields []string `yaml:"ignore_json_fields"`
 }
 
 // GRPCConfig defines gRPC proxying settings (Feature 12)

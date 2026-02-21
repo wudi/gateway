@@ -659,6 +659,11 @@ Note: The `database` field is only valid at the global level. Per-route geo conf
       compare:
         enabled: bool
         log_mismatches: bool
+        detailed_diff: bool          # enable field-level diff (requires enabled)
+        max_body_capture: int        # max bytes to buffer for diff, default 1MiB
+        max_mismatches: int          # ring buffer capacity, default 100
+        ignore_headers: [string]     # headers to exclude from comparison
+        ignore_json_fields: [string] # gjson paths to ignore in JSON body diff
 ```
 
 ### Rules (per-route)

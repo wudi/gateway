@@ -462,6 +462,7 @@ func (s *Server) adminHandler() http.Handler {
 	mux.HandleFunc("/drain", s.handleDrain)
 	mux.HandleFunc("/transport", s.handleTransport)
 	mux.HandleFunc("/upstreams", s.handleUpstreams)
+	mux.HandleFunc("/mirrors/", s.handleMirrorsAction)
 	mux.HandleFunc("/canary/", s.handleCanaryAction)
 	mux.HandleFunc("/blue-green/", s.handleBlueGreenAction)
 	mux.HandleFunc("/https-redirect", s.handleHTTPSRedirect)
@@ -993,6 +994,39 @@ func (s *Server) handleMaintenanceAction(w http.ResponseWriter, r *http.Request)
 	}
 }
 
+
+// handleMirrorsAction handles mirror mismatch inspection and clearing.
+// GET /mirrors/{routeID}/mismatches — return mismatch snapshot
+// DELETE /mirrors/{routeID}/mismatches — clear mismatch store
+func (s *Server) handleMirrorsAction(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/mirrors/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) != 2 || parts[1] != "mismatches" {
+		http.Error(w, `{"error":"expected /mirrors/{route}/mismatches"}`, http.StatusBadRequest)
+		return
+	}
+	routeID := parts[0]
+
+	w.Header().Set("Content-Type", "application/json")
+
+	switch r.Method {
+	case http.MethodGet:
+		snap := s.gateway.GetMirrors().GetMismatchSnapshot(routeID)
+		if snap == nil {
+			http.Error(w, `{"error":"route not found or detailed_diff not enabled"}`, http.StatusNotFound)
+			return
+		}
+		json.NewEncoder(w).Encode(snap)
+	case http.MethodDelete:
+		if ok := s.gateway.GetMirrors().ClearMismatches(routeID); !ok {
+			http.Error(w, `{"error":"route not found or detailed_diff not enabled"}`, http.StatusNotFound)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "cleared"})
+	default:
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+	}
+}
 
 // handleHTTPSRedirect handles HTTPS redirect stats requests.
 func (s *Server) handleHTTPSRedirect(w http.ResponseWriter, r *http.Request) {

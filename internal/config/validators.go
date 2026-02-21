@@ -590,6 +590,20 @@ func (l *Loader) validateMirrorAndCORS(route RouteConfig, _ *Config) error {
 			return fmt.Errorf("route %s: mirror percentage must be between 0 and 100", routeID)
 		}
 	}
+	if route.Mirror.Compare.DetailedDiff && !route.Mirror.Compare.Enabled {
+		return fmt.Errorf("route %s: mirror compare.detailed_diff requires compare.enabled", routeID)
+	}
+	if route.Mirror.Compare.MaxBodyCapture < 0 {
+		return fmt.Errorf("route %s: mirror compare.max_body_capture must be >= 0", routeID)
+	}
+	if route.Mirror.Compare.MaxMismatches < 0 {
+		return fmt.Errorf("route %s: mirror compare.max_mismatches must be >= 0", routeID)
+	}
+	for i, field := range route.Mirror.Compare.IgnoreJSONFields {
+		if field == "" {
+			return fmt.Errorf("route %s: mirror compare.ignore_json_fields[%d] must be non-empty", routeID, i)
+		}
+	}
 
 	// CORS regex
 	for _, pattern := range route.CORS.AllowOriginPatterns {

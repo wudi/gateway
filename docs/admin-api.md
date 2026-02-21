@@ -98,6 +98,8 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /traffic-shaping` | Throttle, bandwidth, priority, fault injection, and adaptive concurrency stats |
 | `GET /adaptive-concurrency` | Adaptive concurrency limiter stats (limit, in-flight, EWMA, rejections) |
 | `GET /mirrors` | Mirror metrics (counts, latencies, comparisons) |
+| `GET /mirrors/{route}/mismatches` | Detailed mismatch entries for a route (requires `detailed_diff`) |
+| `DELETE /mirrors/{route}/mismatches` | Clear stored mismatches for a route |
 | `GET /traffic-splits` | Traffic split distribution per route |
 | `GET /rate-limits` | Rate limiter mode and algorithm per route |
 | `GET /tracing` | Tracing/OTEL status |
