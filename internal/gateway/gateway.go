@@ -85,6 +85,7 @@ import (
 	"github.com/wudi/gateway/internal/proxy/protocol"
 	_ "github.com/wudi/gateway/internal/proxy/protocol/graphql"
 	_ "github.com/wudi/gateway/internal/proxy/protocol/soap"
+	"github.com/wudi/gateway/internal/abtest"
 	"github.com/wudi/gateway/internal/bluegreen"
 	"github.com/wudi/gateway/internal/middleware/contentneg"
 	"github.com/wudi/gateway/internal/middleware/errorhandling"
@@ -96,6 +97,7 @@ import (
 	wasmPlugin "github.com/wudi/gateway/internal/middleware/wasm"
 	"github.com/wudi/gateway/internal/middleware/modifiers"
 	"github.com/wudi/gateway/internal/middleware/paramforward"
+	"github.com/wudi/gateway/internal/middleware/requestqueue"
 	"github.com/wudi/gateway/internal/middleware/piiredact"
 	"github.com/wudi/gateway/internal/middleware/respbodygen"
 	"github.com/wudi/gateway/internal/proxy/aggregate"
@@ -217,6 +219,8 @@ type Gateway struct {
 	piiRedactors         *piiredact.PIIRedactByRoute
 	fieldEncryptors      *fieldencrypt.FieldEncryptByRoute
 	blueGreenControllers *bluegreen.BlueGreenByRoute
+	abTests              *abtest.ABTestByRoute
+	requestQueues        *requestqueue.RequestQueueByRoute
 	dedupHandlers        *dedup.DedupByRoute
 	ipBlocklists         *ipblocklist.BlocklistByRoute
 	clientMTLSVerifiers  *clientmtls.ClientMTLSByRoute
@@ -377,6 +381,8 @@ func New(cfg *config.Config) (*Gateway, error) {
 		piiRedactors:         piiredact.NewPIIRedactByRoute(),
 		fieldEncryptors:      fieldencrypt.NewFieldEncryptByRoute(),
 		blueGreenControllers: bluegreen.NewBlueGreenByRoute(),
+		abTests:              abtest.NewABTestByRoute(),
+		requestQueues:        requestqueue.NewRequestQueueByRoute(),
 		dedupHandlers:        dedup.NewDedupByRoute(),
 		ipBlocklists:         ipblocklist.NewBlocklistByRoute(),
 		clientMTLSVerifiers:  clientmtls.NewClientMTLSByRoute(),
@@ -675,6 +681,16 @@ func New(cfg *config.Config) (*Gateway, error) {
 			}
 			return nil
 		}, g.adaptiveLimiters.RouteIDs, func() any { return g.adaptiveLimiters.Stats() }),
+		newFeature("request_queue", "/request-queues", func(id string, rc config.RouteConfig) error {
+			rq := rc.TrafficShaping.RequestQueue
+			if rq.Enabled {
+				merged := requestqueue.MergeRequestQueueConfig(rq, cfg.TrafficShaping.RequestQueue)
+				g.requestQueues.AddRoute(id, merged)
+			} else if cfg.TrafficShaping.RequestQueue.Enabled {
+				g.requestQueues.AddRoute(id, cfg.TrafficShaping.RequestQueue)
+			}
+			return nil
+		}, g.requestQueues.RouteIDs, func() any { return g.requestQueues.Stats() }),
 		newFeature("error_pages", "/error-pages", func(id string, rc config.RouteConfig) error {
 			if cfg.ErrorPages.IsActive() || rc.ErrorPages.IsActive() {
 				return g.errorPages.AddRoute(id, cfg.ErrorPages, rc.ErrorPages)
@@ -898,6 +914,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		noOpFeature("outlier_detection", "/outlier-detection", g.outlierDetectors.RouteIDs, func() any { return g.outlierDetectors.Stats() }),
 		noOpFeature("backpressure", "/backpressure", g.backpressureHandlers.RouteIDs, func() any { return g.backpressureHandlers.Stats() }),
 		noOpFeature("blue_green", "/blue-green", g.blueGreenControllers.RouteIDs, func() any { return g.blueGreenControllers.Stats() }),
+		noOpFeature("ab_test", "/ab-tests", g.abTests.RouteIDs, func() any { return g.abTests.Stats() }),
 		noOpFeature("sequential", "/sequential", g.sequentialHandlers.RouteIDs, func() any { return g.sequentialHandlers.Stats() }),
 		noOpFeature("aggregate", "/aggregate", g.aggregateHandlers.RouteIDs, func() any { return g.aggregateHandlers.Stats() }),
 		noOpFeature("lambda", "/lambda", g.lambdaHandlers.RouteIDs, func() any { return g.lambdaHandlers.Stats() }),
@@ -1563,6 +1580,13 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 		}
 	}
 
+	// Set up A/B test (needs WeightedBalancer, only available after route proxy creation)
+	if routeCfg.ABTest.Enabled {
+		if wb, ok := routeProxy.GetBalancer().(*loadbalancer.WeightedBalancer); ok {
+			g.abTests.AddRoute(routeCfg.ID, routeCfg.ABTest, wb)
+		}
+	}
+
 	// Set up outlier detection (needs Balancer, only available after route proxy creation)
 	if routeCfg.OutlierDetection.Enabled {
 		g.outlierDetectors.AddRoute(routeCfg.ID, routeCfg.OutlierDetection, routeProxy.GetBalancer())
@@ -1626,6 +1650,7 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		/* 1.5  */ func() middleware.Middleware {
 			if ctrl := g.canaryControllers.GetController(routeID); ctrl != nil { return canaryObserverMW(ctrl) }
 			if bg := g.blueGreenControllers.GetController(routeID); bg != nil { return blueGreenObserverMW(bg) }
+			if ab := g.abTests.GetTest(routeID); ab != nil { return abTestObserverMW(ab) }
 			return nil
 		},
 		/* 2    */ func() middleware.Middleware {
@@ -1683,6 +1708,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		},
 		/* 5.5  */ func() middleware.Middleware {
 			if t := g.throttlers.GetThrottler(routeID); t != nil { return t.Middleware() }; return nil
+		},
+		/* 5.75 */ func() middleware.Middleware {
+			if rq := g.requestQueues.GetQueue(routeID); rq != nil { return rq.Middleware() }; return nil
 		},
 		/* 6    */ func() middleware.Middleware {
 			if route.Auth.Required { return authMW(g, route.Auth) }; return nil
@@ -2400,6 +2428,16 @@ func (g *Gateway) GetCanaryControllers() *canary.CanaryByRoute {
 // GetBlueGreenControllers returns the blue-green controller manager.
 func (g *Gateway) GetBlueGreenControllers() *bluegreen.BlueGreenByRoute {
 	return g.blueGreenControllers
+}
+
+// GetABTests returns the A/B test manager.
+func (g *Gateway) GetABTests() *abtest.ABTestByRoute {
+	return g.abTests
+}
+
+// GetRequestQueues returns the request queue manager.
+func (g *Gateway) GetRequestQueues() *requestqueue.RequestQueueByRoute {
+	return g.requestQueues
 }
 
 // GetAdaptiveLimiters returns the adaptive concurrency limiter manager.

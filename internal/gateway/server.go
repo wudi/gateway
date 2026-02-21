@@ -465,6 +465,7 @@ func (s *Server) adminHandler() http.Handler {
 	mux.HandleFunc("/mirrors/", s.handleMirrorsAction)
 	mux.HandleFunc("/canary/", s.handleCanaryAction)
 	mux.HandleFunc("/blue-green/", s.handleBlueGreenAction)
+	mux.HandleFunc("/ab-tests/", s.handleABTestAction)
 	mux.HandleFunc("/https-redirect", s.handleHTTPSRedirect)
 	mux.HandleFunc("/allowed-hosts", s.handleAllowedHosts)
 	mux.HandleFunc("/token-revocation", s.handleTokenRevocation)
@@ -1380,6 +1381,41 @@ func (s *Server) handleBlueGreenAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": actionName, "route": routeID})
+}
+
+// handleABTestAction handles POST /ab-tests/{route}/{action}.
+func (s *Server) handleABTestAction(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse /ab-tests/{route}/{action}
+	path := strings.TrimPrefix(r.URL.Path, "/ab-tests/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		http.Error(w, "usage: POST /ab-tests/{route}/{action}", http.StatusBadRequest)
+		return
+	}
+	routeID := parts[0]
+	actionName := parts[1]
+
+	ab := s.gateway.GetABTests().GetTest(routeID)
+	if ab == nil {
+		http.Error(w, fmt.Sprintf("no A/B test for route %q", routeID), http.StatusNotFound)
+		return
+	}
+
+	switch actionName {
+	case "reset":
+		ab.Reset()
+	default:
+		http.Error(w, fmt.Sprintf("unknown action %q (valid: reset)", actionName), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": actionName, "route": routeID})
 }
 

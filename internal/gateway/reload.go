@@ -45,6 +45,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/maintenance"
 	"github.com/wudi/gateway/internal/middleware/mock"
 	"github.com/wudi/gateway/internal/middleware/paramforward"
+	"github.com/wudi/gateway/internal/middleware/requestqueue"
 	"github.com/wudi/gateway/internal/middleware/proxyratelimit"
 	"github.com/wudi/gateway/internal/middleware/quota"
 	"github.com/wudi/gateway/internal/middleware/realip"
@@ -69,6 +70,7 @@ import (
 	"github.com/wudi/gateway/internal/retry"
 	grpcproxy "github.com/wudi/gateway/internal/proxy/grpc"
 	"github.com/wudi/gateway/internal/proxy/protocol"
+	"github.com/wudi/gateway/internal/abtest"
 	"github.com/wudi/gateway/internal/bluegreen"
 	"github.com/wudi/gateway/internal/middleware/fieldencrypt"
 	"github.com/wudi/gateway/internal/middleware/inboundsigning"
@@ -163,6 +165,8 @@ type gatewayState struct {
 	piiRedactors         *piiredact.PIIRedactByRoute
 	fieldEncryptors      *fieldencrypt.FieldEncryptByRoute
 	blueGreenControllers *bluegreen.BlueGreenByRoute
+	abTests              *abtest.ABTestByRoute
+	requestQueues        *requestqueue.RequestQueueByRoute
 	translators       *protocol.TranslatorByRoute
 	rateLimiters         *ratelimit.RateLimitByRoute
 	grpcHandlers         *grpcproxy.GRPCByRoute
@@ -242,6 +246,8 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		piiRedactors:         piiredact.NewPIIRedactByRoute(),
 		fieldEncryptors:      fieldencrypt.NewFieldEncryptByRoute(),
 		blueGreenControllers: bluegreen.NewBlueGreenByRoute(),
+		abTests:              abtest.NewABTestByRoute(),
+		requestQueues:        requestqueue.NewRequestQueueByRoute(),
 		translators:       protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
 		grpcHandlers:         grpcproxy.NewGRPCByRoute(),
@@ -340,6 +346,15 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 			}
 			return nil
 		}, s.adaptiveLimiters.RouteIDs, func() any { return s.adaptiveLimiters.Stats() }),
+		newFeature("request_queue", "/request-queues", func(id string, rc config.RouteConfig) error {
+			rq := rc.TrafficShaping.RequestQueue
+			if rq.Enabled {
+				s.requestQueues.AddRoute(id, requestqueue.MergeRequestQueueConfig(rq, cfg.TrafficShaping.RequestQueue))
+			} else if cfg.TrafficShaping.RequestQueue.Enabled {
+				s.requestQueues.AddRoute(id, cfg.TrafficShaping.RequestQueue)
+			}
+			return nil
+		}, s.requestQueues.RouteIDs, func() any { return s.requestQueues.Stats() }),
 		newFeature("waf", "/waf", func(id string, rc config.RouteConfig) error {
 			if rc.WAF.Enabled { return s.wafHandlers.AddRoute(id, rc.WAF) }
 			return nil
@@ -543,6 +558,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		}, s.auditLoggers.RouteIDs, func() any { return s.auditLoggers.Stats() }),
 		noOpFeature("backpressure", "/backpressure", s.backpressureHandlers.RouteIDs, func() any { return s.backpressureHandlers.Stats() }),
 		noOpFeature("blue_green", "/blue-green", s.blueGreenControllers.RouteIDs, func() any { return s.blueGreenControllers.Stats() }),
+		noOpFeature("ab_test", "/ab-tests", s.abTests.RouteIDs, func() any { return s.abTests.Stats() }),
 
 		// Non-per-route singleton features
 		noOpFeature("retry_budget_pools", "/retry-budget-pools", func() []string { return nil }, func() any {
@@ -877,6 +893,13 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 		}
 	}
 
+	// A/B test setup (needs WeightedBalancer)
+	if routeCfg.ABTest.Enabled {
+		if wb, ok := s.routeProxies[routeCfg.ID].GetBalancer().(*loadbalancer.WeightedBalancer); ok {
+			s.abTests.AddRoute(routeCfg.ID, routeCfg.ABTest, wb)
+		}
+	}
+
 	// Outlier detection setup (needs Balancer)
 	if routeCfg.OutlierDetection.Enabled {
 		s.outlierDetectors.AddRoute(routeCfg.ID, routeCfg.OutlierDetection, s.routeProxies[routeCfg.ID].GetBalancer())
@@ -1019,6 +1042,8 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldPIIRedactors := g.piiRedactors
 	oldFieldEncryptors := g.fieldEncryptors
 	oldBlueGreenControllers := g.blueGreenControllers
+	oldABTests := g.abTests
+	oldRequestQueues := g.requestQueues
 	oldBaggagePropagators := g.baggagePropagators
 	oldBackpressureHandlers2 := g.backpressureHandlers
 	oldAuditLoggers2 := g.auditLoggers
@@ -1086,6 +1111,8 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.piiRedactors = s.piiRedactors
 	g.fieldEncryptors = s.fieldEncryptors
 	g.blueGreenControllers = s.blueGreenControllers
+	g.abTests = s.abTests
+	g.requestQueues = s.requestQueues
 	g.baggagePropagators = s.baggagePropagators
 	g.backpressureHandlers = s.backpressureHandlers
 	g.auditLoggers = s.auditLoggers
@@ -1155,6 +1182,8 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.piiRedactors = oldPIIRedactors
 	g.fieldEncryptors = oldFieldEncryptors
 	g.blueGreenControllers = oldBlueGreenControllers
+	g.abTests = oldABTests
+	g.requestQueues = oldRequestQueues
 	g.baggagePropagators = oldBaggagePropagators
 	g.backpressureHandlers = oldBackpressureHandlers2
 	g.auditLoggers = oldAuditLoggers2
@@ -1276,6 +1305,8 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.piiRedactors = newState.piiRedactors
 	g.fieldEncryptors = newState.fieldEncryptors
 	g.blueGreenControllers = newState.blueGreenControllers
+	g.abTests = newState.abTests
+	g.requestQueues = newState.requestQueues
 	g.apiKeyAuth = newState.apiKeyAuth
 	g.jwtAuth = newState.jwtAuth
 	g.oauthAuth = newState.oauthAuth

@@ -339,6 +339,7 @@ type RouteConfig struct {
 	PIIRedaction         PIIRedactionConfig          `yaml:"pii_redaction"`         // Per-route PII redaction
 	FieldEncryption      FieldEncryptionConfig       `yaml:"field_encryption"`      // Per-route field-level encryption
 	BlueGreen            BlueGreenConfig             `yaml:"blue_green"`            // Blue-green deployment
+	ABTest               ABTestConfig                `yaml:"ab_test"`               // A/B testing with metric collection
 	FastCGI              FastCGIConfig               `yaml:"fastcgi"`               // FastCGI proxy (replaces proxy)
 	RequestDedup         RequestDedupConfig          `yaml:"request_dedup"`         // Per-route request deduplication
 	IPBlocklist          IPBlocklistConfig           `yaml:"ip_blocklist"`          // Per-route dynamic IP blocklist
@@ -1219,6 +1220,14 @@ type TrafficShapingConfig struct {
 	Priority             PriorityConfig             `yaml:"priority"`
 	FaultInjection       FaultInjectionConfig       `yaml:"fault_injection"`
 	AdaptiveConcurrency  AdaptiveConcurrencyConfig  `yaml:"adaptive_concurrency"`
+	RequestQueue         RequestQueueConfig         `yaml:"request_queue"`
+}
+
+// RequestQueueConfig defines bounded request queuing settings.
+type RequestQueueConfig struct {
+	Enabled  bool          `yaml:"enabled"`
+	MaxDepth int           `yaml:"max_depth"` // max queued requests (default 100)
+	MaxWait  time.Duration `yaml:"max_wait"`  // max queue wait time (default 30s)
 }
 
 // AdaptiveConcurrencyConfig defines adaptive concurrency limiting settings.
@@ -1485,6 +1494,12 @@ type BlueGreenConfig struct {
 type HealthGate struct {
 	MinHealthy int           `yaml:"min_healthy"`
 	Timeout    time.Duration `yaml:"timeout"`
+}
+
+// ABTestConfig defines A/B testing metric collection settings.
+type ABTestConfig struct {
+	Enabled        bool   `yaml:"enabled"`
+	ExperimentName string `yaml:"experiment_name"`
 }
 
 // TransportConfig defines upstream HTTP transport (connection pool) settings.

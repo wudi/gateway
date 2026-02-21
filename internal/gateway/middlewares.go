@@ -25,6 +25,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/transform"
 	"github.com/wudi/gateway/internal/middleware/validation"
 	grpcproxy "github.com/wudi/gateway/internal/proxy/grpc"
+	"github.com/wudi/gateway/internal/abtest"
 	"github.com/wudi/gateway/internal/bluegreen"
 	"github.com/wudi/gateway/internal/router"
 	"github.com/wudi/gateway/internal/rules"
@@ -476,6 +477,23 @@ func blueGreenObserverMW(ctrl *bluegreen.Controller) middleware.Middleware {
 			varCtx := variables.GetFromRequest(r)
 			if varCtx.TrafficGroup != "" {
 				ctrl.RecordRequest(varCtx.TrafficGroup, rec.statusCode, time.Since(start))
+			}
+			putStatusRecorder(rec)
+		})
+	}
+}
+
+// abTestObserverMW records per-traffic-group outcomes for A/B test metric collection.
+func abTestObserverMW(ab *abtest.ABTest) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			rec := getStatusRecorder(w)
+			next.ServeHTTP(rec, r)
+
+			varCtx := variables.GetFromRequest(r)
+			if varCtx.TrafficGroup != "" {
+				ab.RecordRequest(varCtx.TrafficGroup, rec.statusCode, time.Since(start))
 			}
 			putStatusRecorder(rec)
 		})

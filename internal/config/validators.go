@@ -778,6 +778,22 @@ func (l *Loader) validateResilienceFeatures(route RouteConfig, cfg *Config) erro
 		}
 	}
 
+	// A/B test
+	if route.ABTest.Enabled {
+		if route.Canary.Enabled {
+			return fmt.Errorf("route %s: ab_test is mutually exclusive with canary", routeID)
+		}
+		if route.BlueGreen.Enabled {
+			return fmt.Errorf("route %s: ab_test is mutually exclusive with blue_green", routeID)
+		}
+		if len(route.TrafficSplit) == 0 {
+			return fmt.Errorf("route %s: ab_test requires traffic_split to be configured", routeID)
+		}
+		if route.ABTest.ExperimentName == "" {
+			return fmt.Errorf("route %s: ab_test.experiment_name is required when enabled", routeID)
+		}
+	}
+
 	return nil
 }
 
@@ -1528,6 +1544,14 @@ func (l *Loader) validateTrafficShaping(cfg TrafficShapingConfig, scope string) 
 		}
 		if cfg.AdaptiveConcurrency.SmoothingFactor != 0 && (cfg.AdaptiveConcurrency.SmoothingFactor <= 0 || cfg.AdaptiveConcurrency.SmoothingFactor >= 1) {
 			return fmt.Errorf("%s: adaptive_concurrency smoothing_factor must be between 0 and 1 (exclusive)", scope)
+		}
+	}
+	if cfg.RequestQueue.Enabled {
+		if cfg.RequestQueue.MaxDepth < 0 {
+			return fmt.Errorf("%s: request_queue max_depth must be >= 0", scope)
+		}
+		if cfg.RequestQueue.MaxWait < 0 {
+			return fmt.Errorf("%s: request_queue max_wait must be >= 0", scope)
 		}
 	}
 	return nil

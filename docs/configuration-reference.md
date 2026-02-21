@@ -858,7 +858,21 @@ Note: The `database` field is only valid at the global level. Per-route geo conf
         adjustment_interval: duration  # default 5s
         smoothing_factor: float   # default 0.5, 0 < x < 1
         min_latency_samples: int  # default 25
+      request_queue:
+        enabled: bool
+        max_depth: int            # default 100, max queued requests
+        max_wait: duration        # default 30s, max queue wait time
 ```
+
+### A/B Testing (per-route)
+
+```yaml
+    ab_test:
+      enabled: bool
+      experiment_name: string     # required when enabled
+```
+
+Requires `traffic_split` to be configured. Mutually exclusive with `canary` and `blue_green`.
 
 ### WAF (per-route)
 
@@ -1164,6 +1178,10 @@ traffic_shaping:
     adjustment_interval: duration  # default 5s
     smoothing_factor: float   # default 0.5, 0 < x < 1
     min_latency_samples: int  # default 25
+  request_queue:
+    enabled: bool
+    max_depth: int            # default 100, max queued requests
+    max_wait: duration        # default 30s, max queue wait time
 ```
 
 ---

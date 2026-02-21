@@ -109,6 +109,9 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /load-balancers` | Load balancer info (algorithm, backend states) |
 | `GET /canary` | Canary deployment status per route |
 | `POST /canary/{route}/{action}` | Control canary (start, pause, resume, promote, rollback) |
+| `GET /ab-tests` | A/B test metrics per route (per-group requests, error rate, p99 latency) |
+| `POST /ab-tests/{route}/reset` | Reset accumulated A/B test metrics and restart timer |
+| `GET /request-queues` | Request queue metrics per route (depth, enqueued, timed out, avg wait) |
 | `GET /ext-auth` | External auth metrics (total, allowed, denied, errors, cache hits, latencies) |
 | `GET /versioning` | API versioning stats per route (source, default version, per-version request counts, deprecation info) |
 | `GET /access-log` | Per-route access log config status (enabled, format, body capture, conditions) |
@@ -1407,6 +1410,38 @@ Triggers rollback to original weights. Returns 409 if state does not allow rollb
 ### GET `/blue-green/{route}/status`
 
 Returns detailed snapshot for a specific route's blue-green deployment.
+
+---
+
+## A/B Testing
+
+### GET `/ab-tests`
+
+Returns per-route A/B test metrics including per-group request counts, error rates, and p99 latency.
+
+```bash
+curl http://localhost:8081/ab-tests
+```
+
+### POST `/ab-tests/{route}/reset`
+
+Resets accumulated metrics for a running A/B test experiment and restarts the timer.
+
+```bash
+curl -X POST http://localhost:8081/ab-tests/homepage/reset
+```
+
+---
+
+## Request Queuing
+
+### GET `/request-queues`
+
+Returns per-route request queue metrics including current depth, enqueued/dequeued counts, timeouts, and average wait time.
+
+```bash
+curl http://localhost:8081/request-queues
+```
 
 ---
 
