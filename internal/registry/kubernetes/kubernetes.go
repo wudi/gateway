@@ -19,7 +19,7 @@ import (
 
 // Registry implements service registry using Kubernetes
 type Registry struct {
-	client        *kubernetes.Clientset
+	client        kubernetes.Interface
 	namespace     string
 	labelSelector string
 	watchers      map[string]context.CancelFunc
