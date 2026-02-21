@@ -6,7 +6,6 @@
 - Test all: `go test ./...`
 - Test specific package: `go test ./internal/retry/ -v`
 - Integration tests (tagged): `go test -tags integration ./test/`
-- The `go vet` warning in `internal/registry/kubernetes/kubernetes.go:275` (unreachable code) is pre-existing and unrelated to gateway features.
 
 ## Project Structure
 
