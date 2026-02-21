@@ -36,6 +36,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/backendenc"
 	"github.com/wudi/gateway/internal/middleware/bodygen"
 	"github.com/wudi/gateway/internal/middleware/botdetect"
+	"github.com/wudi/gateway/internal/middleware/clientmtls"
 	"github.com/wudi/gateway/internal/middleware/cdnheaders"
 	"github.com/wudi/gateway/internal/middleware/claimsprop"
 	"github.com/wudi/gateway/internal/middleware/compression"
@@ -218,6 +219,7 @@ type Gateway struct {
 	blueGreenControllers *bluegreen.BlueGreenByRoute
 	dedupHandlers        *dedup.DedupByRoute
 	ipBlocklists         *ipblocklist.BlocklistByRoute
+	clientMTLSVerifiers  *clientmtls.ClientMTLSByRoute
 	globalBlocklist      *ipblocklist.Blocklist
 	ssrfDialer           *ssrf.SafeDialer
 	http3AltSvcPort      string // port for Alt-Svc header; empty = no HTTP/3
@@ -377,6 +379,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		blueGreenControllers: bluegreen.NewBlueGreenByRoute(),
 		dedupHandlers:        dedup.NewDedupByRoute(),
 		ipBlocklists:         ipblocklist.NewBlocklistByRoute(),
+		clientMTLSVerifiers:  clientmtls.NewClientMTLSByRoute(),
 		budgetPools:          make(map[string]*retry.Budget),
 		baggagePropagators:   baggage.NewBaggageByRoute(),
 		backpressureHandlers: backpressure.NewBackpressureByRoute(),
@@ -724,6 +727,16 @@ func New(cfg *config.Config) (*Gateway, error) {
 			}
 			return nil
 		}, g.ipBlocklists.RouteIDs, func() any { return g.ipBlocklists.Stats() }),
+		newFeature("client_mtls", "/client-mtls", func(id string, rc config.RouteConfig) error {
+			if rc.ClientMTLS.Enabled {
+				merged := clientmtls.MergeClientMTLSConfig(rc.ClientMTLS, cfg.ClientMTLS)
+				return g.clientMTLSVerifiers.AddRoute(id, merged)
+			}
+			if cfg.ClientMTLS.Enabled {
+				return g.clientMTLSVerifiers.AddRoute(id, cfg.ClientMTLS)
+			}
+			return nil
+		}, g.clientMTLSVerifiers.RouteIDs, func() any { return g.clientMTLSVerifiers.Stats() }),
 		newFeature("geo", "/geo", func(id string, rc config.RouteConfig) error {
 			if g.geoProvider == nil {
 				return nil
@@ -1632,6 +1645,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		/* 2.85 */ func() middleware.Middleware {
 			bl := g.ipBlocklists.GetBlocklist(routeID)
 			if g.globalBlocklist != nil || bl != nil { return ipBlocklistMW(g.globalBlocklist, bl) }; return nil
+		},
+		/* 2.87 */ func() middleware.Middleware {
+			if v := g.clientMTLSVerifiers.GetVerifier(routeID); v != nil { return v.Middleware() }; return nil
 		},
 		/* 3    */ func() middleware.Middleware {
 			if ch := g.corsHandlers.GetHandler(routeID); ch != nil && ch.IsEnabled() { return ch.Middleware() }; return nil

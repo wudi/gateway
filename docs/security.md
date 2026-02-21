@@ -320,6 +320,56 @@ upstreams:
 
 Both `cert_file` and `key_file` must be specified together. Per-upstream settings override global settings. See [Transport](transport.md) for details.
 
+## Per-Route Client mTLS Verification
+
+While listener-level `client_auth` applies one CA pool to all routes, per-route client mTLS lets different routes trust different Certificate Authorities. For example, `/payments` can require certificates from Payment-CA while `/internal` trusts Internal-CA.
+
+### Setup
+
+1. Configure the listener to request (not verify) client certificates:
+
+```yaml
+listeners:
+  - id: https
+    address: ":8443"
+    protocol: http
+    tls:
+      cert_file: /etc/gateway/server.crt
+      key_file: /etc/gateway/server.key
+      client_auth: "request"
+```
+
+2. Add `client_mtls` to individual routes:
+
+```yaml
+routes:
+  - id: payments
+    path: /payments
+    backends:
+      - url: https://payments.internal:443
+    client_mtls:
+      enabled: true
+      client_ca_file: /etc/gateway/payment-ca.pem
+
+  - id: internal
+    path: /internal
+    backends:
+      - url: https://internal.svc:443
+    client_mtls:
+      enabled: true
+      client_cas:
+        - /etc/gateway/internal-ca1.pem
+        - /etc/gateway/internal-ca2.pem
+```
+
+Routes without `client_mtls` remain accessible without a client certificate.
+
+### HTTP/2 Note
+
+HTTP/2 does not support TLS renegotiation, so the listener must request certificates from all clients during the initial handshake. Clients connecting to non-mTLS routes will be asked for a certificate but not rejected for omitting one.
+
+See [Client mTLS](client-mtls.md) for full configuration reference and admin endpoint.
+
 ## Backend Request Signing
 
 The gateway can HMAC-sign every outgoing request so backends can verify that requests actually came through the gateway and weren't tampered with. This prevents "backend bypass" attacks where clients send requests directly to backend services.

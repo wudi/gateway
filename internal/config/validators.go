@@ -1172,6 +1172,9 @@ func (l *Loader) validateDelegatedSecurity(route RouteConfig, cfg *Config) error
 	if err := l.validateIPBlocklistConfig(scope, route.IPBlocklist); err != nil {
 		return err
 	}
+	if err := l.validateClientMTLSConfig(scope, route.ClientMTLS); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -2481,6 +2484,39 @@ func (l *Loader) validateIPBlocklistConfig(scope string, cfg IPBlocklistConfig) 
 		}
 		if feed.RefreshInterval > 0 && feed.RefreshInterval < time.Second {
 			return fmt.Errorf("%s: ip_blocklist.feeds[%d]: refresh_interval must be >= 1s", scope, i)
+		}
+	}
+	return nil
+}
+
+// validateClientMTLSConfig validates client mTLS config for a given scope.
+func (l *Loader) validateClientMTLSConfig(scope string, cfg ClientMTLSConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	switch cfg.ClientAuth {
+	case "", "request", "require", "verify":
+		// valid
+	default:
+		return fmt.Errorf("%s: client_mtls.client_auth must be \"request\", \"require\", or \"verify\", got %q", scope, cfg.ClientAuth)
+	}
+	mode := cfg.ClientAuth
+	if mode == "" {
+		mode = "verify"
+	}
+	if mode == "verify" {
+		if cfg.ClientCAFile == "" && len(cfg.ClientCAs) == 0 {
+			return fmt.Errorf("%s: client_mtls: verify mode requires client_ca_file or client_cas", scope)
+		}
+	}
+	if cfg.ClientCAFile != "" {
+		if _, err := os.Stat(cfg.ClientCAFile); err != nil {
+			return fmt.Errorf("%s: client_mtls.client_ca_file: %w", scope, err)
+		}
+	}
+	for i, f := range cfg.ClientCAs {
+		if _, err := os.Stat(f); err != nil {
+			return fmt.Errorf("%s: client_mtls.client_cas[%d]: %w", scope, i, err)
 		}
 	}
 	return nil

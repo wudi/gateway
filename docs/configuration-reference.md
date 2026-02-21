@@ -326,6 +326,19 @@ See [Mock Responses](mock-responses.md) for use cases.
 
 **Validation:** At least one `deny` pattern required when enabled. All patterns must be valid regexes.
 
+### Client mTLS (per-route)
+
+```yaml
+    client_mtls:
+      enabled: bool
+      client_auth: string         # "request"|"require"|"verify" (default "verify")
+      client_ca_file: string      # path to CA PEM file
+      client_cas: [string]        # paths to multiple CA PEM files
+      allow_expired: bool         # skip expiry check (testing only)
+```
+
+**Validation:** `client_auth` must be `"request"`, `"require"`, or `"verify"`. Verify mode requires `client_ca_file` or `client_cas`. All CA files must exist.
+
 ### Backend Auth (OAuth2 Client Credentials)
 
 ```yaml
@@ -1606,6 +1619,23 @@ Per-route `bot_detection` config overrides the global block when both are enable
 **Validation:** At least one `deny` pattern required when enabled. All patterns must be valid Go regexes.
 
 See [Bot Detection](bot-detection.md) for details.
+
+## Client mTLS (global)
+
+```yaml
+client_mtls:
+  enabled: bool
+  client_auth: string             # "request"|"require"|"verify" (default "verify")
+  client_ca_file: string          # path to CA PEM file
+  client_cas: [string]            # paths to multiple CA PEM files
+  allow_expired: bool             # skip expiry check (testing only)
+```
+
+Per-route `client_mtls` config overrides the global block when both are enabled.
+
+**Validation:** `client_auth` must be `"request"`, `"require"`, or `"verify"`. Verify mode requires `client_ca_file` or `client_cas`. All CA files must exist.
+
+See [Client mTLS](client-mtls.md) for details.
 
 ## HTTPS Redirect (global)
 

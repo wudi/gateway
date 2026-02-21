@@ -341,6 +341,9 @@ func (l *Loader) validate(cfg *Config) error {
 			return err
 		}
 	}
+	if err := l.validateClientMTLSConfig("global", cfg.ClientMTLS); err != nil {
+		return err
+	}
 	if cfg.HTTPSRedirect.Enabled {
 		if cfg.HTTPSRedirect.Port < 0 || cfg.HTTPSRedirect.Port > 65535 {
 			return fmt.Errorf("https_redirect: port must be 0-65535")

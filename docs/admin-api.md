@@ -150,6 +150,7 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /cdn-cache-headers` | Per-route CDN cache header injection stats |
 | `GET /backend-encoding` | Per-route backend encoding stats |
 | `GET /bot-detection` | Per-route bot detection block counts |
+| `GET /client-mtls` | Per-route client mTLS verification stats |
 | `GET /proxy-rate-limits` | Per-route backend-facing rate limit stats |
 | `GET /mock-responses` | Per-route mock response served count |
 | `GET /sse` | Per-route SSE proxy connection and event stats (includes fan-out metrics when enabled) |
@@ -1237,6 +1238,28 @@ curl http://localhost:8081/bot-detection
 {
   "api": {
     "blocked": 42
+  }
+}
+```
+
+### GET `/client-mtls`
+
+Returns per-route client mTLS verification and rejection counts.
+
+```bash
+curl http://localhost:8081/client-mtls
+```
+
+**Response:**
+```json
+{
+  "payments": {
+    "verified": 1500,
+    "rejected": 23
+  },
+  "internal": {
+    "verified": 800,
+    "rejected": 2
   }
 }
 ```

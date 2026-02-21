@@ -59,6 +59,7 @@ type Config struct {
 	Shutdown               ShutdownConfig               `yaml:"shutdown"`                 // Graceful shutdown settings
 	TrustedProxies         TrustedProxiesConfig         `yaml:"trusted_proxies"`          // Trusted proxy IP extraction
 	BotDetection           BotDetectionConfig           `yaml:"bot_detection"`            // Global bot detection
+	ClientMTLS             ClientMTLSConfig             `yaml:"client_mtls"`              // Global per-route client mTLS verification
 	HTTPSRedirect          HTTPSRedirectConfig          `yaml:"https_redirect"`           // Automatic HTTP→HTTPS redirect
 	AllowedHosts           AllowedHostsConfig           `yaml:"allowed_hosts"`            // Host header validation
 	TokenRevocation        TokenRevocationConfig        `yaml:"token_revocation"`         // JWT token revocation / blocklist
@@ -312,6 +313,7 @@ type RouteConfig struct {
 	Maintenance          MaintenanceConfig          `yaml:"maintenance"`           // Per-route maintenance mode
 	Rewrite              RewriteConfig              `yaml:"rewrite"`               // URL rewriting (prefix, regex, host override)
 	BotDetection         BotDetectionConfig         `yaml:"bot_detection"`         // Per-route bot detection
+	ClientMTLS           ClientMTLSConfig           `yaml:"client_mtls"`           // Per-route client mTLS verification
 	ProxyRateLimit       ProxyRateLimitConfig       `yaml:"proxy_rate_limit"`      // Per-route backend rate limiting
 	MockResponse         MockResponseConfig         `yaml:"mock_response"`         // Per-route mock responses
 	ClaimsPropagation    ClaimsPropagationConfig    `yaml:"claims_propagation"`    // JWT claims propagation to backend headers
@@ -559,6 +561,15 @@ type BotDetectionConfig struct {
 	Enabled bool     `yaml:"enabled"`
 	Deny    []string `yaml:"deny"`  // regex patterns to block
 	Allow   []string `yaml:"allow"` // regex patterns to allow (bypass deny)
+}
+
+// ClientMTLSConfig defines per-route client certificate verification.
+type ClientMTLSConfig struct {
+	Enabled      bool     `yaml:"enabled"`
+	ClientAuth   string   `yaml:"client_auth"`    // "request"|"require"|"verify" (default "verify")
+	ClientCAFile string   `yaml:"client_ca_file"` // single CA PEM path
+	ClientCAs    []string `yaml:"client_cas"`     // multiple CA PEM paths
+	AllowExpired bool     `yaml:"allow_expired"`  // skip expiry check (testing)
 }
 
 // ProxyRateLimitConfig defines backend-side rate limiting.
