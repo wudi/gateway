@@ -14,8 +14,10 @@ import (
 	"time"
 
 	"github.com/wudi/gateway/internal/config"
+	gatewayerrors "github.com/wudi/gateway/internal/errors"
 	"github.com/wudi/gateway/internal/listener"
 	"github.com/wudi/gateway/internal/logging"
+	"github.com/wudi/gateway/internal/middleware/auth"
 	"github.com/wudi/gateway/internal/middleware/ipblocklist"
 	"github.com/wudi/gateway/internal/proxy/tcp"
 	"github.com/wudi/gateway/internal/proxy/udp"
@@ -490,6 +492,11 @@ func (s *Server) adminHandler() http.Handler {
 	mux.HandleFunc("/tenants/", s.handleTenantCRUD)
 	if s.gateway.GetAPIKeyAuth() != nil {
 		mux.HandleFunc("/admin/keys", s.handleAdminKeys)
+		if s.gateway.GetAPIKeyAuth().GetManager() != nil {
+			mux.HandleFunc("/api-keys/generate", s.handleAPIKeyGenerate)
+			mux.HandleFunc("/api-keys/stats", s.handleAPIKeyStats)
+			mux.HandleFunc("/api-keys/", s.handleAPIKeyAction)
+		}
 	}
 
 	// pprof endpoints (when enabled)
@@ -816,6 +823,189 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 // handleAdminKeys handles API key management requests (Feature 14)
 func (s *Server) handleAdminKeys(w http.ResponseWriter, r *http.Request) {
 	s.gateway.GetAPIKeyAuth().HandleAdminKeys(w, r)
+}
+
+func (s *Server) handleAPIKeyGenerate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	mgr := s.gateway.GetAPIKeyAuth().GetManager()
+	w.Header().Set("Content-Type", "application/json")
+
+	var req struct {
+		ClientID  string              `json:"client_id"`
+		Name      string              `json:"name"`
+		Roles     []string            `json:"roles"`
+		RateLimit *apiKeyRateLimitReq `json:"rate_limit"`
+		TTL       string              `json:"ttl"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid JSON body"})
+		return
+	}
+	if req.ClientID == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "client_id is required"})
+		return
+	}
+
+	var rl *auth.KeyRateLimit
+	if req.RateLimit != nil {
+		rl = &auth.KeyRateLimit{
+			Rate:   req.RateLimit.Rate,
+			Period: req.RateLimit.Period.Duration,
+			Burst:  req.RateLimit.Burst,
+		}
+	}
+
+	var ttl time.Duration
+	if req.TTL != "" {
+		var err error
+		ttl, err = time.ParseDuration(req.TTL)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "invalid TTL duration"})
+			return
+		}
+	}
+
+	rawKey, err := mgr.GenerateKey(req.ClientID, req.Name, req.Roles, rl, ttl)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"key": rawKey})
+}
+
+func (s *Server) handleAPIKeyStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	mgr := s.gateway.GetAPIKeyAuth().GetManager()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(mgr.Stats())
+}
+
+func (s *Server) handleAPIKeyAction(w http.ResponseWriter, r *http.Request) {
+	mgr := s.gateway.GetAPIKeyAuth().GetManager()
+	w.Header().Set("Content-Type", "application/json")
+
+	// Parse: /api-keys/{prefix}/{action}
+	path := strings.TrimPrefix(r.URL.Path, "/api-keys/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) < 2 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "expected /api-keys/{prefix}/{action}"})
+		return
+	}
+	prefix, action := parts[0], parts[1]
+
+	if r.Method == http.MethodDelete && action == "" {
+		action = "delete"
+	}
+
+	switch action {
+	case "rotate":
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			GracePeriod string `json:"grace_period"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		gp := 24 * time.Hour // default grace period
+		if req.GracePeriod != "" {
+			var err error
+			gp, err = time.ParseDuration(req.GracePeriod)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": "invalid grace_period"})
+				return
+			}
+		}
+		newKey, err := mgr.RotateKey(prefix, gp)
+		if err != nil {
+			writeManagerError(w, err)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"key": newKey})
+
+	case "revoke":
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		if err := mgr.RevokeKey(prefix); err != nil {
+			writeManagerError(w, err)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "revoked"})
+
+	case "unrevoke":
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		if err := mgr.UnrevokeKey(prefix); err != nil {
+			writeManagerError(w, err)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "unrevoked"})
+
+	case "delete":
+		if r.Method != http.MethodDelete && r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		if err := mgr.DeleteKey(prefix); err != nil {
+			writeManagerError(w, err)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+
+	default:
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "unknown action: " + action})
+	}
+}
+
+type apiKeyRateLimitReq struct {
+	Rate   int            `json:"rate"`
+	Period durationJSON   `json:"period"`
+	Burst  int            `json:"burst"`
+}
+
+type durationJSON struct {
+	time.Duration
+}
+
+func (d *durationJSON) UnmarshalJSON(b []byte) error {
+	var v string
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	dur, err := time.ParseDuration(v)
+	if err != nil {
+		return err
+	}
+	d.Duration = dur
+	return nil
+}
+
+func writeManagerError(w http.ResponseWriter, err error) {
+	if gErr, ok := err.(*gatewayerrors.GatewayError); ok {
+		gErr.WriteJSON(w)
+		return
+	}
+	w.WriteHeader(http.StatusInternalServerError)
+	json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 }
 
 // handleTrafficShaping handles traffic shaping stats requests

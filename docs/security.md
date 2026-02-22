@@ -372,7 +372,7 @@ See [Client mTLS](client-mtls.md) for full configuration reference and admin end
 
 ## Backend Request Signing
 
-The gateway can HMAC-sign every outgoing request so backends can verify that requests actually came through the gateway and weren't tampered with. This prevents "backend bypass" attacks where clients send requests directly to backend services.
+The gateway can sign every outgoing request so backends can verify that requests actually came through the gateway and weren't tampered with. This prevents "backend bypass" attacks where clients send requests directly to backend services. Both HMAC and RSA algorithms are supported.
 
 ### How It Works
 
@@ -398,7 +398,7 @@ host:api.example.com
 
 | Header | Example | Description |
 |--------|---------|-------------|
-| `X-Gateway-Signature` | `hmac-sha256=a1b2c3...` | HMAC hex digest with algorithm prefix |
+| `X-Gateway-Signature` | `hmac-sha256=a1b2c3...` | Signature hex digest with algorithm prefix |
 | `X-Gateway-Timestamp` | `1707654321` | Unix seconds when signature was created |
 | `X-Gateway-Key-ID` | `gateway-key-1` | Key identifier for rotation |
 | `X-Gateway-Signed-Headers` | `content-type;host` | Semicolon-separated list of signed headers |
@@ -408,10 +408,10 @@ The header prefix is configurable via `header_prefix` (default `X-Gateway-`).
 ### Configuration
 
 ```yaml
-# Global — signs all route requests
+# Global — HMAC signing (shared secret)
 backend_signing:
   enabled: true
-  algorithm: "hmac-sha256"       # or "hmac-sha512"
+  algorithm: "hmac-sha256"       # hmac-sha256, hmac-sha512, rsa-sha256, rsa-sha512, rsa-pss-sha256
   secret: "base64-encoded-secret-at-least-32-bytes"
   key_id: "gateway-key-1"
   signed_headers:                # optional: headers to include
@@ -419,6 +419,13 @@ backend_signing:
     - "Host"
   include_body: true             # default true
   header_prefix: "X-Gateway-"   # default "X-Gateway-"
+
+# RSA signing (asymmetric — backends verify with public key)
+backend_signing:
+  enabled: true
+  algorithm: "rsa-sha256"
+  private_key_file: /etc/gateway/signing-key.pem  # or inline via private_key:
+  key_id: "gateway-rsa-1"
 
 # Per-route override
 routes:
@@ -429,7 +436,7 @@ routes:
     backend_signing:
       enabled: true
       key_id: "payments-key-2"   # override key for this route
-      algorithm: "hmac-sha512"   # stronger algorithm for sensitive route
+      algorithm: "rsa-sha512"    # RSA for asymmetric verification
 ```
 
 ### Key Rotation
@@ -561,17 +568,25 @@ Admin endpoint: `GET /allowed-hosts` returns the host list and rejection count.
 
 ## Inbound Request Signature Verification
 
-Verifies HMAC signatures on incoming requests — the inverse of outbound backend signing. Use this to authenticate webhook receivers, signed API clients, and inter-service calls.
+Verifies signatures on incoming requests — the inverse of outbound backend signing. Use this to authenticate webhook receivers, signed API clients, and inter-service calls.
 
-Supports `hmac-sha256` and `hmac-sha512`. The signing string format matches the outbound signing protocol: `METHOD\nURI\nTIMESTAMP\nSHA256(BODY)[\nheader:value...]`.
+Supports HMAC (`hmac-sha256`, `hmac-sha512`) and RSA (`rsa-sha256`, `rsa-sha512`, `rsa-pss-sha256`) algorithms. The signing string format matches the outbound signing protocol: `METHOD\nURI\nTIMESTAMP\nSHA256(BODY)[\nheader:value...]`.
 
 ```yaml
+# HMAC verification (shared secret)
 inbound_signing:
   enabled: true
   algorithm: hmac-sha256
   secret: "base64-encoded-32-byte-key"
   max_age: 5m
   shadow_mode: false
+
+# RSA verification (asymmetric — clients sign with private key)
+inbound_signing:
+  enabled: true
+  algorithm: rsa-sha256
+  public_key_file: /etc/gateway/client-public.pem  # or inline via public_key:
+  max_age: 5m
 ```
 
 Shadow mode logs verification failures without rejecting requests — useful for gradual rollout.

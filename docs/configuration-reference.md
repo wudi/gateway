@@ -93,6 +93,15 @@ authentication:
         name: string       # human-readable name
         expires_at: string # RFC3339 expiration (optional)
         roles: [string]    # role list (optional)
+    management:
+      enabled: bool          # enable key generation/rotation/revocation
+      key_length: int        # key bytes (default 32, range 16-128)
+      key_prefix: string     # prefix for generated keys (e.g., "gw_")
+      store: string          # "memory" (default) or "redis"
+      default_rate_limit:
+        rate: int            # requests per period
+        period: duration     # rate limit window
+        burst: int           # burst allowance
   jwt:
     enabled: bool
     secret: string              # HMAC secret (HS256)
@@ -1442,9 +1451,11 @@ See [Idempotency Key Support](idempotency.md) for detailed usage, scoping, and e
 
 ```yaml
 backend_signing:
-  enabled: bool               # enable HMAC request signing (default false)
-  algorithm: string           # "hmac-sha256" (default) or "hmac-sha512"
-  secret: string              # base64-encoded shared secret (min 32 decoded bytes)
+  enabled: bool               # enable request signing (default false)
+  algorithm: string           # "hmac-sha256" (default), "hmac-sha512", "rsa-sha256", "rsa-sha512", "rsa-pss-sha256"
+  secret: string              # base64-encoded shared secret (HMAC only, min 32 decoded bytes)
+  private_key: string         # PEM-encoded RSA private key (RSA only, inline)
+  private_key_file: string    # path to PEM-encoded RSA private key file (RSA only)
   key_id: string              # key identifier for rotation (required)
   signed_headers: [string]    # request headers to include in signature
   include_body: bool          # hash request body into signature (default true)
@@ -1453,7 +1464,7 @@ backend_signing:
 
 Per-route backend signing config is merged with the global `backend_signing:` block. Per-route fields override global fields.
 
-**Validation:** `algorithm` must be `hmac-sha256` or `hmac-sha512`. `secret` must be valid base64 decoding to at least 32 bytes. `key_id` is required. `signed_headers` must not contain whitespace. `header_prefix` must not contain whitespace.
+**Validation:** HMAC algorithms require `secret` (base64, min 32 bytes). RSA algorithms require `private_key` or `private_key_file` (mutually exclusive with `secret`). `key_id` is required. `signed_headers` and `header_prefix` must not contain whitespace.
 
 See [Security](security.md#backend-request-signing) for signing protocol details and backend verification.
 
@@ -1716,6 +1727,33 @@ claims_propagation:
 **Validation:** At least one claim mapping required when enabled. No empty claim names or header names.
 
 See [Authentication](authentication.md#claims-propagation) for details.
+
+## Token Exchange (per-route)
+
+```yaml
+token_exchange:
+  enabled: bool                  # enable token exchange
+  validation_mode: string        # "jwt" or "introspection"
+  jwks_url: string               # JWKS endpoint (jwt mode)
+  trusted_issuers: [string]      # allowed issuers (jwt mode)
+  introspection_url: string      # token introspection URL (introspection mode)
+  client_id: string              # client ID (introspection mode)
+  client_secret: string          # client secret (introspection mode)
+  issuer: string                 # issuer claim in minted tokens (required)
+  audience: [string]             # audience claim in minted tokens
+  scopes: [string]               # scope claim in minted tokens
+  token_lifetime: duration       # lifetime of minted tokens (required, > 0)
+  signing_algorithm: string      # RS256, RS512, HS256, HS512
+  signing_key: string            # inline PEM for RSA signing
+  signing_key_file: string       # PEM file path for RSA signing
+  signing_secret: string         # secret for HMAC signing
+  cache_ttl: duration            # exchange result cache TTL
+  claim_mappings: map[string]string  # subject claim -> issued claim
+```
+
+**Validation:** `validation_mode` required. JWT mode requires `jwks_url` and `trusted_issuers`. Introspection mode requires `introspection_url`, `client_id`, `client_secret`. `issuer` and `token_lifetime` required. RSA signing algorithms require `signing_key` or `signing_key_file`; HMAC require `signing_secret`. Route `auth.required` must be true.
+
+See [Authentication](authentication.md#token-exchange-rfc-8693) for details.
 
 ## Service Rate Limit (global)
 
@@ -2113,8 +2151,10 @@ See [Retry Budget Pools](retry-budget-pools.md) for full documentation.
 ```yaml
 inbound_signing:
   enabled: bool            # enable inbound signature verification
-  algorithm: string        # "hmac-sha256" or "hmac-sha512" (default "hmac-sha256")
-  secret: string           # base64-encoded shared secret (>= 32 bytes)
+  algorithm: string        # "hmac-sha256" (default), "hmac-sha512", "rsa-sha256", "rsa-sha512", "rsa-pss-sha256"
+  secret: string           # base64-encoded shared secret (HMAC only, >= 32 bytes)
+  public_key: string       # PEM-encoded RSA public key (RSA only, inline)
+  public_key_file: string  # path to PEM-encoded RSA public key file (RSA only)
   key_id: string           # expected key ID (optional)
   signed_headers: [string] # additional headers included in signature
   include_body: bool       # include body hash in signature (default true)
@@ -2125,7 +2165,7 @@ inbound_signing:
 
 Per-route config is merged with global. Per-route fields override global.
 
-**Validation:** `algorithm` must be `hmac-sha256` or `hmac-sha512`. `secret` must be valid base64 decoding to >= 32 bytes.
+**Validation:** HMAC algorithms require `secret` (base64, >= 32 bytes). RSA algorithms require `public_key` or `public_key_file` (mutually exclusive with `secret`).
 
 See [Inbound Signing](inbound-signing.md) for full documentation.
 

@@ -2,11 +2,16 @@ package signing
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/hmac"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/sha512"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/pem"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -457,5 +462,189 @@ func TestManagerAddRouteAndGetSigner(t *testing.T) {
 	stats := m.Stats()
 	if len(stats) != 1 {
 		t.Errorf("stats: got %d routes", len(stats))
+	}
+}
+
+// generateTestRSAKey generates a test RSA key pair and returns PEM-encoded private and public keys.
+func generateTestRSAKey(t *testing.T) (privPEM, pubPEM string) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privBytes, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privPEM = string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privBytes}))
+	pubBytes, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pubPEM = string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubBytes}))
+	return
+}
+
+func TestRSASHA256Signing(t *testing.T) {
+	privPEM, _ := generateTestRSAKey(t)
+
+	cfg := config.BackendSigningConfig{
+		Enabled:    true,
+		Algorithm:  "rsa-sha256",
+		PrivateKey: privPEM,
+		KeyID:      "rsa-key-1",
+	}
+	signer, err := New("route-rsa", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	if err := signer.Sign(req); err != nil {
+		t.Fatal(err)
+	}
+
+	sig := req.Header.Get("X-Gateway-Signature")
+	if !strings.HasPrefix(sig, "rsa-sha256=") {
+		t.Errorf("expected rsa-sha256 prefix, got %q", sig)
+	}
+	if req.Header.Get("X-Gateway-Key-ID") != "rsa-key-1" {
+		t.Error("wrong key ID")
+	}
+}
+
+func TestRSASHA512Signing(t *testing.T) {
+	privPEM, _ := generateTestRSAKey(t)
+
+	cfg := config.BackendSigningConfig{
+		Enabled:    true,
+		Algorithm:  "rsa-sha512",
+		PrivateKey: privPEM,
+		KeyID:      "rsa-key-512",
+	}
+	signer, err := New("route-rsa512", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/test", bytes.NewReader([]byte(`{"data":true}`)))
+	if err := signer.Sign(req); err != nil {
+		t.Fatal(err)
+	}
+
+	sig := req.Header.Get("X-Gateway-Signature")
+	if !strings.HasPrefix(sig, "rsa-sha512=") {
+		t.Errorf("expected rsa-sha512 prefix, got %q", sig)
+	}
+}
+
+func TestRSAPSSSHA256Signing(t *testing.T) {
+	privPEM, _ := generateTestRSAKey(t)
+
+	cfg := config.BackendSigningConfig{
+		Enabled:    true,
+		Algorithm:  "rsa-pss-sha256",
+		PrivateKey: privPEM,
+		KeyID:      "pss-key-1",
+	}
+	signer, err := New("route-pss", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	if err := signer.Sign(req); err != nil {
+		t.Fatal(err)
+	}
+
+	sig := req.Header.Get("X-Gateway-Signature")
+	if !strings.HasPrefix(sig, "rsa-pss-sha256=") {
+		t.Errorf("expected rsa-pss-sha256 prefix, got %q", sig)
+	}
+}
+
+func TestRSASignAndVerifyRoundTrip(t *testing.T) {
+	privPEM, pubPEM := generateTestRSAKey(t)
+
+	// Sign the request
+	signerCfg := config.BackendSigningConfig{
+		Enabled:    true,
+		Algorithm:  "rsa-sha256",
+		PrivateKey: privPEM,
+		KeyID:      "roundtrip-key",
+	}
+	signer, err := New("route-rt", signerCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := []byte(`{"hello":"world"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/roundtrip", bytes.NewReader(body))
+	if err := signer.Sign(req); err != nil {
+		t.Fatal(err)
+	}
+
+	// Parse the signature and verify using the public key
+	sigHeader := req.Header.Get("X-Gateway-Signature")
+	parts := strings.SplitN(sigHeader, "=", 2)
+	if parts[0] != "rsa-sha256" {
+		t.Fatalf("wrong algo prefix: %s", parts[0])
+	}
+	sigBytes, err := hex.DecodeString(parts[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Parse public key
+	block, _ := pem.Decode([]byte(pubPEM))
+	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rsaPub := pub.(*rsa.PublicKey)
+
+	// Rebuild signing string
+	ts := req.Header.Get("X-Gateway-Timestamp")
+	readBody, _ := io.ReadAll(req.Body)
+	bodyHash := sha256.Sum256(readBody)
+	signingStr := "POST\n/api/roundtrip\n" + ts + "\n" + hex.EncodeToString(bodyHash[:])
+
+	h := sha256.New()
+	h.Write([]byte(signingStr))
+	digest := h.Sum(nil)
+
+	if err := rsa.VerifyPKCS1v15(rsaPub, crypto.SHA256, digest, sigBytes); err != nil {
+		t.Errorf("RSA signature verification failed: %v", err)
+	}
+}
+
+func TestRSAInvalidPEM(t *testing.T) {
+	cfg := config.BackendSigningConfig{
+		Enabled:    true,
+		Algorithm:  "rsa-sha256",
+		PrivateKey: "not-a-pem-key",
+		KeyID:      "k",
+	}
+	_, err := New("route-1", cfg)
+	if err == nil {
+		t.Fatal("expected error for invalid PEM")
+	}
+	if !strings.Contains(err.Error(), "PEM") {
+		t.Errorf("expected PEM error, got: %v", err)
+	}
+}
+
+func TestRSAMissingKey(t *testing.T) {
+	cfg := config.BackendSigningConfig{
+		Enabled:   true,
+		Algorithm: "rsa-sha256",
+		KeyID:     "k",
+	}
+	_, err := New("route-1", cfg)
+	if err == nil {
+		t.Fatal("expected error for missing RSA key")
+	}
+	if !strings.Contains(err.Error(), "private_key") {
+		t.Errorf("expected private_key error, got: %v", err)
 	}
 }

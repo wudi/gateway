@@ -1237,6 +1237,59 @@ func (l *Loader) validateDelegatedSecurity(route RouteConfig, cfg *Config) error
 	if err := l.validateClientMTLSConfig(scope, route.ClientMTLS); err != nil {
 		return err
 	}
+	if err := l.validateTokenExchangeConfig(scope, route); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (l *Loader) validateTokenExchangeConfig(scope string, route RouteConfig) error {
+	cfg := route.TokenExchange
+	if !cfg.Enabled {
+		return nil
+	}
+	if !route.Auth.Required {
+		return fmt.Errorf("%s: token_exchange requires auth.required to be true", scope)
+	}
+	switch cfg.ValidationMode {
+	case "jwt":
+		if cfg.JWKSURL == "" {
+			return fmt.Errorf("%s: token_exchange.jwks_url is required for jwt validation mode", scope)
+		}
+		if len(cfg.TrustedIssuers) == 0 {
+			return fmt.Errorf("%s: token_exchange.trusted_issuers is required for jwt validation mode", scope)
+		}
+	case "introspection":
+		if cfg.IntrospectionURL == "" {
+			return fmt.Errorf("%s: token_exchange.introspection_url is required for introspection mode", scope)
+		}
+		if cfg.ClientID == "" {
+			return fmt.Errorf("%s: token_exchange.client_id is required for introspection mode", scope)
+		}
+		if cfg.ClientSecret == "" {
+			return fmt.Errorf("%s: token_exchange.client_secret is required for introspection mode", scope)
+		}
+	default:
+		return fmt.Errorf("%s: token_exchange.validation_mode must be \"jwt\" or \"introspection\"", scope)
+	}
+	if cfg.Issuer == "" {
+		return fmt.Errorf("%s: token_exchange.issuer is required", scope)
+	}
+	switch cfg.SigningAlgorithm {
+	case "RS256", "RS512":
+		if cfg.SigningKey == "" && cfg.SigningKeyFile == "" {
+			return fmt.Errorf("%s: token_exchange.signing_key or signing_key_file required for %s", scope, cfg.SigningAlgorithm)
+		}
+	case "HS256", "HS512":
+		if cfg.SigningSecret == "" {
+			return fmt.Errorf("%s: token_exchange.signing_secret required for %s", scope, cfg.SigningAlgorithm)
+		}
+	default:
+		return fmt.Errorf("%s: token_exchange.signing_algorithm must be RS256, RS512, HS256, or HS512", scope)
+	}
+	if cfg.TokenLifetime <= 0 {
+		return fmt.Errorf("%s: token_exchange.token_lifetime must be > 0", scope)
+	}
 	return nil
 }
 
@@ -2155,21 +2208,39 @@ func (l *Loader) validateBackendSigningConfig(scope string, cfg BackendSigningCo
 	if !cfg.Enabled {
 		return nil
 	}
+	isRSA := false
 	switch cfg.Algorithm {
 	case "", "hmac-sha256", "hmac-sha512":
-		// valid
+		// HMAC algorithms
+	case "rsa-sha256", "rsa-sha512", "rsa-pss-sha256":
+		isRSA = true
 	default:
-		return fmt.Errorf("%s: backend_signing.algorithm must be \"hmac-sha256\" or \"hmac-sha512\"", scope)
+		return fmt.Errorf("%s: backend_signing.algorithm must be one of: hmac-sha256, hmac-sha512, rsa-sha256, rsa-sha512, rsa-pss-sha256", scope)
 	}
-	if cfg.Secret == "" {
-		return fmt.Errorf("%s: backend_signing.secret is required", scope)
-	}
-	decoded, err := base64.StdEncoding.DecodeString(cfg.Secret)
-	if err != nil {
-		return fmt.Errorf("%s: backend_signing.secret must be valid base64: %v", scope, err)
-	}
-	if len(decoded) < 32 {
-		return fmt.Errorf("%s: backend_signing.secret must decode to at least 32 bytes (got %d)", scope, len(decoded))
+	if isRSA {
+		if cfg.Secret != "" {
+			return fmt.Errorf("%s: backend_signing.secret must not be set for RSA algorithms", scope)
+		}
+		if cfg.PrivateKey == "" && cfg.PrivateKeyFile == "" {
+			return fmt.Errorf("%s: backend_signing.private_key or private_key_file is required for RSA algorithms", scope)
+		}
+		if cfg.PrivateKey != "" && cfg.PrivateKeyFile != "" {
+			return fmt.Errorf("%s: backend_signing.private_key and private_key_file are mutually exclusive", scope)
+		}
+	} else {
+		if cfg.PrivateKey != "" || cfg.PrivateKeyFile != "" {
+			return fmt.Errorf("%s: backend_signing.private_key/private_key_file must not be set for HMAC algorithms", scope)
+		}
+		if cfg.Secret == "" {
+			return fmt.Errorf("%s: backend_signing.secret is required", scope)
+		}
+		decoded, err := base64.StdEncoding.DecodeString(cfg.Secret)
+		if err != nil {
+			return fmt.Errorf("%s: backend_signing.secret must be valid base64: %v", scope, err)
+		}
+		if len(decoded) < 32 {
+			return fmt.Errorf("%s: backend_signing.secret must decode to at least 32 bytes (got %d)", scope, len(decoded))
+		}
 	}
 	if cfg.KeyID == "" {
 		return fmt.Errorf("%s: backend_signing.key_id is required", scope)
@@ -2189,21 +2260,39 @@ func (l *Loader) validateInboundSigningConfig(scope string, cfg InboundSigningCo
 	if !cfg.Enabled {
 		return nil
 	}
+	isRSA := false
 	switch cfg.Algorithm {
 	case "", "hmac-sha256", "hmac-sha512":
-		// valid
+		// HMAC algorithms
+	case "rsa-sha256", "rsa-sha512", "rsa-pss-sha256":
+		isRSA = true
 	default:
-		return fmt.Errorf("%s: inbound_signing.algorithm must be \"hmac-sha256\" or \"hmac-sha512\"", scope)
+		return fmt.Errorf("%s: inbound_signing.algorithm must be one of: hmac-sha256, hmac-sha512, rsa-sha256, rsa-sha512, rsa-pss-sha256", scope)
 	}
-	if cfg.Secret == "" {
-		return fmt.Errorf("%s: inbound_signing.secret is required", scope)
-	}
-	decoded, err := base64.StdEncoding.DecodeString(cfg.Secret)
-	if err != nil {
-		return fmt.Errorf("%s: inbound_signing.secret must be valid base64: %v", scope, err)
-	}
-	if len(decoded) < 32 {
-		return fmt.Errorf("%s: inbound_signing.secret must decode to at least 32 bytes (got %d)", scope, len(decoded))
+	if isRSA {
+		if cfg.Secret != "" {
+			return fmt.Errorf("%s: inbound_signing.secret must not be set for RSA algorithms", scope)
+		}
+		if cfg.PublicKey == "" && cfg.PublicKeyFile == "" {
+			return fmt.Errorf("%s: inbound_signing.public_key or public_key_file is required for RSA algorithms", scope)
+		}
+		if cfg.PublicKey != "" && cfg.PublicKeyFile != "" {
+			return fmt.Errorf("%s: inbound_signing.public_key and public_key_file are mutually exclusive", scope)
+		}
+	} else {
+		if cfg.PublicKey != "" || cfg.PublicKeyFile != "" {
+			return fmt.Errorf("%s: inbound_signing.public_key/public_key_file must not be set for HMAC algorithms", scope)
+		}
+		if cfg.Secret == "" {
+			return fmt.Errorf("%s: inbound_signing.secret is required", scope)
+		}
+		decoded, err := base64.StdEncoding.DecodeString(cfg.Secret)
+		if err != nil {
+			return fmt.Errorf("%s: inbound_signing.secret must be valid base64: %v", scope, err)
+		}
+		if len(decoded) < 32 {
+			return fmt.Errorf("%s: inbound_signing.secret must decode to at least 32 bytes (got %d)", scope, len(decoded))
+		}
 	}
 	return nil
 }

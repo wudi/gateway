@@ -19,6 +19,7 @@ type APIKeyAuth struct {
 	queryParam string
 	keys       map[string]*APIKeyData // key -> data
 	mu         sync.RWMutex
+	manager    *APIKeyManager // managed key support (nil if not enabled)
 }
 
 // APIKeyData stores full API key information
@@ -60,6 +61,16 @@ func NewAPIKeyAuth(cfg config.APIKeyConfig) *APIKeyAuth {
 	return auth
 }
 
+// SetManager attaches an APIKeyManager for managed key support.
+func (a *APIKeyAuth) SetManager(m *APIKeyManager) {
+	a.manager = m
+}
+
+// GetManager returns the attached APIKeyManager (may be nil).
+func (a *APIKeyAuth) GetManager() *APIKeyManager {
+	return a.manager
+}
+
 // Authenticate verifies the API key and returns the identity
 func (a *APIKeyAuth) Authenticate(r *http.Request) (*variables.Identity, error) {
 	apiKey := a.extractKey(r)
@@ -67,6 +78,19 @@ func (a *APIKeyAuth) Authenticate(r *http.Request) (*variables.Identity, error) 
 		return nil, errors.ErrUnauthorized.WithDetails("API key not provided")
 	}
 
+	// Try managed keys first if manager is attached
+	if a.manager != nil {
+		identity, err := a.manager.Authenticate(apiKey)
+		if err == nil {
+			return identity, nil
+		}
+		// Only fall through to static keys on 401 (not found/expired); 403/429 are authoritative
+		if gErr, ok := err.(*errors.GatewayError); ok && gErr.Code != 401 {
+			return nil, err
+		}
+	}
+
+	// Fall back to static keys
 	a.mu.RLock()
 	data, ok := a.keys[apiKey]
 	a.mu.RUnlock()

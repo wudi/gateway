@@ -24,6 +24,38 @@ authentication:
 
 API keys can be managed at runtime via the [Admin API](admin-api.md) at `/admin/keys` (GET, POST, DELETE).
 
+### API Key Management
+
+The gateway provides built-in API key lifecycle management: generation, rotation (with grace periods), revocation, and per-key rate limits. This eliminates the need for an external key management service.
+
+```yaml
+authentication:
+  api_key:
+    enabled: true
+    header: "X-API-Key"
+    keys: []  # static keys still supported alongside managed keys
+    management:
+      enabled: true
+      key_length: 32          # bytes (default 32, range 16-128)
+      key_prefix: "gw_"      # prefix for generated keys
+      store: memory           # "memory" or "redis"
+      default_rate_limit:     # optional default per-key rate limit
+        rate: 100
+        period: 1m
+        burst: 20
+```
+
+**Key operations** (via Admin API):
+
+- **Generate:** `POST /api-keys/generate` — returns the raw key once (only time visible)
+- **Rotate:** `POST /api-keys/{prefix}/rotate` — creates a new key with a grace period for the old key
+- **Revoke:** `POST /api-keys/{prefix}/revoke` — marks key as revoked (returns 403, not 401)
+- **Unrevoke:** `POST /api-keys/{prefix}/unrevoke` — restores a revoked key
+- **Delete:** `DELETE /api-keys/{prefix}/delete` — permanently removes the key
+- **Stats:** `GET /api-keys/stats` — management statistics
+
+Managed keys are looked up by SHA-256 hash — the raw key is never stored. When both managed and static keys are configured, managed keys are checked first.
+
 ## JWT Authentication
 
 Validates JSON Web Tokens using HMAC shared secrets, RSA public keys, or remote JWKS endpoints.
@@ -316,3 +348,61 @@ routes:
 The middleware is positioned at step 16.25 in the chain — after request transforms and before backend signing. This ensures the `Authorization` header is included in HMAC signature computation when backend signing is also enabled.
 
 **Admin endpoint:** `GET /backend-auth` returns per-route token refresh stats.
+
+---
+
+## Token Exchange (RFC 8693)
+
+The gateway can act as a Security Token Service (STS) intermediary, accepting external IdP tokens and issuing internal service tokens. This enables zero-trust architectures where backends only trust gateway-issued tokens.
+
+### How It Works
+
+1. Client sends a request with `Authorization: Bearer <external-token>`
+2. Gateway validates the external token (JWT via JWKS, or introspection)
+3. Gateway mints a new internal JWT with mapped claims
+4. Backend receives the gateway-issued token in the `Authorization` header
+
+### Configuration
+
+```yaml
+routes:
+  - id: partner-api
+    path: /api/partner
+    auth:
+      required: true
+      methods: [jwt]
+    token_exchange:
+      enabled: true
+      validation_mode: jwt          # "jwt" or "introspection"
+      jwks_url: https://partner-idp.example.com/.well-known/jwks.json
+      trusted_issuers:
+        - https://partner-idp.example.com
+      issuer: https://gateway.internal.example.com
+      audience: [internal-services]
+      scopes: [read, write]
+      token_lifetime: 15m
+      signing_algorithm: RS256      # RS256, RS512, HS256, HS512
+      signing_key_file: /etc/gateway/exchange-key.pem
+      cache_ttl: 14m
+      claim_mappings:
+        sub: sub
+        email: email
+        groups: roles
+```
+
+### Validation Modes
+
+- **jwt:** Validates tokens locally using JWKS. Requires `jwks_url` and `trusted_issuers`.
+- **introspection:** Validates via OAuth2 introspection endpoint. Requires `introspection_url`, `client_id`, `client_secret`.
+
+### Claim Mappings
+
+The `claim_mappings` field maps claims from the subject token to the issued token. The key is the claim name in the subject token, the value is the claim name in the issued token.
+
+### Caching
+
+Exchange results are cached by SHA-256 of the subject token. Set `cache_ttl` slightly less than `token_lifetime` to avoid serving expired tokens from cache.
+
+The middleware is positioned at step 6.07 in the chain — after auth (6) and token revocation (6.05), before claims propagation (6.15).
+
+**Admin endpoint:** `GET /token-exchange` returns per-route exchange metrics.

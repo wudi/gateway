@@ -215,12 +215,50 @@ type AuthenticationConfig struct {
 	OAuth  OAuthConfig  `yaml:"oauth"` // Feature 7: OAuth 2.0 / OIDC
 }
 
+// TokenExchangeConfig defines OAuth2/OIDC token exchange (RFC 8693) settings.
+type TokenExchangeConfig struct {
+	Enabled          bool              `yaml:"enabled"`
+	ValidationMode   string            `yaml:"validation_mode"`    // "jwt" (local JWKS) or "introspection"
+	JWKSURL          string            `yaml:"jwks_url"`           // for jwt mode
+	TrustedIssuers   []string          `yaml:"trusted_issuers"`    // for jwt mode
+	IntrospectionURL string            `yaml:"introspection_url"`  // for introspection mode
+	ClientID         string            `yaml:"client_id"`          // for introspection mode
+	ClientSecret     string            `yaml:"client_secret"`      // for introspection mode
+	Issuer           string            `yaml:"issuer"`             // issuer claim in minted tokens
+	Audience         []string          `yaml:"audience"`           // audience claim in minted tokens
+	Scopes           []string          `yaml:"scopes"`             // scopes in minted tokens
+	TokenLifetime    time.Duration     `yaml:"token_lifetime"`     // lifetime of minted tokens
+	SigningAlgorithm string            `yaml:"signing_algorithm"`  // RS256, RS512, HS256, HS512
+	SigningKeyFile   string            `yaml:"signing_key_file"`   // PEM file for RSA signing
+	SigningKey       string            `yaml:"signing_key"`        // inline PEM for RSA signing
+	SigningSecret    string            `yaml:"signing_secret"`     // base64 secret for HMAC signing
+	CacheTTL         time.Duration     `yaml:"cache_ttl"`          // exchange result cache TTL
+	ClaimMappings    map[string]string `yaml:"claim_mappings"`     // subject claim → issued claim mappings
+}
+
 // APIKeyConfig defines API key authentication settings
 type APIKeyConfig struct {
-	Enabled    bool         `yaml:"enabled"`
-	Header     string       `yaml:"header"`
-	QueryParam string       `yaml:"query_param"`
-	Keys       []APIKeyEntry `yaml:"keys"`
+	Enabled    bool                   `yaml:"enabled"`
+	Header     string                 `yaml:"header"`
+	QueryParam string                 `yaml:"query_param"`
+	Keys       []APIKeyEntry          `yaml:"keys"`
+	Management APIKeyManagementConfig `yaml:"management"`
+}
+
+// APIKeyManagementConfig defines settings for managed API key generation/rotation/revocation.
+type APIKeyManagementConfig struct {
+	Enabled          bool                  `yaml:"enabled"`
+	KeyLength        int                   `yaml:"key_length"`         // bytes (default 32)
+	KeyPrefix        string                `yaml:"key_prefix"`         // e.g., "gw_"
+	Store            string                `yaml:"store"`              // "memory" (default) or "redis"
+	DefaultRateLimit *KeyRateLimitConfig   `yaml:"default_rate_limit"` // default per-key rate limit
+}
+
+// KeyRateLimitConfig defines per-key rate limit settings.
+type KeyRateLimitConfig struct {
+	Rate   int           `yaml:"rate"`
+	Period time.Duration `yaml:"period"`
+	Burst  int           `yaml:"burst"`
 }
 
 // APIKeyEntry represents a single API key
@@ -363,6 +401,7 @@ type RouteConfig struct {
 	CompletionHeader     bool                          `yaml:"completion_header"`      // Add X-Gateway-Completed header
 	SessionAffinity      SessionAffinityConfig          `yaml:"session_affinity"`       // Cookie-based backend pinning
 	TrafficReplay        TrafficReplayConfig            `yaml:"traffic_replay"`         // Record and replay traffic
+	TokenExchange        TokenExchangeConfig            `yaml:"token_exchange"`         // OAuth2/OIDC token exchange (RFC 8693)
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -1459,28 +1498,32 @@ type GeoConfig struct {
 	ShadowMode     bool     `yaml:"shadow_mode"`     // log but don't reject
 }
 
-// BackendSigningConfig defines HMAC-based request signing for backend verification.
+// BackendSigningConfig defines request signing for backend verification.
 type BackendSigningConfig struct {
-	Enabled       bool     `yaml:"enabled"`
-	Algorithm     string   `yaml:"algorithm"`       // "hmac-sha256" (default), "hmac-sha512"
-	Secret        string   `yaml:"secret"`           // base64-encoded, min 32 decoded bytes
-	KeyID         string   `yaml:"key_id"`           // key identifier for rotation
-	SignedHeaders []string `yaml:"signed_headers"`   // headers to include in signature
-	IncludeBody   *bool    `yaml:"include_body"`     // default true (*bool for merge semantics)
-	HeaderPrefix  string   `yaml:"header_prefix"`    // default "X-Gateway-"
+	Enabled        bool     `yaml:"enabled"`
+	Algorithm      string   `yaml:"algorithm"`        // "hmac-sha256" (default), "hmac-sha512", "rsa-sha256", "rsa-sha512", "rsa-pss-sha256"
+	Secret         string   `yaml:"secret"`            // base64-encoded HMAC secret, min 32 decoded bytes
+	KeyID          string   `yaml:"key_id"`            // key identifier for rotation
+	SignedHeaders  []string `yaml:"signed_headers"`    // headers to include in signature
+	IncludeBody    *bool    `yaml:"include_body"`      // default true (*bool for merge semantics)
+	HeaderPrefix   string   `yaml:"header_prefix"`     // default "X-Gateway-"
+	PrivateKey     string   `yaml:"private_key"`       // PEM-encoded RSA private key (for RSA algos)
+	PrivateKeyFile string   `yaml:"private_key_file"`  // path to PEM-encoded RSA private key file
 }
 
 // InboundSigningConfig defines inbound request signature verification.
 type InboundSigningConfig struct {
 	Enabled       bool          `yaml:"enabled"`
-	Algorithm     string        `yaml:"algorithm"`       // "hmac-sha256" (default), "hmac-sha512"
-	Secret        string        `yaml:"secret"`          // base64-encoded, min 32 decoded bytes
+	Algorithm     string        `yaml:"algorithm"`       // "hmac-sha256" (default), "hmac-sha512", "rsa-sha256", "rsa-sha512", "rsa-pss-sha256"
+	Secret        string        `yaml:"secret"`          // base64-encoded HMAC secret, min 32 decoded bytes
 	KeyID         string        `yaml:"key_id"`          // expected key identifier
 	SignedHeaders []string      `yaml:"signed_headers"`  // headers to include in verification
 	IncludeBody   *bool         `yaml:"include_body"`    // default true
 	HeaderPrefix  string        `yaml:"header_prefix"`   // default "X-Gateway-"
 	MaxAge        time.Duration `yaml:"max_age"`         // max age of timestamp (default 5m)
 	ShadowMode    bool          `yaml:"shadow_mode"`     // log but don't reject
+	PublicKey     string        `yaml:"public_key"`      // PEM-encoded RSA public key (for RSA algos)
+	PublicKeyFile string        `yaml:"public_key_file"` // path to PEM-encoded RSA public key file
 }
 
 // PIIRedactionConfig defines PII pattern redaction settings.

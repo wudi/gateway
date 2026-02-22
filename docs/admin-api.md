@@ -355,6 +355,66 @@ curl -X DELETE http://localhost:8081/admin/keys \
 {"status": "deleted"}
 ```
 
+### Managed Key Operations
+
+When API key management is enabled, additional endpoints are available:
+
+#### Generate Key
+
+```bash
+curl -X POST http://localhost:8081/api-keys/generate \
+  -H "Content-Type: application/json" \
+  -d '{"client_id": "partner-1", "name": "Partner API Key", "roles": ["read"], "ttl": "720h"}'
+```
+
+**Response (201):**
+```json
+{"key": "gw_a1b2c3d4e5f6..."}
+```
+
+The raw key is returned only once. Store it securely.
+
+#### Rotate Key
+
+```bash
+curl -X POST http://localhost:8081/api-keys/gw_a1b2c/rotate \
+  -H "Content-Type: application/json" \
+  -d '{"grace_period": "24h"}'
+```
+
+**Response:**
+```json
+{"key": "gw_f7e8d9c0b1a2..."}
+```
+
+Both old and new keys work during the grace period.
+
+#### Revoke/Unrevoke Key
+
+```bash
+curl -X POST http://localhost:8081/api-keys/gw_a1b2c/revoke
+curl -X POST http://localhost:8081/api-keys/gw_a1b2c/unrevoke
+```
+
+Revoked keys return 403 (Forbidden), not 401. This distinction tells clients the key is known but blocked.
+
+#### Delete Managed Key
+
+```bash
+curl -X DELETE http://localhost:8081/api-keys/gw_a1b2c/delete
+```
+
+#### Management Stats
+
+```bash
+curl http://localhost:8081/api-keys/stats
+```
+
+**Response:**
+```json
+{"total_keys": 5, "generated": 10, "rotated": 3, "revoked": 1, "rate_limited": 42}
+```
+
 ## Error Pages
 
 ### GET `/error-pages`

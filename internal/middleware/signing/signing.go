@@ -2,15 +2,21 @@ package signing
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/hmac"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/sha512"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/pem"
 	"fmt"
 	"hash"
 	"io"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,11 +27,23 @@ import (
 	"go.uber.org/zap"
 )
 
+// signMode distinguishes HMAC from RSA signing modes.
+type signMode int
+
+const (
+	signModeHMAC   signMode = iota
+	signModeRSA             // PKCS1v15
+	signModeRSAPSS          // PSS
+)
+
 // CompiledSigner is a pre-compiled, concurrent-safe request signer for a single route.
 type CompiledSigner struct {
 	routeID       string
-	secret        []byte
+	secret        []byte          // HMAC secret (nil for RSA)
+	privateKey    *rsa.PrivateKey  // RSA private key (nil for HMAC)
 	hashFunc      func() hash.Hash
+	cryptoHash    crypto.Hash      // for RSA: crypto.SHA256 or crypto.SHA512
+	mode          signMode
 	algorithm     string
 	keyID         string
 	signedHeaders []string
@@ -40,58 +58,118 @@ func New(routeID string, cfg config.BackendSigningConfig) (*CompiledSigner, erro
 		return nil, fmt.Errorf("signing not enabled")
 	}
 
-	secret, err := base64.StdEncoding.DecodeString(cfg.Secret)
-	if err != nil {
-		return nil, fmt.Errorf("signing: invalid base64 secret: %w", err)
-	}
-	if len(secret) < 32 {
-		return nil, fmt.Errorf("signing: secret must be at least 32 bytes (got %d)", len(secret))
-	}
-
 	algo := cfg.Algorithm
 	if algo == "" {
 		algo = "hmac-sha256"
-	}
-
-	var hashFunc func() hash.Hash
-	switch algo {
-	case "hmac-sha256":
-		hashFunc = sha256.New
-	case "hmac-sha512":
-		hashFunc = sha512.New
-	default:
-		return nil, fmt.Errorf("signing: unsupported algorithm %q", algo)
 	}
 
 	if cfg.KeyID == "" {
 		return nil, fmt.Errorf("signing: key_id is required")
 	}
 
+	s := &CompiledSigner{
+		routeID:   routeID,
+		algorithm: algo,
+		keyID:     cfg.KeyID,
+	}
+
+	switch algo {
+	case "hmac-sha256":
+		s.mode = signModeHMAC
+		s.hashFunc = sha256.New
+	case "hmac-sha512":
+		s.mode = signModeHMAC
+		s.hashFunc = sha512.New
+	case "rsa-sha256":
+		s.mode = signModeRSA
+		s.hashFunc = sha256.New
+		s.cryptoHash = crypto.SHA256
+	case "rsa-sha512":
+		s.mode = signModeRSA
+		s.hashFunc = sha512.New
+		s.cryptoHash = crypto.SHA512
+	case "rsa-pss-sha256":
+		s.mode = signModeRSAPSS
+		s.hashFunc = sha256.New
+		s.cryptoHash = crypto.SHA256
+	default:
+		return nil, fmt.Errorf("signing: unsupported algorithm %q", algo)
+	}
+
+	// Load key material based on mode
+	switch s.mode {
+	case signModeHMAC:
+		secret, err := base64.StdEncoding.DecodeString(cfg.Secret)
+		if err != nil {
+			return nil, fmt.Errorf("signing: invalid base64 secret: %w", err)
+		}
+		if len(secret) < 32 {
+			return nil, fmt.Errorf("signing: secret must be at least 32 bytes (got %d)", len(secret))
+		}
+		s.secret = secret
+	case signModeRSA, signModeRSAPSS:
+		privKey, err := loadPrivateKey(cfg.PrivateKey, cfg.PrivateKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("signing: %w", err)
+		}
+		s.privateKey = privKey
+	}
+
 	prefix := cfg.HeaderPrefix
 	if prefix == "" {
 		prefix = "X-Gateway-"
 	}
+	s.headerPrefix = prefix
 
 	includeBody := true
 	if cfg.IncludeBody != nil {
 		includeBody = *cfg.IncludeBody
 	}
+	s.includeBody = includeBody
 
 	// Sort signed headers for deterministic order
 	headers := make([]string, len(cfg.SignedHeaders))
 	copy(headers, cfg.SignedHeaders)
 	sort.Strings(headers)
+	s.signedHeaders = headers
 
-	return &CompiledSigner{
-		routeID:       routeID,
-		secret:        secret,
-		hashFunc:      hashFunc,
-		algorithm:     algo,
-		keyID:         cfg.KeyID,
-		signedHeaders: headers,
-		headerPrefix:  prefix,
-		includeBody:   includeBody,
-	}, nil
+	return s, nil
+}
+
+// loadPrivateKey loads an RSA private key from inline PEM or a file path.
+func loadPrivateKey(inline, file string) (*rsa.PrivateKey, error) {
+	var pemData []byte
+	if inline != "" {
+		pemData = []byte(inline)
+	} else if file != "" {
+		var err error
+		pemData, err = os.ReadFile(file)
+		if err != nil {
+			return nil, fmt.Errorf("reading private key file: %w", err)
+		}
+	} else {
+		return nil, fmt.Errorf("private_key or private_key_file is required for RSA algorithms")
+	}
+
+	block, _ := pem.Decode(pemData)
+	if block == nil {
+		return nil, fmt.Errorf("failed to parse PEM block from private key")
+	}
+
+	// Try PKCS8 first, then PKCS1
+	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		rsaKey, err2 := x509.ParsePKCS1PrivateKey(block.Bytes)
+		if err2 != nil {
+			return nil, fmt.Errorf("parsing private key: not PKCS8 (%v) or PKCS1 (%v)", err, err2)
+		}
+		return rsaKey, nil
+	}
+	rsaKey, ok := key.(*rsa.PrivateKey)
+	if !ok {
+		return nil, fmt.Errorf("private key is not RSA (got %T)", key)
+	}
+	return rsaKey, nil
 }
 
 // Sign signs the outgoing request by injecting HMAC signature headers.
@@ -139,10 +217,36 @@ func (s *CompiledSigner) Sign(r *http.Request) error {
 		}
 	}
 
-	// Compute HMAC
-	mac := hmac.New(s.hashFunc, s.secret)
-	mac.Write([]byte(sb.String()))
-	sig := hex.EncodeToString(mac.Sum(nil))
+	// Compute signature based on mode
+	signingString := []byte(sb.String())
+	var sig string
+
+	switch s.mode {
+	case signModeHMAC:
+		mac := hmac.New(s.hashFunc, s.secret)
+		mac.Write(signingString)
+		sig = hex.EncodeToString(mac.Sum(nil))
+	case signModeRSA:
+		h := s.hashFunc()
+		h.Write(signingString)
+		digest := h.Sum(nil)
+		sigBytes, err := rsa.SignPKCS1v15(rand.Reader, s.privateKey, s.cryptoHash, digest)
+		if err != nil {
+			s.metrics.Errors.Add(1)
+			return fmt.Errorf("signing: RSA sign failed: %w", err)
+		}
+		sig = hex.EncodeToString(sigBytes)
+	case signModeRSAPSS:
+		h := s.hashFunc()
+		h.Write(signingString)
+		digest := h.Sum(nil)
+		sigBytes, err := rsa.SignPSS(rand.Reader, s.privateKey, s.cryptoHash, digest, nil)
+		if err != nil {
+			s.metrics.Errors.Add(1)
+			return fmt.Errorf("signing: RSA-PSS sign failed: %w", err)
+		}
+		sig = hex.EncodeToString(sigBytes)
+	}
 
 	// Inject headers
 	r.Header.Set(s.headerPrefix+"Signature", s.algorithm+"="+sig)

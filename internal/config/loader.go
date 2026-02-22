@@ -173,6 +173,35 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// === API Key Management ===
+	if cfg.Authentication.APIKey.Management.Enabled {
+		mgmt := cfg.Authentication.APIKey.Management
+		if mgmt.KeyLength != 0 && (mgmt.KeyLength < 16 || mgmt.KeyLength > 128) {
+			return fmt.Errorf("authentication.api_key.management.key_length must be between 16 and 128")
+		}
+		switch mgmt.Store {
+		case "", "memory":
+			// valid
+		case "redis":
+			if cfg.Redis.Address == "" {
+				return fmt.Errorf("authentication.api_key.management.store \"redis\" requires redis.address")
+			}
+		default:
+			return fmt.Errorf("authentication.api_key.management.store must be \"memory\" or \"redis\"")
+		}
+		if mgmt.DefaultRateLimit != nil {
+			if mgmt.DefaultRateLimit.Rate <= 0 {
+				return fmt.Errorf("authentication.api_key.management.default_rate_limit.rate must be > 0")
+			}
+			if mgmt.DefaultRateLimit.Period <= 0 {
+				return fmt.Errorf("authentication.api_key.management.default_rate_limit.period must be > 0")
+			}
+			if mgmt.DefaultRateLimit.Burst <= 0 {
+				return fmt.Errorf("authentication.api_key.management.default_rate_limit.burst must be > 0")
+			}
+		}
+	}
+
 	// === Routes (single loop via validateRoute) ===
 	routeIDs := make(map[string]bool)
 	for i, route := range cfg.Routes {

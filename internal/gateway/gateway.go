@@ -39,6 +39,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/clientmtls"
 	"github.com/wudi/gateway/internal/middleware/cdnheaders"
 	"github.com/wudi/gateway/internal/middleware/claimsprop"
+	"github.com/wudi/gateway/internal/middleware/tokenexchange"
 	"github.com/wudi/gateway/internal/middleware/compression"
 	"github.com/wudi/gateway/internal/middleware/contentreplacer"
 	"github.com/wudi/gateway/internal/middleware/cors"
@@ -193,6 +194,7 @@ type Gateway struct {
 	proxyRateLimiters   *proxyratelimit.ProxyRateLimitByRoute
 	mockHandlers        *mock.MockByRoute
 	claimsPropagators   *claimsprop.ClaimsPropByRoute
+	tokenExchangers     *tokenexchange.TokenExchangeByRoute
 	backendAuths        *backendauth.BackendAuthByRoute
 	statusMappers       *statusmap.StatusMapByRoute
 	staticFiles         *staticfiles.StaticByRoute
@@ -366,6 +368,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		proxyRateLimiters:   proxyratelimit.NewProxyRateLimitByRoute(),
 		mockHandlers:        mock.NewMockByRoute(),
 		claimsPropagators:   claimsprop.NewClaimsPropByRoute(),
+		tokenExchangers:     tokenexchange.NewTokenExchangeByRoute(),
 		backendAuths:        backendauth.NewBackendAuthByRoute(),
 		statusMappers:       statusmap.NewStatusMapByRoute(),
 		staticFiles:         staticfiles.NewStaticByRoute(),
@@ -549,6 +552,12 @@ func New(cfg *config.Config) (*Gateway, error) {
 			}
 			return nil
 		}, g.claimsPropagators.RouteIDs, func() any { return g.claimsPropagators.Stats() }),
+		newFeature("token_exchange", "/token-exchange", func(id string, rc config.RouteConfig) error {
+			if rc.TokenExchange.Enabled {
+				return g.tokenExchangers.AddRoute(id, rc.TokenExchange)
+			}
+			return nil
+		}, g.tokenExchangers.RouteIDs, func() any { return g.tokenExchangers.Stats() }),
 		newFeature("mock_response", "/mock-responses", func(id string, rc config.RouteConfig) error {
 			if rc.MockResponse.Enabled {
 				g.mockHandlers.AddRoute(id, rc.MockResponse)
@@ -1257,6 +1266,30 @@ func (g *Gateway) initAuth() error {
 	// Initialize API Key auth
 	if g.config.Authentication.APIKey.Enabled {
 		g.apiKeyAuth = auth.NewAPIKeyAuth(g.config.Authentication.APIKey)
+
+		// Initialize API Key Manager if management is enabled
+		if g.config.Authentication.APIKey.Management.Enabled {
+			mgmt := g.config.Authentication.APIKey.Management
+			var store auth.KeyStore
+			store = auth.NewMemoryKeyStore(60 * time.Second)
+
+			var defaultRL *auth.KeyRateLimit
+			if mgmt.DefaultRateLimit != nil {
+				defaultRL = &auth.KeyRateLimit{
+					Rate:   mgmt.DefaultRateLimit.Rate,
+					Period: mgmt.DefaultRateLimit.Period,
+					Burst:  mgmt.DefaultRateLimit.Burst,
+				}
+			}
+
+			manager := auth.NewAPIKeyManager(auth.KeyManagerConfig{
+				KeyLength: mgmt.KeyLength,
+				KeyPrefix: mgmt.KeyPrefix,
+				DefaultRL: defaultRL,
+				Store:     store,
+			})
+			g.apiKeyAuth.SetManager(manager)
+		}
 	}
 
 	// Initialize JWT auth
@@ -1797,6 +1830,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		},
 		/* 6.05 */ func() middleware.Middleware {
 			if g.tokenChecker != nil && route.Auth.Required { return g.tokenChecker.Middleware() }; return nil
+		},
+		/* 6.07 */ func() middleware.Middleware {
+			if te := g.tokenExchangers.GetExchanger(routeID); te != nil { return te.Middleware() }; return nil
 		},
 		/* 6.15 */ func() middleware.Middleware {
 			if cp := g.claimsPropagators.GetPropagator(routeID); cp != nil { return cp.Middleware() }; return nil
