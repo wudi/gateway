@@ -883,7 +883,7 @@ func (l *Loader) validateNetworkFeatures(route RouteConfig, _ *Config) error {
 
 	// Protocol translation
 	if route.Protocol.Type != "" {
-		validProtocolTypes := map[string]bool{"http_to_grpc": true, "http_to_thrift": true, "grpc_to_rest": true}
+		validProtocolTypes := map[string]bool{"http_to_grpc": true, "http_to_thrift": true, "grpc_to_rest": true, "grpc_web": true}
 		if !validProtocolTypes[route.Protocol.Type] {
 			return fmt.Errorf("route %s: unknown protocol type: %s", routeID, route.Protocol.Type)
 		}
@@ -937,6 +937,13 @@ func (l *Loader) validateNetworkFeatures(route RouteConfig, _ *Config) error {
 			}
 			if err := l.validateGRPCToRESTMappings(routeID, route.Protocol.REST); err != nil {
 				return err
+			}
+		case "grpc_web":
+			if route.Protocol.GRPCWeb.TLS.Enabled && route.Protocol.GRPCWeb.TLS.CAFile == "" {
+				return fmt.Errorf("route %s: protocol grpc_web tls enabled but ca_file not provided", routeID)
+			}
+			if route.Protocol.GRPCWeb.MaxMessageSize < 0 {
+				return fmt.Errorf("route %s: protocol grpc_web max_message_size must be >= 0", routeID)
 			}
 		}
 	}

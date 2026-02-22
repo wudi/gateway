@@ -767,6 +767,7 @@ type ProtocolConfig struct {
 	REST    RESTTranslateConfig    `yaml:"rest"`
 	GraphQL GraphQLProtocolConfig  `yaml:"graphql"`
 	SOAP    SOAPProtocolConfig     `yaml:"soap"`
+	GRPCWeb GRPCWebTranslateConfig `yaml:"grpc_web"`
 }
 
 // RESTTranslateConfig defines gRPC-to-REST translation settings.
@@ -1937,6 +1938,16 @@ type SOAPProtocolConfig struct {
 	URL         string `yaml:"url" json:"url"`
 	Template    string `yaml:"template" json:"template"`
 	ContentType string `yaml:"content_type" json:"content_type"`
+}
+
+// GRPCWebTranslateConfig configures gRPC-Web proxy translation.
+// Unlike http_to_grpc, this passes protobuf bytes through unchanged,
+// only transforming the framing layer (gRPC-Web wire format to native gRPC).
+type GRPCWebTranslateConfig struct {
+	Timeout        time.Duration     `yaml:"timeout" json:"timeout"`                 // per-call timeout (default 30s)
+	MaxMessageSize int               `yaml:"max_message_size" json:"max_message_size"` // max message size in bytes (default 4MB)
+	TextMode       bool              `yaml:"text_mode" json:"text_mode"`              // accept grpc-web-text base64 encoding (default true)
+	TLS            ProtocolTLSConfig `yaml:"tls" json:"tls"`
 }
 
 func DefaultConfig() *Config {

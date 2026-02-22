@@ -720,7 +720,7 @@ Note: The `database` field is only valid at the global level. Per-route geo conf
 
 ```yaml
     protocol:
-      type: string            # "http_to_grpc", "http_to_thrift", or "grpc_to_rest"
+      type: string            # "http_to_grpc", "http_to_thrift", "grpc_to_rest", or "grpc_web"
       grpc:
         service: string       # fully-qualified gRPC service name
         method: string        # fixed method (requires service)
@@ -792,6 +792,15 @@ Note: The `database` field is only valid at the global level. Per-route geo conf
             http_method: string     # GET, POST, PUT, DELETE, PATCH (required)
             http_path: string       # REST path with {variables} (required)
             body: string            # "*" = send full body as JSON, "" = no body (query params only)
+      grpc_web:
+        timeout: duration           # per-call timeout (default 30s)
+        max_message_size: int       # max message size in bytes (default 4MB)
+        text_mode: bool             # accept grpc-web-text base64 encoding (default true)
+        tls:
+          enabled: bool
+          cert_file: string
+          key_file: string
+          ca_file: string
 ```
 
 **Validation (gRPC):** Mutually exclusive with `grpc.enabled`. `method` and `mappings` are mutually exclusive. If `grpc.tls.enabled` is true, `ca_file` is required. If `mappings` is used, `service` is required. `method` requires `service`.
@@ -799,6 +808,8 @@ Note: The `database` field is only valid at the global level. Per-route geo conf
 **Validation (Thrift):** `idl_file` and `methods` are mutually exclusive; one must be provided. `service` is required. `method` and `mappings` are mutually exclusive. `protocol` must be `binary` or `compact`. `transport` must be `framed` or `buffered`. If `tls.enabled` is true, `ca_file` is required. When using `methods`: field IDs in args must be > 0; in result, ID 0 is the success return. Struct references must exist in `structs`. Enum references must exist in `enums`. Enums must have at least one value.
 
 **Validation (gRPC-to-REST):** At least one mapping is required. Each mapping must have `grpc_service`, `grpc_method`, `http_method`, and `http_path`. `http_method` must be GET/POST/PUT/DELETE/PATCH. No duplicate gRPC service/method combinations. Mutually exclusive with `grpc.enabled`.
+
+**Validation (gRPC-Web):** If `tls.enabled` is true, `ca_file` is required. `max_message_size` must be >= 0. Mutually exclusive with `grpc.enabled`.
 
 ### gRPC Passthrough
 

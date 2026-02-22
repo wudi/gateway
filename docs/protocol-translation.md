@@ -334,11 +334,39 @@ routes:
 
 WebSocket connections bypass the cache and circuit breaker (they return early in the middleware chain).
 
+## gRPC-Web Proxy
+
+Proxies gRPC-Web requests from browser clients to native gRPC backends. Unlike `http_to_grpc`, this passes protobuf bytes through unchanged — only the framing layer is transformed (gRPC-Web wire format to native gRPC).
+
+```yaml
+routes:
+  - id: "grpc-web-api"
+    path: "/mypackage.MyService/*method"
+    path_prefix: true
+    backends:
+      - url: "grpc://grpc-backend:50051"
+    protocol:
+      type: "grpc_web"
+      grpc_web:
+        timeout: 30s
+        max_message_size: 4194304
+        text_mode: true
+    cors:
+      enabled: true
+      allowed_origins: ["https://app.example.com"]
+      allowed_methods: ["POST"]
+      allowed_headers: ["Content-Type", "X-Grpc-Web"]
+```
+
+Browser clients send requests with content type `application/grpc-web+proto` (binary) or `application/grpc-web-text+proto` (base64 text mode). CORS is handled by the gateway's CORS middleware, not the translator.
+
+See [gRPC-Web Proxy](grpc-web.md) for full documentation.
+
 ## Key Config Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `protocol.type` | string | `http_to_grpc` or `http_to_thrift` |
+| `protocol.type` | string | `http_to_grpc`, `http_to_thrift`, `grpc_to_rest`, or `grpc_web` |
 | `protocol.grpc.service` | string | Fully-qualified gRPC service name |
 | `protocol.grpc.timeout` | duration | Per-call timeout (default 30s) |
 | `protocol.grpc.descriptor_cache_ttl` | duration | Reflection cache TTL (default 5m) |
@@ -357,6 +385,9 @@ WebSocket connections bypass the cache and circuit breaker (they return early in
 | `protocol.rest.timeout` | duration | Per-call timeout (default 30s) |
 | `protocol.rest.descriptor_files` | []string | Paths to `.pb` descriptor set files |
 | `protocol.rest.mappings` | []GRPCToRESTMapping | gRPC method → REST endpoint mappings (required) |
+| `protocol.grpc_web.timeout` | duration | Per-call timeout (default 30s) |
+| `protocol.grpc_web.max_message_size` | int | Maximum message size in bytes (default 4MB) |
+| `protocol.grpc_web.text_mode` | bool | Accept grpc-web-text base64 encoding |
 | `grpc.enabled` | bool | Enable gRPC passthrough (mutually exclusive with protocol) |
 | `websocket.enabled` | bool | Enable WebSocket proxying |
 | `websocket.ping_interval` | duration | Keep-alive ping interval |
