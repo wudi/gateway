@@ -131,12 +131,48 @@ routes:
 
 Canary deployments are started and controlled via the admin API (`POST /canary/{route}/start`). See [Canary Deployments](canary-deployments.md) for full documentation including the state machine, weight redistribution, and admin API.
 
+## Session Affinity (Backend Pinning)
+
+Session affinity pins a client to a specific *individual backend* using a cookie. This is distinct from the sticky sessions above, which pin to a *traffic group*.
+
+```yaml
+routes:
+  - id: "api"
+    path: "/api"
+    path_prefix: true
+    backends:
+      - url: "http://backend1:8080"
+      - url: "http://backend2:8080"
+      - url: "http://backend3:8080"
+    session_affinity:
+      enabled: true
+      cookie_name: "X-Session-Backend"  # default
+      ttl: 1h                           # default
+      path: "/"                         # default
+      secure: false                     # default
+      same_site: "lax"                  # "lax"|"strict"|"none", default "lax"
+```
+
+### How It Works
+
+1. On the first request (no cookie), the load balancer picks a backend normally.
+2. The response includes a `Set-Cookie` header with the backend URL encoded in base64.
+3. On subsequent requests, the cookie is read and the request is routed to that backend.
+4. If the pinned backend is unhealthy, the cookie is ignored and the load balancer picks a new backend (a new cookie is set on the response).
+
+### Constraints
+
+- `session_affinity` and `traffic_split` are mutually exclusive (traffic_split has its own `sticky` for group-level pinning).
+- `session_affinity` and `versioning` are mutually exclusive.
+- Works with all load balancer algorithms (round_robin, least_conn, consistent_hash, least_response_time).
+
 ## Constraints
 
 - Traffic splits require weights summing to 100
 - Sticky sessions require `traffic_split` to be configured
 - `hash_key` is required for `header` and `hash` modes
 - Advanced load balancers (`least_conn`, `consistent_hash`, `least_response_time`) are incompatible with traffic splits
+- Session affinity and traffic splits are mutually exclusive
 
 ## Blue-Green Deployments
 

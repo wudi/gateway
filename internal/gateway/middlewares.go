@@ -344,6 +344,48 @@ func evaluateResponseRules(engine *rules.RuleEngine, rw *rules.RulesResponseWrit
 }
 
 // trafficGroupMW injects A/B variant response header and sticky cookie after proxy completes.
+func sessionAffinityMW(sa *loadbalancer.SessionAffinityBalancer) middleware.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			saw := &sessionAffinityWriter{ResponseWriter: w, sa: sa, r: r}
+			next.ServeHTTP(saw, r)
+		})
+	}
+}
+
+// sessionAffinityWriter intercepts WriteHeader to inject the backend affinity cookie.
+type sessionAffinityWriter struct {
+	http.ResponseWriter
+	sa            *loadbalancer.SessionAffinityBalancer
+	r             *http.Request
+	headerWritten bool
+}
+
+func (w *sessionAffinityWriter) WriteHeader(code int) {
+	if !w.headerWritten {
+		w.headerWritten = true
+		varCtx := variables.GetFromRequest(w.r)
+		if varCtx.UpstreamAddr != "" {
+			cookie := w.sa.MakeCookie(varCtx.UpstreamAddr)
+			http.SetCookie(w.ResponseWriter, cookie)
+		}
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *sessionAffinityWriter) Write(b []byte) (int, error) {
+	if !w.headerWritten {
+		w.WriteHeader(200)
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *sessionAffinityWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 func trafficGroupMW(sp *loadbalancer.StickyPolicy) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

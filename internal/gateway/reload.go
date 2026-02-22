@@ -81,6 +81,7 @@ import (
 	"github.com/wudi/gateway/internal/registry"
 	"github.com/wudi/gateway/internal/router"
 	"github.com/wudi/gateway/internal/rules"
+	"github.com/wudi/gateway/internal/trafficreplay"
 	"github.com/wudi/gateway/internal/trafficshape"
 	"github.com/wudi/gateway/internal/variables"
 	"github.com/wudi/gateway/internal/webhook"
@@ -175,6 +176,7 @@ type gatewayState struct {
 	baggagePropagators   *baggage.BaggageByRoute
 	backpressureHandlers *backpressure.BackpressureByRoute
 	auditLoggers         *auditlog.AuditLogByRoute
+	trafficReplay        *trafficreplay.ReplayByRoute
 
 	tenantManager *tenant.Manager
 
@@ -258,6 +260,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		baggagePropagators:   baggage.NewBaggageByRoute(),
 		backpressureHandlers: backpressure.NewBackpressureByRoute(),
 		auditLoggers:         auditlog.NewAuditLogByRoute(),
+		trafficReplay:        trafficreplay.NewReplayByRoute(),
 	}
 
 	// Initialize tenant manager
@@ -580,6 +583,10 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		noOpFeature("backpressure", "/backpressure", s.backpressureHandlers.RouteIDs, func() any { return s.backpressureHandlers.Stats() }),
 		noOpFeature("blue_green", "/blue-green", s.blueGreenControllers.RouteIDs, func() any { return s.blueGreenControllers.Stats() }),
 		noOpFeature("ab_test", "/ab-tests", s.abTests.RouteIDs, func() any { return s.abTests.Stats() }),
+		newFeature("traffic_replay", "/traffic-replay", func(id string, rc config.RouteConfig) error {
+			if rc.TrafficReplay.Enabled { return s.trafficReplay.AddRoute(id, rc.TrafficReplay) }
+			return nil
+		}, s.trafficReplay.RouteIDs, func() any { return s.trafficReplay.Stats() }),
 
 		// Non-per-route singleton features
 		noOpFeature("retry_budget_pools", "/retry-budget-pools", func() []string { return nil }, func() any {
@@ -787,8 +794,11 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 		}
 		s.routeProxies[routeCfg.ID] = proxy.NewRouteProxyWithBalancer(g.proxy, route, wb)
 	} else {
-		balancer := createBalancer(routeCfg, backends)
-		s.routeProxies[routeCfg.ID] = proxy.NewRouteProxyWithBalancer(g.proxy, route, balancer)
+		bal := createBalancer(routeCfg, backends)
+		if routeCfg.SessionAffinity.Enabled {
+			bal = loadbalancer.NewSessionAffinityBalancer(bal, routeCfg.SessionAffinity)
+		}
+		s.routeProxies[routeCfg.ID] = proxy.NewRouteProxyWithBalancer(g.proxy, route, bal)
 	}
 
 	// Wire shared retry budget pool if configured
@@ -1068,6 +1078,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldBaggagePropagators := g.baggagePropagators
 	oldBackpressureHandlers2 := g.backpressureHandlers
 	oldAuditLoggers2 := g.auditLoggers
+	oldTrafficReplay := g.trafficReplay
 	oldTenantManager := g.tenantManager
 
 	// Install new state
@@ -1138,6 +1149,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.baggagePropagators = s.baggagePropagators
 	g.backpressureHandlers = s.backpressureHandlers
 	g.auditLoggers = s.auditLoggers
+	g.trafficReplay = s.trafficReplay
 	g.tenantManager = s.tenantManager
 
 	handler := g.buildRouteHandler(routeID, cfg, route, rp)
@@ -1210,6 +1222,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.baggagePropagators = oldBaggagePropagators
 	g.backpressureHandlers = oldBackpressureHandlers2
 	g.auditLoggers = oldAuditLoggers2
+	g.trafficReplay = oldTrafficReplay
 	g.tenantManager = oldTenantManager
 
 	return handler
@@ -1331,6 +1344,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.blueGreenControllers = newState.blueGreenControllers
 	g.abTests = newState.abTests
 	g.requestQueues = newState.requestQueues
+	g.trafficReplay = newState.trafficReplay
 	g.apiKeyAuth = newState.apiKeyAuth
 	g.jwtAuth = newState.jwtAuth
 	g.oauthAuth = newState.oauthAuth

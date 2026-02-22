@@ -574,6 +574,38 @@ func (l *Loader) validateTrafficControls(route RouteConfig, cfg *Config) error {
 		}
 	}
 
+	// Session affinity (backend pinning)
+	if route.SessionAffinity.Enabled {
+		if len(route.TrafficSplit) > 0 {
+			return fmt.Errorf("route %s: session_affinity and traffic_split are mutually exclusive", routeID)
+		}
+		if route.Versioning.Enabled {
+			return fmt.Errorf("route %s: session_affinity and versioning are mutually exclusive", routeID)
+		}
+		validSameSite := map[string]bool{"": true, "lax": true, "strict": true, "none": true}
+		if !validSameSite[route.SessionAffinity.SameSite] {
+			return fmt.Errorf("route %s: session_affinity.same_site must be lax, strict, or none", routeID)
+		}
+	}
+
+	// Traffic replay
+	if route.TrafficReplay.Enabled {
+		if route.TrafficReplay.Percentage < 0 || route.TrafficReplay.Percentage > 100 {
+			return fmt.Errorf("route %s: traffic_replay.percentage must be between 0 and 100", routeID)
+		}
+		if route.TrafficReplay.MaxRecordings < 0 {
+			return fmt.Errorf("route %s: traffic_replay.max_recordings must be >= 0", routeID)
+		}
+		if route.TrafficReplay.MaxBodySize < 0 {
+			return fmt.Errorf("route %s: traffic_replay.max_body_size must be >= 0", routeID)
+		}
+		if route.TrafficReplay.Conditions.PathRegex != "" {
+			if _, err := regexp.Compile(route.TrafficReplay.Conditions.PathRegex); err != nil {
+				return fmt.Errorf("route %s: traffic_replay.conditions.path_regex is invalid: %w", routeID, err)
+			}
+		}
+	}
+
 	return nil
 }
 

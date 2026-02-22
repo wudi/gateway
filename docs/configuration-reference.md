@@ -2206,6 +2206,43 @@ routes:
 
 See [Blue-Green Deployments](blue-green.md) for full documentation.
 
+## Session Affinity (per-route)
+
+```yaml
+routes:
+  - id: "api"
+    session_affinity:
+      enabled: bool            # enable cookie-based backend pinning (default false)
+      cookie_name: string      # cookie name (default "X-Session-Backend")
+      ttl: duration            # cookie TTL (default 1h)
+      path: string             # cookie path (default "/")
+      secure: bool             # Secure flag on cookie (default false)
+      same_site: string        # "lax"|"strict"|"none" (default "lax")
+```
+
+**Validation:** Mutually exclusive with `traffic_split` and `versioning`. `same_site` must be `lax`, `strict`, or `none`.
+
+See [Traffic Management](traffic-management.md#session-affinity-backend-pinning) for details.
+
+## Traffic Replay (per-route)
+
+```yaml
+routes:
+  - id: "api"
+    traffic_replay:
+      enabled: bool            # enable traffic recording (default false)
+      max_recordings: int      # ring buffer size (default 10000)
+      percentage: int           # sampling percentage 0-100 (default 100)
+      max_body_size: int       # max body capture bytes (default 65536)
+      conditions:
+        methods: [string]      # only record these methods
+        path_regex: string     # only record matching paths
+```
+
+**Validation:** `percentage` must be 0-100. `max_recordings` must be >= 0. `max_body_size` must be >= 0. `path_regex` must be a valid regular expression.
+
+See [Traffic Replay](traffic-replay.md) for full documentation and admin API usage.
+
 ## Load Shedding (global)
 
 ```yaml

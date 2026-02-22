@@ -176,6 +176,14 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /lambda` | Per-route AWS Lambda invocation stats (function name, requests, errors, invokes) |
 | `GET /amqp` | Per-route AMQP stats (url, requests, errors, published, consumed) |
 | `GET /pubsub` | Per-route Pub/Sub stats (urls, requests, errors, published, consumed) |
+| `GET /session-affinity` | Per-route session affinity status (cookie name, TTL) |
+| `GET /traffic-replay` | Per-route traffic replay stats (recording state, buffer usage) |
+| `GET /traffic-replay/{route}/status` | Recording state + replay progress for a route |
+| `POST /traffic-replay/{route}/start` | Start recording requests |
+| `POST /traffic-replay/{route}/stop` | Stop recording requests |
+| `POST /traffic-replay/{route}/replay` | Trigger replay (JSON body: target, concurrency, rate_per_sec) |
+| `POST /traffic-replay/{route}/cancel` | Cancel active replay |
+| `DELETE /traffic-replay/{route}/recordings` | Clear recorded requests |
 
 ### Example: Querying Feature Endpoints
 
@@ -1435,6 +1443,82 @@ Resets accumulated metrics for a running A/B test experiment and restarts the ti
 ```bash
 curl -X POST http://localhost:8081/ab-tests/homepage/reset
 ```
+
+---
+
+## Session Affinity
+
+### GET `/session-affinity`
+
+Returns per-route session affinity configuration (cookie name, TTL) for all routes with session affinity enabled.
+
+```bash
+curl http://localhost:8081/session-affinity
+```
+
+---
+
+## Traffic Replay
+
+### GET `/traffic-replay`
+
+Returns per-route traffic replay stats (recording state, buffer size/usage, replay progress).
+
+```bash
+curl http://localhost:8081/traffic-replay
+```
+
+### GET `/traffic-replay/{route}/status`
+
+Returns detailed recording and replay state for a specific route.
+
+```bash
+curl http://localhost:8081/traffic-replay/api/status
+```
+
+### POST `/traffic-replay/{route}/start`
+
+Start recording incoming requests on this route.
+
+```bash
+curl -X POST http://localhost:8081/traffic-replay/api/start
+```
+
+### POST `/traffic-replay/{route}/stop`
+
+Stop recording incoming requests.
+
+```bash
+curl -X POST http://localhost:8081/traffic-replay/api/stop
+```
+
+### POST `/traffic-replay/{route}/replay`
+
+Replay recorded requests against a target backend.
+
+```bash
+curl -X POST http://localhost:8081/traffic-replay/api/replay \
+  -H "Content-Type: application/json" \
+  -d '{"target": "http://new-backend:8080", "concurrency": 10, "rate_per_sec": 50}'
+```
+
+### POST `/traffic-replay/{route}/cancel`
+
+Cancel an active replay operation.
+
+```bash
+curl -X POST http://localhost:8081/traffic-replay/api/cancel
+```
+
+### DELETE `/traffic-replay/{route}/recordings`
+
+Clear all recorded requests from the ring buffer.
+
+```bash
+curl -X DELETE http://localhost:8081/traffic-replay/api/recordings
+```
+
+See [Traffic Replay](traffic-replay.md) for full documentation.
 
 ---
 

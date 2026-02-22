@@ -19,6 +19,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/ipblocklist"
 	"github.com/wudi/gateway/internal/proxy/tcp"
 	"github.com/wudi/gateway/internal/proxy/udp"
+	"github.com/wudi/gateway/internal/trafficreplay"
 	"go.uber.org/zap"
 )
 
@@ -466,6 +467,7 @@ func (s *Server) adminHandler() http.Handler {
 	mux.HandleFunc("/canary/", s.handleCanaryAction)
 	mux.HandleFunc("/blue-green/", s.handleBlueGreenAction)
 	mux.HandleFunc("/ab-tests/", s.handleABTestAction)
+	mux.HandleFunc("/traffic-replay/", s.handleTrafficReplayAction)
 	mux.HandleFunc("/https-redirect", s.handleHTTPSRedirect)
 	mux.HandleFunc("/allowed-hosts", s.handleAllowedHosts)
 	mux.HandleFunc("/token-revocation", s.handleTokenRevocation)
@@ -1383,6 +1385,100 @@ func (s *Server) handleBlueGreenAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": actionName, "route": routeID})
+}
+
+// handleTrafficReplayAction handles traffic replay admin endpoints.
+func (s *Server) handleTrafficReplayAction(w http.ResponseWriter, r *http.Request) {
+	// Parse /traffic-replay/{route}/{action}
+	path := strings.TrimPrefix(r.URL.Path, "/traffic-replay/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		http.Error(w, "usage: /traffic-replay/{route}/{status|start|stop|replay|cancel|recordings}", http.StatusBadRequest)
+		return
+	}
+	routeID := parts[0]
+	actionName := parts[1]
+
+	rec := s.gateway.GetTrafficReplay().GetRecorder(routeID)
+	if rec == nil {
+		http.Error(w, fmt.Sprintf("no traffic replay recorder for route %q", routeID), http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	switch actionName {
+	case "status":
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		json.NewEncoder(w).Encode(rec.Snapshot())
+
+	case "start":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		rec.StartRecording()
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": "start_recording", "route": routeID})
+
+	case "stop":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		rec.StopRecording()
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": "stop_recording", "route": routeID})
+
+	case "replay":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var cfg struct {
+			Target      string  `json:"target"`
+			Concurrency int     `json:"concurrency"`
+			RatePerSec  float64 `json:"rate_per_sec"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+			http.Error(w, "invalid JSON body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if cfg.Target == "" {
+			http.Error(w, "target is required", http.StatusBadRequest)
+			return
+		}
+		if err := rec.StartReplay(trafficreplay.ReplayConfig{
+			Target:      cfg.Target,
+			Concurrency: cfg.Concurrency,
+			RatePerSec:  cfg.RatePerSec,
+		}); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": "replay_started", "route": routeID})
+
+	case "cancel":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		rec.CancelReplay()
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": "replay_cancelled", "route": routeID})
+
+	case "recordings":
+		if r.Method == http.MethodDelete {
+			rec.ClearRecordings()
+			json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": "recordings_cleared", "route": routeID})
+		} else {
+			http.Error(w, "usage: DELETE /traffic-replay/{route}/recordings", http.StatusMethodNotAllowed)
+		}
+
+	default:
+		http.Error(w, fmt.Sprintf("unknown action %q (valid: status, start, stop, replay, cancel, recordings)", actionName), http.StatusBadRequest)
+	}
 }
 
 // handleABTestAction handles POST /ab-tests/{route}/{action}.

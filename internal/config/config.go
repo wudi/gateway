@@ -361,6 +361,8 @@ type RouteConfig struct {
 	Tenant               RouteTenantConfig              `yaml:"tenant"`                 // Per-route tenant restrictions
 	TenantBackends       map[string][]BackendConfig    `yaml:"tenant_backends,omitempty"` // Per-tenant dedicated backends
 	CompletionHeader     bool                          `yaml:"completion_header"`      // Add X-Gateway-Completed header
+	SessionAffinity      SessionAffinityConfig          `yaml:"session_affinity"`       // Cookie-based backend pinning
+	TrafficReplay        TrafficReplayConfig            `yaml:"traffic_replay"`         // Record and replay traffic
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -370,6 +372,31 @@ type StickyConfig struct {
 	CookieName string        `yaml:"cookie_name"` // default "X-Traffic-Group"
 	HashKey    string        `yaml:"hash_key"`    // header name for header/hash mode
 	TTL        time.Duration `yaml:"ttl"`         // cookie TTL, default 24h
+}
+
+// SessionAffinityConfig defines cookie-based backend pinning (individual backend, not traffic group).
+type SessionAffinityConfig struct {
+	Enabled    bool          `yaml:"enabled"`
+	CookieName string        `yaml:"cookie_name"` // default "X-Session-Backend"
+	TTL        time.Duration `yaml:"ttl"`         // cookie TTL, default 1h
+	Path       string        `yaml:"path"`        // cookie path, default "/"
+	Secure     bool          `yaml:"secure"`      // Secure flag on cookie
+	SameSite   string        `yaml:"same_site"`   // "lax"|"strict"|"none", default "lax"
+}
+
+// TrafficReplayConfig defines per-route traffic recording and replay settings.
+type TrafficReplayConfig struct {
+	Enabled       bool                       `yaml:"enabled"`
+	MaxRecordings int                        `yaml:"max_recordings"` // ring buffer size, default 10000
+	Percentage    int                        `yaml:"percentage"`     // sampling 0-100, default 100
+	MaxBodySize   int64                      `yaml:"max_body_size"`  // max body capture bytes, default 65536
+	Conditions    TrafficReplayConditions    `yaml:"conditions"`
+}
+
+// TrafficReplayConditions defines filtering conditions for traffic recording.
+type TrafficReplayConditions struct {
+	Methods   []string `yaml:"methods"`
+	PathRegex string   `yaml:"path_regex"`
 }
 
 // ConsistentHashConfig defines consistent hash load balancer settings.

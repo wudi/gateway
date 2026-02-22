@@ -115,6 +115,7 @@ import (
 	"github.com/wudi/gateway/internal/router"
 	"github.com/wudi/gateway/internal/rules"
 	"github.com/wudi/gateway/internal/tracing"
+	"github.com/wudi/gateway/internal/trafficreplay"
 	"github.com/wudi/gateway/internal/trafficshape"
 	"github.com/wudi/gateway/internal/variables"
 	"github.com/wudi/gateway/internal/webhook"
@@ -242,6 +243,7 @@ type Gateway struct {
 	lambdaHandlers       *lambdaproxy.LambdaByRoute
 	amqpHandlers         *amqpproxy.AMQPByRoute
 	pubsubHandlers       *pubsubproxy.PubSubByRoute
+	trafficReplay        *trafficreplay.ReplayByRoute
 
 	tenantManager *tenant.Manager
 
@@ -402,6 +404,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		lambdaHandlers:       lambdaproxy.NewLambdaByRoute(),
 		amqpHandlers:         amqpproxy.NewAMQPByRoute(),
 		pubsubHandlers:       pubsubproxy.NewPubSubByRoute(),
+		trafficReplay:        trafficreplay.NewReplayByRoute(),
 		watchCancels:      make(map[string]context.CancelFunc),
 	}
 
@@ -934,6 +937,37 @@ func New(cfg *config.Config) (*Gateway, error) {
 		noOpFeature("lambda", "/lambda", g.lambdaHandlers.RouteIDs, func() any { return g.lambdaHandlers.Stats() }),
 		noOpFeature("amqp", "/amqp", g.amqpHandlers.RouteIDs, func() any { return g.amqpHandlers.Stats() }),
 		noOpFeature("pubsub", "/pubsub", g.pubsubHandlers.RouteIDs, func() any { return g.pubsubHandlers.Stats() }),
+
+		newFeature("traffic_replay", "/traffic-replay", func(id string, rc config.RouteConfig) error {
+			if rc.TrafficReplay.Enabled {
+				return g.trafficReplay.AddRoute(id, rc.TrafficReplay)
+			}
+			return nil
+		}, g.trafficReplay.RouteIDs, func() any { return g.trafficReplay.Stats() }),
+
+		noOpFeature("session_affinity", "/session-affinity", func() []string {
+			var ids []string
+			for routeID, rp := range *g.routeProxies.Load() {
+				if _, ok := rp.GetBalancer().(*loadbalancer.SessionAffinityBalancer); ok {
+					ids = append(ids, routeID)
+				}
+			}
+			return ids
+		}, func() any {
+			result := make(map[string]interface{})
+			for routeID, rp := range *g.routeProxies.Load() {
+				if sa, ok := rp.GetBalancer().(*loadbalancer.SessionAffinityBalancer); ok {
+					result[routeID] = map[string]interface{}{
+						"cookie_name": sa.CookieName(),
+						"ttl":         sa.TTL().String(),
+					}
+				}
+			}
+			if len(result) == 0 {
+				return nil
+			}
+			return result
+		}),
 
 		// Non-per-route managers exposed as Features for auto admin + dashboard
 		noOpFeature("retries", "/retries", func() []string { return nil }, func() any {
@@ -1469,6 +1503,9 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 				}
 				bal = loadbalancer.NewTenantAwareBalancer(bal, tenantBals)
 			}
+			if routeCfg.SessionAffinity.Enabled {
+				bal = loadbalancer.NewSessionAffinityBalancer(bal, routeCfg.SessionAffinity)
+			}
 			routeProxy = proxy.NewRouteProxyWithBalancer(g.proxy, route, bal)
 		}
 		g.storeRouteProxy(routeCfg.ID, routeProxy)
@@ -1804,6 +1841,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		/* 7.5  */ func() middleware.Middleware {
 			if fi := g.faultInjectors.GetInjector(routeID); fi != nil { return fi.Middleware() }; return nil
 		},
+		/* 7.6  */ func() middleware.Middleware {
+			if rec := g.trafficReplay.GetRecorder(routeID); rec != nil { return rec.RecordingMiddleware() }; return nil
+		},
 		/* 7.75 */ func() middleware.Middleware {
 			if mh := g.mockHandlers.GetHandler(routeID); mh != nil { return mh.Middleware() }; return nil
 		},
@@ -1891,6 +1931,12 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 			if rp == nil { return nil }
 			if wb, ok := rp.GetBalancer().(*loadbalancer.WeightedBalancer); ok && wb.HasStickyPolicy() {
 				return trafficGroupMW(wb.GetStickyPolicy())
+			}; return nil
+		},
+		/* 15.55*/ func() middleware.Middleware {
+			if rp == nil { return nil }
+			if sa, ok := rp.GetBalancer().(*loadbalancer.SessionAffinityBalancer); ok {
+				return sessionAffinityMW(sa)
 			}; return nil
 		},
 		/* 16   */ func() middleware.Middleware {
@@ -2485,6 +2531,11 @@ func (g *Gateway) GetBlueGreenControllers() *bluegreen.BlueGreenByRoute {
 // GetABTests returns the A/B test manager.
 func (g *Gateway) GetABTests() *abtest.ABTestByRoute {
 	return g.abTests
+}
+
+// GetTrafficReplay returns the traffic replay manager.
+func (g *Gateway) GetTrafficReplay() *trafficreplay.ReplayByRoute {
+	return g.trafficReplay
 }
 
 // GetRequestQueues returns the request queue manager.
