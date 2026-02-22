@@ -3,6 +3,7 @@ package grpcweb
 import (
 	"bytes"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/loadbalancer"
 	"github.com/wudi/gateway/internal/proxy/protocol"
+	"google.golang.org/grpc"
 )
 
 func TestTranslatorName(t *testing.T) {
@@ -441,6 +443,246 @@ func TestProtocolRegistration(t *testing.T) {
 	}
 }
 
+func TestIsServerStreaming(t *testing.T) {
+	tests := []struct {
+		name   string
+		query  string
+		header string
+		want   bool
+	}{
+		{"no signal", "", "", false},
+		{"query param", "streaming=server", "", true},
+		{"header", "", "server", true},
+		{"both", "streaming=server", "server", true},
+		{"wrong query value", "streaming=client", "", false},
+		{"wrong header value", "", "client", false},
+		{"unrelated query", "foo=bar", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			url := "/pkg.Service/Method"
+			if tt.query != "" {
+				url += "?" + tt.query
+			}
+			req := httptest.NewRequest("POST", url, nil)
+			if tt.header != "" {
+				req.Header.Set("X-Grpc-Web-Streaming", tt.header)
+			}
+			if got := isServerStreaming(req); got != tt.want {
+				t.Errorf("isServerStreaming() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestServeServerStreamNoBackend(t *testing.T) {
+	tr := New()
+	cfg := config.ProtocolConfig{
+		Type: "grpc_web",
+		GRPCWeb: config.GRPCWebTranslateConfig{
+			Timeout: 5 * time.Second,
+		},
+	}
+	// No backend — balancer returns nil.
+	bal := &mockBalancer{}
+
+	handler, err := tr.Handler("test-route", bal, cfg)
+	if err != nil {
+		t.Fatalf("Handler() error: %v", err)
+	}
+
+	body := encodeDataFrame([]byte("test"))
+	req := httptest.NewRequest("POST", "/pkg.Service/Method?streaming=server", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/grpc-web+proto")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	// No backend → 503 with grpc-status 14 (same as unary).
+	if w.Code != 503 {
+		t.Errorf("status = %d, want 503", w.Code)
+	}
+	if gs := w.Header().Get("Grpc-Status"); gs != "14" {
+		t.Errorf("Grpc-Status = %q, want %q", gs, "14")
+	}
+}
+
+func TestServerStreamWritesMultipleFrames(t *testing.T) {
+	tr := New()
+	cfg := config.ProtocolConfig{
+		Type: "grpc_web",
+		GRPCWeb: config.GRPCWebTranslateConfig{
+			Timeout: 5 * time.Second,
+		},
+	}
+
+	// Start a minimal gRPC server that streams 3 messages.
+	grpcSrv, addr := startMockStreamingGRPCServer(t, [][]byte{
+		[]byte("msg1"),
+		[]byte("msg2"),
+		[]byte("msg3"),
+	})
+	defer grpcSrv.Stop()
+
+	bal := &mockBalancer{
+		backend: &loadbalancer.Backend{URL: addr},
+	}
+
+	handler, err := tr.Handler("stream-route", bal, cfg)
+	if err != nil {
+		t.Fatalf("Handler() error: %v", err)
+	}
+
+	body := encodeDataFrame([]byte("request"))
+	req := httptest.NewRequest("POST", "/mock.StreamService/StreamMethod?streaming=server", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/grpc-web+proto")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/grpc-web+proto" {
+		t.Errorf("Content-Type = %q, want %q", ct, "application/grpc-web+proto")
+	}
+
+	// Decode the response: should be 3 data frames + 1 trailer frame.
+	respBody := w.Body.Bytes()
+	reader := bytes.NewReader(respBody)
+
+	var dataFrames [][]byte
+	var trailerFrame *grpcWebFrame
+
+	for {
+		f, err := decodeGRPCWebFrame(reader, 0)
+		if err != nil {
+			break
+		}
+		if f.isTrailer() {
+			trailerFrame = f
+		} else {
+			dataFrames = append(dataFrames, f.Payload)
+		}
+	}
+
+	if len(dataFrames) != 3 {
+		t.Fatalf("got %d data frames, want 3", len(dataFrames))
+	}
+	for i, want := range []string{"msg1", "msg2", "msg3"} {
+		if string(dataFrames[i]) != want {
+			t.Errorf("frame[%d] = %q, want %q", i, dataFrames[i], want)
+		}
+	}
+	if trailerFrame == nil {
+		t.Fatal("missing trailer frame")
+	}
+	trailers := parseTrailerFrame(trailerFrame.Payload)
+	if trailers["grpc-status"] != "0" {
+		t.Errorf("grpc-status = %q, want %q", trailers["grpc-status"], "0")
+	}
+}
+
+func TestServerStreamTextMode(t *testing.T) {
+	tr := New()
+	cfg := config.ProtocolConfig{
+		Type: "grpc_web",
+		GRPCWeb: config.GRPCWebTranslateConfig{
+			Timeout:  5 * time.Second,
+			TextMode: true,
+		},
+	}
+
+	// Stream 2 messages.
+	grpcSrv, addr := startMockStreamingGRPCServer(t, [][]byte{
+		[]byte("alpha"),
+		[]byte("beta"),
+	})
+	defer grpcSrv.Stop()
+
+	bal := &mockBalancer{
+		backend: &loadbalancer.Backend{URL: addr},
+	}
+
+	handler, err := tr.Handler("text-stream-route", bal, cfg)
+	if err != nil {
+		t.Fatalf("Handler() error: %v", err)
+	}
+
+	rawBody := encodeDataFrame([]byte("request"))
+	encodedBody := base64Encode(rawBody)
+	req := httptest.NewRequest("POST", "/mock.StreamService/StreamMethod?streaming=server", bytes.NewReader(encodedBody))
+	req.Header.Set("Content-Type", "application/grpc-web-text+proto")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/grpc-web-text+proto" {
+		t.Errorf("Content-Type = %q, want %q", ct, "application/grpc-web-text+proto")
+	}
+
+	// Each frame should be independently base64-encoded.
+	// Verify by decoding each expected frame from the body.
+	respBody := w.Body.Bytes()
+
+	expected := [][]byte{
+		base64Encode(encodeDataFrame([]byte("alpha"))),
+		base64Encode(encodeDataFrame([]byte("beta"))),
+	}
+	for _, exp := range expected {
+		if !bytes.Contains(respBody, exp) {
+			t.Errorf("response body missing expected base64-encoded frame")
+		}
+	}
+
+	// The trailer should also be present and base64-encoded.
+	// Decode what's left after the two data frames.
+	remaining := respBody
+	for _, exp := range expected {
+		idx := bytes.Index(remaining, exp)
+		if idx == -1 {
+			t.Fatalf("could not find expected frame in remaining body")
+		}
+		remaining = remaining[idx+len(exp):]
+	}
+	// remaining should be the base64-encoded trailer frame.
+	if len(remaining) == 0 {
+		t.Fatal("no trailer frame in response")
+	}
+	trailerBytes, err := base64Decode(remaining)
+	if err != nil {
+		t.Fatalf("failed to base64-decode trailer: %v", err)
+	}
+	tf, err := decodeGRPCWebFrame(bytes.NewReader(trailerBytes), 0)
+	if err != nil {
+		t.Fatalf("failed to decode trailer frame: %v", err)
+	}
+	if !tf.isTrailer() {
+		t.Error("expected trailer frame")
+	}
+	trailers := parseTrailerFrame(tf.Payload)
+	if trailers["grpc-status"] != "0" {
+		t.Errorf("grpc-status = %q, want %q", trailers["grpc-status"], "0")
+	}
+}
+
+func TestExtractMetadataSkipsStreamingHeader(t *testing.T) {
+	req, _ := http.NewRequest("POST", "/test", nil)
+	req.Header.Set("X-Grpc-Web-Streaming", "server")
+	req.Header.Set("X-Custom", "keep")
+
+	md := extractMetadata(req)
+	if v := md.Get("x-grpc-web-streaming"); len(v) > 0 {
+		t.Errorf("x-grpc-web-streaming should be skipped, got %v", v)
+	}
+	if v := md.Get("x-custom"); len(v) == 0 || v[0] != "keep" {
+		t.Errorf("x-custom: got %v, want [keep]", v)
+	}
+}
+
 // mockBalancer implements loadbalancer.Balancer with no backends.
 type mockBalancer struct {
 	backend *loadbalancer.Backend
@@ -460,4 +702,48 @@ func (m *mockBalancer) GetBackends() []*loadbalancer.Backend {
 		return nil
 	}
 	return []*loadbalancer.Backend{m.backend}
+}
+
+// startMockStreamingGRPCServer starts a gRPC server with a single streaming method
+// that responds with the given messages. Returns the server and the address to dial.
+func startMockStreamingGRPCServer(t *testing.T, messages [][]byte) (*grpc.Server, string) {
+	t.Helper()
+
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+
+	srv := grpc.NewServer(grpc.ForceServerCodec(rawCodec{}))
+
+	// Register a generic service handler that streams the messages.
+	srv.RegisterService(&grpc.ServiceDesc{
+		ServiceName: "mock.StreamService",
+		HandlerType: (*interface{})(nil),
+		Streams: []grpc.StreamDesc{
+			{
+				StreamName:    "StreamMethod",
+				ServerStreams: true,
+				Handler: func(srv interface{}, stream grpc.ServerStream) error {
+					// Receive the client's single request.
+					var req []byte
+					if err := stream.RecvMsg(&req); err != nil {
+						return err
+					}
+					// Send all messages.
+					for _, msg := range messages {
+						if err := stream.SendMsg(&msg); err != nil {
+							return err
+						}
+					}
+					return nil
+				},
+			},
+		},
+		Metadata: "",
+	}, &struct{}{})
+
+	go srv.Serve(lis)
+
+	return srv, lis.Addr().String()
 }

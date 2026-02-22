@@ -43,9 +43,51 @@ Browser clients send requests to `/mypackage.MyService/MethodName` with content 
 ## Supported RPC Modes
 
 - **Unary**: Single request, single response. Fully supported.
-- **Server streaming**: Not yet supported (planned).
+- **Server streaming**: Single request, multiple responses streamed to the client. Fully supported.
 - **Client streaming**: Not supported by the gRPC-Web specification.
 - **Bidirectional streaming**: Not supported by the gRPC-Web specification.
+
+## Server Streaming
+
+Server streaming allows a single request to receive multiple response messages streamed in real time. The client signals streaming intent via a query parameter or header — there is no wire-level difference between unary and server-streaming gRPC-Web requests.
+
+### Signaling Streaming Mode
+
+Use either method (or both):
+
+- **Query parameter**: `?streaming=server`
+- **Header**: `X-Grpc-Web-Streaming: server`
+
+If neither is present, the request is treated as unary (fully backward compatible).
+
+### Example
+
+```
+POST /mypackage.MyService/ListItems?streaming=server HTTP/1.1
+Content-Type: application/grpc-web+proto
+```
+
+Or with header:
+
+```
+POST /mypackage.MyService/ListItems HTTP/1.1
+Content-Type: application/grpc-web+proto
+X-Grpc-Web-Streaming: server
+```
+
+### Streaming Response Format
+
+The response is a sequence of gRPC-Web frames, each flushed to the client as it arrives from the backend:
+
+1. **HTTP 200** with `Content-Type: application/grpc-web+proto` (or `application/grpc-web-text+proto` for text mode)
+2. **N data frames** (flag `0x00`) — one per response message from the backend
+3. **1 trailer frame** (flag `0x80`) — contains `grpc-status: 0` on success, or an error status with `grpc-message`
+
+In text mode (`application/grpc-web-text+proto`), each frame is independently base64-encoded before being written, allowing the client to progressively decode as frames arrive.
+
+### Configuration
+
+No additional configuration is needed. Server streaming uses the same route config as unary — the `timeout`, `max_message_size`, and `text_mode` settings apply equally to streaming RPCs.
 
 ## Text Mode (Base64)
 

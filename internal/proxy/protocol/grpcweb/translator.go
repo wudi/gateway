@@ -197,6 +197,12 @@ func (t *Translator) serveHTTP(
 	fullMethod := "/" + serviceName + "/" + methodName
 	reqPayload := frame.Payload
 
+	// Branch: server streaming or unary.
+	if isServerStreaming(r) {
+		t.serveServerStream(w, conn, ctx, fullMethod, methodName, reqPayload, textMode, metrics, start)
+		return
+	}
+
 	// Invoke the unary RPC using raw codec.
 	var respPayload []byte
 	var headerMD, trailerMD metadata.MD
@@ -221,6 +227,145 @@ func (t *Translator) serveHTTP(
 
 	metrics.Successes.Add(1)
 	metrics.TotalLatencyNs.Add(time.Since(start).Nanoseconds())
+}
+
+// isServerStreaming returns true if the request signals server-streaming mode
+// via query parameter (?streaming=server) or header (X-Grpc-Web-Streaming: server).
+func isServerStreaming(r *http.Request) bool {
+	if r.URL.Query().Get("streaming") == "server" {
+		return true
+	}
+	return r.Header.Get("X-Grpc-Web-Streaming") == "server"
+}
+
+// serveServerStream handles a server-streaming RPC over gRPC-Web.
+// It creates a gRPC stream, sends the single request, then loops over responses,
+// writing each as a gRPC-Web data frame flushed to the client in real time.
+func (t *Translator) serveServerStream(
+	w http.ResponseWriter,
+	conn *grpc.ClientConn,
+	ctx context.Context,
+	fullMethod string,
+	methodName string,
+	reqPayload []byte,
+	textMode bool,
+	metrics *protocol.RouteMetrics,
+	start time.Time,
+) {
+	streamDesc := &grpc.StreamDesc{
+		StreamName:    methodName,
+		ServerStreams: true,
+	}
+
+	stream, err := conn.NewStream(ctx, streamDesc, fullMethod)
+	if err != nil {
+		st, ok := status.FromError(err)
+		if !ok {
+			t.writeGRPCWebError(w, textMode, "13", err.Error())
+		} else {
+			t.writeGRPCWebError(w, textMode, fmt.Sprintf("%d", st.Code()), st.Message())
+		}
+		metrics.Failures.Add(1)
+		return
+	}
+
+	// Send the single request message and close the send direction.
+	if err := stream.SendMsg(&reqPayload); err != nil {
+		st, ok := status.FromError(err)
+		if !ok {
+			t.writeGRPCWebError(w, textMode, "13", err.Error())
+		} else {
+			t.writeGRPCWebError(w, textMode, fmt.Sprintf("%d", st.Code()), st.Message())
+		}
+		metrics.Failures.Add(1)
+		return
+	}
+	if err := stream.CloseSend(); err != nil {
+		t.writeGRPCWebError(w, textMode, "13", fmt.Sprintf("failed to close send: %v", err))
+		metrics.Failures.Add(1)
+		return
+	}
+
+	// Read response headers (initial metadata).
+	headerMD, _ := stream.Header()
+
+	// Write HTTP headers before the streaming loop.
+	if textMode {
+		w.Header().Set("Content-Type", "application/grpc-web-text+proto")
+	} else {
+		w.Header().Set("Content-Type", "application/grpc-web+proto")
+	}
+	for k, vals := range headerMD {
+		for _, v := range vals {
+			w.Header().Add(k, v)
+		}
+	}
+	w.WriteHeader(http.StatusOK)
+
+	flusher, canFlush := w.(http.Flusher)
+
+	// Receive loop: each message becomes one gRPC-Web data frame.
+	for {
+		var respBytes []byte
+		if err := stream.RecvMsg(&respBytes); err != nil {
+			if err == io.EOF {
+				// Normal end of stream — write success trailer.
+				trailers := map[string]string{
+					"grpc-status": "0",
+				}
+				for k, vals := range stream.Trailer() {
+					if len(vals) > 0 {
+						trailers[k] = vals[0]
+					}
+				}
+				trailerFrame := encodeTrailerFrame(trailers)
+				if textMode {
+					w.Write(base64Encode(trailerFrame))
+				} else {
+					w.Write(trailerFrame)
+				}
+				if canFlush {
+					flusher.Flush()
+				}
+				metrics.Successes.Add(1)
+				metrics.TotalLatencyNs.Add(time.Since(start).Nanoseconds())
+				return
+			}
+
+			// Error — write error trailer.
+			trailers := map[string]string{}
+			st, ok := status.FromError(err)
+			if ok {
+				trailers["grpc-status"] = fmt.Sprintf("%d", st.Code())
+				trailers["grpc-message"] = st.Message()
+			} else {
+				trailers["grpc-status"] = "13"
+				trailers["grpc-message"] = err.Error()
+			}
+			trailerFrame := encodeTrailerFrame(trailers)
+			if textMode {
+				w.Write(base64Encode(trailerFrame))
+			} else {
+				w.Write(trailerFrame)
+			}
+			if canFlush {
+				flusher.Flush()
+			}
+			metrics.Failures.Add(1)
+			return
+		}
+
+		// Write data frame and flush.
+		dataFrame := encodeDataFrame(respBytes)
+		if textMode {
+			w.Write(base64Encode(dataFrame))
+		} else {
+			w.Write(dataFrame)
+		}
+		if canFlush {
+			flusher.Flush()
+		}
+	}
 }
 
 // writeGRPCWebResponse writes a successful gRPC-Web response with data frame + trailer frame.
@@ -326,7 +471,8 @@ func extractMetadata(r *http.Request) metadata.MD {
 		switch key {
 		case "content-type", "content-length", "accept",
 			"user-agent", "host", "connection",
-			"transfer-encoding", "te":
+			"transfer-encoding", "te",
+			"x-grpc-web-streaming":
 			continue
 		}
 		md[key] = vals

@@ -358,7 +358,7 @@ routes:
       allowed_headers: ["Content-Type", "X-Grpc-Web"]
 ```
 
-Browser clients send requests with content type `application/grpc-web+proto` (binary) or `application/grpc-web-text+proto` (base64 text mode). CORS is handled by the gateway's CORS middleware, not the translator.
+Browser clients send requests with content type `application/grpc-web+proto` (binary) or `application/grpc-web-text+proto` (base64 text mode). Both unary and server-streaming RPCs are supported — the client signals streaming with `?streaming=server` or `X-Grpc-Web-Streaming: server`. CORS is handled by the gateway's CORS middleware, not the translator.
 
 See [gRPC-Web Proxy](grpc-web.md) for full documentation.
 
