@@ -50,6 +50,11 @@ type Parser struct {
 	introspectionBlocked atomic.Int64
 	rateLimited          atomic.Int64
 	parseErrors          atomic.Int64
+
+	// Batch metrics
+	batchRequestsTotal atomic.Int64
+	batchQueriesTotal  atomic.Int64
+	batchSizeRejected  atomic.Int64
 }
 
 // New creates a new GraphQL parser with the given config.
@@ -88,42 +93,11 @@ func (p *Parser) Parse(r *http.Request) (*GraphQLInfo, []byte, error) {
 		return nil, body, fmt.Errorf("invalid JSON: %w", err)
 	}
 
-	// APQ: handle persisted query extensions
-	if p.apqCache != nil {
-		if hash, ok := extractAPQHash(gqlReq.Extensions); ok {
-			if gqlReq.Query == "" {
-				// Hash-only request: lookup in cache
-				cached, found := p.apqCache.Lookup(hash)
-				if !found {
-					return nil, body, &GraphQLError{
-						Message:    "PersistedQueryNotFound",
-						StatusCode: 200,
-					}
-				}
-				gqlReq.Query = cached
-				// Re-marshal body with the resolved query for downstream
-				body, _ = json.Marshal(gqlReq)
-			} else {
-				// Hash + query: verify and register
-				if !p.apqCache.Register(hash, gqlReq.Query) {
-					return nil, body, &GraphQLError{
-						Message:    "provided sha does not match query",
-						StatusCode: 400,
-					}
-				}
-			}
-		}
-	}
+	return p.resolveAndParse(gqlReq, body)
+}
 
-	if gqlReq.Query == "" {
-		return nil, body, fmt.Errorf("missing query field")
-	}
-
-	doc, parseErr := parser.ParseQuery(&ast.Source{Input: gqlReq.Query})
-	if parseErr != nil {
-		return nil, body, fmt.Errorf("invalid GraphQL query: %w", parseErr)
-	}
-
+// analyzeDocument extracts GraphQLInfo from a parsed AST document and the original request.
+func analyzeDocument(doc *ast.QueryDocument, gqlReq GraphQLRequest) *GraphQLInfo {
 	info := &GraphQLInfo{
 		OperationName: gqlReq.OperationName,
 	}
@@ -164,7 +138,7 @@ func (p *Parser) Parse(r *http.Request) (*GraphQLInfo, []byte, error) {
 		info.VariablesHash = fmt.Sprintf("%x", h)
 	}
 
-	return info, body, nil
+	return info
 }
 
 // Check enforces depth limit, complexity limit, and introspection block.
@@ -213,7 +187,35 @@ func (p *Parser) Middleware() middleware.Middleware {
 				return
 			}
 
-			info, body, err := p.Parse(r)
+			// Read body once for batch detection
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				p.parseErrors.Add(1)
+				writeGraphQLError(w, "failed to read body", 400)
+				return
+			}
+			r.Body.Close()
+
+			// Detect batch (JSON array)
+			trimmed := bytes.TrimLeft(body, " \t\r\n")
+			if len(trimmed) > 0 && trimmed[0] == '[' {
+				if p.cfg.Batching.Enabled {
+					p.handleBatch(w, r, body, next)
+					return
+				}
+				writeGraphQLError(w, "batched queries are not enabled", 400)
+				return
+			}
+
+			// Single query flow — parse from already-read body
+			var gqlReq GraphQLRequest
+			if err := json.Unmarshal(body, &gqlReq); err != nil {
+				p.parseErrors.Add(1)
+				writeGraphQLError(w, "invalid JSON: "+err.Error(), 400)
+				return
+			}
+
+			info, body, err := p.resolveAndParse(gqlReq, body)
 			if err != nil {
 				if gqlErr, ok := err.(*GraphQLError); ok {
 					writeGraphQLError(w, gqlErr.Message, gqlErr.StatusCode)
@@ -225,14 +227,7 @@ func (p *Parser) Middleware() middleware.Middleware {
 			}
 
 			p.requestsTotal.Add(1)
-			switch info.OperationType {
-			case "query":
-				p.queriesTotal.Add(1)
-			case "mutation":
-				p.mutationsTotal.Add(1)
-			case "subscription":
-				p.subscriptionsTotal.Add(1)
-			}
+			p.countOperation(info)
 
 			if err := p.Check(info); err != nil {
 				if gqlErr, ok := err.(*GraphQLError); ok {
@@ -262,6 +257,58 @@ func (p *Parser) Middleware() middleware.Middleware {
 	}
 }
 
+// resolveAndParse handles APQ resolution, parsing, and analysis for a single GraphQLRequest.
+// It takes the already-read body bytes so it can re-marshal if APQ resolves the query.
+func (p *Parser) resolveAndParse(gqlReq GraphQLRequest, body []byte) (*GraphQLInfo, []byte, error) {
+	// APQ: handle persisted query extensions
+	if p.apqCache != nil {
+		if hash, ok := extractAPQHash(gqlReq.Extensions); ok {
+			if gqlReq.Query == "" {
+				cached, found := p.apqCache.Lookup(hash)
+				if !found {
+					return nil, body, &GraphQLError{
+						Message:    "PersistedQueryNotFound",
+						StatusCode: 200,
+					}
+				}
+				gqlReq.Query = cached
+				body, _ = json.Marshal(gqlReq)
+			} else {
+				if !p.apqCache.Register(hash, gqlReq.Query) {
+					return nil, body, &GraphQLError{
+						Message:    "provided sha does not match query",
+						StatusCode: 400,
+					}
+				}
+			}
+		}
+	}
+
+	if gqlReq.Query == "" {
+		return nil, body, fmt.Errorf("missing query field")
+	}
+
+	doc, parseErr := parser.ParseQuery(&ast.Source{Input: gqlReq.Query})
+	if parseErr != nil {
+		return nil, body, fmt.Errorf("invalid GraphQL query: %w", parseErr)
+	}
+
+	info := analyzeDocument(doc, gqlReq)
+	return info, body, nil
+}
+
+// countOperation increments the per-operation-type metric counter.
+func (p *Parser) countOperation(info *GraphQLInfo) {
+	switch info.OperationType {
+	case "query":
+		p.queriesTotal.Add(1)
+	case "mutation":
+		p.mutationsTotal.Add(1)
+	case "subscription":
+		p.subscriptionsTotal.Add(1)
+	}
+}
+
 // Stats returns a snapshot of metrics.
 func (p *Parser) Stats() map[string]interface{} {
 	stats := map[string]interface{}{
@@ -281,6 +328,23 @@ func (p *Parser) Stats() map[string]interface{} {
 	}
 	if p.apqCache != nil {
 		stats["persisted_queries"] = p.apqCache.Stats()
+	}
+	if p.cfg.Batching.Enabled {
+		mode := p.cfg.Batching.Mode
+		if mode == "" {
+			mode = "pass_through"
+		}
+		maxSize := p.cfg.Batching.MaxBatchSize
+		if maxSize == 0 {
+			maxSize = 10
+		}
+		stats["batching"] = map[string]interface{}{
+			"mode":           mode,
+			"max_batch_size": maxSize,
+			"requests_total": p.batchRequestsTotal.Load(),
+			"queries_total":  p.batchQueriesTotal.Load(),
+			"size_rejected":  p.batchSizeRejected.Load(),
+		}
 	}
 	return stats
 }

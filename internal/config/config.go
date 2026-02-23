@@ -1030,13 +1030,21 @@ type WAFConfig struct {
 
 // GraphQLConfig defines GraphQL query analysis and protection settings.
 type GraphQLConfig struct {
-	Enabled          bool                    `yaml:"enabled"`
-	MaxDepth         int                     `yaml:"max_depth"`         // 0 = unlimited
-	MaxComplexity    int                     `yaml:"max_complexity"`    // 0 = unlimited
-	Introspection    bool                    `yaml:"introspection"`     // allow introspection (default false)
-	OperationLimits  map[string]int          `yaml:"operation_limits"`  // e.g. {"query": 100, "mutation": 10} req/s
-	PersistedQueries PersistedQueriesConfig  `yaml:"persisted_queries"` // Automatic Persisted Queries (APQ)
+	Enabled          bool                      `yaml:"enabled"`
+	MaxDepth         int                       `yaml:"max_depth"`         // 0 = unlimited
+	MaxComplexity    int                       `yaml:"max_complexity"`    // 0 = unlimited
+	Introspection    bool                      `yaml:"introspection"`     // allow introspection (default false)
+	OperationLimits  map[string]int            `yaml:"operation_limits"`  // e.g. {"query": 100, "mutation": 10} req/s
+	PersistedQueries PersistedQueriesConfig    `yaml:"persisted_queries"` // Automatic Persisted Queries (APQ)
 	Subscriptions    GraphQLSubscriptionConfig `yaml:"subscriptions"`     // GraphQL subscription (WebSocket) settings
+	Batching         GraphQLBatchingConfig     `yaml:"batching"`          // Query batching settings
+}
+
+// GraphQLBatchingConfig defines GraphQL query batching settings.
+type GraphQLBatchingConfig struct {
+	Enabled      bool   `yaml:"enabled"`
+	MaxBatchSize int    `yaml:"max_batch_size"` // max queries per batch (default 10, 0 = unlimited)
+	Mode         string `yaml:"mode"`           // "pass_through" or "split" (default "pass_through")
 }
 
 // PersistedQueriesConfig defines GraphQL Automatic Persisted Queries settings.

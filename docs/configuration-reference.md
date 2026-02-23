@@ -943,9 +943,13 @@ Requires `traffic_split` to be configured. Mutually exclusive with `canary` and 
         protocol: string      # "graphql-ws" or "graphql-transport-ws" (default)
         ping_interval: duration  # keepalive ping interval (default 30s)
         max_connections: int  # max concurrent subscriptions per route (0 = unlimited)
+      batching:
+        enabled: bool         # enable query batching (requires graphql.enabled)
+        max_batch_size: int   # max queries per batch (default 10, 0 = unlimited, >= 0)
+        mode: string          # "pass_through" or "split" (default "pass_through")
 ```
 
-**Validation:** `persisted_queries.enabled` requires `graphql.enabled`. `persisted_queries.max_size` must be >= 0. `subscriptions.max_connections` must be >= 0.
+**Validation:** `persisted_queries.enabled` requires `graphql.enabled`. `persisted_queries.max_size` must be >= 0. `subscriptions.max_connections` must be >= 0. `batching.enabled` requires `graphql.enabled`. `batching.max_batch_size` must be >= 0. `batching.mode` must be `"pass_through"` or `"split"`.
 
 See [GraphQL Protection](graphql.md#automatic-persisted-queries-apq) for full documentation.
 

@@ -112,6 +112,47 @@ graphql:
 - The gateway verifies that the SHA-256 hash matches the query text before storing, preventing cache poisoning.
 - The LRU cache evicts least recently used queries when full.
 
+## Query Batching
+
+GraphQL clients (Apollo, Relay, urql) can batch multiple operations into a single HTTP request by sending a JSON array instead of a single object. The gateway detects batched requests and validates each query individually.
+
+```yaml
+graphql:
+  enabled: true
+  batching:
+    enabled: true
+    max_batch_size: 10    # max queries per batch (default 10, 0 = unlimited)
+    mode: "pass_through"  # "pass_through" or "split" (default "pass_through")
+```
+
+### Batch detection
+
+A request body starting with `[` is treated as a batch. Each element must be a standard GraphQL request object (`{query, variables, operationName, extensions}`). If batching is not enabled and an array is received, the gateway returns a 400 error.
+
+### Per-query validation
+
+Every query in a batch is individually validated against depth limits, complexity limits, introspection control, and per-operation rate limits. If any query fails validation, the entire batch is rejected with an error referencing the query index (e.g., `"query[2]: depth 15 exceeds maximum 10"`).
+
+APQ (Automatic Persisted Queries) resolution also works per-query within a batch — each element can use hash-only lookups independently.
+
+### Execution modes
+
+**Pass-through mode** (`mode: "pass_through"`, default): The gateway validates all queries, resolves any APQ hashes, then forwards the entire JSON array to the backend. Use this when the backend natively supports batch requests.
+
+**Split mode** (`mode: "split"`): The gateway fans out each query as an individual HTTP request through the full downstream middleware chain (cache, circuit breaker, etc.), then merges the responses into a JSON array. Use this when the backend only handles single queries, or when you want each query to benefit from per-query caching and circuit breaking.
+
+### Empty batches
+
+An empty array `[]` returns an empty array response `[]` with status 200.
+
+### Metrics
+
+Batch metrics are exposed via the admin `/graphql` endpoint:
+
+- `batching.requests_total` — number of batch requests received
+- `batching.queries_total` — total individual queries across all batches
+- `batching.size_rejected` — batches rejected for exceeding `max_batch_size`
+
 ## Cache Integration
 
 When used with [caching](caching.md), GraphQL analysis enhances cache keys with the operation name and a hash of query variables. This enables caching of GraphQL POST requests for query operations (mutations and subscriptions always bypass cache).
@@ -141,5 +182,8 @@ All GraphQL errors are returned in the standard GraphQL JSON format:
 | `graphql.operation_limits` | map | Per-type rate limits: `query`, `mutation`, `subscription` |
 | `graphql.persisted_queries.enabled` | bool | Enable Automatic Persisted Queries |
 | `graphql.persisted_queries.max_size` | int | LRU cache max entries (default 1000) |
+| `graphql.batching.enabled` | bool | Enable query batching |
+| `graphql.batching.max_batch_size` | int | Max queries per batch (default 10, 0 = unlimited) |
+| `graphql.batching.mode` | string | `"pass_through"` or `"split"` (default `"pass_through"`) |
 
 See [Configuration Reference](configuration-reference.md#routes) for all fields.

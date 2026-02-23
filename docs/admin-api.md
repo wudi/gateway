@@ -107,7 +107,7 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /rate-limits` | Rate limiter mode and algorithm per route |
 | `GET /tracing` | Tracing/OTEL status |
 | `GET /waf` | WAF statistics (blocks, detections) |
-| `GET /graphql` | GraphQL parser statistics (depth/complexity checks, APQ cache) |
+| `GET /graphql` | GraphQL parser statistics (depth/complexity checks, APQ cache, batch metrics) |
 | `GET /deprecation` | Per-route deprecation status (request counts, blocked counts, sunset status) |
 | `GET /slo` | Per-route SLO stats (target, error rate, budget remaining, shed count) |
 | `GET /coalesce` | Request coalescing stats (groups, coalesced requests, timeouts) |

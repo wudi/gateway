@@ -873,6 +873,19 @@ func (l *Loader) validateNetworkFeatures(route RouteConfig, _ *Config) error {
 	if route.GraphQL.PersistedQueries.Enabled && !route.GraphQL.Enabled {
 		return fmt.Errorf("route %s: graphql.persisted_queries.enabled requires graphql.enabled", routeID)
 	}
+	if route.GraphQL.Batching.Enabled {
+		if !route.GraphQL.Enabled {
+			return fmt.Errorf("route %s: graphql.batching.enabled requires graphql.enabled", routeID)
+		}
+		if route.GraphQL.Batching.MaxBatchSize < 0 {
+			return fmt.Errorf("route %s: graphql.batching.max_batch_size must be >= 0", routeID)
+		}
+		switch route.GraphQL.Batching.Mode {
+		case "", "pass_through", "split":
+		default:
+			return fmt.Errorf("route %s: graphql.batching.mode must be pass_through or split", routeID)
+		}
+	}
 
 	// WebSocket
 	if route.WebSocket.Enabled {
