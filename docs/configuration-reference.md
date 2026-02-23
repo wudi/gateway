@@ -839,7 +839,19 @@ Note: The `database` field is only valid at the global level. Per-route geo conf
         service: string                 # service name (empty = overall)
 ```
 
-**Validation:** `max_recv_msg_size` and `max_send_msg_size` must be >= 0. `grpc.enabled` is mutually exclusive with `protocol` translation.
+**Validation:** `max_recv_msg_size` and `max_send_msg_size` must be >= 0. `grpc.enabled` is mutually exclusive with `protocol` translation. `grpc.reflection.enabled` requires `grpc.enabled`.
+
+#### gRPC Reflection
+
+```yaml
+    grpc:
+      enabled: true
+      reflection:
+        enabled: bool
+        cache_ttl: duration     # default 5m
+```
+
+---
 
 ### Traffic Shaping (per-route)
 
@@ -920,6 +932,21 @@ Requires `traffic_split` to be configured. Mutually exclusive with `canary` and 
         mutation: int
         subscription: int
 ```
+
+### GraphQL Federation
+
+```yaml
+    graphql_federation:
+      enabled: bool
+      refresh_interval: duration  # default 5m
+      sources:
+        - name: string           # unique source name
+          url: string            # GraphQL endpoint URL
+```
+
+**Validation:** Requires >= 2 sources. Source names must be unique. Each source must have a URL. Mutually exclusive with `graphql.enabled` and `protocol`.
+
+---
 
 ### External Auth
 
@@ -1274,6 +1301,10 @@ admin:
   readiness:
     min_healthy_backends: int  # default 1
     require_redis: bool
+  catalog:
+    enabled: bool             # default false
+    title: string             # default "API Gateway"
+    description: string
 ```
 
 ---

@@ -310,6 +310,36 @@ routes:
       per_ip: true
 ```
 
+## GraphQL Federation
+
+Merge two GraphQL backends into a single unified endpoint:
+
+```yaml
+listeners:
+  - id: "http"
+    address: ":8080"
+    protocol: "http"
+
+routes:
+  - id: "unified-graphql"
+    path: "/graphql"
+    graphql_federation:
+      enabled: true
+      refresh_interval: 5m
+      sources:
+        - name: users
+          url: "http://users-service:4000/graphql"
+        - name: orders
+          url: "http://orders-service:4001/graphql"
+    rate_limit:
+      enabled: true
+      rate: 200
+      period: 1m
+      per_ip: true
+```
+
+Clients query `/graphql` and the gateway splits cross-backend queries, fans out to the owning sources, and merges the responses. See [GraphQL Federation](graphql-federation.md) for details.
+
 ## Production-Ready with Observability
 
 Full production configuration with logging, metrics, tracing, WAF, and health checks:

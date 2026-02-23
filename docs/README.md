@@ -28,6 +28,8 @@ A high-performance, feature-rich API gateway supporting HTTP, TCP, and UDP proxy
 
 - [Protocol Translation](protocol-translation.md) — HTTP-to-gRPC, HTTP-to-Thrift, REST mappings, WebSocket proxy
 - [GraphQL Protection](graphql.md) — Depth/complexity limits, introspection, operation rate limits
+- [GraphQL Federation](graphql-federation.md) — Schema stitching across multiple GraphQL backends
+- [gRPC Proxy](grpc-proxy.md) — gRPC-aware proxying with deadline propagation, metadata transforms, reflection
 - [HTTP/3 & QUIC](http3.md) — HTTP/3 listener and upstream support
 - [SSE Proxy](sse-proxy.md) — Server-Sent Events proxy with heartbeat, event injection, and streaming
 
@@ -91,6 +93,7 @@ A high-performance, feature-rich API gateway supporting HTTP, TCP, and UDP proxy
 
 ### Reference
 
+- [Developer Portal](developer-portal.md) — Browsable API catalog with OpenAPI spec viewer
 - [Admin API Reference](admin-api.md) — Health, feature endpoints, dashboard, reload
 - [Configuration Reference](configuration-reference.md) — Complete YAML schema
 - [Rules Engine](rules-engine.md) — Expression syntax, request/response rules, actions

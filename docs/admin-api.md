@@ -163,6 +163,10 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /mock-responses` | Per-route mock response served count |
 | `GET /sse` | Per-route SSE proxy connection and event stats (includes fan-out metrics when enabled) |
 | `GET /grpc-proxy` | Per-route gRPC proxy stats (deadline propagation, metadata transforms, message size limits) |
+| `GET /grpc-reflection` | Per-route gRPC reflection proxy stats (backends, cached services, cache TTL) |
+| `GET /graphql-federation` | Per-route GraphQL federation stats (sources, requests, errors, introspections) |
+| `GET /catalog` | API catalog JSON (routes, specs, metadata) — requires `admin.catalog.enabled` |
+| `GET /catalog/ui` | HTML catalog UI — requires `admin.catalog.enabled` |
 | `POST /cache/purge` | Purge cached entries by route, key, or all (see [Caching](caching.md#cache-invalidation-api)) |
 | `GET /load-shedding` | Load shedding status and system metrics (CPU, memory, goroutines, rejected/allowed counts) |
 | `GET /baggage` | Per-route baggage propagation configuration and tag definitions |
@@ -1757,6 +1761,131 @@ curl http://localhost:8081/grpc-proxy
   }
 }
 ```
+
+---
+
+## gRPC Reflection
+
+### GET `/grpc-reflection`
+
+Returns per-route gRPC reflection proxy statistics.
+
+```bash
+curl http://localhost:8081/grpc-reflection
+```
+
+**Response:**
+```json
+{
+  "grpc-api": {
+    "backends": 2,
+    "services": 5,
+    "cache_ttl": "5m0s",
+    "requests": 150,
+    "errors": 0
+  }
+}
+```
+
+See [gRPC Proxy — Reflection](grpc-proxy.md#grpc-reflection-proxy) for configuration.
+
+---
+
+## GraphQL Federation
+
+### GET `/graphql-federation`
+
+Returns per-route GraphQL federation statistics.
+
+```bash
+curl http://localhost:8081/graphql-federation
+```
+
+**Response:**
+```json
+{
+  "unified-graphql": {
+    "sources": 2,
+    "requests": 5000,
+    "errors": 12,
+    "introspections": 45,
+    "refresh_interval": "5m0s",
+    "fields": 5
+  }
+}
+```
+
+See [GraphQL Federation](graphql-federation.md) for configuration.
+
+---
+
+## API Catalog
+
+### GET `/catalog`
+
+Returns the full API catalog as JSON. Requires `admin.catalog.enabled: true`.
+
+```bash
+curl http://localhost:8081/catalog
+```
+
+**Response:**
+```json
+{
+  "title": "API Gateway",
+  "stats": {
+    "total_routes": 3,
+    "total_specs": 1,
+    "total_backends": 5
+  },
+  "entries": [
+    {
+      "id": "users-api",
+      "path": "/api/users/*",
+      "methods": ["GET", "POST"],
+      "description": "User management API",
+      "tags": ["Auth Required"],
+      "backends": 2,
+      "spec_id": "specs-users-yaml",
+      "auth": true
+    }
+  ],
+  "specs": [
+    {
+      "id": "specs-users-yaml",
+      "title": "Users API",
+      "version": "1.0.0",
+      "route_id": "users-api"
+    }
+  ]
+}
+```
+
+### GET `/catalog/specs`
+
+Lists all discovered OpenAPI specs as a JSON array.
+
+```bash
+curl http://localhost:8081/catalog/specs
+```
+
+### GET `/catalog/specs/{id}`
+
+Returns the raw OpenAPI spec JSON for a specific spec ID. Returns `404` if not found.
+
+```bash
+curl http://localhost:8081/catalog/specs/specs-users-yaml
+```
+
+### GET `/catalog/ui`
+
+Serves an HTML page listing all APIs with links to Redoc documentation viewers.
+
+### GET `/catalog/ui/{specID}`
+
+Serves a Redoc-powered documentation viewer for the specified OpenAPI spec. Returns `404` if not found.
+
+See [Developer Portal](developer-portal.md) for full documentation.
 
 ---
 
