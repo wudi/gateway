@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -646,5 +647,409 @@ func TestRSAMissingKey(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "private_key") {
 		t.Errorf("expected private_key error, got: %v", err)
+	}
+}
+
+// ── Comprehensive tests ──
+
+func TestSignConcurrentRequests(t *testing.T) {
+	cfg := config.BackendSigningConfig{
+		Enabled: true,
+		Secret:  testSecret(),
+		KeyID:   "concurrent-key",
+	}
+	signer, err := New("route-concurrent", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const n = 100
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		go func() {
+			req := httptest.NewRequest(http.MethodPost, "/api/test", bytes.NewReader([]byte(`{"i":1}`)))
+			errs <- signer.Sign(req)
+		}()
+	}
+	for i := 0; i < n; i++ {
+		if err := <-errs; err != nil {
+			t.Errorf("concurrent sign %d failed: %v", i, err)
+		}
+	}
+
+	status := signer.Status()
+	if status.TotalRequests != n {
+		t.Errorf("expected %d total requests, got %d", n, status.TotalRequests)
+	}
+	if status.Signed != n {
+		t.Errorf("expected %d signed, got %d", n, status.Signed)
+	}
+}
+
+func TestSignRSAConcurrentRequests(t *testing.T) {
+	privPEM, _ := generateTestRSAKey(t)
+	cfg := config.BackendSigningConfig{
+		Enabled:    true,
+		Algorithm:  "rsa-sha256",
+		PrivateKey: privPEM,
+		KeyID:      "rsa-concurrent",
+	}
+	signer, err := New("route-rsa-concurrent", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const n = 50
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		go func() {
+			req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+			errs <- signer.Sign(req)
+		}()
+	}
+	for i := 0; i < n; i++ {
+		if err := <-errs; err != nil {
+			t.Errorf("concurrent RSA sign %d failed: %v", i, err)
+		}
+	}
+	if signer.Status().Signed != n {
+		t.Errorf("expected %d signed", n)
+	}
+}
+
+func TestSignPreservesBodyAfterSigning(t *testing.T) {
+	cfg := config.BackendSigningConfig{
+		Enabled: true,
+		Secret:  testSecret(),
+		KeyID:   "body-key",
+	}
+	signer, err := New("route-body", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := []byte(`{"large": "` + strings.Repeat("x", 10000) + `"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/test", bytes.NewReader(body))
+	if err := signer.Sign(req); err != nil {
+		t.Fatal(err)
+	}
+
+	readBody, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(readBody, body) {
+		t.Error("body was corrupted after signing")
+	}
+}
+
+func TestSignNilBody(t *testing.T) {
+	cfg := config.BackendSigningConfig{
+		Enabled: true,
+		Secret:  testSecret(),
+		KeyID:   "nil-key",
+	}
+	signer, err := New("route-nil", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/test", nil)
+	if err := signer.Sign(req); err != nil {
+		t.Fatal(err)
+	}
+
+	sig := req.Header.Get("X-Gateway-Signature")
+	if sig == "" {
+		t.Error("expected signature even for nil POST body")
+	}
+}
+
+func TestSignAllHTTPMethods(t *testing.T) {
+	cfg := config.BackendSigningConfig{
+		Enabled: true,
+		Secret:  testSecret(),
+		KeyID:   "methods-key",
+	}
+	signer, err := New("route-methods", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	methods := []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodHead, http.MethodOptions}
+	for _, method := range methods {
+		req := httptest.NewRequest(method, "/api/test", nil)
+		if err := signer.Sign(req); err != nil {
+			t.Errorf("%s: sign failed: %v", method, err)
+		}
+		sig := req.Header.Get("X-Gateway-Signature")
+		if sig == "" {
+			t.Errorf("%s: missing signature", method)
+		}
+	}
+}
+
+func TestSignDefaultAlgorithm(t *testing.T) {
+	cfg := config.BackendSigningConfig{
+		Enabled:   true,
+		Algorithm: "", // should default to hmac-sha256
+		Secret:    testSecret(),
+		KeyID:     "default-algo",
+	}
+	signer, err := New("route-default", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	if err := signer.Sign(req); err != nil {
+		t.Fatal(err)
+	}
+
+	sig := req.Header.Get("X-Gateway-Signature")
+	if !strings.HasPrefix(sig, "hmac-sha256=") {
+		t.Errorf("expected hmac-sha256 default, got %q", sig)
+	}
+}
+
+func TestSignOverwritesExistingHeaders(t *testing.T) {
+	cfg := config.BackendSigningConfig{
+		Enabled: true,
+		Secret:  testSecret(),
+		KeyID:   "overwrite-key",
+	}
+	signer, err := New("route-overwrite", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req.Header.Set("X-Gateway-Signature", "old-value")
+	req.Header.Set("X-Gateway-Timestamp", "0")
+
+	if err := signer.Sign(req); err != nil {
+		t.Fatal(err)
+	}
+
+	if req.Header.Get("X-Gateway-Signature") == "old-value" {
+		t.Error("signature header was not overwritten")
+	}
+	if req.Header.Get("X-Gateway-Timestamp") == "0" {
+		t.Error("timestamp header was not overwritten")
+	}
+}
+
+func TestSignWithQueryParameters(t *testing.T) {
+	cfg := config.BackendSigningConfig{
+		Enabled: true,
+		Secret:  testSecret(),
+		KeyID:   "query-key",
+	}
+	signer, err := New("route-query", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/test?foo=bar&baz=qux", nil)
+	if err := signer.Sign(req); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify the full request URI (including query) is in the signing string
+	ts := req.Header.Get("X-Gateway-Timestamp")
+	emptyHash := sha256.Sum256(nil)
+	signingStr := "GET\n/api/test?foo=bar&baz=qux\n" + ts + "\n" + hex.EncodeToString(emptyHash[:])
+	secret, _ := base64.StdEncoding.DecodeString(testSecret())
+	mac := hmac.New(sha256.New, secret)
+	mac.Write([]byte(signingStr))
+	expected := "hmac-sha256=" + hex.EncodeToString(mac.Sum(nil))
+
+	if req.Header.Get("X-Gateway-Signature") != expected {
+		t.Error("signature does not include query parameters correctly")
+	}
+}
+
+func TestRSASignAndVerifyPSSRoundTrip(t *testing.T) {
+	privPEM, pubPEM := generateTestRSAKey(t)
+
+	// Sign
+	signerCfg := config.BackendSigningConfig{
+		Enabled:    true,
+		Algorithm:  "rsa-pss-sha256",
+		PrivateKey: privPEM,
+		KeyID:      "pss-rt-key",
+	}
+	signer, err := New("route-pss-rt", signerCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := []byte(`{"pss":"test"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/pss", bytes.NewReader(body))
+	if err := signer.Sign(req); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify
+	sigHeader := req.Header.Get("X-Gateway-Signature")
+	parts := strings.SplitN(sigHeader, "=", 2)
+	if parts[0] != "rsa-pss-sha256" {
+		t.Fatalf("wrong algo prefix: %s", parts[0])
+	}
+	sigBytes, _ := hex.DecodeString(parts[1])
+
+	block, _ := pem.Decode([]byte(pubPEM))
+	pub, _ := x509.ParsePKIXPublicKey(block.Bytes)
+	rsaPub := pub.(*rsa.PublicKey)
+
+	ts := req.Header.Get("X-Gateway-Timestamp")
+	readBody, _ := io.ReadAll(req.Body)
+	bodyHash := sha256.Sum256(readBody)
+	signingStr := "POST\n/api/pss\n" + ts + "\n" + hex.EncodeToString(bodyHash[:])
+
+	h := sha256.New()
+	h.Write([]byte(signingStr))
+	digest := h.Sum(nil)
+
+	if err := rsa.VerifyPSS(rsaPub, crypto.SHA256, digest, sigBytes, nil); err != nil {
+		t.Errorf("RSA-PSS round-trip verification failed: %v", err)
+	}
+}
+
+func TestRSAPrivateKeyFromFile(t *testing.T) {
+	privPEM, _ := generateTestRSAKey(t)
+	tmpFile := t.TempDir() + "/test-key.pem"
+	if err := os.WriteFile(tmpFile, []byte(privPEM), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.BackendSigningConfig{
+		Enabled:        true,
+		Algorithm:      "rsa-sha256",
+		PrivateKeyFile: tmpFile,
+		KeyID:          "file-key",
+	}
+	signer, err := New("route-file", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	if err := signer.Sign(req); err != nil {
+		t.Fatal(err)
+	}
+	sig := req.Header.Get("X-Gateway-Signature")
+	if !strings.HasPrefix(sig, "rsa-sha256=") {
+		t.Errorf("expected rsa-sha256 prefix from file key, got %q", sig)
+	}
+}
+
+func TestRSAPrivateKeyFileNotFound(t *testing.T) {
+	cfg := config.BackendSigningConfig{
+		Enabled:        true,
+		Algorithm:      "rsa-sha256",
+		PrivateKeyFile: "/nonexistent/key.pem",
+		KeyID:          "k",
+	}
+	_, err := New("route-1", cfg)
+	if err == nil {
+		t.Fatal("expected error for missing key file")
+	}
+	if !strings.Contains(err.Error(), "reading private key file") {
+		t.Errorf("expected file read error, got: %v", err)
+	}
+}
+
+func TestSignWithMultipleSignedHeaders(t *testing.T) {
+	cfg := config.BackendSigningConfig{
+		Enabled:       true,
+		Secret:        testSecret(),
+		KeyID:         "multi-hdr",
+		SignedHeaders: []string{"X-Request-ID", "Content-Type", "Accept"},
+	}
+	signer, err := New("route-multi-hdr", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/test", bytes.NewReader([]byte("body")))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Request-ID", "req-123")
+
+	if err := signer.Sign(req); err != nil {
+		t.Fatal(err)
+	}
+
+	// Signed headers should be sorted
+	sh := req.Header.Get("X-Gateway-Signed-Headers")
+	if sh != "Accept;Content-Type;X-Request-ID" {
+		t.Errorf("expected sorted signed headers, got %q", sh)
+	}
+}
+
+func TestManagerConcurrentAddAndGet(t *testing.T) {
+	m := NewSigningByRoute()
+
+	// Concurrent adds
+	const n = 20
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		go func(idx int) {
+			cfg := config.BackendSigningConfig{
+				Enabled: true,
+				Secret:  testSecret(),
+				KeyID:   "key-" + strconv.Itoa(idx),
+			}
+			errs <- m.AddRoute("route-"+strconv.Itoa(idx), cfg)
+		}(i)
+	}
+	for i := 0; i < n; i++ {
+		if err := <-errs; err != nil {
+			t.Errorf("concurrent add %d failed: %v", i, err)
+		}
+	}
+
+	// All should be retrievable
+	for i := 0; i < n; i++ {
+		if m.GetSigner("route-"+strconv.Itoa(i)) == nil {
+			t.Errorf("missing signer for route-%d", i)
+		}
+	}
+
+	ids := m.RouteIDs()
+	if len(ids) != n {
+		t.Errorf("expected %d routes, got %d", n, len(ids))
+	}
+}
+
+func TestMiddlewareCallsNextOnError(t *testing.T) {
+	// Middleware logs warning but still calls next
+	cfg := config.BackendSigningConfig{
+		Enabled: true,
+		Secret:  testSecret(),
+		KeyID:   "mw-key",
+	}
+	signer, err := New("route-mw", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	called := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	handler := signer.Middleware()(next)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if !called {
+		t.Error("next handler should be called even on signing success")
+	}
+	if req.Header.Get("X-Gateway-Signature") == "" {
+		t.Error("signing middleware should have set signature header")
 	}
 }
