@@ -40,6 +40,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/loadshed"
 	"github.com/wudi/gateway/internal/middleware/nonce"
 	"github.com/wudi/gateway/internal/middleware/decompress"
+	"github.com/wudi/gateway/internal/middleware/deprecation"
 	"github.com/wudi/gateway/internal/middleware/botdetect"
 	"github.com/wudi/gateway/internal/middleware/cdnheaders"
 	"github.com/wudi/gateway/internal/middleware/claimsprop"
@@ -56,6 +57,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/serviceratelimit"
 	"github.com/wudi/gateway/internal/middleware/sse"
 	"github.com/wudi/gateway/internal/middleware/signing"
+	"github.com/wudi/gateway/internal/middleware/slo"
 	"github.com/wudi/gateway/internal/middleware/spikearrest"
 	"github.com/wudi/gateway/internal/middleware/staticfiles"
 	"github.com/wudi/gateway/internal/middleware/statusmap"
@@ -180,6 +182,8 @@ type gatewayState struct {
 	backpressureHandlers *backpressure.BackpressureByRoute
 	auditLoggers         *auditlog.AuditLogByRoute
 	trafficReplay        *trafficreplay.ReplayByRoute
+	deprecationHandlers  *deprecation.DeprecationByRoute
+	sloTrackers          *slo.SLOByRoute
 
 	tenantManager *tenant.Manager
 
@@ -266,6 +270,8 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		backpressureHandlers: backpressure.NewBackpressureByRoute(),
 		auditLoggers:         auditlog.NewAuditLogByRoute(),
 		trafficReplay:        trafficreplay.NewReplayByRoute(),
+		deprecationHandlers:  deprecation.NewDeprecationByRoute(),
+		sloTrackers:          slo.NewSLOByRoute(),
 	}
 
 	// Initialize tenant manager
@@ -1104,6 +1110,8 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldBackpressureHandlers2 := g.backpressureHandlers
 	oldAuditLoggers2 := g.auditLoggers
 	oldTrafficReplay := g.trafficReplay
+	oldDeprecationHandlers := g.deprecationHandlers
+	oldSLOTrackers := g.sloTrackers
 	oldTenantManager := g.tenantManager
 
 	// Install new state
@@ -1177,6 +1185,8 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.backpressureHandlers = s.backpressureHandlers
 	g.auditLoggers = s.auditLoggers
 	g.trafficReplay = s.trafficReplay
+	g.deprecationHandlers = s.deprecationHandlers
+	g.sloTrackers = s.sloTrackers
 	g.tenantManager = s.tenantManager
 
 	handler := g.buildRouteHandler(routeID, cfg, route, rp)
@@ -1252,6 +1262,8 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.backpressureHandlers = oldBackpressureHandlers2
 	g.auditLoggers = oldAuditLoggers2
 	g.trafficReplay = oldTrafficReplay
+	g.deprecationHandlers = oldDeprecationHandlers
+	g.sloTrackers = oldSLOTrackers
 	g.tenantManager = oldTenantManager
 
 	return handler
@@ -1376,6 +1388,8 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.abTests = newState.abTests
 	g.requestQueues = newState.requestQueues
 	g.trafficReplay = newState.trafficReplay
+	g.deprecationHandlers = newState.deprecationHandlers
+	g.sloTrackers = newState.sloTrackers
 	g.apiKeyAuth = newState.apiKeyAuth
 	g.jwtAuth = newState.jwtAuth
 	g.oauthAuth = newState.oauthAuth

@@ -104,7 +104,9 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /rate-limits` | Rate limiter mode and algorithm per route |
 | `GET /tracing` | Tracing/OTEL status |
 | `GET /waf` | WAF statistics (blocks, detections) |
-| `GET /graphql` | GraphQL parser statistics (depth/complexity checks) |
+| `GET /graphql` | GraphQL parser statistics (depth/complexity checks, APQ cache) |
+| `GET /deprecation` | Per-route deprecation status (request counts, blocked counts, sunset status) |
+| `GET /slo` | Per-route SLO stats (target, error rate, budget remaining, shed count) |
 | `GET /coalesce` | Request coalescing stats (groups, coalesced requests, timeouts) |
 | `GET /load-balancers` | Load balancer info (algorithm, backend states) |
 | `GET /canary` | Canary deployment status per route |
@@ -1816,6 +1818,61 @@ curl http://localhost:8081/graphql-federation
 ```
 
 See [GraphQL Federation](graphql-federation.md) for configuration.
+
+---
+
+## API Deprecation
+
+### GET `/deprecation`
+
+Returns per-route deprecation status including request counts, blocked counts, and sunset status.
+
+```bash
+curl http://localhost:8081/deprecation
+```
+
+**Response:**
+```json
+{
+  "legacy-api": {
+    "requests_total": 5000,
+    "blocked": 120,
+    "message": "Use /api/v2 instead",
+    "sunset_date": "2025-06-01T00:00:00Z",
+    "past_sunset": true
+  }
+}
+```
+
+See [API Deprecation Lifecycle](deprecation.md) for configuration.
+
+---
+
+## SLI/SLO Enforcement
+
+### GET `/slo`
+
+Returns per-route SLO stats including target, total requests, errors, error rate, budget remaining, and shed count.
+
+```bash
+curl http://localhost:8081/slo
+```
+
+**Response:**
+```json
+{
+  "critical-api": {
+    "target": 0.999,
+    "total": 100000,
+    "errors": 50,
+    "error_rate": 0.0005,
+    "budget_remaining": 0.5,
+    "shed_count": 0
+  }
+}
+```
+
+See [SLI/SLO Enforcement](slo.md) for configuration.
 
 ---
 

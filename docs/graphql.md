@@ -74,6 +74,44 @@ graphql:
 
 Each operation type has its own independent token bucket. Exceeded operations return a GraphQL error response.
 
+## Automatic Persisted Queries (APQ)
+
+APQ reduces bandwidth by allowing clients to send a hash of a previously registered query instead of the full query text. This follows the [Apollo APQ protocol](https://www.apollographql.com/docs/apollo-server/performance/apq/).
+
+```yaml
+graphql:
+  enabled: true
+  persisted_queries:
+    enabled: true
+    max_size: 1000    # LRU cache max entries (default 1000)
+```
+
+### How it works
+
+1. **First request (register):** Client sends both the query and its SHA-256 hash in the `extensions` field. The gateway verifies the hash matches, stores it in the LRU cache, and forwards the request.
+
+2. **Subsequent requests (lookup):** Client sends only the hash (no query). The gateway looks up the hash in the cache, substitutes the full query, and forwards it to the backend.
+
+3. **Cache miss:** If the hash is not found, the gateway returns a `PersistedQueryNotFound` error (HTTP 200, per Apollo protocol). The client should retry with the full query + hash.
+
+### Request format
+
+```json
+{
+  "extensions": {
+    "persistedQuery": {
+      "version": 1,
+      "sha256Hash": "ecf4edb46db40b5132295c0291d62fb65d6759a9eedfa4d5d612dd5ec54a6b38"
+    }
+  }
+}
+```
+
+### Security
+
+- The gateway verifies that the SHA-256 hash matches the query text before storing, preventing cache poisoning.
+- The LRU cache evicts least recently used queries when full.
+
 ## Cache Integration
 
 When used with [caching](caching.md), GraphQL analysis enhances cache keys with the operation name and a hash of query variables. This enables caching of GraphQL POST requests for query operations (mutations and subscriptions always bypass cache).
@@ -101,5 +139,7 @@ All GraphQL errors are returned in the standard GraphQL JSON format:
 | `graphql.max_complexity` | int | Max query complexity score (0 = unlimited) |
 | `graphql.introspection` | bool | Allow introspection queries (default false) |
 | `graphql.operation_limits` | map | Per-type rate limits: `query`, `mutation`, `subscription` |
+| `graphql.persisted_queries.enabled` | bool | Enable Automatic Persisted Queries |
+| `graphql.persisted_queries.max_size` | int | LRU cache max entries (default 1000) |
 
 See [Configuration Reference](configuration-reference.md#routes) for all fields.

@@ -37,6 +37,8 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		l.validateOutlierDetection,
 		l.validateDelegatedSecurity,
 		l.validateDelegatedMiddleware,
+		l.validateDeprecation,
+		l.validateSLO,
 		l.validateTenantBackends,
 	}
 	for _, v := range validators {
@@ -863,6 +865,12 @@ func (l *Loader) validateNetworkFeatures(route RouteConfig, _ *Config) error {
 				return fmt.Errorf("route %s: graphql operation_limits value for %q must be > 0", routeID, opType)
 			}
 		}
+		if route.GraphQL.PersistedQueries.Enabled && route.GraphQL.PersistedQueries.MaxSize < 0 {
+			return fmt.Errorf("route %s: graphql persisted_queries.max_size must be >= 0", routeID)
+		}
+	}
+	if route.GraphQL.PersistedQueries.Enabled && !route.GraphQL.Enabled {
+		return fmt.Errorf("route %s: graphql.persisted_queries.enabled requires graphql.enabled", routeID)
 	}
 
 	// WebSocket
@@ -2862,6 +2870,63 @@ func (l *Loader) validateTenantBackends(route RouteConfig, cfg *Config) error {
 			if b.URL == "" {
 				return fmt.Errorf("route %s: tenant_backends[%s][%d] missing url", route.ID, tid, i)
 			}
+		}
+	}
+	return nil
+}
+
+func (l *Loader) validateDeprecation(route RouteConfig, _ *Config) error {
+	cfg := route.Deprecation
+	if !cfg.Enabled {
+		return nil
+	}
+	routeID := route.ID
+	if cfg.SunsetDate != "" {
+		if _, err := time.Parse(time.RFC3339, cfg.SunsetDate); err != nil {
+			return fmt.Errorf("route %s: deprecation.sunset_date must be valid RFC 3339: %w", routeID, err)
+		}
+	}
+	if cfg.ResponseAfterSunset != nil {
+		if cfg.SunsetDate == "" {
+			return fmt.Errorf("route %s: deprecation.response_after_sunset requires sunset_date", routeID)
+		}
+		if cfg.ResponseAfterSunset.Status != 0 && (cfg.ResponseAfterSunset.Status < 100 || cfg.ResponseAfterSunset.Status > 599) {
+			return fmt.Errorf("route %s: deprecation.response_after_sunset.status must be 100-599", routeID)
+		}
+	}
+	if cfg.LinkRelation != "" && cfg.Link == "" {
+		return fmt.Errorf("route %s: deprecation.link_relation requires link", routeID)
+	}
+	if cfg.LogLevel != "" && cfg.LogLevel != "warn" && cfg.LogLevel != "info" {
+		return fmt.Errorf("route %s: deprecation.log_level must be \"warn\" or \"info\"", routeID)
+	}
+	return nil
+}
+
+func (l *Loader) validateSLO(route RouteConfig, _ *Config) error {
+	cfg := route.SLO
+	if !cfg.Enabled {
+		return nil
+	}
+	routeID := route.ID
+	if cfg.Target <= 0 || cfg.Target >= 1 {
+		return fmt.Errorf("route %s: slo.target must be in (0, 1) exclusive", routeID)
+	}
+	if cfg.Window > 0 && cfg.Window < time.Minute {
+		return fmt.Errorf("route %s: slo.window must be >= 1 minute", routeID)
+	}
+	validActions := map[string]bool{"log_warning": true, "add_header": true, "shed_load": true}
+	for _, action := range cfg.Actions {
+		if !validActions[action] {
+			return fmt.Errorf("route %s: slo.actions contains unknown action %q (must be log_warning, add_header, or shed_load)", routeID, action)
+		}
+	}
+	if cfg.ShedLoadPercent < 0 || cfg.ShedLoadPercent > 100 {
+		return fmt.Errorf("route %s: slo.shed_load_percent must be 0-100", routeID)
+	}
+	for _, code := range cfg.ErrorCodes {
+		if code < 100 || code > 599 {
+			return fmt.Errorf("route %s: slo.error_codes contains invalid status code %d (must be 100-599)", routeID, code)
 		}
 	}
 	return nil

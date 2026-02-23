@@ -47,6 +47,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/cors"
 	"github.com/wudi/gateway/internal/middleware/debug"
 	"github.com/wudi/gateway/internal/middleware/decompress"
+	"github.com/wudi/gateway/internal/middleware/deprecation"
 	"github.com/wudi/gateway/internal/middleware/csrf"
 	"github.com/wudi/gateway/internal/middleware/errorpages"
 	"github.com/wudi/gateway/internal/middleware/extauth"
@@ -69,6 +70,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/serviceratelimit"
 	"github.com/wudi/gateway/internal/middleware/sse"
 	"github.com/wudi/gateway/internal/middleware/signing"
+	"github.com/wudi/gateway/internal/middleware/slo"
 	"github.com/wudi/gateway/internal/middleware/ssrf"
 	"github.com/wudi/gateway/internal/middleware/spikearrest"
 	"github.com/wudi/gateway/internal/middleware/staticfiles"
@@ -250,6 +252,8 @@ type Gateway struct {
 	amqpHandlers         *amqpproxy.AMQPByRoute
 	pubsubHandlers       *pubsubproxy.PubSubByRoute
 	trafficReplay        *trafficreplay.ReplayByRoute
+	deprecationHandlers  *deprecation.DeprecationByRoute
+	sloTrackers          *slo.SLOByRoute
 
 	tenantManager *tenant.Manager
 	catalogBuilder *catalog.Builder
@@ -415,6 +419,8 @@ func New(cfg *config.Config) (*Gateway, error) {
 		amqpHandlers:         amqpproxy.NewAMQPByRoute(),
 		pubsubHandlers:       pubsubproxy.NewPubSubByRoute(),
 		trafficReplay:        trafficreplay.NewReplayByRoute(),
+		deprecationHandlers:  deprecation.NewDeprecationByRoute(),
+		sloTrackers:          slo.NewSLOByRoute(),
 		watchCancels:      make(map[string]context.CancelFunc),
 	}
 
@@ -962,6 +968,24 @@ func New(cfg *config.Config) (*Gateway, error) {
 			}
 			return nil
 		}, g.trafficReplay.RouteIDs, func() any { return g.trafficReplay.Stats() }),
+
+		newFeature("deprecation", "/deprecation", func(id string, rc config.RouteConfig) error {
+			if rc.Deprecation.Enabled {
+				merged := deprecation.MergeDeprecationConfig(rc.Deprecation, cfg.Deprecation)
+				return g.deprecationHandlers.AddRoute(id, merged)
+			}
+			if cfg.Deprecation.Enabled {
+				return g.deprecationHandlers.AddRoute(id, cfg.Deprecation)
+			}
+			return nil
+		}, g.deprecationHandlers.RouteIDs, func() any { return g.deprecationHandlers.Stats() }),
+
+		newFeature("slo", "/slo", func(id string, rc config.RouteConfig) error {
+			if rc.SLO.Enabled {
+				g.sloTrackers.AddRoute(id, rc.SLO)
+			}
+			return nil
+		}, g.sloTrackers.RouteIDs, func() any { return g.sloTrackers.Stats() }),
 
 		noOpFeature("session_affinity", "/session-affinity", func() []string {
 			var ids []string
@@ -1797,6 +1821,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 	// Order matches CLAUDE.md serveHTTP flow exactly — do not reorder.
 	mws := [...]func() middleware.Middleware{
 		/* 1    */ func() middleware.Middleware { return metricsMW(g.metricsCollector, routeID) },
+		/* 1.1  */ func() middleware.Middleware {
+			if st := g.sloTrackers.GetTracker(routeID); st != nil { return st.Middleware() }; return nil
+		},
 		/* 1.5  */ func() middleware.Middleware {
 			if ctrl := g.canaryControllers.GetController(routeID); ctrl != nil { return canaryObserverMW(ctrl) }
 			if bg := g.blueGreenControllers.GetController(routeID); bg != nil { return blueGreenObserverMW(bg) }
@@ -1845,6 +1872,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		},
 		/* 4.5  */ func() middleware.Middleware {
 			if ver := g.versioners.GetVersioner(routeID); ver != nil { return ver.Middleware() }; return nil
+		},
+		/* 4.55 */ func() middleware.Middleware {
+			if dh := g.deprecationHandlers.GetHandler(routeID); dh != nil { return dh.Middleware() }; return nil
 		},
 		/* 4.75 */ func() middleware.Middleware {
 			if ct := g.timeoutConfigs.GetTimeout(routeID); ct != nil { return ct.Middleware() }; return nil

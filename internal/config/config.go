@@ -76,6 +76,7 @@ type Config struct {
 	Wasm                   WasmConfig                   `yaml:"wasm"`                      // WASM plugin runtime settings
 	Tenants                TenantsConfig                `yaml:"tenants"`                   // Multi-tenancy configuration
 	CompletionHeader       bool                         `yaml:"completion_header"`         // Add X-Gateway-Completed header to aggregate/sequential responses
+	Deprecation            DeprecationConfig            `yaml:"deprecation"`               // Global API deprecation lifecycle (RFC 8594)
 }
 
 // ListenerConfig defines a listener configuration
@@ -403,6 +404,8 @@ type RouteConfig struct {
 	SessionAffinity      SessionAffinityConfig          `yaml:"session_affinity"`       // Cookie-based backend pinning
 	TrafficReplay        TrafficReplayConfig            `yaml:"traffic_replay"`         // Record and replay traffic
 	TokenExchange        TokenExchangeConfig            `yaml:"token_exchange"`         // OAuth2/OIDC token exchange (RFC 8693)
+	Deprecation          DeprecationConfig              `yaml:"deprecation"`            // API deprecation lifecycle (RFC 8594)
+	SLO                  SLOConfig                      `yaml:"slo"`                    // SLI/SLO enforcement with error budget
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -728,6 +731,34 @@ type FastCGIConfig struct {
 	PoolSize     int               `yaml:"pool_size"`      // connection pool size (default 8)
 }
 
+// DeprecationConfig defines API deprecation lifecycle settings (RFC 8594).
+type DeprecationConfig struct {
+	Enabled             bool            `yaml:"enabled"`
+	SunsetDate          string          `yaml:"sunset_date"`           // RFC 3339
+	Message             string          `yaml:"message"`               // human-readable notice
+	Link                string          `yaml:"link"`                  // URL to replacement API
+	LinkRelation        string          `yaml:"link_relation"`         // default "successor-version"
+	ResponseAfterSunset *SunsetResponse `yaml:"response_after_sunset"` // optional blocking after sunset
+	LogLevel            string          `yaml:"log_level"`             // "warn" (default) or "info"
+}
+
+// SunsetResponse defines the response returned after a sunset date has passed.
+type SunsetResponse struct {
+	Status  int               `yaml:"status"`  // default 410
+	Body    string            `yaml:"body"`
+	Headers map[string]string `yaml:"headers"`
+}
+
+// SLOConfig defines SLI/SLO enforcement settings for a route.
+type SLOConfig struct {
+	Enabled         bool          `yaml:"enabled"`
+	Target          float64       `yaml:"target"`            // e.g. 0.999
+	Window          time.Duration `yaml:"window"`            // e.g. "720h"
+	Actions         []string      `yaml:"actions"`           // "log_warning", "add_header", "shed_load"
+	ShedLoadPercent float64       `yaml:"shed_load_percent"` // 0-100, default 10
+	ErrorCodes      []int         `yaml:"error_codes"`       // default: 500-599
+}
+
 // RewriteConfig defines URL rewriting rules for a route.
 type RewriteConfig struct {
 	Prefix      string `yaml:"prefix"`      // replace matched path prefix with this value
@@ -941,11 +972,18 @@ type WAFConfig struct {
 
 // GraphQLConfig defines GraphQL query analysis and protection settings.
 type GraphQLConfig struct {
-	Enabled         bool           `yaml:"enabled"`
-	MaxDepth        int            `yaml:"max_depth"`        // 0 = unlimited
-	MaxComplexity   int            `yaml:"max_complexity"`   // 0 = unlimited
-	Introspection   bool           `yaml:"introspection"`    // allow introspection (default false)
-	OperationLimits map[string]int `yaml:"operation_limits"` // e.g. {"query": 100, "mutation": 10} req/s
+	Enabled          bool                    `yaml:"enabled"`
+	MaxDepth         int                     `yaml:"max_depth"`         // 0 = unlimited
+	MaxComplexity    int                     `yaml:"max_complexity"`    // 0 = unlimited
+	Introspection    bool                    `yaml:"introspection"`     // allow introspection (default false)
+	OperationLimits  map[string]int          `yaml:"operation_limits"`  // e.g. {"query": 100, "mutation": 10} req/s
+	PersistedQueries PersistedQueriesConfig  `yaml:"persisted_queries"` // Automatic Persisted Queries (APQ)
+}
+
+// PersistedQueriesConfig defines GraphQL Automatic Persisted Queries settings.
+type PersistedQueriesConfig struct {
+	Enabled bool `yaml:"enabled"`
+	MaxSize int  `yaml:"max_size"` // LRU max entries, default 1000
 }
 
 // GraphQLFederationConfig defines GraphQL federation / schema stitching settings.

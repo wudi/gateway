@@ -931,7 +931,14 @@ Requires `traffic_split` to be configured. Mutually exclusive with `canary` and 
         query: int            # > 0
         mutation: int
         subscription: int
+      persisted_queries:
+        enabled: bool         # requires graphql.enabled
+        max_size: int         # LRU cache max entries (default 1000, >= 0)
 ```
+
+**Validation:** `persisted_queries.enabled` requires `graphql.enabled`. `persisted_queries.max_size` must be >= 0.
+
+See [GraphQL Protection](graphql.md#automatic-persisted-queries-apq) for full documentation.
 
 ### GraphQL Federation
 
@@ -991,6 +998,49 @@ Requires `traffic_split` to be configured. Mutually exclusive with `canary` and 
 ```
 
 **Validation:** `source` must be one of: path, header, accept, query. `versions` must not be empty. `default_version` is required and must exist in versions. Each version must have at least one backend. Mutually exclusive with `traffic_split` and top-level `backends`. `sunset` must be YYYY-MM-DD if set.
+
+---
+
+### Deprecation (per-route)
+
+```yaml
+    deprecation:
+      enabled: bool
+      sunset_date: string              # RFC 3339 date (e.g. "2025-06-01T00:00:00Z")
+      message: string                  # human-readable deprecation notice
+      link: string                     # URL to replacement API
+      link_relation: string            # default "successor-version"
+      log_level: string                # "warn" (default) or "info"
+      response_after_sunset:
+        status: int                    # HTTP status after sunset (default 410)
+        body: string                   # response body after sunset
+        headers:                       # extra response headers
+          Content-Type: string
+```
+
+**Validation:** `sunset_date` must be valid RFC 3339 if set. `response_after_sunset` requires `sunset_date`. `response_after_sunset.status` must be 100-599. `link_relation` requires `link`. `log_level` must be "warn" or "info".
+
+See [API Deprecation Lifecycle](deprecation.md) for full documentation.
+
+---
+
+### SLO (per-route)
+
+```yaml
+    slo:
+      enabled: bool
+      target: float64                  # availability target, e.g. 0.999 (must be in (0, 1) exclusive)
+      window: duration                 # sliding window duration (must be >= 1 minute)
+      actions:                         # "log_warning", "add_header", "shed_load"
+        - string
+      shed_load_percent: float64       # rejection % when budget exhausted (0-100, default 10)
+      error_codes:                     # HTTP status codes that count as errors (default 500-599)
+        - int
+```
+
+**Validation:** `target` must be in (0, 1) exclusive. `window` must be >= 1 minute. `actions` must be from: "log_warning", "add_header", "shed_load". `shed_load_percent` must be 0-100. `error_codes` must be valid HTTP status codes (100-599).
+
+See [SLI/SLO Enforcement](slo.md) for full documentation.
 
 ---
 
@@ -1587,6 +1637,31 @@ Per-route maintenance config is merged with the global `maintenance:` block. Per
 **Validation:** `status_code` must be 100-599. `exclude_ips` entries must be valid IPs or CIDRs.
 
 See [Resilience](resilience.md#maintenance-mode) for details.
+
+---
+
+## Deprecation (global)
+
+```yaml
+deprecation:
+  enabled: bool
+  sunset_date: string              # RFC 3339 date
+  message: string                  # human-readable deprecation notice
+  link: string                     # URL to replacement API
+  link_relation: string            # default "successor-version"
+  log_level: string                # "warn" (default) or "info"
+  response_after_sunset:
+    status: int                    # HTTP status after sunset (default 410)
+    body: string                   # response body after sunset
+    headers:
+      Content-Type: string
+```
+
+Global deprecation applies to all routes. Per-route `deprecation` config overrides global when `enabled: true`.
+
+**Validation:** Same as per-route deprecation: `sunset_date` must be valid RFC 3339. `response_after_sunset` requires `sunset_date`. `log_level` must be "warn" or "info".
+
+See [API Deprecation Lifecycle](deprecation.md) for full documentation.
 
 ---
 

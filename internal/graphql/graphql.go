@@ -18,9 +18,10 @@ import (
 
 // GraphQLRequest represents a parsed GraphQL HTTP request body.
 type GraphQLRequest struct {
-	Query         string          `json:"query"`
-	Variables     json.RawMessage `json:"variables"`
-	OperationName string          `json:"operationName"`
+	Query         string                 `json:"query"`
+	Variables     json.RawMessage        `json:"variables"`
+	OperationName string                 `json:"operationName"`
+	Extensions    map[string]interface{} `json:"extensions,omitempty"`
 }
 
 // GraphQLInfo holds the analyzed information about a GraphQL operation.
@@ -37,6 +38,7 @@ type GraphQLInfo struct {
 type Parser struct {
 	cfg              config.GraphQLConfig
 	operationLimiter map[string]*rate.Limiter
+	apqCache         *APQCache
 
 	// Atomic metrics
 	requestsTotal        atomic.Int64
@@ -61,6 +63,14 @@ func New(cfg config.GraphQLConfig) (*Parser, error) {
 		p.operationLimiter[opType] = rate.NewLimiter(rate.Limit(rps), rps)
 	}
 
+	if cfg.PersistedQueries.Enabled {
+		apq, err := NewAPQCache(cfg.PersistedQueries.MaxSize)
+		if err != nil {
+			return nil, err
+		}
+		p.apqCache = apq
+	}
+
 	return p, nil
 }
 
@@ -76,6 +86,33 @@ func (p *Parser) Parse(r *http.Request) (*GraphQLInfo, []byte, error) {
 	var gqlReq GraphQLRequest
 	if err := json.Unmarshal(body, &gqlReq); err != nil {
 		return nil, body, fmt.Errorf("invalid JSON: %w", err)
+	}
+
+	// APQ: handle persisted query extensions
+	if p.apqCache != nil {
+		if hash, ok := extractAPQHash(gqlReq.Extensions); ok {
+			if gqlReq.Query == "" {
+				// Hash-only request: lookup in cache
+				cached, found := p.apqCache.Lookup(hash)
+				if !found {
+					return nil, body, &GraphQLError{
+						Message:    "PersistedQueryNotFound",
+						StatusCode: 200,
+					}
+				}
+				gqlReq.Query = cached
+				// Re-marshal body with the resolved query for downstream
+				body, _ = json.Marshal(gqlReq)
+			} else {
+				// Hash + query: verify and register
+				if !p.apqCache.Register(hash, gqlReq.Query) {
+					return nil, body, &GraphQLError{
+						Message:    "provided sha does not match query",
+						StatusCode: 400,
+					}
+				}
+			}
+		}
 	}
 
 	if gqlReq.Query == "" {
@@ -178,8 +215,12 @@ func (p *Parser) Middleware() middleware.Middleware {
 
 			info, body, err := p.Parse(r)
 			if err != nil {
-				p.parseErrors.Add(1)
-				writeGraphQLError(w, err.Error(), 400)
+				if gqlErr, ok := err.(*GraphQLError); ok {
+					writeGraphQLError(w, gqlErr.Message, gqlErr.StatusCode)
+				} else {
+					p.parseErrors.Add(1)
+					writeGraphQLError(w, err.Error(), 400)
+				}
 				return
 			}
 
@@ -223,7 +264,7 @@ func (p *Parser) Middleware() middleware.Middleware {
 
 // Stats returns a snapshot of metrics.
 func (p *Parser) Stats() map[string]interface{} {
-	return map[string]interface{}{
+	stats := map[string]interface{}{
 		"enabled":               p.cfg.Enabled,
 		"max_depth":             p.cfg.MaxDepth,
 		"max_complexity":        p.cfg.MaxComplexity,
@@ -238,6 +279,30 @@ func (p *Parser) Stats() map[string]interface{} {
 		"rate_limited":          p.rateLimited.Load(),
 		"parse_errors":          p.parseErrors.Load(),
 	}
+	if p.apqCache != nil {
+		stats["persisted_queries"] = p.apqCache.Stats()
+	}
+	return stats
+}
+
+// extractAPQHash extracts the sha256Hash from the Apollo APQ extensions format.
+func extractAPQHash(extensions map[string]interface{}) (string, bool) {
+	if extensions == nil {
+		return "", false
+	}
+	pq, ok := extensions["persistedQuery"]
+	if !ok {
+		return "", false
+	}
+	pqMap, ok := pq.(map[string]interface{})
+	if !ok {
+		return "", false
+	}
+	hash, ok := pqMap["sha256Hash"].(string)
+	if !ok || hash == "" {
+		return "", false
+	}
+	return hash, true
 }
 
 // GraphQLError is an error with an associated HTTP status code.
