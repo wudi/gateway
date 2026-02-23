@@ -199,6 +199,81 @@ The `GET /cache` endpoint shows per-route statistics. For distributed mode, `siz
 - The gateway reuses the shared Redis client configured under `redis:` (same as distributed rate limiting).
 - Responses are serialized using `encoding/gob`.
 
+## Stale-While-Revalidate
+
+When `stale_while_revalidate` is set, the gateway serves stale cached responses immediately while refreshing the entry in the background. This eliminates latency spikes when cache entries expire, because clients always get an instant response.
+
+```yaml
+routes:
+  - id: "api"
+    path: "/api/products"
+    backends:
+      - url: "http://backend:9000"
+    cache:
+      enabled: true
+      ttl: 1m
+      stale_while_revalidate: 30s   # serve stale for up to 30s while refreshing
+      max_size: 1000
+```
+
+### How It Works
+
+1. During the `ttl` window, the entry is **fresh** and served normally with `X-Cache: HIT`.
+2. After `ttl` expires but within `ttl + stale_while_revalidate`, the entry is **stale**. The gateway:
+   - Serves the stale entry immediately with `X-Cache: STALE`
+   - Launches a background goroutine to fetch a fresh response from the backend
+   - Stores the fresh response for subsequent requests
+3. Background revalidations are deduplicated per cache key -- concurrent requests for the same stale key share a single backend call.
+4. After `ttl + stale_while_revalidate`, the entry is fully expired and treated as a cache miss.
+
+## Stale-If-Error
+
+When `stale_if_error` is set, the gateway falls back to a stale cached response if the backend returns a 5xx error. This improves availability by shielding clients from backend failures.
+
+```yaml
+routes:
+  - id: "api"
+    path: "/api/products"
+    backends:
+      - url: "http://backend:9000"
+    cache:
+      enabled: true
+      ttl: 1m
+      stale_if_error: 5m            # serve stale for up to 5m on backend errors
+      max_size: 1000
+```
+
+### How It Works
+
+1. During the `ttl` window, the entry is fresh and served normally.
+2. On a cache miss or stale entry, the request proceeds to the backend.
+3. If the backend returns a 5xx status code and a stale entry exists within `ttl + stale_if_error`, the stale entry is served with `X-Cache: STALE` instead of the error response.
+4. If the backend succeeds, the fresh response is served and cached normally.
+
+### Combining Both
+
+You can use `stale_while_revalidate` and `stale_if_error` together:
+
+```yaml
+    cache:
+      enabled: true
+      ttl: 1m
+      stale_while_revalidate: 30s   # instant responses during refresh
+      stale_if_error: 10m           # resilience against backend failures
+```
+
+The stale window extends to `ttl + max(stale_while_revalidate, stale_if_error)`. Within this window:
+- If the entry age is within `ttl + stale_while_revalidate`, the stale entry is served immediately with background refresh.
+- If the entry age is beyond the SWR window but within `ttl + stale_if_error`, the backend is called normally, but a stale fallback is used if the backend returns 5xx.
+
+### Response Headers
+
+| `X-Cache` Value | Meaning |
+|-----------------|---------|
+| `HIT` | Fresh cache hit |
+| `STALE` | Stale entry served (SWR or SIE fallback) |
+| `MISS` | Cache miss, response from backend |
+
 ## Cache Position in the Pipeline
 
 The cache check happens before the circuit breaker. A cache hit never touches the backend or the circuit breaker, so cached routes remain responsive even when backends are failing.
@@ -215,6 +290,8 @@ The cache check happens before the circuit breaker. A cache hit never touches th
 | `cache.max_body_size` | int64 | Max response body size to cache (bytes) |
 | `cache.methods` | []string | HTTP methods to cache (e.g., `["GET"]`) |
 | `cache.key_headers` | []string | Extra headers to include in cache key |
+| `cache.stale_while_revalidate` | duration | Serve stale while refreshing in background |
+| `cache.stale_if_error` | duration | Serve stale on backend 5xx errors |
 | `coalesce.enabled` | bool | Enable request coalescing |
 | `coalesce.timeout` | duration | Max wait for coalesced requests (default 30s) |
 | `coalesce.key_headers` | []string | Headers included in coalesce key |

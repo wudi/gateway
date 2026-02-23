@@ -91,6 +91,9 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /registry` | Configured registry type |
 | `GET /backends` | Backend health status with latency, last check time, and health check config |
 | `GET /circuit-breakers` | Circuit breaker state per route (closed/open/half-open). Includes `mode` field (`local` or `distributed`). |
+| `POST /circuit-breakers/{route}/open` | Force circuit breaker open (reject all requests) |
+| `POST /circuit-breakers/{route}/close` | Force circuit breaker closed (allow all requests) |
+| `POST /circuit-breakers/{route}/reset` | Reset to automatic state management |
 | `GET /cache` | Cache statistics (hits, misses, size, evictions). For distributed mode, size is Redis key count; hits/misses are local per-instance counters. |
 | `GET /retries` | Retry metrics per route (attempts, budget exhaustion, hedged requests) |
 | `GET /rules` | Rules engine status (global + per-route rules and metrics) |
@@ -163,6 +166,14 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /client-mtls` | Per-route client mTLS verification stats |
 | `GET /proxy-rate-limits` | Per-route backend-facing rate limit stats |
 | `GET /mock-responses` | Per-route mock response served count |
+| `GET /etag` | Per-route ETag generation stats |
+| `GET /streaming` | Per-route response streaming config status |
+| `GET /opa` | Per-route OPA policy evaluation stats |
+| `GET /response-signing` | Per-route response signing stats |
+| `GET /request-cost` | Per-route request cost tracking stats |
+| `GET /consumer-groups` | Consumer group configuration and resolution stats |
+| `GET /graphql-subscriptions` | Per-route GraphQL subscription connection stats |
+| `GET /connect` | Per-route HTTP CONNECT tunnel stats |
 | `GET /sse` | Per-route SSE proxy connection and event stats (includes fan-out metrics when enabled) |
 | `GET /grpc-proxy` | Per-route gRPC proxy stats (deadline propagation, metadata transforms, message size limits) |
 | `GET /grpc-reflection` | Per-route gRPC reflection proxy stats (backends, cached services, cache TTL) |

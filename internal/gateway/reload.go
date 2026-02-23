@@ -27,18 +27,24 @@ import (
 	"github.com/wudi/gateway/internal/middleware/backendenc"
 	"github.com/wudi/gateway/internal/middleware/bodygen"
 	"github.com/wudi/gateway/internal/middleware/compression"
+	"github.com/wudi/gateway/internal/middleware/connect"
+	"github.com/wudi/gateway/internal/middleware/consumergroup"
 	"github.com/wudi/gateway/internal/middleware/contentneg"
 	"github.com/wudi/gateway/internal/middleware/contentreplacer"
 	"github.com/wudi/gateway/internal/middleware/cors"
+	"github.com/wudi/gateway/internal/middleware/costtrack"
 	"github.com/wudi/gateway/internal/middleware/debug"
 	"github.com/wudi/gateway/internal/middleware/csrf"
 	"github.com/wudi/gateway/internal/middleware/errorpages"
+	"github.com/wudi/gateway/internal/middleware/etag"
 	"github.com/wudi/gateway/internal/middleware/extauth"
+	"github.com/wudi/gateway/internal/middleware/graphqlsub"
 	"github.com/wudi/gateway/internal/middleware/httpsredirect"
 	"github.com/wudi/gateway/internal/middleware/idempotency"
 	"github.com/wudi/gateway/internal/middleware/ipfilter"
 	"github.com/wudi/gateway/internal/middleware/loadshed"
 	"github.com/wudi/gateway/internal/middleware/nonce"
+	"github.com/wudi/gateway/internal/middleware/opa"
 	"github.com/wudi/gateway/internal/middleware/decompress"
 	"github.com/wudi/gateway/internal/middleware/deprecation"
 	"github.com/wudi/gateway/internal/middleware/botdetect"
@@ -50,6 +56,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/requestqueue"
 	"github.com/wudi/gateway/internal/middleware/proxyratelimit"
 	"github.com/wudi/gateway/internal/middleware/quota"
+	"github.com/wudi/gateway/internal/middleware/responsesigning"
 	"github.com/wudi/gateway/internal/middleware/realip"
 	"github.com/wudi/gateway/internal/middleware/tenant"
 	"github.com/wudi/gateway/internal/middleware/respbodygen"
@@ -59,6 +66,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/signing"
 	"github.com/wudi/gateway/internal/middleware/slo"
 	"github.com/wudi/gateway/internal/middleware/spikearrest"
+	"github.com/wudi/gateway/internal/middleware/streaming"
 	"github.com/wudi/gateway/internal/middleware/staticfiles"
 	"github.com/wudi/gateway/internal/middleware/statusmap"
 	openapivalidation "github.com/wudi/gateway/internal/middleware/openapi"
@@ -184,6 +192,14 @@ type gatewayState struct {
 	trafficReplay        *trafficreplay.ReplayByRoute
 	deprecationHandlers  *deprecation.DeprecationByRoute
 	sloTrackers          *slo.SLOByRoute
+	etagHandlers         *etag.ETagByRoute
+	streamHandlers       *streaming.StreamByRoute
+	opaEnforcers         *opa.OPAByRoute
+	responseSigners      *responsesigning.SignerByRoute
+	costTrackers         *costtrack.CostByRoute
+	consumerGroups       *consumergroup.GroupByRoute
+	graphqlSubs          *graphqlsub.SubscriptionByRoute
+	connectHandlers      *connect.ConnectByRoute
 
 	tenantManager *tenant.Manager
 
@@ -272,11 +288,24 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		trafficReplay:        trafficreplay.NewReplayByRoute(),
 		deprecationHandlers:  deprecation.NewDeprecationByRoute(),
 		sloTrackers:          slo.NewSLOByRoute(),
+		etagHandlers:         etag.NewETagByRoute(),
+		streamHandlers:       streaming.NewStreamByRoute(),
+		opaEnforcers:         opa.NewOPAByRoute(),
+		responseSigners:      responsesigning.NewSignerByRoute(),
+		costTrackers:         costtrack.NewCostByRoute(),
+		consumerGroups:       consumergroup.NewGroupByRoute(),
+		graphqlSubs:          graphqlsub.NewSubscriptionByRoute(),
+		connectHandlers:      connect.NewConnectByRoute(),
 	}
 
 	// Initialize tenant manager
 	if cfg.Tenants.Enabled {
 		s.tenantManager = tenant.NewManager(cfg.Tenants, g.redisClient)
+	}
+
+	// Initialize consumer groups if enabled
+	if cfg.ConsumerGroups.Enabled {
+		s.consumerGroups.SetManager(consumergroup.NewGroupManager(cfg.ConsumerGroups))
 	}
 
 	// Initialize shared retry budget pools
@@ -598,6 +627,28 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 			if rc.TrafficReplay.Enabled { return s.trafficReplay.AddRoute(id, rc.TrafficReplay) }
 			return nil
 		}, s.trafficReplay.RouteIDs, func() any { return s.trafficReplay.Stats() }),
+
+		newFeature("etag", "/etag", func(id string, rc config.RouteConfig) error {
+			if rc.ETag.Enabled { s.etagHandlers.AddRoute(id, rc.ETag) }; return nil
+		}, s.etagHandlers.RouteIDs, func() any { return s.etagHandlers.Stats() }),
+		newFeature("streaming", "/streaming", func(id string, rc config.RouteConfig) error {
+			if rc.Streaming.Enabled { s.streamHandlers.AddRoute(id, rc.Streaming) }; return nil
+		}, s.streamHandlers.RouteIDs, func() any { return s.streamHandlers.Stats() }),
+		newFeature("opa", "/opa", func(id string, rc config.RouteConfig) error {
+			if rc.OPA.Enabled { return s.opaEnforcers.AddRoute(id, rc.OPA) }; return nil
+		}, s.opaEnforcers.RouteIDs, func() any { return s.opaEnforcers.Stats() }),
+		newFeature("response_signing", "/response-signing", func(id string, rc config.RouteConfig) error {
+			if rc.ResponseSigning.Enabled { return s.responseSigners.AddRoute(id, rc.ResponseSigning) }; return nil
+		}, s.responseSigners.RouteIDs, func() any { return s.responseSigners.Stats() }),
+		newFeature("request_cost", "/request-cost", func(id string, rc config.RouteConfig) error {
+			if rc.RequestCost.Enabled { s.costTrackers.AddRoute(id, rc.RequestCost) }; return nil
+		}, s.costTrackers.RouteIDs, func() any { return s.costTrackers.Stats() }),
+		newFeature("graphql_subscriptions", "/graphql-subscriptions", func(id string, rc config.RouteConfig) error {
+			if rc.GraphQL.Subscriptions.Enabled { s.graphqlSubs.AddRoute(id, rc.GraphQL.Subscriptions) }; return nil
+		}, s.graphqlSubs.RouteIDs, func() any { return s.graphqlSubs.Stats() }),
+		newFeature("connect", "/connect", func(id string, rc config.RouteConfig) error {
+			if rc.Connect.Enabled { s.connectHandlers.AddRoute(id, rc.Connect) }; return nil
+		}, s.connectHandlers.RouteIDs, func() any { return s.connectHandlers.Stats() }),
 
 		// Non-per-route singleton features
 		noOpFeature("retry_budget_pools", "/retry-budget-pools", func() []string { return nil }, func() any {
@@ -1112,6 +1163,14 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldTrafficReplay := g.trafficReplay
 	oldDeprecationHandlers := g.deprecationHandlers
 	oldSLOTrackers := g.sloTrackers
+	oldEtagHandlers := g.etagHandlers
+	oldStreamHandlers := g.streamHandlers
+	oldOPAEnforcers := g.opaEnforcers
+	oldResponseSigners := g.responseSigners
+	oldCostTrackers := g.costTrackers
+	oldConsumerGroups := g.consumerGroups
+	oldGraphqlSubs := g.graphqlSubs
+	oldConnectHandlers := g.connectHandlers
 	oldTenantManager := g.tenantManager
 
 	// Install new state
@@ -1187,6 +1246,14 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.trafficReplay = s.trafficReplay
 	g.deprecationHandlers = s.deprecationHandlers
 	g.sloTrackers = s.sloTrackers
+	g.etagHandlers = s.etagHandlers
+	g.streamHandlers = s.streamHandlers
+	g.opaEnforcers = s.opaEnforcers
+	g.responseSigners = s.responseSigners
+	g.costTrackers = s.costTrackers
+	g.consumerGroups = s.consumerGroups
+	g.graphqlSubs = s.graphqlSubs
+	g.connectHandlers = s.connectHandlers
 	g.tenantManager = s.tenantManager
 
 	handler := g.buildRouteHandler(routeID, cfg, route, rp)
@@ -1264,6 +1331,14 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.trafficReplay = oldTrafficReplay
 	g.deprecationHandlers = oldDeprecationHandlers
 	g.sloTrackers = oldSLOTrackers
+	g.etagHandlers = oldEtagHandlers
+	g.streamHandlers = oldStreamHandlers
+	g.opaEnforcers = oldOPAEnforcers
+	g.responseSigners = oldResponseSigners
+	g.costTrackers = oldCostTrackers
+	g.consumerGroups = oldConsumerGroups
+	g.graphqlSubs = oldGraphqlSubs
+	g.connectHandlers = oldConnectHandlers
 	g.tenantManager = oldTenantManager
 
 	return handler
@@ -1390,6 +1465,14 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.trafficReplay = newState.trafficReplay
 	g.deprecationHandlers = newState.deprecationHandlers
 	g.sloTrackers = newState.sloTrackers
+	g.etagHandlers = newState.etagHandlers
+	g.streamHandlers = newState.streamHandlers
+	g.opaEnforcers = newState.opaEnforcers
+	g.responseSigners = newState.responseSigners
+	g.costTrackers = newState.costTrackers
+	g.consumerGroups = newState.consumerGroups
+	g.graphqlSubs = newState.graphqlSubs
+	g.connectHandlers = newState.connectHandlers
 	g.apiKeyAuth = newState.apiKeyAuth
 	g.jwtAuth = newState.jwtAuth
 	g.oauthAuth = newState.oauthAuth

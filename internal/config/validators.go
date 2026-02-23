@@ -40,6 +40,7 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		l.validateDeprecation,
 		l.validateSLO,
 		l.validateTenantBackends,
+		l.validateBatchBFeatures,
 	}
 	for _, v := range validators {
 		if err := v(route, cfg); err != nil {
@@ -2929,5 +2930,130 @@ func (l *Loader) validateSLO(route RouteConfig, _ *Config) error {
 			return fmt.Errorf("route %s: slo.error_codes contains invalid status code %d (must be 100-599)", routeID, code)
 		}
 	}
+	return nil
+}
+
+func (l *Loader) validateBatchBFeatures(route RouteConfig, cfg *Config) error {
+	routeID := route.ID
+
+	// ETag
+	if route.ETag.Enabled && route.Cache.Conditional {
+		return fmt.Errorf("route %s: etag is mutually exclusive with cache.conditional", routeID)
+	}
+
+	// Streaming
+	if route.Streaming.Enabled {
+		if route.Streaming.DisableBuffering && route.Streaming.FlushInterval > 0 {
+			return fmt.Errorf("route %s: streaming.disable_buffering and streaming.flush_interval are mutually exclusive", routeID)
+		}
+		if route.Streaming.FlushInterval < 0 {
+			return fmt.Errorf("route %s: streaming.flush_interval must be >= 0", routeID)
+		}
+	}
+
+	// OPA
+	if route.OPA.Enabled {
+		if route.OPA.URL == "" {
+			return fmt.Errorf("route %s: opa.url is required", routeID)
+		}
+		if !strings.HasPrefix(route.OPA.URL, "http://") && !strings.HasPrefix(route.OPA.URL, "https://") {
+			return fmt.Errorf("route %s: opa.url must start with http:// or https://", routeID)
+		}
+		if route.OPA.PolicyPath == "" {
+			return fmt.Errorf("route %s: opa.policy_path is required", routeID)
+		}
+	}
+
+	// Response Signing
+	if route.ResponseSigning.Enabled {
+		algo := route.ResponseSigning.Algorithm
+		if algo == "" {
+			algo = "hmac-sha256"
+		}
+		switch algo {
+		case "hmac-sha256", "hmac-sha512":
+			if route.ResponseSigning.Secret == "" {
+				return fmt.Errorf("route %s: response_signing.secret is required for HMAC algorithms", routeID)
+			}
+		case "rsa-sha256":
+			if route.ResponseSigning.KeyFile == "" {
+				return fmt.Errorf("route %s: response_signing.key_file is required for RSA algorithms", routeID)
+			}
+		default:
+			return fmt.Errorf("route %s: response_signing.algorithm must be hmac-sha256, hmac-sha512, or rsa-sha256", routeID)
+		}
+		if route.ResponseSigning.KeyID == "" {
+			return fmt.Errorf("route %s: response_signing.key_id is required", routeID)
+		}
+	}
+
+	// Request Cost
+	if route.RequestCost.Enabled {
+		if route.RequestCost.Cost < 0 {
+			return fmt.Errorf("route %s: request_cost.cost must be >= 0", routeID)
+		}
+		for method, cost := range route.RequestCost.CostByMethod {
+			if cost < 0 {
+				return fmt.Errorf("route %s: request_cost.cost_by_method[%s] must be >= 0", routeID, method)
+			}
+		}
+		if route.RequestCost.Budget != nil {
+			b := route.RequestCost.Budget
+			if b.Limit <= 0 {
+				return fmt.Errorf("route %s: request_cost.budget.limit must be > 0", routeID)
+			}
+			switch b.Window {
+			case "hour", "day", "month":
+			default:
+				return fmt.Errorf("route %s: request_cost.budget.window must be hour, day, or month", routeID)
+			}
+			switch b.Action {
+			case "", "reject", "log_only":
+			default:
+				return fmt.Errorf("route %s: request_cost.budget.action must be reject or log_only", routeID)
+			}
+		}
+	}
+
+	// Cache stale validation
+	if route.Cache.Enabled {
+		if route.Cache.StaleWhileRevalidate < 0 {
+			return fmt.Errorf("route %s: cache.stale_while_revalidate must be >= 0", routeID)
+		}
+		if route.Cache.StaleIfError < 0 {
+			return fmt.Errorf("route %s: cache.stale_if_error must be >= 0", routeID)
+		}
+	}
+
+	// GraphQL Subscriptions
+	if route.GraphQL.Subscriptions.Enabled {
+		if !route.GraphQL.Enabled {
+			return fmt.Errorf("route %s: graphql.subscriptions requires graphql.enabled", routeID)
+		}
+		switch route.GraphQL.Subscriptions.Protocol {
+		case "", "graphql-ws", "graphql-transport-ws":
+		default:
+			return fmt.Errorf("route %s: graphql.subscriptions.protocol must be graphql-ws or graphql-transport-ws", routeID)
+		}
+		if route.GraphQL.Subscriptions.MaxConnections < 0 {
+			return fmt.Errorf("route %s: graphql.subscriptions.max_connections must be >= 0", routeID)
+		}
+	}
+
+	// HTTP CONNECT
+	if route.Connect.Enabled {
+		if len(route.Connect.AllowedHosts) == 0 {
+			return fmt.Errorf("route %s: connect.allowed_hosts is required (no open proxy)", routeID)
+		}
+		if len(route.Connect.AllowedPorts) == 0 {
+			return fmt.Errorf("route %s: connect.allowed_ports is required", routeID)
+		}
+		for _, port := range route.Connect.AllowedPorts {
+			if port < 1 || port > 65535 {
+				return fmt.Errorf("route %s: connect.allowed_ports values must be 1-65535", routeID)
+			}
+		}
+	}
+
 	return nil
 }

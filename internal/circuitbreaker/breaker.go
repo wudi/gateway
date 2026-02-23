@@ -1,6 +1,7 @@
 package circuitbreaker
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -128,6 +129,7 @@ func (b *Breaker) Snapshot() BreakerSnapshot {
 type BreakerSnapshot struct {
 	State            string                    `json:"state"`
 	Mode             string                    `json:"mode"`
+	Override         string                    `json:"override,omitempty"`
 	FailureCount     int                       `json:"failure_count"`
 	SuccessCount     int                       `json:"success_count"`
 	FailureThreshold int                       `json:"failure_threshold"`
@@ -161,6 +163,7 @@ func (br *BreakerByRoute) SetOnStateChange(cb func(routeID, from, to string)) {
 
 // AddRoute adds a local circuit breaker for a route.
 // If cfg.TenantIsolation is true, the breaker is wrapped with a TenantAwareBreaker.
+// All breakers are wrapped in an OverridableBreaker for admin control.
 func (br *BreakerByRoute) AddRoute(routeID string, cfg config.CircuitBreakerConfig) {
 	br.mu.Lock()
 	var cb func(from, to string)
@@ -172,14 +175,15 @@ func (br *BreakerByRoute) AddRoute(routeID string, cfg config.CircuitBreakerConf
 	br.mu.Unlock()
 	b := NewBreaker(cfg, cb)
 	if cfg.TenantIsolation {
-		br.Add(routeID, NewTenantAwareBreaker(b, cfg, routeID, nil, cb))
+		br.Add(routeID, &OverridableBreaker{inner: NewTenantAwareBreaker(b, cfg, routeID, nil, cb)})
 	} else {
-		br.Add(routeID, b)
+		br.Add(routeID, &OverridableBreaker{inner: b})
 	}
 }
 
 // AddRouteDistributed adds a Redis-backed distributed circuit breaker for a route.
 // If cfg.TenantIsolation is true, the breaker is wrapped with a TenantAwareBreaker.
+// All breakers are wrapped in an OverridableBreaker for admin control.
 func (br *BreakerByRoute) AddRouteDistributed(routeID string, cfg config.CircuitBreakerConfig, client *redis.Client) {
 	br.mu.Lock()
 	var cb func(from, to string)
@@ -191,9 +195,9 @@ func (br *BreakerByRoute) AddRouteDistributed(routeID string, cfg config.Circuit
 	br.mu.Unlock()
 	b := NewRedisBreaker(routeID, cfg, client, cb)
 	if cfg.TenantIsolation {
-		br.Add(routeID, NewTenantAwareBreaker(b, cfg, routeID, client, cb))
+		br.Add(routeID, &OverridableBreaker{inner: NewTenantAwareBreaker(b, cfg, routeID, client, cb)})
 	} else {
-		br.Add(routeID, b)
+		br.Add(routeID, &OverridableBreaker{inner: b})
 	}
 }
 
@@ -216,4 +220,128 @@ func (br *BreakerByRoute) Snapshots() map[string]BreakerSnapshot {
 		return true
 	})
 	return result
+}
+
+// ForceOpen forces the circuit breaker for a route into the open state,
+// rejecting all requests regardless of the underlying breaker state.
+func (br *BreakerByRoute) ForceOpen(routeID string) error {
+	b, ok := br.Get(routeID)
+	if !ok {
+		return fmt.Errorf("no circuit breaker for route %q", routeID)
+	}
+	ob, ok := b.(*OverridableBreaker)
+	if !ok {
+		return fmt.Errorf("circuit breaker for route %q is not overridable", routeID)
+	}
+	ob.override.Store(overrideForceOpen)
+	return nil
+}
+
+// ForceClose forces the circuit breaker for a route into the closed state,
+// allowing all requests regardless of the underlying breaker state.
+func (br *BreakerByRoute) ForceClose(routeID string) error {
+	b, ok := br.Get(routeID)
+	if !ok {
+		return fmt.Errorf("no circuit breaker for route %q", routeID)
+	}
+	ob, ok := b.(*OverridableBreaker)
+	if !ok {
+		return fmt.Errorf("circuit breaker for route %q is not overridable", routeID)
+	}
+	ob.override.Store(overrideForceClosed)
+	return nil
+}
+
+// ResetOverride removes any admin override, returning the circuit breaker
+// to automatic state management.
+func (br *BreakerByRoute) ResetOverride(routeID string) error {
+	b, ok := br.Get(routeID)
+	if !ok {
+		return fmt.Errorf("no circuit breaker for route %q", routeID)
+	}
+	ob, ok := b.(*OverridableBreaker)
+	if !ok {
+		return fmt.Errorf("circuit breaker for route %q is not overridable", routeID)
+	}
+	ob.override.Store(overrideAuto)
+	return nil
+}
+
+// OverridableBreaker wraps a BreakerInterface with admin override support.
+type OverridableBreaker struct {
+	inner    BreakerInterface
+	override atomic.Int32 // 0=auto, 1=forced_open, 2=forced_closed
+}
+
+const (
+	overrideAuto        = 0
+	overrideForceOpen   = 1
+	overrideForceClosed = 2
+)
+
+// Allow checks if a request should be allowed, respecting admin overrides.
+func (ob *OverridableBreaker) Allow() (func(error), error) {
+	switch ob.override.Load() {
+	case overrideForceOpen:
+		return nil, gobreaker.ErrOpenState
+	case overrideForceClosed:
+		// Bypass inner breaker but still record outcomes through it.
+		done, err := ob.inner.Allow()
+		if err != nil {
+			// Inner breaker rejected, but override says allow.
+			// Return a no-op callback.
+			return func(error) {}, nil
+		}
+		return done, nil
+	default:
+		return ob.inner.Allow()
+	}
+}
+
+// Snapshot returns a point-in-time view including the override state.
+func (ob *OverridableBreaker) Snapshot() BreakerSnapshot {
+	snap := ob.inner.Snapshot()
+	switch ob.override.Load() {
+	case overrideForceOpen:
+		snap.Override = "forced_open"
+	case overrideForceClosed:
+		snap.Override = "forced_closed"
+	default:
+		snap.Override = "none"
+	}
+	return snap
+}
+
+// AllowForTenant delegates to the inner breaker's tenant-aware Allow if available,
+// respecting admin overrides. This allows OverridableBreaker to implement
+// TenantAwareBreakerInterface when the inner breaker supports it.
+func (ob *OverridableBreaker) AllowForTenant(tenantID string) (func(error), error) {
+	switch ob.override.Load() {
+	case overrideForceOpen:
+		return nil, gobreaker.ErrOpenState
+	case overrideForceClosed:
+		tab, ok := ob.inner.(TenantAwareBreakerInterface)
+		if !ok {
+			return func(error) {}, nil
+		}
+		done, err := tab.AllowForTenant(tenantID)
+		if err != nil {
+			return func(error) {}, nil
+		}
+		return done, nil
+	default:
+		tab, ok := ob.inner.(TenantAwareBreakerInterface)
+		if !ok {
+			return ob.inner.Allow()
+		}
+		return tab.AllowForTenant(tenantID)
+	}
+}
+
+// TenantSnapshots delegates to the inner breaker if it supports tenant isolation.
+func (ob *OverridableBreaker) TenantSnapshots() map[string]BreakerSnapshot {
+	if tab, ok := ob.inner.(TenantAwareBreakerInterface); ok {
+		return tab.TenantSnapshots()
+	}
+	return nil
 }

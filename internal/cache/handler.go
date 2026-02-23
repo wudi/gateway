@@ -27,16 +27,20 @@ type Entry struct {
 	Body         []byte
 	ETag         string    // strong ETag, e.g. `"abc123def..."`
 	LastModified time.Time // when entry was cached (or backend value)
+	StoredAt     time.Time // when this entry was stored (for staleness checks)
 }
 
 // Handler manages caching for a single route.
 type Handler struct {
-	cache       *Cache
-	ttl         time.Duration
-	maxBodySize int64
-	keyHeaders  []string
-	methods     map[string]bool
-	conditional bool
+	cache                *Cache
+	ttl                  time.Duration
+	maxBodySize          int64
+	keyHeaders           []string
+	methods              map[string]bool
+	conditional          bool
+	staleWhileRevalidate time.Duration
+	staleIfError         time.Duration
+	revalidating         sync.Map // key dedup for background refresh
 }
 
 // NewHandler creates a new cache handler for a route with the given store backend.
@@ -67,12 +71,14 @@ func NewHandler(cfg config.CacheConfig, store Store) *Handler {
 	sort.Strings(keyHeaders)
 
 	return &Handler{
-		cache:       New(store),
-		ttl:         ttl,
-		maxBodySize: maxBodySize,
-		keyHeaders:  keyHeaders,
-		methods:     methodMap,
-		conditional: cfg.Conditional,
+		cache:                New(store),
+		ttl:                  ttl,
+		maxBodySize:          maxBodySize,
+		keyHeaders:           keyHeaders,
+		methods:              methodMap,
+		conditional:          cfg.Conditional,
+		staleWhileRevalidate: cfg.StaleWhileRevalidate,
+		staleIfError:         cfg.StaleIfError,
 	}
 }
 
@@ -163,8 +169,77 @@ func (h *Handler) Get(r *http.Request) (*Entry, bool) {
 	return h.cache.Get(key)
 }
 
+// KeyForRequest returns the cache key for a request using the handler's configured key headers.
+func (h *Handler) KeyForRequest(r *http.Request) string {
+	return h.BuildKey(r, h.keyHeaders)
+}
+
+// GetWithStaleness retrieves a cached response and indicates freshness.
+// Returns (entry, fresh=true, stale=false) for fresh entries,
+// (entry, fresh=false, stale=true) for stale-but-usable entries,
+// and (nil, false, false) for cache misses or expired entries.
+func (h *Handler) GetWithStaleness(key string) (entry *Entry, fresh bool, stale bool) {
+	e, ok := h.cache.Get(key)
+	if !ok {
+		return nil, false, false
+	}
+	age := time.Since(e.StoredAt)
+	if age <= h.ttl {
+		return e, true, false
+	}
+	swr := h.staleWhileRevalidate
+	sie := h.staleIfError
+	maxStale := swr
+	if sie > maxStale {
+		maxStale = sie
+	}
+	if age <= h.ttl+maxStale {
+		return e, false, true
+	}
+	return nil, false, false
+}
+
+// TTL returns the cache TTL duration.
+func (h *Handler) TTL() time.Duration {
+	return h.ttl
+}
+
+// HasStaleSupport returns true if stale-while-revalidate or stale-if-error is configured.
+func (h *Handler) HasStaleSupport() bool {
+	return h.staleWhileRevalidate > 0 || h.staleIfError > 0
+}
+
+// StaleWhileRevalidate returns the stale-while-revalidate duration.
+func (h *Handler) StaleWhileRevalidate() time.Duration {
+	return h.staleWhileRevalidate
+}
+
+// StaleIfError returns the stale-if-error duration.
+func (h *Handler) StaleIfError() time.Duration {
+	return h.staleIfError
+}
+
+// IsRevalidating checks if a background revalidation is already in-flight for the given key.
+// Returns true if a revalidation was already running (caller should skip).
+func (h *Handler) IsRevalidating(key string) bool {
+	_, loaded := h.revalidating.LoadOrStore(key, struct{}{})
+	return loaded
+}
+
+// DoneRevalidating marks a background revalidation as complete for the given key.
+func (h *Handler) DoneRevalidating(key string) {
+	h.revalidating.Delete(key)
+}
+
+// StoreByKey stores a response entry using a pre-computed cache key.
+func (h *Handler) StoreByKey(key string, entry *Entry) {
+	entry.StoredAt = time.Now()
+	h.cache.Set(key, entry)
+}
+
 // Store stores a response in the cache.
 func (h *Handler) Store(r *http.Request, entry *Entry) {
+	entry.StoredAt = time.Now()
 	key := h.BuildKey(r, h.keyHeaders)
 	h.cache.Set(key, entry)
 }
@@ -244,6 +319,49 @@ func (crw *CachingResponseWriter) Hijack() (c interface{}, brw interface{}, err 
 	// WebSocket connections should bypass the cache layer
 	return nil, nil, fmt.Errorf("hijack not supported on caching response writer")
 }
+
+// CapturingResponseWriter captures the response without writing to any underlying writer.
+// Used for background revalidation where there is no client to send to.
+type CapturingResponseWriter struct {
+	statusCode  int
+	headers     http.Header
+	Body        bytes.Buffer
+	wroteHeader bool
+}
+
+// NewCapturingResponseWriter creates a new capturing response writer.
+func NewCapturingResponseWriter() *CapturingResponseWriter {
+	return &CapturingResponseWriter{
+		statusCode: http.StatusOK,
+		headers:    make(http.Header),
+	}
+}
+
+// Header returns the response headers.
+func (crw *CapturingResponseWriter) Header() http.Header {
+	return crw.headers
+}
+
+// WriteHeader captures the status code.
+func (crw *CapturingResponseWriter) WriteHeader(code int) {
+	if !crw.wroteHeader {
+		crw.statusCode = code
+		crw.wroteHeader = true
+	}
+}
+
+// StatusCode returns the captured status code.
+func (crw *CapturingResponseWriter) StatusCode() int {
+	return crw.statusCode
+}
+
+// Write captures the body.
+func (crw *CapturingResponseWriter) Write(b []byte) (int, error) {
+	return crw.Body.Write(b)
+}
+
+// Flush implements http.Flusher (no-op).
+func (crw *CapturingResponseWriter) Flush() {}
 
 // IsConditional returns true if conditional caching (ETag/Last-Modified/304) is enabled.
 func (h *Handler) IsConditional() bool {
@@ -390,18 +508,26 @@ func (cbr *CacheByRoute) AddRoute(routeID string, cfg config.CacheConfig) {
 		ttl = 60 * time.Second
 	}
 
+	// Extend store TTL to cover stale window so entries survive beyond the fresh period.
+	storeTTL := ttl
+	staleMax := cfg.StaleWhileRevalidate
+	if cfg.StaleIfError > staleMax {
+		staleMax = cfg.StaleIfError
+	}
+	storeTTL += staleMax
+
 	var store Store
 	if cfg.Bucket != "" {
 		// Shared bucket mode — reuse store if already created
 		if existing, ok := cbr.bucketStores[cfg.Bucket]; ok {
 			store = existing
 		} else {
-			store = cbr.createStore(cfg, "gw:cache:bucket:"+cfg.Bucket+":", ttl)
+			store = cbr.createStore(cfg, "gw:cache:bucket:"+cfg.Bucket+":", storeTTL)
 			cbr.bucketStores[cfg.Bucket] = store
 		}
 		cbr.buckets[routeID] = cfg.Bucket
 	} else {
-		store = cbr.createStore(cfg, "gw:cache:"+routeID+":", ttl)
+		store = cbr.createStore(cfg, "gw:cache:"+routeID+":", storeTTL)
 	}
 
 	cbr.extraMu.Unlock()

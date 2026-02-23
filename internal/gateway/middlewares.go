@@ -197,20 +197,102 @@ func websocketMW(wsProxy *websocket.Proxy, getBalancer func() loadbalancer.Balan
 }
 
 // 9. cacheMW handles both cache HIT (early return) and MISS (wrap writer, store after proxy).
+// Supports stale-while-revalidate (serve stale + background refresh) and
+// stale-if-error (serve stale when backend returns 5xx).
 func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware.Middleware {
 	conditional := h.IsConditional()
+	hasStale := h.HasStaleSupport()
+	swr := h.StaleWhileRevalidate()
+	sie := h.StaleIfError()
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			shouldCache := h.ShouldCache(r)
 			if shouldCache {
-				if entry, ok := h.Get(r); ok {
-					mc.RecordCacheHit(routeID)
-					notModified := cache.WriteCachedResponse(w, r, entry, conditional)
-					if notModified {
-						h.RecordNotModified()
-						mc.RecordCacheNotModified(routeID)
+				if hasStale {
+					key := h.KeyForRequest(r)
+					entry, fresh, stale := h.GetWithStaleness(key)
+
+					if entry != nil && fresh {
+						// Fresh cache hit — serve as normal
+						mc.RecordCacheHit(routeID)
+						notModified := cache.WriteCachedResponse(w, r, entry, conditional)
+						if notModified {
+							h.RecordNotModified()
+							mc.RecordCacheNotModified(routeID)
+						}
+						return
 					}
-					return
+
+					if entry != nil && stale {
+						age := time.Since(entry.StoredAt)
+
+						// stale-while-revalidate: serve stale immediately, revalidate in background
+						if swr > 0 && age <= h.TTL()+swr {
+							mc.RecordCacheHit(routeID)
+							writeStaleResponse(w, r, entry, conditional)
+
+							// Trigger background revalidation (deduped by key)
+							if !h.IsRevalidating(key) {
+								go func() {
+									defer h.DoneRevalidating(key)
+									revalidateInBackground(h, next, r, key, conditional)
+								}()
+							}
+							return
+						}
+
+						// Entry is stale but within stale-if-error window — proceed
+						// to backend but fall back to stale if backend fails.
+						if sie > 0 && age <= h.TTL()+sie {
+							capWriter := cache.NewCapturingResponseWriter()
+							next.ServeHTTP(capWriter, r)
+
+							if capWriter.StatusCode() >= 500 {
+								// Backend error — serve stale entry instead
+								mc.RecordCacheHit(routeID)
+								writeStaleResponse(w, r, entry, conditional)
+								return
+							}
+
+							// Backend succeeded — write response to client
+							for k, vv := range capWriter.Header() {
+								for _, v := range vv {
+									w.Header().Add(k, v)
+								}
+							}
+							w.Header().Set("X-Cache", "MISS")
+							w.WriteHeader(capWriter.StatusCode())
+							w.Write(capWriter.Body.Bytes())
+
+							// Store if response is cacheable
+							if h.ShouldStore(capWriter.StatusCode(), capWriter.Header(), int64(capWriter.Body.Len())) {
+								newEntry := &cache.Entry{
+									StatusCode: capWriter.StatusCode(),
+									Headers:    capWriter.Header().Clone(),
+									Body:       capWriter.Body.Bytes(),
+								}
+								if conditional {
+									cache.PopulateConditionalFields(newEntry)
+								}
+								h.Store(r, newEntry)
+							}
+							return
+						}
+					}
+
+					// No usable entry — fall through to normal miss path
+				} else {
+					// No stale support — use original Get path
+					if entry, ok := h.Get(r); ok {
+						mc.RecordCacheHit(routeID)
+						notModified := cache.WriteCachedResponse(w, r, entry, conditional)
+						if notModified {
+							h.RecordNotModified()
+							mc.RecordCacheNotModified(routeID)
+						}
+						return
+					}
 				}
 				mc.RecordCacheMiss(routeID)
 			}
@@ -222,6 +304,47 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 
 			// Wrap writer for cache capture on cacheable requests
 			if shouldCache {
+				if sie > 0 {
+					// stale-if-error: buffer the response so we can fall back to stale on 5xx
+					key := h.KeyForRequest(r)
+					capWriter := cache.NewCapturingResponseWriter()
+					next.ServeHTTP(capWriter, r)
+
+					if capWriter.StatusCode() >= 500 {
+						// Check for stale entry to serve instead
+						entry, _, stale := h.GetWithStaleness(key)
+						if stale && entry != nil {
+							mc.RecordCacheHit(routeID)
+							writeStaleResponse(w, r, entry, conditional)
+							return
+						}
+					}
+
+					// Write captured response to client
+					for k, vv := range capWriter.Header() {
+						for _, v := range vv {
+							w.Header().Add(k, v)
+						}
+					}
+					w.Header().Set("X-Cache", "MISS")
+					w.WriteHeader(capWriter.StatusCode())
+					w.Write(capWriter.Body.Bytes())
+
+					// Store if response is cacheable
+					if h.ShouldStore(capWriter.StatusCode(), capWriter.Header(), int64(capWriter.Body.Len())) {
+						entry := &cache.Entry{
+							StatusCode: capWriter.StatusCode(),
+							Headers:    capWriter.Header().Clone(),
+							Body:       capWriter.Body.Bytes(),
+						}
+						if conditional {
+							cache.PopulateConditionalFields(entry)
+						}
+						h.Store(r, entry)
+					}
+					return
+				}
+
 				cachingWriter := cache.NewCachingResponseWriter(w)
 				cachingWriter.Header().Set("X-Cache", "MISS")
 				next.ServeHTTP(cachingWriter, r)
@@ -243,6 +366,55 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 
 			next.ServeHTTP(w, r)
 		})
+	}
+}
+
+// writeStaleResponse writes a stale cached entry to the response writer with X-Cache: STALE.
+func writeStaleResponse(w http.ResponseWriter, r *http.Request, entry *cache.Entry, conditional bool) {
+	for key, values := range entry.Headers {
+		for _, v := range values {
+			w.Header().Add(key, v)
+		}
+	}
+	w.Header().Set("X-Cache", "STALE")
+
+	if conditional {
+		if entry.ETag != "" {
+			w.Header().Set("ETag", entry.ETag)
+		}
+		if !entry.LastModified.IsZero() {
+			w.Header().Set("Last-Modified", entry.LastModified.UTC().Format(http.TimeFormat))
+		}
+		if cache.CheckConditional(r, entry) {
+			w.Header().Del("Content-Length")
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+	}
+
+	w.WriteHeader(entry.StatusCode)
+	w.Write(entry.Body)
+}
+
+// revalidateInBackground runs the inner handler to refresh a stale cache entry.
+func revalidateInBackground(h *cache.Handler, next http.Handler, origReq *http.Request, key string, conditional bool) {
+	// Clone the request for background use (the original request's context may be cancelled)
+	bgReq := origReq.Clone(context.Background())
+
+	capWriter := cache.NewCapturingResponseWriter()
+	next.ServeHTTP(capWriter, bgReq)
+
+	// Only store successful responses
+	if h.ShouldStore(capWriter.StatusCode(), capWriter.Header(), int64(capWriter.Body.Len())) {
+		entry := &cache.Entry{
+			StatusCode: capWriter.StatusCode(),
+			Headers:    capWriter.Header().Clone(),
+			Body:       capWriter.Body.Bytes(),
+		}
+		if conditional {
+			cache.PopulateConditionalFields(entry)
+		}
+		h.StoreByKey(key, entry)
 	}
 }
 

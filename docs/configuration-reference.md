@@ -478,7 +478,11 @@ See [FastCGI Proxy](fastcgi.md) for modes, CGI parameters, and examples.
       max_body_size: int64      # max response body to cache
       methods: [string]         # e.g., ["GET"]
       key_headers: [string]     # extra headers in cache key
+      stale_while_revalidate: duration  # serve stale while refreshing in background
+      stale_if_error: duration          # serve stale on backend 5xx errors
 ```
+
+**Validation:** `ttl` must be > 0. `max_size` must be > 0. `methods` must be valid HTTP methods. `stale_while_revalidate` and `stale_if_error` must be >= 0. When `stale_while_revalidate` is set, expired entries are served immediately while a background refresh is triggered. When `stale_if_error` is set, stale entries are served if the backend returns a 5xx error within the duration after expiry.
 
 ### Coalesce (Request Coalescing)
 
@@ -934,9 +938,14 @@ Requires `traffic_split` to be configured. Mutually exclusive with `canary` and 
       persisted_queries:
         enabled: bool         # requires graphql.enabled
         max_size: int         # LRU cache max entries (default 1000, >= 0)
+      subscriptions:
+        enabled: bool         # enable GraphQL subscriptions via WebSocket
+        protocol: string      # "graphql-ws" or "graphql-transport-ws" (default)
+        ping_interval: duration  # keepalive ping interval (default 30s)
+        max_connections: int  # max concurrent subscriptions per route (0 = unlimited)
 ```
 
-**Validation:** `persisted_queries.enabled` requires `graphql.enabled`. `persisted_queries.max_size` must be >= 0.
+**Validation:** `persisted_queries.enabled` requires `graphql.enabled`. `persisted_queries.max_size` must be >= 0. `subscriptions.max_connections` must be >= 0.
 
 See [GraphQL Protection](graphql.md#automatic-persisted-queries-apq) for full documentation.
 
@@ -952,6 +961,114 @@ See [GraphQL Protection](graphql.md#automatic-persisted-queries-apq) for full do
 ```
 
 **Validation:** Requires >= 2 sources. Source names must be unique. Each source must have a URL. Mutually exclusive with `graphql.enabled` and `protocol`.
+
+---
+
+### ETag (per-route)
+
+```yaml
+    etag:
+      enabled: bool              # enable ETag generation (default false)
+      weak: bool                 # use weak validators W/ prefix (default false)
+```
+
+**Validation:** Mutually exclusive with `cache.conditional` (use one or the other for conditional request support).
+
+See [ETag Generation](etag.md) for details.
+
+---
+
+### Streaming (per-route)
+
+```yaml
+    streaming:
+      enabled: bool              # enable streaming controls (default false)
+      flush_interval: duration   # periodic flush interval (default 0)
+      disable_buffering: bool    # flush on every Write (default false)
+```
+
+**Validation:** `flush_interval` and `disable_buffering` are mutually exclusive. Set one or the other.
+
+See [Response Streaming](response-streaming.md) for details.
+
+---
+
+### OPA (per-route)
+
+```yaml
+    opa:
+      enabled: bool              # enable OPA policy evaluation (default false)
+      url: string                # OPA server base URL (required)
+      policy_path: string        # policy path (e.g., "authz/allow")
+      timeout: duration          # request timeout (default 5s)
+      fail_open: bool            # allow on OPA error (default false)
+      include_body: bool         # include request body in input (default false)
+      cache_ttl: duration        # cache decisions for this duration (default 0)
+      headers: [string]          # request headers to send to OPA
+```
+
+**Validation:** `url` is required when enabled. `timeout` must be >= 0. `cache_ttl` must be >= 0.
+
+See [OPA Policy Engine](opa.md) for details.
+
+---
+
+### Response Signing (per-route)
+
+```yaml
+    response_signing:
+      enabled: bool              # enable response signing (default false)
+      algorithm: string          # "hmac-sha256" (default), "hmac-sha512", "rsa-sha256"
+      secret: string             # base64-encoded HMAC secret (min 32 decoded bytes)
+      key_file: string           # path to PEM-encoded RSA private key
+      key_id: string             # key identifier in signature header
+      header: string             # response header name (default "X-Response-Signature")
+      include_headers: [string]  # response headers to include in signature
+```
+
+**Validation:** HMAC algorithms require `secret`. RSA algorithms require `key_file`. `secret` and `key_file` are mutually exclusive.
+
+See [Response Signing](response-signing.md) for details.
+
+---
+
+### Request Cost (per-route)
+
+```yaml
+    request_cost:
+      enabled: bool              # enable cost tracking (default false)
+      cost: int                  # default cost per request (default 1)
+      cost_by_method:            # per-method cost overrides
+        POST: 5
+        PUT: 3
+      key: string                # consumer key: "ip", "client_id", "header:<name>"
+      budget:
+        limit: int64             # max cost per window
+        window: string           # "hour", "day", "month", or Go duration
+        action: string           # "reject" (default) or "log_only"
+```
+
+**Validation:** `budget.limit` must be > 0 when budget is set. `budget.window` must be a valid period. `key` must use a supported prefix.
+
+See [Request Cost Tracking](request-cost.md) for details.
+
+---
+
+### Connect (per-route)
+
+```yaml
+    connect:
+      enabled: bool              # enable HTTP CONNECT tunneling (default false)
+      allowed_hosts: [string]    # host glob patterns
+      allowed_ports: [int]       # allowed destination ports
+      connect_timeout: duration  # tunnel connection timeout (default 10s)
+      idle_timeout: duration     # tunnel idle timeout (default 5m)
+      max_tunnels: int           # max concurrent tunnels (0 = unlimited)
+```
+
+**Validation:** `connect_timeout` and `idle_timeout` must be >= 0. `max_tunnels` must be >= 0.
+
+See [HTTP CONNECT Tunneling](http-connect.md) for details.
 
 ---
 
@@ -1355,6 +1472,9 @@ admin:
     enabled: bool             # default false
     title: string             # default "API Gateway"
     description: string
+  grpc_health:
+    enabled: bool             # enable gRPC health check server (default false)
+    address: string           # listen address (default ":9090")
 ```
 
 ---
@@ -1983,6 +2103,26 @@ routes:
 **Validation:** `limit` must be > 0. `period` must be one of `hourly`, `daily`, `monthly`, `yearly`. `key` must be a valid key format.
 
 See [Quota](quota.md) for details.
+
+## Consumer Groups (global)
+
+```yaml
+consumer_groups:
+  enabled: bool                        # enable consumer groups (default false)
+  groups:
+    <group-name>:
+      rate_limit: int                  # suggested rate limit (requests/sec)
+      quota: int64                     # suggested quota (requests/period)
+      priority: int                    # priority level (1-10)
+      metadata:                        # arbitrary key-value metadata
+        <key>: <value>
+```
+
+**Validation:** At least one group required when enabled. Group names must be unique.
+
+See [Consumer Groups](consumer-groups.md) for details.
+
+---
 
 ## Multi-Tenancy (global)
 

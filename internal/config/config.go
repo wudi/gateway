@@ -77,6 +77,7 @@ type Config struct {
 	Tenants                TenantsConfig                `yaml:"tenants"`                   // Multi-tenancy configuration
 	CompletionHeader       bool                         `yaml:"completion_header"`         // Add X-Gateway-Completed header to aggregate/sequential responses
 	Deprecation            DeprecationConfig            `yaml:"deprecation"`               // Global API deprecation lifecycle (RFC 8594)
+	ConsumerGroups         ConsumerGroupsConfig         `yaml:"consumer_groups"`           // Consumer group definitions
 }
 
 // ListenerConfig defines a listener configuration
@@ -406,6 +407,12 @@ type RouteConfig struct {
 	TokenExchange        TokenExchangeConfig            `yaml:"token_exchange"`         // OAuth2/OIDC token exchange (RFC 8693)
 	Deprecation          DeprecationConfig              `yaml:"deprecation"`            // API deprecation lifecycle (RFC 8594)
 	SLO                  SLOConfig                      `yaml:"slo"`                    // SLI/SLO enforcement with error budget
+	ETag                 ETagConfig                     `yaml:"etag"`                   // Per-route ETag generation and conditional requests
+	Streaming            StreamingConfig                `yaml:"streaming"`              // Per-route response streaming controls
+	ResponseSigning      ResponseSigningConfig          `yaml:"response_signing"`       // Per-route response body signing
+	OPA                  OPAConfig                      `yaml:"opa"`                    // Per-route OPA policy engine
+	RequestCost          RequestCostConfig              `yaml:"request_cost"`           // Per-route request cost tracking
+	Connect              ConnectConfig                  `yaml:"connect"`                // HTTP CONNECT tunneling
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -502,15 +509,17 @@ type CircuitBreakerConfig struct {
 
 // CacheConfig defines request caching settings
 type CacheConfig struct {
-	Enabled     bool          `yaml:"enabled"`
-	TTL         time.Duration `yaml:"ttl"`
-	MaxSize     int           `yaml:"max_size"`
-	MaxBodySize int64         `yaml:"max_body_size"`
-	KeyHeaders  []string      `yaml:"key_headers"`
-	Methods     []string      `yaml:"methods"`
-	Mode        string        `yaml:"mode"`        // "local" (default) or "distributed" (Redis-backed)
-	Conditional bool          `yaml:"conditional"` // enable ETag/Last-Modified/304 support
-	Bucket      string        `yaml:"bucket"`      // named shared cache bucket (routes with same bucket share a store)
+	Enabled              bool          `yaml:"enabled"`
+	TTL                  time.Duration `yaml:"ttl"`
+	MaxSize              int           `yaml:"max_size"`
+	MaxBodySize          int64         `yaml:"max_body_size"`
+	KeyHeaders           []string      `yaml:"key_headers"`
+	Methods              []string      `yaml:"methods"`
+	Mode                 string        `yaml:"mode"`                   // "local" (default) or "distributed" (Redis-backed)
+	Conditional          bool          `yaml:"conditional"`            // enable ETag/Last-Modified/304 support
+	Bucket               string        `yaml:"bucket"`                 // named shared cache bucket (routes with same bucket share a store)
+	StaleWhileRevalidate time.Duration `yaml:"stale_while_revalidate"` // serve stale while refreshing in background
+	StaleIfError         time.Duration `yaml:"stale_if_error"`         // serve stale on backend 5xx errors
 }
 
 // WebSocketConfig defines WebSocket proxy settings
@@ -656,6 +665,31 @@ type ProxyRateLimitConfig struct {
 	Burst   int           `yaml:"burst"`
 }
 
+// ETagConfig defines ETag generation and conditional request handling.
+type ETagConfig struct {
+	Enabled bool `yaml:"enabled"`
+	Weak    bool `yaml:"weak"` // prefix ETag with W/ for weak validation
+}
+
+// StreamingConfig defines response streaming controls.
+type StreamingConfig struct {
+	Enabled          bool          `yaml:"enabled"`
+	FlushInterval    time.Duration `yaml:"flush_interval"`
+	DisableBuffering bool          `yaml:"disable_buffering"`
+}
+
+// OPAConfig defines Open Policy Agent (OPA) policy engine settings.
+type OPAConfig struct {
+	Enabled     bool          `yaml:"enabled"`
+	URL         string        `yaml:"url"`
+	PolicyPath  string        `yaml:"policy_path"`
+	Timeout     time.Duration `yaml:"timeout"`
+	FailOpen    bool          `yaml:"fail_open"`
+	IncludeBody bool          `yaml:"include_body"`
+	CacheTTL    time.Duration `yaml:"cache_ttl"`
+	Headers     []string      `yaml:"headers"`
+}
+
 // MockResponseConfig defines static mock responses.
 type MockResponseConfig struct {
 	Enabled    bool              `yaml:"enabled"`
@@ -749,6 +783,20 @@ type SunsetResponse struct {
 	Headers map[string]string `yaml:"headers"`
 }
 
+// ConsumerGroupsConfig defines consumer group settings.
+type ConsumerGroupsConfig struct {
+	Enabled bool                       `yaml:"enabled"`
+	Groups  map[string]ConsumerGroup   `yaml:"groups"`
+}
+
+// ConsumerGroup defines a single consumer group with resource policies and metadata.
+type ConsumerGroup struct {
+	RateLimit int               `yaml:"rate_limit"`
+	Quota     int64             `yaml:"quota"`
+	Priority  int               `yaml:"priority"`
+	Metadata  map[string]string `yaml:"metadata"`
+}
+
 // SLOConfig defines SLI/SLO enforcement settings for a route.
 type SLOConfig struct {
 	Enabled         bool          `yaml:"enabled"`
@@ -757,6 +805,16 @@ type SLOConfig struct {
 	Actions         []string      `yaml:"actions"`           // "log_warning", "add_header", "shed_load"
 	ShedLoadPercent float64       `yaml:"shed_load_percent"` // 0-100, default 10
 	ErrorCodes      []int         `yaml:"error_codes"`       // default: 500-599
+}
+
+// ConnectConfig defines HTTP CONNECT tunneling settings for a route.
+type ConnectConfig struct {
+	Enabled        bool          `yaml:"enabled"`
+	AllowedHosts   []string      `yaml:"allowed_hosts"`
+	AllowedPorts   []int         `yaml:"allowed_ports"`
+	ConnectTimeout time.Duration `yaml:"connect_timeout"`
+	IdleTimeout    time.Duration `yaml:"idle_timeout"`
+	MaxTunnels     int           `yaml:"max_tunnels"`
 }
 
 // RewriteConfig defines URL rewriting rules for a route.
@@ -978,12 +1036,21 @@ type GraphQLConfig struct {
 	Introspection    bool                    `yaml:"introspection"`     // allow introspection (default false)
 	OperationLimits  map[string]int          `yaml:"operation_limits"`  // e.g. {"query": 100, "mutation": 10} req/s
 	PersistedQueries PersistedQueriesConfig  `yaml:"persisted_queries"` // Automatic Persisted Queries (APQ)
+	Subscriptions    GraphQLSubscriptionConfig `yaml:"subscriptions"`     // GraphQL subscription (WebSocket) settings
 }
 
 // PersistedQueriesConfig defines GraphQL Automatic Persisted Queries settings.
 type PersistedQueriesConfig struct {
 	Enabled bool `yaml:"enabled"`
 	MaxSize int  `yaml:"max_size"` // LRU max entries, default 1000
+}
+
+// GraphQLSubscriptionConfig defines GraphQL subscription (WebSocket) settings.
+type GraphQLSubscriptionConfig struct {
+	Enabled        bool          `yaml:"enabled"`
+	Protocol       string        `yaml:"protocol"`        // "graphql-ws" or "graphql-transport-ws" (default)
+	PingInterval   time.Duration `yaml:"ping_interval"`   // keepalive ping interval (default 30s)
+	MaxConnections int           `yaml:"max_connections"` // max concurrent subscription connections per route (0 = unlimited)
 }
 
 // GraphQLFederationConfig defines GraphQL federation / schema stitching settings.
@@ -1302,12 +1369,19 @@ type LogRotationConfig struct {
 
 // AdminConfig defines admin API settings
 type AdminConfig struct {
-	Enabled   bool            `yaml:"enabled"`
-	Port      int             `yaml:"port"`
-	Pprof     bool            `yaml:"pprof"`     // Enable /debug/pprof/* endpoints
-	Metrics   MetricsConfig   `yaml:"metrics"`   // Feature 5: Prometheus metrics
-	Readiness ReadinessConfig `yaml:"readiness"` // Readiness probe configuration
-	Catalog   CatalogConfig   `yaml:"catalog"`   // Developer portal / API catalog
+	Enabled    bool             `yaml:"enabled"`
+	Port       int              `yaml:"port"`
+	Pprof      bool             `yaml:"pprof"`      // Enable /debug/pprof/* endpoints
+	Metrics    MetricsConfig    `yaml:"metrics"`     // Feature 5: Prometheus metrics
+	Readiness  ReadinessConfig  `yaml:"readiness"`   // Readiness probe configuration
+	Catalog    CatalogConfig    `yaml:"catalog"`     // Developer portal / API catalog
+	GRPCHealth GRPCHealthConfig `yaml:"grpc_health"` // gRPC health check server
+}
+
+// GRPCHealthConfig defines gRPC health check server settings.
+type GRPCHealthConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Address string `yaml:"address"` // default ":9090"
 }
 
 // CatalogConfig defines developer portal / API catalog settings.
@@ -1578,6 +1652,17 @@ type BackendSigningConfig struct {
 	PrivateKeyFile string   `yaml:"private_key_file"`  // path to PEM-encoded RSA private key file
 }
 
+// ResponseSigningConfig defines response body signing.
+type ResponseSigningConfig struct {
+	Enabled        bool     `yaml:"enabled"`
+	Algorithm      string   `yaml:"algorithm"`        // "hmac-sha256" (default), "hmac-sha512", "rsa-sha256"
+	Secret         string   `yaml:"secret"`            // base64-encoded HMAC secret, min 32 decoded bytes
+	KeyFile        string   `yaml:"key_file"`          // path to PEM-encoded RSA private key file
+	KeyID          string   `yaml:"key_id"`            // key identifier included in signature header
+	Header         string   `yaml:"header"`            // response header name (default "X-Response-Signature")
+	IncludeHeaders []string `yaml:"include_headers"`   // response headers to include in signature
+}
+
 // InboundSigningConfig defines inbound request signature verification.
 type InboundSigningConfig struct {
 	Enabled       bool          `yaml:"enabled"`
@@ -1738,6 +1823,22 @@ type QuotaConfig struct {
 	Period  string `yaml:"period"`  // "hourly", "daily", "monthly", "yearly"
 	Key     string `yaml:"key"`     // "ip", "client_id", "header:<name>", "jwt_claim:<name>"
 	Redis   bool   `yaml:"redis"`   // use Redis for distributed tracking
+}
+
+// RequestCostConfig defines request cost tracking settings.
+type RequestCostConfig struct {
+	Enabled      bool           `yaml:"enabled"`
+	Cost         int            `yaml:"cost"`           // default cost per request (default 1)
+	CostByMethod map[string]int `yaml:"cost_by_method"` // per-method cost overrides
+	Key          string         `yaml:"key"`            // consumer key: "ip", "client_id", "header:<name>"
+	Budget       *CostBudget    `yaml:"budget"`         // optional per-consumer budget enforcement
+}
+
+// CostBudget defines a cost budget for request cost tracking.
+type CostBudget struct {
+	Limit  int64  `yaml:"limit"`  // max cost per window
+	Window string `yaml:"window"` // "hour", "day", "month", or Go duration
+	Action string `yaml:"action"` // "reject" (default) or "log_only"
 }
 
 // TenantsConfig defines multi-tenancy settings.

@@ -740,6 +740,362 @@ func TestCacheByRoute_PurgeRouteKey_NotFound(t *testing.T) {
 	}
 }
 
+func TestGetWithStaleness_Fresh(t *testing.T) {
+	h := newTestHandler(config.CacheConfig{
+		Enabled:              true,
+		MaxSize:              100,
+		TTL:                  10 * time.Second,
+		StaleWhileRevalidate: 5 * time.Second,
+		StaleIfError:         5 * time.Second,
+	})
+
+	req := httptest.NewRequest("GET", "/api/data", nil)
+	h.Store(req, &Entry{StatusCode: 200, Body: []byte(`fresh`)})
+
+	key := h.KeyForRequest(req)
+	entry, fresh, stale := h.GetWithStaleness(key)
+	if entry == nil {
+		t.Fatal("expected non-nil entry")
+	}
+	if !fresh {
+		t.Error("expected fresh=true")
+	}
+	if stale {
+		t.Error("expected stale=false")
+	}
+}
+
+func TestGetWithStaleness_Stale(t *testing.T) {
+	// Use very short TTL so we can test staleness quickly
+	cfg := config.CacheConfig{
+		Enabled:              true,
+		MaxSize:              100,
+		TTL:                  50 * time.Millisecond,
+		StaleWhileRevalidate: 5 * time.Second,
+		StaleIfError:         5 * time.Second,
+	}
+	store := NewMemoryStore(100, cfg.TTL+5*time.Second) // extended TTL for store
+	h := NewHandler(cfg, store)
+
+	req := httptest.NewRequest("GET", "/api/data", nil)
+	h.Store(req, &Entry{StatusCode: 200, Body: []byte(`stale data`)})
+
+	// Wait for fresh TTL to expire
+	time.Sleep(80 * time.Millisecond)
+
+	key := h.KeyForRequest(req)
+	entry, fresh, stale := h.GetWithStaleness(key)
+	if entry == nil {
+		t.Fatal("expected non-nil entry")
+	}
+	if fresh {
+		t.Error("expected fresh=false")
+	}
+	if !stale {
+		t.Error("expected stale=true")
+	}
+	if string(entry.Body) != `stale data` {
+		t.Errorf("expected body 'stale data', got %s", entry.Body)
+	}
+}
+
+func TestGetWithStaleness_Expired(t *testing.T) {
+	// Both TTL and stale windows are very short
+	cfg := config.CacheConfig{
+		Enabled:              true,
+		MaxSize:              100,
+		TTL:                  30 * time.Millisecond,
+		StaleWhileRevalidate: 30 * time.Millisecond,
+		StaleIfError:         30 * time.Millisecond,
+	}
+	store := NewMemoryStore(100, cfg.TTL+30*time.Millisecond) // extended TTL for store
+	h := NewHandler(cfg, store)
+
+	req := httptest.NewRequest("GET", "/api/data", nil)
+	h.Store(req, &Entry{StatusCode: 200, Body: []byte(`old data`)})
+
+	// Wait for both TTL and stale window to expire
+	time.Sleep(100 * time.Millisecond)
+
+	key := h.KeyForRequest(req)
+	entry, fresh, stale := h.GetWithStaleness(key)
+	if entry != nil {
+		t.Error("expected nil entry after full expiry")
+	}
+	if fresh {
+		t.Error("expected fresh=false")
+	}
+	if stale {
+		t.Error("expected stale=false")
+	}
+}
+
+func TestGetWithStaleness_Miss(t *testing.T) {
+	h := newTestHandler(config.CacheConfig{
+		Enabled:              true,
+		MaxSize:              100,
+		StaleWhileRevalidate: 5 * time.Second,
+	})
+
+	entry, fresh, stale := h.GetWithStaleness("nonexistent")
+	if entry != nil {
+		t.Error("expected nil entry for miss")
+	}
+	if fresh || stale {
+		t.Error("expected fresh=false, stale=false for miss")
+	}
+}
+
+func TestStoreByKey(t *testing.T) {
+	h := newTestHandler(config.CacheConfig{
+		Enabled: true,
+		MaxSize: 100,
+	})
+
+	key := "test-key"
+	h.StoreByKey(key, &Entry{StatusCode: 200, Body: []byte("stored")})
+
+	entry, fresh, stale := h.GetWithStaleness(key)
+	if entry == nil {
+		t.Fatal("expected non-nil entry")
+	}
+	if !fresh {
+		t.Error("expected fresh=true")
+	}
+	if stale {
+		t.Error("expected stale=false")
+	}
+	if entry.StoredAt.IsZero() {
+		t.Error("expected StoredAt to be set")
+	}
+}
+
+func TestStoreSetStoredAt(t *testing.T) {
+	h := newTestHandler(config.CacheConfig{
+		Enabled: true,
+		MaxSize: 100,
+	})
+
+	req := httptest.NewRequest("GET", "/api/data", nil)
+	entry := &Entry{StatusCode: 200, Body: []byte("test")}
+	if !entry.StoredAt.IsZero() {
+		t.Error("expected StoredAt to be zero before Store")
+	}
+
+	h.Store(req, entry)
+
+	if entry.StoredAt.IsZero() {
+		t.Error("expected StoredAt to be set after Store")
+	}
+}
+
+func TestHandlerHasStaleSupport(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  config.CacheConfig
+		want bool
+	}{
+		{
+			name: "no stale support",
+			cfg:  config.CacheConfig{Enabled: true},
+			want: false,
+		},
+		{
+			name: "swr only",
+			cfg:  config.CacheConfig{Enabled: true, StaleWhileRevalidate: 5 * time.Second},
+			want: true,
+		},
+		{
+			name: "sie only",
+			cfg:  config.CacheConfig{Enabled: true, StaleIfError: 5 * time.Second},
+			want: true,
+		},
+		{
+			name: "both",
+			cfg:  config.CacheConfig{Enabled: true, StaleWhileRevalidate: 5 * time.Second, StaleIfError: 10 * time.Second},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newTestHandler(tt.cfg)
+			if got := h.HasStaleSupport(); got != tt.want {
+				t.Errorf("HasStaleSupport() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRevalidatingDedup(t *testing.T) {
+	h := newTestHandler(config.CacheConfig{
+		Enabled:              true,
+		StaleWhileRevalidate: 5 * time.Second,
+	})
+
+	key := "test-key"
+
+	// First call should return false (not already revalidating)
+	if h.IsRevalidating(key) {
+		t.Error("expected IsRevalidating to return false on first call")
+	}
+
+	// Second call should return true (already in-flight)
+	if !h.IsRevalidating(key) {
+		t.Error("expected IsRevalidating to return true on second call")
+	}
+
+	// After DoneRevalidating, should be available again
+	h.DoneRevalidating(key)
+	if h.IsRevalidating(key) {
+		t.Error("expected IsRevalidating to return false after DoneRevalidating")
+	}
+
+	// Clean up
+	h.DoneRevalidating(key)
+}
+
+func TestCapturingResponseWriter(t *testing.T) {
+	crw := NewCapturingResponseWriter()
+
+	crw.Header().Set("Content-Type", "text/plain")
+	crw.WriteHeader(201)
+	crw.Write([]byte("hello"))
+
+	if crw.StatusCode() != 201 {
+		t.Errorf("expected status 201, got %d", crw.StatusCode())
+	}
+	if crw.Body.String() != "hello" {
+		t.Errorf("expected body 'hello', got '%s'", crw.Body.String())
+	}
+	if crw.Header().Get("Content-Type") != "text/plain" {
+		t.Errorf("expected Content-Type: text/plain, got %s", crw.Header().Get("Content-Type"))
+	}
+}
+
+func TestCapturingResponseWriter_DefaultStatus(t *testing.T) {
+	crw := NewCapturingResponseWriter()
+	crw.Write([]byte("body"))
+
+	// Should default to 200
+	if crw.StatusCode() != 200 {
+		t.Errorf("expected default status 200, got %d", crw.StatusCode())
+	}
+}
+
+func TestCapturingResponseWriter_DoubleWriteHeader(t *testing.T) {
+	crw := NewCapturingResponseWriter()
+	crw.WriteHeader(201)
+	crw.WriteHeader(500) // should be ignored
+
+	if crw.StatusCode() != 201 {
+		t.Errorf("expected status 201 (first), got %d", crw.StatusCode())
+	}
+}
+
+func TestStaleWindow_SWRLargerThanSIE(t *testing.T) {
+	cfg := config.CacheConfig{
+		Enabled:              true,
+		MaxSize:              100,
+		TTL:                  50 * time.Millisecond,
+		StaleWhileRevalidate: 10 * time.Second,
+		StaleIfError:         2 * time.Second,
+	}
+	store := NewMemoryStore(100, cfg.TTL+10*time.Second)
+	h := NewHandler(cfg, store)
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	h.Store(req, &Entry{StatusCode: 200, Body: []byte("data")})
+
+	// Wait for fresh TTL to expire
+	time.Sleep(80 * time.Millisecond)
+
+	key := h.KeyForRequest(req)
+	entry, fresh, stale := h.GetWithStaleness(key)
+	if entry == nil || fresh || !stale {
+		t.Error("expected stale entry within SWR window")
+	}
+}
+
+func TestStaleWindow_SIELargerThanSWR(t *testing.T) {
+	cfg := config.CacheConfig{
+		Enabled:              true,
+		MaxSize:              100,
+		TTL:                  50 * time.Millisecond,
+		StaleWhileRevalidate: 2 * time.Second,
+		StaleIfError:         10 * time.Second,
+	}
+	store := NewMemoryStore(100, cfg.TTL+10*time.Second)
+	h := NewHandler(cfg, store)
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	h.Store(req, &Entry{StatusCode: 200, Body: []byte("data")})
+
+	// Wait for fresh TTL to expire
+	time.Sleep(80 * time.Millisecond)
+
+	key := h.KeyForRequest(req)
+	entry, fresh, stale := h.GetWithStaleness(key)
+	if entry == nil || fresh || !stale {
+		t.Error("expected stale entry within SIE window")
+	}
+}
+
+func TestCacheByRoute_ExtendedStoreTTL(t *testing.T) {
+	// Verify that the store TTL is extended to cover the stale window
+	cbr := NewCacheByRoute(nil)
+
+	cbr.AddRoute("route1", config.CacheConfig{
+		Enabled:              true,
+		MaxSize:              100,
+		TTL:                  50 * time.Millisecond,
+		StaleWhileRevalidate: 5 * time.Second,
+	})
+
+	h := cbr.GetHandler("route1")
+	if h == nil {
+		t.Fatal("expected handler for route1")
+	}
+
+	// Store an entry
+	req := httptest.NewRequest("GET", "/test", nil)
+	h.Store(req, &Entry{StatusCode: 200, Body: []byte("test")})
+
+	// Wait for fresh TTL to expire but within stale window
+	time.Sleep(80 * time.Millisecond)
+
+	// The entry should still be retrievable (store TTL extended)
+	key := h.KeyForRequest(req)
+	entry, fresh, stale := h.GetWithStaleness(key)
+	if entry == nil {
+		t.Fatal("expected entry to be present (store TTL should be extended)")
+	}
+	if fresh {
+		t.Error("expected fresh=false")
+	}
+	if !stale {
+		t.Error("expected stale=true")
+	}
+}
+
+func TestKeyForRequest(t *testing.T) {
+	h := newTestHandler(config.CacheConfig{
+		Enabled:    true,
+		MaxSize:    100,
+		KeyHeaders: []string{"Accept"},
+	})
+
+	req := httptest.NewRequest("GET", "/api/data", nil)
+	req.Header.Set("Accept", "application/json")
+
+	key1 := h.KeyForRequest(req)
+	key2 := h.BuildKey(req, h.keyHeaders)
+
+	if key1 != key2 {
+		t.Error("KeyForRequest should produce same key as BuildKey with handler's keyHeaders")
+	}
+}
+
 func TestCacheByRouteDistributedFallback(t *testing.T) {
 	// When no Redis client is configured, distributed mode falls back to local
 	cbr := NewCacheByRoute(nil)

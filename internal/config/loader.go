@@ -226,6 +226,25 @@ func (l *Loader) validate(cfg *Config) error {
 			return err
 		}
 	}
+
+	// === Consumer Groups ===
+	if cfg.ConsumerGroups.Enabled {
+		for name, group := range cfg.ConsumerGroups.Groups {
+			if name == "" {
+				return fmt.Errorf("consumer_groups: group name must be non-empty")
+			}
+			if group.RateLimit < 0 {
+				return fmt.Errorf("consumer_groups.groups[%s]: rate_limit must be >= 0", name)
+			}
+			if group.Quota < 0 {
+				return fmt.Errorf("consumer_groups.groups[%s]: quota must be >= 0", name)
+			}
+			if group.Priority < 0 || group.Priority > 10 {
+				return fmt.Errorf("consumer_groups.groups[%s]: priority must be 0-10", name)
+			}
+		}
+	}
+
 	for _, route := range cfg.Routes {
 		if route.Tenant.Required && !cfg.Tenants.Enabled {
 			return fmt.Errorf("route %s: tenant.required requires tenants to be enabled", route.ID)

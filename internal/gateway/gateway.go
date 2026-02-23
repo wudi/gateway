@@ -53,6 +53,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/extauth"
 	"github.com/wudi/gateway/internal/middleware/httpsredirect"
 	"github.com/wudi/gateway/internal/middleware/geo"
+	"github.com/wudi/gateway/internal/middleware/graphqlsub"
 	"github.com/wudi/gateway/internal/middleware/dedup"
 	"github.com/wudi/gateway/internal/middleware/idempotency"
 	"github.com/wudi/gateway/internal/middleware/ipblocklist"
@@ -60,10 +61,13 @@ import (
 	"github.com/wudi/gateway/internal/middleware/loadshed"
 	"github.com/wudi/gateway/internal/middleware/mtls"
 	"github.com/wudi/gateway/internal/middleware/nonce"
+	"github.com/wudi/gateway/internal/middleware/opa"
 	"github.com/wudi/gateway/internal/middleware/maintenance"
 	"github.com/wudi/gateway/internal/middleware/mock"
 	"github.com/wudi/gateway/internal/middleware/proxyratelimit"
 	"github.com/wudi/gateway/internal/middleware/quota"
+	"github.com/wudi/gateway/internal/middleware/responsesigning"
+	"github.com/wudi/gateway/internal/middleware/streaming"
 	"github.com/wudi/gateway/internal/middleware/tenant"
 	"github.com/wudi/gateway/internal/middleware/realip"
 	"github.com/wudi/gateway/internal/middleware/securityheaders"
@@ -93,8 +97,12 @@ import (
 	_ "github.com/wudi/gateway/internal/proxy/protocol/soap"
 	"github.com/wudi/gateway/internal/abtest"
 	"github.com/wudi/gateway/internal/bluegreen"
+	"github.com/wudi/gateway/internal/middleware/connect"
+	"github.com/wudi/gateway/internal/middleware/consumergroup"
 	"github.com/wudi/gateway/internal/middleware/contentneg"
+	"github.com/wudi/gateway/internal/middleware/costtrack"
 	"github.com/wudi/gateway/internal/middleware/errorhandling"
+	"github.com/wudi/gateway/internal/middleware/etag"
 	"github.com/wudi/gateway/internal/middleware/fieldencrypt"
 	"github.com/wudi/gateway/internal/middleware/fieldreplacer"
 	"github.com/wudi/gateway/internal/middleware/inboundsigning"
@@ -254,6 +262,14 @@ type Gateway struct {
 	trafficReplay        *trafficreplay.ReplayByRoute
 	deprecationHandlers  *deprecation.DeprecationByRoute
 	sloTrackers          *slo.SLOByRoute
+	etagHandlers         *etag.ETagByRoute
+	streamHandlers       *streaming.StreamByRoute
+	opaEnforcers         *opa.OPAByRoute
+	responseSigners      *responsesigning.SignerByRoute
+	costTrackers         *costtrack.CostByRoute
+	consumerGroups       *consumergroup.GroupByRoute
+	graphqlSubs          *graphqlsub.SubscriptionByRoute
+	connectHandlers      *connect.ConnectByRoute
 
 	tenantManager *tenant.Manager
 	catalogBuilder *catalog.Builder
@@ -421,6 +437,14 @@ func New(cfg *config.Config) (*Gateway, error) {
 		trafficReplay:        trafficreplay.NewReplayByRoute(),
 		deprecationHandlers:  deprecation.NewDeprecationByRoute(),
 		sloTrackers:          slo.NewSLOByRoute(),
+		etagHandlers:         etag.NewETagByRoute(),
+		streamHandlers:       streaming.NewStreamByRoute(),
+		opaEnforcers:         opa.NewOPAByRoute(),
+		responseSigners:      responsesigning.NewSignerByRoute(),
+		costTrackers:         costtrack.NewCostByRoute(),
+		consumerGroups:       consumergroup.NewGroupByRoute(),
+		graphqlSubs:          graphqlsub.NewSubscriptionByRoute(),
+		connectHandlers:      connect.NewConnectByRoute(),
 		watchCancels:      make(map[string]context.CancelFunc),
 	}
 
@@ -438,6 +462,11 @@ func New(cfg *config.Config) (*Gateway, error) {
 	// Initialize shared priority admitter if global priority is enabled
 	if cfg.TrafficShaping.Priority.Enabled {
 		g.priorityAdmitter = trafficshape.NewPriorityAdmitter(cfg.TrafficShaping.Priority.MaxConcurrent)
+	}
+
+	// Initialize consumer groups if enabled
+	if cfg.ConsumerGroups.Enabled {
+		g.consumerGroups.SetManager(consumergroup.NewGroupManager(cfg.ConsumerGroups))
 	}
 
 	// Initialize load shedder if enabled
@@ -986,6 +1015,62 @@ func New(cfg *config.Config) (*Gateway, error) {
 			}
 			return nil
 		}, g.sloTrackers.RouteIDs, func() any { return g.sloTrackers.Stats() }),
+
+		// ETag
+		newFeature("etag", "/etag", func(id string, rc config.RouteConfig) error {
+			if rc.ETag.Enabled {
+				g.etagHandlers.AddRoute(id, rc.ETag)
+			}
+			return nil
+		}, g.etagHandlers.RouteIDs, func() any { return g.etagHandlers.Stats() }),
+
+		// Streaming
+		newFeature("streaming", "/streaming", func(id string, rc config.RouteConfig) error {
+			if rc.Streaming.Enabled {
+				g.streamHandlers.AddRoute(id, rc.Streaming)
+			}
+			return nil
+		}, g.streamHandlers.RouteIDs, func() any { return g.streamHandlers.Stats() }),
+
+		// OPA
+		newFeature("opa", "/opa", func(id string, rc config.RouteConfig) error {
+			if rc.OPA.Enabled {
+				return g.opaEnforcers.AddRoute(id, rc.OPA)
+			}
+			return nil
+		}, g.opaEnforcers.RouteIDs, func() any { return g.opaEnforcers.Stats() }),
+
+		// Response Signing
+		newFeature("response_signing", "/response-signing", func(id string, rc config.RouteConfig) error {
+			if rc.ResponseSigning.Enabled {
+				return g.responseSigners.AddRoute(id, rc.ResponseSigning)
+			}
+			return nil
+		}, g.responseSigners.RouteIDs, func() any { return g.responseSigners.Stats() }),
+
+		// Request Cost
+		newFeature("request_cost", "/request-cost", func(id string, rc config.RouteConfig) error {
+			if rc.RequestCost.Enabled {
+				g.costTrackers.AddRoute(id, rc.RequestCost)
+			}
+			return nil
+		}, g.costTrackers.RouteIDs, func() any { return g.costTrackers.Stats() }),
+
+		// GraphQL Subscriptions
+		newFeature("graphql_subscriptions", "/graphql-subscriptions", func(id string, rc config.RouteConfig) error {
+			if rc.GraphQL.Subscriptions.Enabled {
+				g.graphqlSubs.AddRoute(id, rc.GraphQL.Subscriptions)
+			}
+			return nil
+		}, g.graphqlSubs.RouteIDs, func() any { return g.graphqlSubs.Stats() }),
+
+		// HTTP CONNECT
+		newFeature("connect", "/connect", func(id string, rc config.RouteConfig) error {
+			if rc.Connect.Enabled {
+				g.connectHandlers.AddRoute(id, rc.Connect)
+			}
+			return nil
+		}, g.connectHandlers.RouteIDs, func() any { return g.connectHandlers.Stats() }),
 
 		noOpFeature("session_affinity", "/session-affinity", func() []string {
 			var ids []string
@@ -1907,6 +1992,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		/* 6.25 */ func() middleware.Middleware {
 			if ea := g.extAuths.GetAuth(routeID); ea != nil { return ea.Middleware() }; return nil
 		},
+		/* 6.27 */ func() middleware.Middleware {
+			if oe := g.opaEnforcers.GetEnforcer(routeID); oe != nil { return oe.Middleware() }; return nil
+		},
 		/* 6.3  */ func() middleware.Middleware {
 			if nc := g.nonceCheckers.GetChecker(routeID); nc != nil { return nc.Middleware() }; return nil
 		},
@@ -1932,6 +2020,12 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		/* 6.6  */ func() middleware.Middleware {
 			if g.tenantManager == nil { return nil }
 			return g.tenantManager.Middleware(cfg.Tenant.Allowed, cfg.Tenant.Required)
+		},
+		/* 6.63 */ func() middleware.Middleware {
+			if gm := g.consumerGroups.GetManager(); gm != nil { return gm.Middleware() }; return nil
+		},
+		/* 6.65 */ func() middleware.Middleware {
+			if ct := g.costTrackers.GetTracker(routeID); ct != nil { return ct.Middleware() }; return nil
 		},
 		/* 7    */ func() middleware.Middleware {
 			hasReq := (g.globalRules != nil && g.globalRules.HasRequestRules()) ||
@@ -1959,6 +2053,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		/* 8    */ func() middleware.Middleware {
 			if !skipBody && route.MaxBodySize > 0 { return bodyLimitMW(route.MaxBodySize) }; return nil
 		},
+		/* 8.9  */ func() middleware.Middleware {
+			if ch := g.connectHandlers.GetHandler(routeID); ch != nil { return ch.Middleware() }; return nil
+		},
 		/* 8.25 */ func() middleware.Middleware {
 			if skipBody { return nil }
 			if d := g.decompressors.GetDecompressor(routeID); d != nil && d.IsEnabled() { return d.Middleware() }; return nil
@@ -1982,6 +2079,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		/* 9.5  */ func() middleware.Middleware {
 			if skipBody { return nil }
 			if gql := g.graphqlParsers.GetParser(routeID); gql != nil { return gql.Middleware() }; return nil
+		},
+		/* 9.7  */ func() middleware.Middleware {
+			if gs := g.graphqlSubs.GetHandler(routeID); gs != nil { return gs.Middleware() }; return nil
 		},
 		/* 10   */ func() middleware.Middleware {
 			if route.WebSocket.Enabled {
@@ -2014,6 +2114,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		/* 12.6 */ func() middleware.Middleware {
 			if pl := g.proxyRateLimiters.GetLimiter(routeID); pl != nil { return pl.Middleware() }; return nil
 		},
+		/* 12.7 */ func() middleware.Middleware {
+			if sh := g.streamHandlers.GetHandler(routeID); sh != nil { return sh.Middleware() }; return nil
+		},
 		/* 13   */ func() middleware.Middleware {
 			if skipBody { return nil }
 			if c := g.compressors.GetCompressor(routeID); c != nil && c.IsEnabled() { return c.Middleware() }; return nil
@@ -2021,6 +2124,10 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		/* 13.5 */ func() middleware.Middleware {
 			if skipBody { return nil }
 			if rl := g.responseLimiters.GetLimiter(routeID); rl != nil && rl.IsEnabled() { return rl.Middleware() }; return nil
+		},
+		/* 13.6 */ func() middleware.Middleware {
+			if skipBody { return nil }
+			if eh := g.etagHandlers.GetHandler(routeID); eh != nil { return eh.Middleware() }; return nil
 		},
 		/* 14   */ func() middleware.Middleware {
 			hasResp := (g.globalRules != nil && g.globalRules.HasResponseRules()) ||
@@ -2098,6 +2205,10 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		/* 17.4 */ func() middleware.Middleware {
 			if skipBody { return nil }
 			if cn := g.contentNegotiators.GetNegotiator(routeID); cn != nil { return cn.Middleware() }; return nil
+		},
+		/* 17.42*/ func() middleware.Middleware {
+			if skipBody { return nil }
+			if rs := g.responseSigners.GetSigner(routeID); rs != nil { return rs.Middleware() }; return nil
 		},
 	}
 

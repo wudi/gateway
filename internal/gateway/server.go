@@ -15,6 +15,7 @@ import (
 
 	"github.com/wudi/gateway/internal/catalog"
 	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/grpchealth"
 	gatewayerrors "github.com/wudi/gateway/internal/errors"
 	"github.com/wudi/gateway/internal/listener"
 	"github.com/wudi/gateway/internal/logging"
@@ -37,8 +38,9 @@ type Server struct {
 	udpProxy      *udp.Proxy
 	startTime     time.Time
 	reloadHistory []ReloadResult
-	draining      atomic.Bool
-	drainStart    atomic.Int64 // unix nano timestamp when drain started
+	grpcHealthServer *grpchealth.Server
+	draining         atomic.Bool
+	drainStart       atomic.Int64 // unix nano timestamp when drain started
 }
 
 // NewServer creates a new gateway server.
@@ -75,6 +77,17 @@ func NewServer(cfg *config.Config, configPath string) (*Server, error) {
 			ReadTimeout:  10 * time.Second,
 			WriteTimeout: 10 * time.Second,
 		}
+	}
+
+	// Configure gRPC health server if enabled
+	if cfg.Admin.GRPCHealth.Enabled {
+		addr := cfg.Admin.GRPCHealth.Address
+		if addr == "" {
+			addr = ":9090"
+		}
+		s.grpcHealthServer = grpchealth.NewServer(addr, func() bool {
+			return true // healthy if gateway is running
+		})
 	}
 
 	return s, nil
@@ -180,6 +193,16 @@ func (s *Server) Start() error {
 		}()
 	}
 
+	// Start gRPC health server if enabled
+	if s.grpcHealthServer != nil {
+		go func() {
+			logging.Info("Starting gRPC health server")
+			if err := s.grpcHealthServer.Start(); err != nil {
+				logging.Error("gRPC health server failed", zap.Error(err))
+			}
+		}()
+	}
+
 	// Wait for error or continue
 	select {
 	case err := <-errCh:
@@ -255,6 +278,11 @@ func (s *Server) Shutdown(timeout time.Duration) error {
 		if err := s.adminServer.Shutdown(ctx); err != nil {
 			logging.Error("Admin server shutdown error", zap.Error(err))
 		}
+	}
+
+	// Stop gRPC health server
+	if s.grpcHealthServer != nil {
+		s.grpcHealthServer.Stop()
 	}
 
 	// Shutdown all listeners
@@ -468,6 +496,7 @@ func (s *Server) adminHandler() http.Handler {
 	mux.HandleFunc("/upstreams", s.handleUpstreams)
 	mux.HandleFunc("/mirrors/", s.handleMirrorsAction)
 	mux.HandleFunc("/canary/", s.handleCanaryAction)
+	mux.HandleFunc("/circuit-breakers/", s.handleCircuitBreakerAction)
 	mux.HandleFunc("/blue-green/", s.handleBlueGreenAction)
 	mux.HandleFunc("/ab-tests/", s.handleABTestAction)
 	mux.HandleFunc("/traffic-replay/", s.handleTrafficReplayAction)
@@ -1527,6 +1556,46 @@ func (s *Server) handleCanaryAction(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": actionName, "route": routeID})
 }
 
+// handleCircuitBreakerAction handles POST /circuit-breakers/{route}/{action}.
+// Supported actions: open (force open), close (force close), reset (return to auto).
+func (s *Server) handleCircuitBreakerAction(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse /circuit-breakers/{route}/{action}
+	path := strings.TrimPrefix(r.URL.Path, "/circuit-breakers/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		http.Error(w, "usage: POST /circuit-breakers/{route}/{action}", http.StatusBadRequest)
+		return
+	}
+	routeID := parts[0]
+	actionName := parts[1]
+
+	var err error
+	switch actionName {
+	case "open":
+		err = s.gateway.GetCircuitBreakers().ForceOpen(routeID)
+	case "close":
+		err = s.gateway.GetCircuitBreakers().ForceClose(routeID)
+	case "reset":
+		err = s.gateway.GetCircuitBreakers().ResetOverride(routeID)
+	default:
+		http.Error(w, fmt.Sprintf("unknown action %q (valid: open, close, reset)", actionName), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": actionName, "route": routeID})
+}
 
 // handleBlueGreenAction handles POST /blue-green/{route}/{action}.
 func (s *Server) handleBlueGreenAction(w http.ResponseWriter, r *http.Request) {
