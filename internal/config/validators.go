@@ -51,7 +51,7 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 
 func (l *Loader) validateRouteBasics(route RouteConfig, _ *Config) error {
 	routeID := route.ID
-	if len(route.Backends) == 0 && route.Service.Name == "" && !route.Versioning.Enabled && route.Upstream == "" && !route.Echo && !route.Static.Enabled && !route.Sequential.Enabled && !route.Aggregate.Enabled && !route.FastCGI.Enabled {
+	if len(route.Backends) == 0 && route.Service.Name == "" && !route.Versioning.Enabled && route.Upstream == "" && !route.Echo && !route.Static.Enabled && !route.Sequential.Enabled && !route.Aggregate.Enabled && !route.FastCGI.Enabled && !route.GraphQLFederation.Enabled {
 		return fmt.Errorf("route %s: must have either backends, service name, or upstream", routeID)
 	}
 	if route.Upstream != "" {
@@ -1373,6 +1373,38 @@ func (l *Loader) validateDelegatedMiddleware(route RouteConfig, _ *Config) error
 	if err := l.validateWasmPlugins(scope, route); err != nil {
 		return err
 	}
+
+	// gRPC reflection requires gRPC
+	if route.GRPC.Reflection.Enabled && !route.GRPC.Enabled {
+		return fmt.Errorf("%s: grpc.reflection.enabled requires grpc.enabled", scope)
+	}
+
+	// GraphQL federation validation
+	if route.GraphQLFederation.Enabled {
+		if route.GraphQL.Enabled {
+			return fmt.Errorf("%s: graphql_federation is mutually exclusive with graphql", scope)
+		}
+		if route.Protocol.Type != "" {
+			return fmt.Errorf("%s: graphql_federation is mutually exclusive with protocol translation", scope)
+		}
+		if len(route.GraphQLFederation.Sources) < 2 {
+			return fmt.Errorf("%s: graphql_federation requires at least 2 sources", scope)
+		}
+		sourceNames := make(map[string]bool)
+		for i, src := range route.GraphQLFederation.Sources {
+			if src.Name == "" {
+				return fmt.Errorf("%s: graphql_federation.sources[%d].name is required", scope, i)
+			}
+			if sourceNames[src.Name] {
+				return fmt.Errorf("%s: graphql_federation.sources has duplicate name %q", scope, src.Name)
+			}
+			sourceNames[src.Name] = true
+			if src.URL == "" {
+				return fmt.Errorf("%s: graphql_federation.sources[%d].url is required", scope, i)
+			}
+		}
+	}
+
 	return nil
 }
 

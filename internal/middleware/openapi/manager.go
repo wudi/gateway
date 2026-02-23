@@ -93,6 +93,17 @@ func (m *OpenAPIByRoute) Stats() map[string]OpenAPIStatus {
 	})
 }
 
+// GetSpecDocs returns a copy of the cached spec documents keyed by file path.
+func (m *OpenAPIByRoute) GetSpecDocs() map[string]*openapi3.T {
+	m.specMu.RLock()
+	defer m.specMu.RUnlock()
+	result := make(map[string]*openapi3.T, len(m.specCache))
+	for k, v := range m.specCache {
+		result[k] = v
+	}
+	return result
+}
+
 // loadSpec loads a spec from cache or disk.
 func (m *OpenAPIByRoute) loadSpec(file string) (*openapi3.T, error) {
 	m.specMu.RLock()

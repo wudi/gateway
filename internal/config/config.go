@@ -332,8 +332,9 @@ type RouteConfig struct {
 	WAF            WAFConfig            `yaml:"waf"`             // Per-route WAF settings
 	LoadBalancer   string               `yaml:"load_balancer"`   // "round_robin"|"least_conn"|"consistent_hash"|"least_response_time"
 	ConsistentHash ConsistentHashConfig `yaml:"consistent_hash"` // Config for consistent_hash LB
-	GraphQL        GraphQLConfig        `yaml:"graphql"`         // GraphQL query analysis and protection
-	Coalesce       CoalesceConfig       `yaml:"coalesce"`        // Request coalescing (singleflight)
+	GraphQL            GraphQLConfig            `yaml:"graphql"`              // GraphQL query analysis and protection
+	GraphQLFederation  GraphQLFederationConfig  `yaml:"graphql_federation"`   // GraphQL federation / schema stitching
+	Coalesce           CoalesceConfig           `yaml:"coalesce"`             // Request coalescing (singleflight)
 	Canary         CanaryConfig         `yaml:"canary"`          // Canary deployment with automated rollback
 	ExtAuth        ExtAuthConfig        `yaml:"ext_auth"`        // External auth service
 	Versioning     VersioningConfig     `yaml:"versioning"`      // API versioning
@@ -809,6 +810,13 @@ type GRPCConfig struct {
 	Authority           string                 `yaml:"authority"`         // override :authority
 	MetadataTransforms  GRPCMetadataTransforms `yaml:"metadata_transforms"`
 	HealthCheck         GRPCHealthCheckConfig  `yaml:"health_check"`
+	Reflection          GRPCReflectionConfig   `yaml:"reflection"`
+}
+
+// GRPCReflectionConfig defines gRPC reflection proxy settings.
+type GRPCReflectionConfig struct {
+	Enabled  bool          `yaml:"enabled"`
+	CacheTTL time.Duration `yaml:"cache_ttl"` // default 5m
 }
 
 // GRPCMetadataTransforms defines metadata mapping rules for gRPC proxying.
@@ -938,6 +946,19 @@ type GraphQLConfig struct {
 	MaxComplexity   int            `yaml:"max_complexity"`   // 0 = unlimited
 	Introspection   bool           `yaml:"introspection"`    // allow introspection (default false)
 	OperationLimits map[string]int `yaml:"operation_limits"` // e.g. {"query": 100, "mutation": 10} req/s
+}
+
+// GraphQLFederationConfig defines GraphQL federation / schema stitching settings.
+type GraphQLFederationConfig struct {
+	Enabled         bool                      `yaml:"enabled"`
+	RefreshInterval time.Duration             `yaml:"refresh_interval"` // schema re-introspection interval (default 5m)
+	Sources         []GraphQLFederationSource `yaml:"sources"`          // backend GraphQL sources (>= 2)
+}
+
+// GraphQLFederationSource defines a backend GraphQL source for federation.
+type GraphQLFederationSource struct {
+	Name string `yaml:"name"` // unique source name
+	URL  string `yaml:"url"`  // backend GraphQL endpoint URL
 }
 
 // CoalesceConfig defines request coalescing (singleflight) settings.
@@ -1248,6 +1269,14 @@ type AdminConfig struct {
 	Pprof     bool            `yaml:"pprof"`     // Enable /debug/pprof/* endpoints
 	Metrics   MetricsConfig   `yaml:"metrics"`   // Feature 5: Prometheus metrics
 	Readiness ReadinessConfig `yaml:"readiness"` // Readiness probe configuration
+	Catalog   CatalogConfig   `yaml:"catalog"`   // Developer portal / API catalog
+}
+
+// CatalogConfig defines developer portal / API catalog settings.
+type CatalogConfig struct {
+	Enabled     bool   `yaml:"enabled"`
+	Title       string `yaml:"title"`       // Portal title (default "API Gateway")
+	Description string `yaml:"description"` // Portal description
 }
 
 // ReadinessConfig defines readiness probe settings.

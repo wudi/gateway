@@ -15,11 +15,13 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/wudi/gateway/internal/cache"
 	"github.com/wudi/gateway/internal/canary"
+	"github.com/wudi/gateway/internal/catalog"
 	"github.com/wudi/gateway/internal/circuitbreaker"
 	"github.com/wudi/gateway/internal/coalesce"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/errors"
 	"github.com/wudi/gateway/internal/graphql"
+	"github.com/wudi/gateway/internal/graphql/federation"
 	"github.com/wudi/gateway/internal/health"
 	"github.com/wudi/gateway/internal/loadbalancer"
 	"github.com/wudi/gateway/internal/loadbalancer/outlier"
@@ -156,8 +158,10 @@ type Gateway struct {
 	mirrors          *mirror.MirrorByRoute
 	tracer           *tracing.Tracer
 
-	grpcHandlers *grpcproxy.GRPCByRoute
-	translators  *protocol.TranslatorByRoute
+	grpcHandlers       *grpcproxy.GRPCByRoute
+	grpcReflection     *grpcproxy.ReflectionByRoute
+	translators        *protocol.TranslatorByRoute
+	federationHandlers *federation.FederationByRoute
 
 	globalRules *rules.RuleEngine
 	routeRules  *rules.RulesByRoute
@@ -248,6 +252,7 @@ type Gateway struct {
 	trafficReplay        *trafficreplay.ReplayByRoute
 
 	tenantManager *tenant.Manager
+	catalogBuilder *catalog.Builder
 
 	features []Feature
 
@@ -337,7 +342,9 @@ func New(cfg *config.Config) (*Gateway, error) {
 		validators:        validation.NewValidatorByRoute(),
 		mirrors:           mirror.NewMirrorByRoute(),
 		grpcHandlers:      grpcproxy.NewGRPCByRoute(),
-		translators:       protocol.NewTranslatorByRoute(),
+		grpcReflection:     grpcproxy.NewReflectionByRoute(),
+		translators:        protocol.NewTranslatorByRoute(),
+		federationHandlers: federation.NewFederationByRoute(),
 		routeRules:        rules.NewRulesByRoute(),
 		throttlers:        trafficshape.NewThrottleByRoute(),
 		bandwidthLimiters: trafficshape.NewBandwidthByRoute(),
@@ -499,6 +506,8 @@ func New(cfg *config.Config) (*Gateway, error) {
 			}
 			return nil
 		}, g.graphqlParsers.RouteIDs, func() any { return g.graphqlParsers.Stats() }),
+		noOpFeature("grpc_reflection", "/grpc-reflection", g.grpcReflection.RouteIDs, func() any { return g.grpcReflection.Stats() }),
+		noOpFeature("graphql_federation", "/graphql-federation", g.federationHandlers.RouteIDs, func() any { return g.federationHandlers.Stats() }),
 		newFeature("coalesce", "/coalesce", func(id string, rc config.RouteConfig) error {
 			if rc.Coalesce.Enabled {
 				g.coalescers.AddRoute(id, rc.Coalesce)
@@ -1234,6 +1243,16 @@ func New(cfg *config.Config) (*Gateway, error) {
 		return nil, fmt.Errorf("failed to initialize routes: %w", err)
 	}
 
+	// Initialize API catalog
+	if cfg.Admin.Catalog.Enabled {
+		g.catalogBuilder = catalog.NewBuilder(
+			cfg.Admin.Catalog,
+			cfg.Routes,
+			g.router.GetRoutes,
+			g.openapiValidators,
+		)
+	}
+
 	return g, nil
 }
 
@@ -1604,6 +1623,24 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 	// Set up gRPC handler (unique setup signature, not in feature loop)
 	if routeCfg.GRPC.Enabled {
 		g.grpcHandlers.AddRoute(routeCfg.ID, routeCfg.GRPC)
+	}
+
+	// Set up gRPC reflection proxy (aggregates reflection from all backends)
+	if routeCfg.GRPC.Enabled && routeCfg.GRPC.Reflection.Enabled {
+		var backends []string
+		for _, b := range routeCfg.Backends {
+			backends = append(backends, b.URL)
+		}
+		if len(backends) > 0 {
+			g.grpcReflection.AddRoute(routeCfg.ID, backends, routeCfg.GRPC.Reflection)
+		}
+	}
+
+	// Set up GraphQL federation (replaces proxy as innermost handler)
+	if routeCfg.GraphQLFederation.Enabled {
+		if err := g.federationHandlers.AddRoute(routeCfg.ID, routeCfg.GraphQLFederation, nil); err != nil {
+			return fmt.Errorf("graphql federation: route %s: %w", routeCfg.ID, err)
+		}
 	}
 
 	// Set up protocol translator (replaces RouteProxy as innermost handler; blocked by echo validation)
@@ -2053,6 +2090,8 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		innermost = sh
 	} else if fcgiH := g.fastcgiHandlers.GetHandler(routeID); fcgiH != nil {
 		innermost = fcgiH
+	} else if fedH := g.federationHandlers.GetHandler(routeID); fedH != nil {
+		innermost = fedH
 	} else if translatorHandler := g.translators.GetHandler(routeID); translatorHandler != nil {
 		innermost = translatorHandler
 	} else if lambdaH := g.lambdaHandlers.GetHandler(routeID); lambdaH != nil {
@@ -2063,6 +2102,11 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		innermost = pubsubH
 	} else {
 		innermost = rp
+	}
+
+	// gRPC reflection proxy — intercepts reflection requests before reaching the proxy
+	if refProxy := g.grpcReflection.GetProxy(routeID); refProxy != nil {
+		innermost = refProxy.Middleware()(innermost)
 	}
 
 	// 17.55. backendEncodingMW — wraps innermost handler directly
@@ -2466,6 +2510,11 @@ func (g *Gateway) Close() error {
 // GetRouter returns the router
 func (g *Gateway) GetRouter() *router.Router {
 	return g.router
+}
+
+// GetCatalogBuilder returns the API catalog builder, or nil if catalog is disabled.
+func (g *Gateway) GetCatalogBuilder() *catalog.Builder {
+	return g.catalogBuilder
 }
 
 // GetRegistry returns the registry

@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/wudi/gateway/internal/catalog"
 	"github.com/wudi/gateway/internal/config"
 	gatewayerrors "github.com/wudi/gateway/internal/errors"
 	"github.com/wudi/gateway/internal/listener"
@@ -496,6 +497,14 @@ func (s *Server) adminHandler() http.Handler {
 			mux.HandleFunc("/api-keys/generate", s.handleAPIKeyGenerate)
 			mux.HandleFunc("/api-keys/stats", s.handleAPIKeyStats)
 			mux.HandleFunc("/api-keys/", s.handleAPIKeyAction)
+		}
+	}
+
+	// API Catalog (developer portal)
+	if s.config.Admin.Catalog.Enabled {
+		if cb := s.gateway.GetCatalogBuilder(); cb != nil {
+			catalogHandler := catalog.NewHandler(cb)
+			catalogHandler.RegisterRoutes(mux)
 		}
 	}
 

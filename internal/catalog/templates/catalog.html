@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f7fa; color: #333; }
+  .header { background: #1a1a2e; color: #fff; padding: 2rem; }
+  .header h1 { font-size: 1.8rem; margin-bottom: 0.5rem; }
+  .header p { opacity: 0.8; }
+  .container { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
+  .stats { display: flex; gap: 1rem; margin-bottom: 2rem; }
+  .stat { background: #fff; border-radius: 8px; padding: 1rem 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  .stat .value { font-size: 1.5rem; font-weight: 700; color: #1a1a2e; }
+  .stat .label { font-size: 0.85rem; color: #666; }
+  .api-list { display: grid; gap: 1rem; }
+  .api-card { background: #fff; border-radius: 8px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); transition: box-shadow 0.2s; }
+  .api-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+  .api-card h3 { margin-bottom: 0.5rem; }
+  .api-card h3 a { color: #1a1a2e; text-decoration: none; }
+  .api-card h3 a:hover { text-decoration: underline; }
+  .api-card .path { font-family: monospace; background: #f0f0f0; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.9rem; }
+  .api-card .methods { display: flex; gap: 0.3rem; margin-top: 0.5rem; }
+  .method { font-size: 0.75rem; font-weight: 600; padding: 0.15rem 0.5rem; border-radius: 3px; color: #fff; }
+  .method-GET { background: #61affe; }
+  .method-POST { background: #49cc90; }
+  .method-PUT { background: #fca130; }
+  .method-DELETE { background: #f93e3e; }
+  .method-PATCH { background: #50e3c2; }
+  .method-default { background: #999; }
+  .tag { display: inline-block; font-size: 0.75rem; background: #e8eaf6; color: #3f51b5; padding: 0.15rem 0.5rem; border-radius: 3px; margin-right: 0.3rem; }
+  .desc { color: #666; margin-top: 0.5rem; font-size: 0.9rem; }
+  .footer { text-align: center; padding: 2rem; color: #999; font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>{{.Title}}</h1>
+  {{if .Description}}<p>{{.Description}}</p>{{end}}
+</div>
+<div class="container">
+  <div class="stats">
+    <div class="stat"><div class="value">{{.Stats.TotalRoutes}}</div><div class="label">Routes</div></div>
+    <div class="stat"><div class="value">{{.Stats.TotalSpecs}}</div><div class="label">OpenAPI Specs</div></div>
+    <div class="stat"><div class="value">{{.Stats.TotalBackends}}</div><div class="label">Backends</div></div>
+  </div>
+  <div class="api-list">
+    {{range .Entries}}
+    <div class="api-card">
+      <h3>
+        {{if .SpecID}}<a href="ui/{{.SpecID}}">{{.ID}}</a>{{else}}{{.ID}}{{end}}
+      </h3>
+      <span class="path">{{.Path}}</span>
+      {{if .Methods}}
+      <div class="methods">
+        {{range .Methods}}<span class="method method-{{.}}">{{.}}</span>{{end}}
+      </div>
+      {{end}}
+      {{if .Description}}<div class="desc">{{.Description}}</div>{{end}}
+      {{range .Tags}}<span class="tag">{{.}}</span>{{end}}
+    </div>
+    {{end}}
+  </div>
+</div>
+<div class="footer">Powered by API Gateway</div>
+</body>
+</html>

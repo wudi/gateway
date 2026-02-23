@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} - {{.SpecID}}</title>
+<style>
+  body { margin: 0; padding: 0; }
+  .back-link { display: block; padding: 0.75rem 1rem; background: #1a1a2e; color: #fff; text-decoration: none; font-family: sans-serif; font-size: 0.9rem; }
+  .back-link:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<a class="back-link" href="../ui">&larr; Back to API Catalog</a>
+<redoc spec-url='../specs/{{.SpecID}}'></redoc>
+<script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
+</body>
+</html>

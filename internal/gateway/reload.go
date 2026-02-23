@@ -13,6 +13,7 @@ import (
 	"github.com/wudi/gateway/internal/coalesce"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/graphql"
+	"github.com/wudi/gateway/internal/graphql/federation"
 	"github.com/wudi/gateway/internal/loadbalancer"
 	"github.com/wudi/gateway/internal/loadbalancer/outlier"
 	"github.com/wudi/gateway/internal/logging"
@@ -172,6 +173,8 @@ type gatewayState struct {
 	translators       *protocol.TranslatorByRoute
 	rateLimiters         *ratelimit.RateLimitByRoute
 	grpcHandlers         *grpcproxy.GRPCByRoute
+	grpcReflection       *grpcproxy.ReflectionByRoute
+	federationHandlers   *federation.FederationByRoute
 	budgetPools          map[string]*retry.Budget
 	baggagePropagators   *baggage.BaggageByRoute
 	backpressureHandlers *backpressure.BackpressureByRoute
@@ -256,6 +259,8 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		translators:       protocol.NewTranslatorByRoute(),
 		rateLimiters:      ratelimit.NewRateLimitByRoute(),
 		grpcHandlers:         grpcproxy.NewGRPCByRoute(),
+		grpcReflection:       grpcproxy.NewReflectionByRoute(),
+		federationHandlers:   federation.NewFederationByRoute(),
 		budgetPools:          make(map[string]*retry.Budget),
 		baggagePropagators:   baggage.NewBaggageByRoute(),
 		backpressureHandlers: backpressure.NewBackpressureByRoute(),
@@ -865,6 +870,24 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 		s.grpcHandlers.AddRoute(routeCfg.ID, routeCfg.GRPC)
 	}
 
+	// gRPC reflection proxy
+	if routeCfg.GRPC.Enabled && routeCfg.GRPC.Reflection.Enabled {
+		var backends []string
+		for _, b := range routeCfg.Backends {
+			backends = append(backends, b.URL)
+		}
+		if len(backends) > 0 {
+			s.grpcReflection.AddRoute(routeCfg.ID, backends, routeCfg.GRPC.Reflection)
+		}
+	}
+
+	// GraphQL federation
+	if routeCfg.GraphQLFederation.Enabled {
+		if err := s.federationHandlers.AddRoute(routeCfg.ID, routeCfg.GraphQLFederation, nil); err != nil {
+			return fmt.Errorf("graphql federation: route %s: %w", routeCfg.ID, err)
+		}
+	}
+
 	// Protocol translator
 	if routeCfg.Protocol.Type != "" {
 		bal := s.routeProxies[routeCfg.ID].GetBalancer()
@@ -1029,6 +1052,8 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldCompressors := g.compressors
 	oldMirrors := g.mirrors
 	oldGrpcHandlers := g.grpcHandlers
+	oldGrpcReflection := g.grpcReflection
+	oldFederationHandlers := g.federationHandlers
 	oldTranslators := g.translators
 	oldGraphqlParsers := g.graphqlParsers
 	oldCoalescers := g.coalescers
@@ -1100,6 +1125,8 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.compressors = s.compressors
 	g.mirrors = s.mirrors
 	g.grpcHandlers = s.grpcHandlers
+	g.grpcReflection = s.grpcReflection
+	g.federationHandlers = s.federationHandlers
 	g.translators = s.translators
 	g.graphqlParsers = s.graphqlParsers
 	g.coalescers = s.coalescers
@@ -1173,6 +1200,8 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.compressors = oldCompressors
 	g.mirrors = oldMirrors
 	g.grpcHandlers = oldGrpcHandlers
+	g.grpcReflection = oldGrpcReflection
+	g.federationHandlers = oldFederationHandlers
 	g.translators = oldTranslators
 	g.graphqlParsers = oldGraphqlParsers
 	g.coalescers = oldCoalescers
@@ -1334,6 +1363,8 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.translators = newState.translators
 	g.rateLimiters = newState.rateLimiters
 	g.grpcHandlers = newState.grpcHandlers
+	g.grpcReflection = newState.grpcReflection
+	g.federationHandlers = newState.federationHandlers
 	g.budgetPools = newState.budgetPools
 	g.baggagePropagators = newState.baggagePropagators
 	g.backpressureHandlers = newState.backpressureHandlers
