@@ -34,3 +34,9 @@ Thumbs.db
 # Temporary files
 /tmp/
 *.tmp
+
+# Docusaurus
+node_modules/
+website/.docusaurus/
+website/build/
+website/.cache-loader/

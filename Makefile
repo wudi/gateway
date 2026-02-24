@@ -312,3 +312,20 @@ help:
 	@echo "  perf-profile     - Capture pprof profiles from running gateway"
 	@echo ""
 	@echo "  help             - Show this help"
+	@echo ""
+	@echo "Documentation:"
+	@echo "  docs-install     - Install documentation dependencies"
+	@echo "  docs-dev         - Start documentation dev server"
+	@echo "  docs-build       - Build documentation site"
+
+# Documentation
+.PHONY: docs-install docs-dev docs-build
+
+docs-install:
+	cd website && npm install
+
+docs-dev:
+	cd website && npm start
+
+docs-build:
+	cd website && npm run build

@@ -366,7 +366,7 @@ curl localhost:8081/cache
 curl localhost:8081/canary
 ```
 
-See [docs/admin-api.md](docs/admin-api.md) for the full endpoint reference.
+See [docs/admin-api.md](docs/reference/admin-api.md) for the full endpoint reference.
 
 ## Service Discovery
 
@@ -422,122 +422,122 @@ Signals:
 Full documentation is available in the [docs/](docs/) directory:
 
 ### Getting Started
-- [Getting Started](docs/getting-started.md) — Installation, CLI flags, minimal config
-- [Core Concepts](docs/core-concepts.md) — Listeners, routes, backends, request pipeline
-- [Configuration Reference](docs/configuration-reference.md) — Complete YAML schema
-- [Examples](docs/examples.md) — Full worked configurations
-- [Benchmarks](docs/benchmarks.md) — Performance benchmarks and tuning
+- [Getting Started](docs/getting-started/getting-started.md) — Installation, CLI flags, minimal config
+- [Core Concepts](docs/getting-started/core-concepts.md) — Listeners, routes, backends, request pipeline
+- [Configuration Reference](docs/reference/configuration-reference.md) — Complete YAML schema
+- [Examples](docs/getting-started/examples.md) — Full worked configurations
+- [Benchmarks](docs/getting-started/benchmarks.md) — Performance benchmarks and tuning
 
 ### Traffic & Routing
-- [Load Balancing](docs/load-balancing.md) — Round-robin, least-conn, consistent-hash, least-response-time
-- [Traffic Management](docs/traffic-management.md) — Traffic splits, A/B testing, sticky sessions
-- [Canary Deployments](docs/canary-deployments.md) — Progressive rollouts with metrics-based promotion
-- [Blue-Green Deployments](docs/blue-green.md) — Atomic cutover with observation window
-- [A/B Testing](docs/ab-testing.md) — Per-group metrics on traffic splits
-- [API Versioning](docs/api-versioning.md) — Path, header, accept, query-based version routing
-- [API Deprecation](docs/deprecation.md) — RFC 8594 deprecation headers and sunset blocking
-- [URL Rewriting](docs/url-rewriting.md) — Prefix stripping, regex rewrite, host override
-- [Service Discovery](docs/service-discovery.md) — Consul, etcd, Kubernetes, memory registry
-- [Sequential Proxy](docs/sequential-proxy.md) — Multi-step backend chaining with data piping
-- [Response Aggregation](docs/response-aggregation.md) — Parallel multi-backend calls with JSON merge
-- [Follow Redirects](docs/follow-redirects.md) — Backend redirect following
-- [Passthrough](docs/passthrough.md) — Raw body passthrough mode
+- [Load Balancing](docs/traffic-routing/load-balancing.md) — Round-robin, least-conn, consistent-hash, least-response-time
+- [Traffic Management](docs/traffic-routing/traffic-management.md) — Traffic splits, A/B testing, sticky sessions
+- [Canary Deployments](docs/traffic-routing/canary-deployments.md) — Progressive rollouts with metrics-based promotion
+- [Blue-Green Deployments](docs/traffic-routing/blue-green.md) — Atomic cutover with observation window
+- [A/B Testing](docs/traffic-routing/ab-testing.md) — Per-group metrics on traffic splits
+- [API Versioning](docs/traffic-routing/api-versioning.md) — Path, header, accept, query-based version routing
+- [API Deprecation](docs/traffic-routing/deprecation.md) — RFC 8594 deprecation headers and sunset blocking
+- [URL Rewriting](docs/traffic-routing/url-rewriting.md) — Prefix stripping, regex rewrite, host override
+- [Service Discovery](docs/traffic-routing/service-discovery.md) — Consul, etcd, Kubernetes, memory registry
+- [Sequential Proxy](docs/traffic-routing/sequential-proxy.md) — Multi-step backend chaining with data piping
+- [Response Aggregation](docs/traffic-routing/response-aggregation.md) — Parallel multi-backend calls with JSON merge
+- [Follow Redirects](docs/traffic-routing/follow-redirects.md) — Backend redirect following
+- [Passthrough](docs/traffic-routing/passthrough.md) — Raw body passthrough mode
 
 ### Protocol Support
-- [Protocol Translation](docs/protocol-translation.md) — HTTP-to-gRPC, HTTP-to-Thrift, WebSocket proxy
-- [GraphQL Protection](docs/graphql.md) — Depth/complexity limits, introspection, operation rate limits
-- [GraphQL Federation](docs/graphql-federation.md) — Schema stitching across multiple GraphQL backends
-- [GraphQL Subscriptions](docs/graphql-subscriptions.md) — WebSocket-based subscriptions
-- [gRPC Proxy](docs/grpc-proxy.md) — Deadline propagation, metadata transforms, reflection
-- [gRPC-Web](docs/grpc-web.md) — Browser-to-gRPC translation
-- [gRPC Health](docs/grpc-health.md) — Native `grpc.health.v1` for Kubernetes probes
-- [HTTP/3 & QUIC](docs/http3.md) — HTTP/3 listener and upstream support
-- [HTTP CONNECT](docs/http-connect.md) — TCP tunneling via CONNECT method
-- [SSE Proxy](docs/sse-proxy.md) — Server-Sent Events with heartbeat and event injection
-- [AMQP/RabbitMQ](docs/amqp.md) — HTTP-to-AMQP message queue bridging
-- [Pub/Sub](docs/pubsub.md) — HTTP-to-pub/sub (GCP, AWS, NATS, Kafka, Azure)
-- [AWS Lambda](docs/lambda.md) — HTTP-to-Lambda invocation
-- [FastCGI](docs/fastcgi.md) — PHP-FPM and FastCGI backend proxying
+- [Protocol Translation](docs/protocol/protocol-translation.md) — HTTP-to-gRPC, HTTP-to-Thrift, WebSocket proxy
+- [GraphQL Protection](docs/protocol/graphql.md) — Depth/complexity limits, introspection, operation rate limits
+- [GraphQL Federation](docs/protocol/graphql-federation.md) — Schema stitching across multiple GraphQL backends
+- [GraphQL Subscriptions](docs/protocol/graphql-subscriptions.md) — WebSocket-based subscriptions
+- [gRPC Proxy](docs/protocol/grpc-proxy.md) — Deadline propagation, metadata transforms, reflection
+- [gRPC-Web](docs/protocol/grpc-web.md) — Browser-to-gRPC translation
+- [gRPC Health](docs/protocol/grpc-health.md) — Native `grpc.health.v1` for Kubernetes probes
+- [HTTP/3 & QUIC](docs/protocol/http3.md) — HTTP/3 listener and upstream support
+- [HTTP CONNECT](docs/protocol/http-connect.md) — TCP tunneling via CONNECT method
+- [SSE Proxy](docs/protocol/sse-proxy.md) — Server-Sent Events with heartbeat and event injection
+- [AMQP/RabbitMQ](docs/protocol/amqp.md) — HTTP-to-AMQP message queue bridging
+- [Pub/Sub](docs/protocol/pubsub.md) — HTTP-to-pub/sub (GCP, AWS, NATS, Kafka, Azure)
+- [AWS Lambda](docs/protocol/lambda.md) — HTTP-to-Lambda invocation
+- [FastCGI](docs/protocol/fastcgi.md) — PHP-FPM and FastCGI backend proxying
 
 ### Resilience
-- [Resilience](docs/resilience.md) — Retries, budget, hedging, circuit breakers, timeouts
-- [Circuit Breaker Controls](docs/circuit-breaker-controls.md) — Runtime admin overrides
-- [Shared Retry Budget Pools](docs/retry-budget-pools.md) — Cross-route shared retry budgets
-- [Adaptive Concurrency](docs/adaptive-concurrency.md) — AIMD-based concurrency control
-- [Backend Backpressure](docs/backpressure.md) — Auto-detect overloaded backends
-- [Load Shedding](docs/load-shedding.md) — CPU/memory/goroutine threshold-based rejection
-- [SLI/SLO Enforcement](docs/slo.md) — Error budget tracking with configurable actions
-- [Schema Evolution](docs/schema-evolution.md) — Breaking change detection on config reload
-- [Graceful Shutdown](docs/graceful-shutdown.md) — Shutdown timeout, connection draining
-- [Transport](docs/transport.md) — HTTP transport pool configuration
+- [Resilience](docs/resilience/resilience.md) — Retries, budget, hedging, circuit breakers, timeouts
+- [Circuit Breaker Controls](docs/resilience/circuit-breaker-controls.md) — Runtime admin overrides
+- [Shared Retry Budget Pools](docs/resilience/retry-budget-pools.md) — Cross-route shared retry budgets
+- [Adaptive Concurrency](docs/resilience/adaptive-concurrency.md) — AIMD-based concurrency control
+- [Backend Backpressure](docs/resilience/backpressure.md) — Auto-detect overloaded backends
+- [Load Shedding](docs/resilience/load-shedding.md) — CPU/memory/goroutine threshold-based rejection
+- [SLI/SLO Enforcement](docs/resilience/slo.md) — Error budget tracking with configurable actions
+- [Schema Evolution](docs/resilience/schema-evolution.md) — Breaking change detection on config reload
+- [Graceful Shutdown](docs/resilience/graceful-shutdown.md) — Shutdown timeout, connection draining
+- [Transport](docs/resilience/transport.md) — HTTP transport pool configuration
 
 ### Rate Limiting & Traffic Shaping
-- [Rate Limiting & Throttling](docs/rate-limiting-and-throttling.md) — Rate limits, throttle, bandwidth, priority, fault injection
-- [Service Rate Limiting](docs/service-rate-limiting.md) — Global service-level throughput cap
-- [Spike Arrest](docs/spike-arrest.md) — Per-second burst protection
-- [Quota](docs/quota.md) — Daily/hourly/monthly/yearly quota enforcement
-- [Consumer Groups](docs/consumer-groups.md) — Named consumer tiers with per-group policies
-- [Request Cost Tracking](docs/request-cost.md) — Cost-based metering and budget enforcement
-- [Multi-Tenancy](docs/multi-tenancy.md) — Per-tenant resource isolation
-- [Request Queuing](docs/request-queuing.md) — Bounded FIFO queue for traffic spikes
+- [Rate Limiting & Throttling](docs/rate-limiting/rate-limiting-and-throttling.md) — Rate limits, throttle, bandwidth, priority, fault injection
+- [Service Rate Limiting](docs/rate-limiting/service-rate-limiting.md) — Global service-level throughput cap
+- [Spike Arrest](docs/rate-limiting/spike-arrest.md) — Per-second burst protection
+- [Quota](docs/rate-limiting/quota.md) — Daily/hourly/monthly/yearly quota enforcement
+- [Consumer Groups](docs/rate-limiting/consumer-groups.md) — Named consumer tiers with per-group policies
+- [Request Cost Tracking](docs/rate-limiting/request-cost.md) — Cost-based metering and budget enforcement
+- [Multi-Tenancy](docs/rate-limiting/multi-tenancy.md) — Per-tenant resource isolation
+- [Request Queuing](docs/rate-limiting/request-queuing.md) — Bounded FIFO queue for traffic spikes
 
 ### Security
-- [Security](docs/security.md) — IP filtering, CORS, WAF, body limits, trusted proxies
-- [Authentication](docs/authentication.md) — API key, JWT/JWKS, OAuth/OIDC, mTLS
-- [External Auth](docs/external-auth.md) — Delegated auth via HTTP/gRPC service
-- [OPA Policy Engine](docs/opa.md) — Open Policy Agent authorization
-- [Token Exchange](docs/token-exchange.md) — RFC 8693 OAuth2 STS
-- [CSRF Protection](docs/csrf.md) — Double-submit cookies with origin validation
-- [Idempotency](docs/idempotency.md) — Idempotency key support for safe retries
-- [Replay Prevention](docs/replay-prevention.md) — Nonce-based replay attack prevention
-- [Bot Detection](docs/bot-detection.md) — User-Agent regex deny/allow lists
-- [SSRF Protection](docs/ssrf-protection.md) — Block connections to private IPs
-- [Request Deduplication](docs/request-dedup.md) — Content-hash dedup for webhooks
-- [Dynamic IP Blocklist](docs/ip-blocklist.md) — External threat feed subscriptions
-- [Client mTLS](docs/client-mtls.md) — Per-route client certificate verification
-- [Inbound Signing](docs/inbound-signing.md) — HMAC request signature verification
-- [Field Encryption](docs/field-encryption.md) — AES-GCM-256 per-field JSON encryption
-- [PII Redaction](docs/pii-redaction.md) — Auto-mask PII in request/response bodies
-- [WASM Plugins](docs/wasm-plugins.md) — Sandboxed custom filters via Wazero
+- [Security](docs/security/security.md) — IP filtering, CORS, WAF, body limits, trusted proxies
+- [Authentication](docs/security/authentication.md) — API key, JWT/JWKS, OAuth/OIDC, mTLS
+- [External Auth](docs/security/external-auth.md) — Delegated auth via HTTP/gRPC service
+- [OPA Policy Engine](docs/security/opa.md) — Open Policy Agent authorization
+- [Token Exchange](docs/security/token-exchange.md) — RFC 8693 OAuth2 STS
+- [CSRF Protection](docs/security/csrf.md) — Double-submit cookies with origin validation
+- [Idempotency](docs/security/idempotency.md) — Idempotency key support for safe retries
+- [Replay Prevention](docs/security/replay-prevention.md) — Nonce-based replay attack prevention
+- [Bot Detection](docs/security/bot-detection.md) — User-Agent regex deny/allow lists
+- [SSRF Protection](docs/security/ssrf-protection.md) — Block connections to private IPs
+- [Request Deduplication](docs/security/request-dedup.md) — Content-hash dedup for webhooks
+- [Dynamic IP Blocklist](docs/security/ip-blocklist.md) — External threat feed subscriptions
+- [Client mTLS](docs/security/client-mtls.md) — Per-route client certificate verification
+- [Inbound Signing](docs/security/inbound-signing.md) — HMAC request signature verification
+- [Field Encryption](docs/security/field-encryption.md) — AES-GCM-256 per-field JSON encryption
+- [PII Redaction](docs/security/pii-redaction.md) — Auto-mask PII in request/response bodies
+- [WASM Plugins](docs/security/wasm-plugins.md) — Sandboxed custom filters via Wazero
 
 ### Caching
-- [Caching](docs/caching.md) — Response caching, GraphQL-aware cache keys
-- [Shared Cache Buckets](docs/shared-cache-buckets.md) — Cross-route cache sharing
-- [CDN Cache Headers](docs/cdn-cache-headers.md) — Cache-Control and Surrogate-Control injection
-- [ETag](docs/etag.md) — SHA-256 ETag generation with conditional request support
-- [Response Streaming](docs/response-streaming.md) — Flush control for streaming APIs
+- [Caching](docs/caching/caching.md) — Response caching, GraphQL-aware cache keys
+- [Shared Cache Buckets](docs/caching/shared-cache-buckets.md) — Cross-route cache sharing
+- [CDN Cache Headers](docs/caching/cdn-cache-headers.md) — Cache-Control and Surrogate-Control injection
+- [ETag](docs/caching/etag.md) — SHA-256 ETag generation with conditional request support
+- [Response Streaming](docs/caching/response-streaming.md) — Flush control for streaming APIs
 
 ### Transformations
-- [Transformations](docs/transformations.md) — Headers, body, variables, path rewrite, compression
-- [Data Manipulation](docs/data-manipulation.md) — JMESPath query language for response filtering
-- [Response Body Generator](docs/response-body-generator.md) — Go template-based response rewriting
-- [Response Flatmap](docs/response-flatmap.md) — Array manipulation and data extraction
-- [Content Negotiation](docs/content-negotiation.md) — Accept-based JSON/XML/YAML conversion
-- [Content Replacer](docs/content-replacer.md) — Regex replacement in response bodies
-- [Parameter Forwarding](docs/parameter-forwarding.md) — Zero-trust header/query/cookie forwarding
-- [Body Generator](docs/body-generator.md) — Request body generation from templates
-- [Backend Encoding](docs/backend-encoding.md) — Backend response re-encoding
-- [Status Mapping](docs/status-mapping.md) — Response status code remapping
-- [Response Signing](docs/response-signing.md) — HMAC-sign outbound responses
-- [Response Limits](docs/response-limits.md) — Response size limiting
-- [Validation](docs/validation.md) — Request/response JSON schema and OpenAPI validation
-- [Baggage Propagation](docs/baggage-propagation.md) — Inject context into upstream headers
-- [Static Files](docs/static-files.md) — Static file serving
-- [Mock Responses](docs/mock-responses.md) — Static mock response configuration
-- [Error Pages](docs/error-pages.md) — Custom error page templates
+- [Transformations](docs/transformations/transformations.md) — Headers, body, variables, path rewrite, compression
+- [Data Manipulation](docs/transformations/data-manipulation.md) — JMESPath query language for response filtering
+- [Response Body Generator](docs/transformations/response-body-generator.md) — Go template-based response rewriting
+- [Response Flatmap](docs/transformations/response-flatmap.md) — Array manipulation and data extraction
+- [Content Negotiation](docs/transformations/content-negotiation.md) — Accept-based JSON/XML/YAML conversion
+- [Content Replacer](docs/transformations/content-replacer.md) — Regex replacement in response bodies
+- [Parameter Forwarding](docs/transformations/parameter-forwarding.md) — Zero-trust header/query/cookie forwarding
+- [Body Generator](docs/transformations/body-generator.md) — Request body generation from templates
+- [Backend Encoding](docs/transformations/backend-encoding.md) — Backend response re-encoding
+- [Status Mapping](docs/transformations/status-mapping.md) — Response status code remapping
+- [Response Signing](docs/transformations/response-signing.md) — HMAC-sign outbound responses
+- [Response Limits](docs/transformations/response-limits.md) — Response size limiting
+- [Validation](docs/transformations/validation.md) — Request/response JSON schema and OpenAPI validation
+- [Baggage Propagation](docs/transformations/baggage-propagation.md) — Inject context into upstream headers
+- [Static Files](docs/transformations/static-files.md) — Static file serving
+- [Mock Responses](docs/transformations/mock-responses.md) — Static mock response configuration
+- [Error Pages](docs/transformations/error-pages.md) — Custom error page templates
 
 ### Observability
-- [Observability](docs/observability.md) — Logging, Prometheus metrics, OpenTelemetry tracing
-- [Webhooks](docs/webhooks.md) — Event notification via HTTP webhooks
-- [Audit Logging](docs/audit-logging.md) — Request/response records for compliance
-- [Debug Endpoint](docs/debug-endpoint.md) — Runtime debug information
-- [Traffic Mirroring](docs/traffic-mirroring.md) — Shadow traffic and response comparison
-- [Traffic Replay](docs/traffic-replay.md) — Record and replay live traffic
-- [Developer Portal](docs/developer-portal.md) — Browsable API catalog with OpenAPI viewer
+- [Observability](docs/observability/observability.md) — Logging, Prometheus metrics, OpenTelemetry tracing
+- [Webhooks](docs/observability/webhooks.md) — Event notification via HTTP webhooks
+- [Audit Logging](docs/observability/audit-logging.md) — Request/response records for compliance
+- [Debug Endpoint](docs/observability/debug-endpoint.md) — Runtime debug information
+- [Traffic Mirroring](docs/observability/traffic-mirroring.md) — Shadow traffic and response comparison
+- [Traffic Replay](docs/observability/traffic-replay.md) — Record and replay live traffic
+- [Developer Portal](docs/observability/developer-portal.md) — Browsable API catalog with OpenAPI viewer
 
 ### Reference
-- [Admin API Reference](docs/admin-api.md) — Health, feature endpoints, dashboard, reload
-- [Rules Engine](docs/rules-engine.md) — Expression syntax, request/response rules, actions
+- [Admin API Reference](docs/reference/admin-api.md) — Health, feature endpoints, dashboard, reload
+- [Rules Engine](docs/reference/rules-engine.md) — Expression syntax, request/response rules, actions
 
 ## Development
 
