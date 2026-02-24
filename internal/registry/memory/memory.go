@@ -158,7 +158,12 @@ func (r *Registry) Watch(ctx context.Context, serviceName string) (<-chan []*reg
 	return ch, nil
 }
 
-// removeWatcher removes a watcher channel
+// removeWatcher removes a watcher channel from the registry.
+// The channel is NOT closed here because the initial-send goroutine
+// spawned in Watch() may still be running without the lock. Closing
+// the channel while that goroutine is selecting on it causes a
+// "send on closed channel" panic. The channel is simply removed from
+// the slice and will be garbage collected once all goroutines release it.
 func (r *Registry) removeWatcher(serviceName string, ch chan []*registry.Service) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -167,7 +172,6 @@ func (r *Registry) removeWatcher(serviceName string, ch chan []*registry.Service
 	for i, w := range watchers {
 		if w == ch {
 			r.watchers[serviceName] = append(watchers[:i], watchers[i+1:]...)
-			close(ch)
 			break
 		}
 	}
