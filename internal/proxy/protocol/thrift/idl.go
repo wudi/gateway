@@ -6,7 +6,7 @@ import (
 
 	"github.com/cloudwego/thriftgo/parser"
 	"github.com/cloudwego/thriftgo/semantic"
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // schemaCache caches parsed IDL schemas keyed by "idlFile:serviceName".

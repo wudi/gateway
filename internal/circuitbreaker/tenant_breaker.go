@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // TenantAwareBreakerInterface extends BreakerInterface with per-tenant isolation.

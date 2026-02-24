@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 	"github.com/wudi/gateway/internal/registry"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )

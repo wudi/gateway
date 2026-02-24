@@ -2,7 +2,7 @@ package grpc
 
 import (
 	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // ReflectionByRoute manages per-route gRPC reflection proxies.

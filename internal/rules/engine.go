@@ -7,7 +7,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 
 	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 	"github.com/wudi/gateway/internal/logging"
 	"github.com/wudi/gateway/internal/luautil"
 	"go.uber.org/zap"

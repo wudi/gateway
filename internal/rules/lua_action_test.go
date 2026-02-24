@@ -7,9 +7,9 @@ import (
 
 	lua "github.com/yuin/gopher-lua"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 	"github.com/wudi/gateway/internal/luautil"
-	"github.com/wudi/gateway/internal/variables"
+	"github.com/wudi/gateway/variables"
 )
 
 func newTestLuaPool() *sync.Pool {

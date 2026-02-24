@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // testCA generates a self-signed CA certificate and key.

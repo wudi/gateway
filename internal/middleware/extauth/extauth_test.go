@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 func TestExtAuth_HTTPAllow(t *testing.T) {

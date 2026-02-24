@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 func TestIsUpgradeRequest(t *testing.T) {

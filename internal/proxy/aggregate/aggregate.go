@@ -13,11 +13,11 @@ import (
 	"time"
 
 	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 	"github.com/wudi/gateway/internal/middleware/backendenc"
 	"github.com/wudi/gateway/internal/middleware/transform"
 	"github.com/wudi/gateway/internal/tmplutil"
-	"github.com/wudi/gateway/internal/variables"
+	"github.com/wudi/gateway/variables"
 )
 
 // compiledBackend holds pre-compiled templates for one aggregate backend.

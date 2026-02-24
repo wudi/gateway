@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // SessionAffinityBalancer wraps any Balancer with cookie-based backend pinning.

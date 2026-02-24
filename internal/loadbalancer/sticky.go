@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // StickyPolicy determines consistent traffic group assignment.

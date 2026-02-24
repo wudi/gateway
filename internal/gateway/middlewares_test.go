@@ -13,7 +13,7 @@ import (
 
 	"github.com/wudi/gateway/internal/cache"
 	"github.com/wudi/gateway/internal/circuitbreaker"
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 	"github.com/wudi/gateway/internal/metrics"
 	"github.com/wudi/gateway/internal/middleware/compression"
 	"github.com/wudi/gateway/internal/middleware/cors"
@@ -22,7 +22,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/transform"
 	"github.com/wudi/gateway/internal/middleware/validation"
 	"github.com/wudi/gateway/internal/rules"
-	"github.com/wudi/gateway/internal/variables"
+	"github.com/wudi/gateway/variables"
 )
 
 // ok200 is a simple handler that returns 200 OK with a JSON body.

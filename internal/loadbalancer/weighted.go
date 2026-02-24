@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // TrafficGroup represents a group of backends with a weight

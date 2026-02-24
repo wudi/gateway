@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 	"github.com/wudi/gateway/internal/gateway"
 )
 

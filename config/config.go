@@ -3,6 +3,8 @@ package config
 import (
 	"net"
 	"time"
+
+	"github.com/goccy/go-yaml"
 )
 
 // Protocol defines the listener protocol type
@@ -78,6 +80,7 @@ type Config struct {
 	CompletionHeader       bool                         `yaml:"completion_header"`         // Add X-Gateway-Completed header to aggregate/sequential responses
 	Deprecation            DeprecationConfig            `yaml:"deprecation"`               // Global API deprecation lifecycle (RFC 8594)
 	ConsumerGroups         ConsumerGroupsConfig         `yaml:"consumer_groups"`           // Consumer group definitions
+	Extensions             map[string]yaml.RawMessage   `yaml:"extensions,omitempty"`      // Plugin extension config (raw YAML, decoded by plugins)
 }
 
 // ListenerConfig defines a listener configuration
@@ -413,6 +416,7 @@ type RouteConfig struct {
 	OPA                  OPAConfig                      `yaml:"opa"`                    // Per-route OPA policy engine
 	RequestCost          RequestCostConfig              `yaml:"request_cost"`           // Per-route request cost tracking
 	Connect              ConnectConfig                  `yaml:"connect"`                // HTTP CONNECT tunneling
+	Extensions           map[string]yaml.RawMessage     `yaml:"extensions,omitempty"`   // Plugin extension config (raw YAML, decoded by plugins)
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.

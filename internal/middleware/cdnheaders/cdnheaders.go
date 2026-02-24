@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // CDNHeaders injects CDN cache control headers into responses.

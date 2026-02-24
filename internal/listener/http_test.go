@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // generateTestCert creates a temporary self-signed certificate for testing.

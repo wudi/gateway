@@ -14,7 +14,7 @@ import (
 	"github.com/mmcdole/gofeed"
 
 	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // Encoder decodes backend responses from a non-JSON format to JSON.

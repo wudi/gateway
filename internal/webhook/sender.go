@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // deliver sends a single webhook HTTP request to the endpoint.

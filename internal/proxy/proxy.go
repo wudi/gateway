@@ -11,14 +11,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 	"github.com/wudi/gateway/internal/errors"
 	"github.com/wudi/gateway/internal/health"
 	"github.com/wudi/gateway/internal/loadbalancer"
 	"github.com/wudi/gateway/internal/middleware/transform"
 	"github.com/wudi/gateway/internal/retry"
 	"github.com/wudi/gateway/internal/router"
-	"github.com/wudi/gateway/internal/variables"
+	"github.com/wudi/gateway/variables"
 )
 
 // Proxy handles proxying requests to backends

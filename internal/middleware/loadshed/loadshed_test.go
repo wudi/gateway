@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 func TestLoadShedder_GoroutineLimit(t *testing.T) {

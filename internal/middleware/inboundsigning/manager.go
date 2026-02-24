@@ -2,7 +2,7 @@ package inboundsigning
 
 import (
 	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // InboundSigningByRoute manages per-route inbound signature verifiers.

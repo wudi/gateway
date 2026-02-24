@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/wudi/gateway/internal/config"
-	"github.com/wudi/gateway/internal/gateway"
+	gw "github.com/wudi/gateway/gateway"
 	"github.com/wudi/gateway/internal/logging"
 	"go.uber.org/zap"
 
@@ -35,8 +34,7 @@ func main() {
 	}
 
 	// Load configuration
-	loader := config.NewLoader()
-	cfg, err := loader.Load(*configPath)
+	cfg, err := gw.LoadConfig(*configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to load configuration: %v\n", err)
 		os.Exit(1)
@@ -75,8 +73,11 @@ func main() {
 		zap.Int("routes", len(cfg.Routes)),
 	)
 
-	// Create and start the server
-	server, err := gateway.NewServer(cfg, *configPath)
+	// Build and start the server using the public API
+	server, err := gw.New(cfg).
+		WithConfigPath(*configPath).
+		WithDefaults().
+		Build()
 	if err != nil {
 		logging.Error("Failed to create gateway", zap.Error(err))
 		os.Exit(1)

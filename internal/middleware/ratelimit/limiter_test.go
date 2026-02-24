@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/internal/variables"
+	"github.com/wudi/gateway/variables"
 )
 
 func TestTokenBucket(t *testing.T) {

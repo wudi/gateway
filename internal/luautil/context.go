@@ -6,7 +6,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 
 	"github.com/wudi/gateway/internal/middleware/geo"
-	"github.com/wudi/gateway/internal/variables"
+	"github.com/wudi/gateway/variables"
 )
 
 // NewContextUserData creates a Lua userdata for gateway context access.

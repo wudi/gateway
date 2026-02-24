@@ -2927,3 +2927,26 @@ openapi:
 
 See [Schema Evolution](../resilience/schema-evolution.md) for details.
 
+---
+
+## Extensions (global & per-route)
+
+Plugin extension configuration. Raw YAML preserved for plugins to decode.
+
+```yaml
+# Global extensions
+extensions:
+  <plugin-name>:
+    <arbitrary-yaml>    # decoded by the plugin, not the gateway
+
+# Per-route extensions
+routes:
+  - id: my-route
+    path: /api
+    extensions:
+      <plugin-name>:
+        <arbitrary-yaml>
+```
+
+See [Extensibility](extensibility.md) for the full plugin API.
+

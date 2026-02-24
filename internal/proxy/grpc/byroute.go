@@ -2,7 +2,7 @@ package grpc
 
 import (
 	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // GRPCByRoute manages per-route gRPC handlers.

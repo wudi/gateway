@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 var startTime = time.Now()

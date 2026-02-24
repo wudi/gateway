@@ -8,7 +8,7 @@ import (
 	"github.com/expr-lang/expr/vm"
 	lua "github.com/yuin/gopher-lua"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 	"github.com/wudi/gateway/internal/luautil"
 )
 

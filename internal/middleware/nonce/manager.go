@@ -5,7 +5,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // NonceByRoute manages per-route nonce checkers.

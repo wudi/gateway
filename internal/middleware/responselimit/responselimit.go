@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 
 	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // ResponseLimiter enforces a maximum response body size for a route.

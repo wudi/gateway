@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 func TestDeprecation_HeadersInjected(t *testing.T) {

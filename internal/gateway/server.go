@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/wudi/gateway/internal/catalog"
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 	"github.com/wudi/gateway/internal/grpchealth"
 	gatewayerrors "github.com/wudi/gateway/internal/errors"
 	"github.com/wudi/gateway/internal/listener"
@@ -45,8 +45,13 @@ type Server struct {
 
 // NewServer creates a new gateway server.
 // configPath is the path to the YAML config file (used for reload).
-func NewServer(cfg *config.Config, configPath string) (*Server, error) {
-	gw, err := New(cfg)
+// opts carries external customizations from the public gateway builder.
+func NewServer(cfg *config.Config, configPath string, opts ...ExternalOptions) (*Server, error) {
+	var ext ExternalOptions
+	if len(opts) > 0 {
+		ext = opts[0]
+	}
+	gw, err := NewWithOptions(cfg, ext)
 	if err != nil {
 		return nil, err
 	}
@@ -460,6 +465,23 @@ func (s *Server) adminHandler() http.Handler {
 	// Auto-register admin stats endpoints from features
 	for _, f := range s.gateway.features {
 		asp, ok := f.(AdminStatsProvider)
+		if !ok {
+			continue
+		}
+		path := asp.AdminPath()
+		if path == "" {
+			continue
+		}
+		provider := asp // capture for closure
+		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(provider.AdminStats())
+		})
+	}
+
+	// Auto-register admin stats endpoints from external features
+	for _, ef := range s.gateway.externalFeatures {
+		asp, ok := ef.Feature.(ExternalAdminStatsProvider)
 		if !ok {
 			continue
 		}
@@ -1140,6 +1162,18 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	for _, ef := range s.gateway.externalFeatures {
+		if asp, ok := ef.Feature.(ExternalAdminStatsProvider); ok {
+			path := asp.AdminPath()
+			if path == "" {
+				continue
+			}
+			key := strings.TrimPrefix(path, "/")
+			if stats := asp.AdminStats(); stats != nil {
+				dashboard[key] = stats
+			}
+		}
+	}
 
 	// Managers not registered as Features
 	if upstreams := s.gateway.GetUpstreams(); len(upstreams) > 0 {
@@ -1810,6 +1844,11 @@ func (s *Server) handleABTestAction(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": actionName, "route": routeID})
+}
+
+// Handler returns the root HTTP handler for the gateway.
+func (s *Server) Handler() http.Handler {
+	return s.gateway.Handler()
 }
 
 // Gateway returns the underlying gateway

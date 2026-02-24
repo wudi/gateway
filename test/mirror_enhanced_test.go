@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 func TestMirrorConditionsIntegration(t *testing.T) {

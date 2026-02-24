@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 	"github.com/wudi/gateway/internal/loadbalancer"
 )
 

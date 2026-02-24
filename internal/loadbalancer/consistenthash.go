@@ -8,7 +8,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // ConsistentHash implements a consistent hash (ketama) load balancer.

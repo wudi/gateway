@@ -6,8 +6,8 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/wudi/gateway/internal/config"
-	"github.com/wudi/gateway/internal/variables"
+	"github.com/wudi/gateway/config"
+	"github.com/wudi/gateway/variables"
 )
 
 // versionInfo holds compiled per-version metadata.

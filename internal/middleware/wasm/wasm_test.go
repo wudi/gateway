@@ -13,7 +13,7 @@ import (
 
 	"github.com/tetratelabs/wazero"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // --- Minimal WASM binary builders ---

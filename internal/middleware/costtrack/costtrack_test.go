@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 func TestDefaultCostApplied(t *testing.T) {

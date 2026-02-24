@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // collectWebhook starts an httptest.Server that collects batches of

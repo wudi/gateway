@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 var testSecret = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("A"), 32))

@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 	"github.com/wudi/gateway/internal/logging"
 	"github.com/wudi/gateway/internal/proxy/tcp"
 	"go.uber.org/zap"

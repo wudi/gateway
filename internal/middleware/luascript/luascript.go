@@ -10,10 +10,10 @@ import (
 	lua "github.com/yuin/gopher-lua"
 
 	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 	"github.com/wudi/gateway/internal/luautil"
 	"github.com/wudi/gateway/internal/middleware"
-	"github.com/wudi/gateway/internal/variables"
+	"github.com/wudi/gateway/variables"
 )
 
 // LuaScript holds pre-compiled Lua scripts and a pool of Lua VMs.

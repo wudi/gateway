@@ -3,7 +3,7 @@ package amqp
 import (
 	"testing"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 func TestAMQPHandlerValidation(t *testing.T) {

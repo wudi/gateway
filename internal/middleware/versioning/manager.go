@@ -2,7 +2,7 @@ package versioning
 
 import (
 	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // VersioningByRoute manages per-route versioners.

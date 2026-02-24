@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 func TestStickyCookieSessionIntegration(t *testing.T) {

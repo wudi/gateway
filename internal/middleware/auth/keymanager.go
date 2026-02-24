@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/wudi/gateway/internal/errors"
-	"github.com/wudi/gateway/internal/variables"
+	"github.com/wudi/gateway/variables"
 	"golang.org/x/time/rate"
 )
 

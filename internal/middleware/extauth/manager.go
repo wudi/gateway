@@ -2,7 +2,7 @@ package extauth
 
 import (
 	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // ExtAuthByRoute manages per-route external auth clients.

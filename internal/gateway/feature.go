@@ -1,6 +1,6 @@
 package gateway
 
-import "github.com/wudi/gateway/internal/config"
+import "github.com/wudi/gateway/config"
 
 // Feature is a per-route capability that can be set up generically.
 type Feature interface {

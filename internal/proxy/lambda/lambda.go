@@ -13,8 +13,8 @@ import (
 	awslambda "github.com/aws/aws-sdk-go-v2/service/lambda"
 
 	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/internal/config"
-	"github.com/wudi/gateway/internal/variables"
+	"github.com/wudi/gateway/config"
+	"github.com/wudi/gateway/variables"
 )
 
 // Handler invokes AWS Lambda functions as backend.

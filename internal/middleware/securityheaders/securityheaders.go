@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 
 	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // headerPair is a pre-computed header name + value.

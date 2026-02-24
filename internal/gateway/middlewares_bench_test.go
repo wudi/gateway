@@ -8,10 +8,10 @@ import (
 
 	"github.com/wudi/gateway/internal/cache"
 	"github.com/wudi/gateway/internal/circuitbreaker"
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 	"github.com/wudi/gateway/internal/metrics"
 	"github.com/wudi/gateway/internal/router"
-	"github.com/wudi/gateway/internal/variables"
+	"github.com/wudi/gateway/variables"
 )
 
 func BenchmarkVarContextMW(b *testing.B) {

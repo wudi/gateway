@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 func TestFaultInjector_FullAbort(t *testing.T) {

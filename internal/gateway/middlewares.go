@@ -15,7 +15,7 @@ import (
 	"github.com/wudi/gateway/internal/cache"
 	"github.com/wudi/gateway/internal/canary"
 	"github.com/wudi/gateway/internal/circuitbreaker"
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 	"github.com/wudi/gateway/internal/errors"
 	"github.com/wudi/gateway/internal/logging"
 	"github.com/wudi/gateway/internal/loadbalancer"
@@ -34,7 +34,7 @@ import (
 	"github.com/wudi/gateway/internal/router"
 	"github.com/wudi/gateway/internal/rules"
 	"github.com/wudi/gateway/internal/trafficshape"
-	"github.com/wudi/gateway/internal/variables"
+	"github.com/wudi/gateway/variables"
 	"github.com/wudi/gateway/internal/websocket"
 )
 

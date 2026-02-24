@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/wudi/gateway/internal/config"
-	"github.com/wudi/gateway/internal/variables"
+	"github.com/wudi/gateway/config"
+	"github.com/wudi/gateway/variables"
 )
 
 // NonceChecker validates request nonces for replay prevention.

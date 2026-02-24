@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/quic-go/quic-go/http3"
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 	"github.com/wudi/gateway/internal/middleware/ssrf"
 )
 

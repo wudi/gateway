@@ -16,7 +16,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // CompiledDedup is a compiled per-route dedup handler created once during route setup.

@@ -8,7 +8,7 @@ import (
 
 	"github.com/wudi/gateway/internal/loadbalancer"
 	"github.com/wudi/gateway/internal/router"
-	"github.com/wudi/gateway/internal/variables"
+	"github.com/wudi/gateway/variables"
 )
 
 func BenchmarkCreateProxyRequest(b *testing.B) {

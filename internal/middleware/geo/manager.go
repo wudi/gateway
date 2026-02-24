@@ -2,7 +2,7 @@ package geo
 
 import (
 	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // GeoByRoute manages per-route geo filters.

@@ -3,7 +3,7 @@ package mirror
 import (
 	"strings"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // DiffConfig holds compiled ignore sets for detailed diff comparison.

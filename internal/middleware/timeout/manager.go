@@ -2,7 +2,7 @@ package timeout
 
 import (
 	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // TimeoutStatus describes the timeout configuration and metrics for a route.

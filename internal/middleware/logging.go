@@ -9,7 +9,7 @@ import (
 
 	"github.com/wudi/gateway/internal/logging"
 	"github.com/wudi/gateway/internal/middleware/accesslog"
-	"github.com/wudi/gateway/internal/variables"
+	"github.com/wudi/gateway/variables"
 	"go.uber.org/zap"
 )
 

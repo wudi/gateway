@@ -11,7 +11,7 @@ import (
 	"github.com/wudi/gateway/internal/canary"
 	"github.com/wudi/gateway/internal/circuitbreaker"
 	"github.com/wudi/gateway/internal/coalesce"
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 	"github.com/wudi/gateway/internal/graphql"
 	"github.com/wudi/gateway/internal/graphql/federation"
 	"github.com/wudi/gateway/internal/loadbalancer"
@@ -94,7 +94,7 @@ import (
 	"github.com/wudi/gateway/internal/rules"
 	"github.com/wudi/gateway/internal/trafficreplay"
 	"github.com/wudi/gateway/internal/trafficshape"
-	"github.com/wudi/gateway/internal/variables"
+	"github.com/wudi/gateway/variables"
 	"github.com/wudi/gateway/internal/webhook"
 	"github.com/wudi/gateway/internal/websocket"
 	"go.uber.org/zap"
@@ -972,6 +972,13 @@ func (g *Gateway) addRouteForState(s *gatewayState, routeCfg config.RouteConfig)
 		}
 	}
 
+	// External features (from public builder)
+	for _, ef := range g.externalFeatures {
+		if err := ef.Feature.Setup(routeCfg.ID, routeCfg); err != nil {
+			return fmt.Errorf("external feature %s: route %s: %w", ef.Feature.Name(), routeCfg.ID, err)
+		}
+	}
+
 	// Sequential handler (needs transport from proxy pool)
 	if routeCfg.Sequential.Enabled {
 		transport := g.proxy.GetTransportPool().Get(routeCfg.Upstream)
@@ -1613,6 +1620,17 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	for url := range g.healthChecker.GetAllStatus() {
 		if !newBackendURLs[url] {
 			g.healthChecker.RemoveBackend(url)
+		}
+	}
+
+	// Notify external features that support hot reload
+	for _, ef := range g.externalFeatures {
+		if rc, ok := ef.Feature.(ExternalReconfigurable); ok {
+			if err := rc.Reconfigure(newCfg); err != nil {
+				logging.Error("external feature reconfigure failed",
+					zap.String("feature", ef.Feature.Name()),
+					zap.Error(err))
+			}
 		}
 	}
 

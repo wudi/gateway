@@ -9,8 +9,8 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/wudi/gateway/internal/config"
-	"github.com/wudi/gateway/internal/variables"
+	"github.com/wudi/gateway/config"
+	"github.com/wudi/gateway/variables"
 )
 
 // TemplateData is the data exposed to error page templates.

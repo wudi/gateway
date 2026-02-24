@@ -6,7 +6,7 @@ import (
 	"net"
 	"sync"
 
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 	"github.com/wudi/gateway/internal/logging"
 	"github.com/wudi/gateway/internal/proxy/udp"
 	"go.uber.org/zap"

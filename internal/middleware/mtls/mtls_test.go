@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/internal/variables"
+	"github.com/wudi/gateway/variables"
 )
 
 func newSelfSignedCert(t *testing.T) *x509.Certificate {

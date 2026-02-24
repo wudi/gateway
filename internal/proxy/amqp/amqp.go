@@ -13,7 +13,7 @@ import (
 	amqp091 "github.com/rabbitmq/amqp091-go"
 
 	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/config"
 )
 
 // Handler handles AMQP publish/consume operations as HTTP backend.

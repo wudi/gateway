@@ -10,7 +10,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/wudi/gateway/internal/errors"
-	"github.com/wudi/gateway/internal/variables"
+	"github.com/wudi/gateway/variables"
 )
 
 // Throttler delays requests using a token bucket limiter.
