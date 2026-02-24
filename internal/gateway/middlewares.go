@@ -10,11 +10,14 @@ import (
 	"strconv"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/wudi/gateway/internal/cache"
 	"github.com/wudi/gateway/internal/canary"
 	"github.com/wudi/gateway/internal/circuitbreaker"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/errors"
+	"github.com/wudi/gateway/internal/logging"
 	"github.com/wudi/gateway/internal/loadbalancer"
 	"github.com/wudi/gateway/internal/metrics"
 	"github.com/wudi/gateway/internal/middleware"
@@ -118,10 +121,13 @@ func requestRulesMW(global, route *rules.RuleEngine) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			varCtx := variables.GetFromRequest(r)
-			if evaluateRequestRules(global, w, r, varCtx) {
+			var terminated bool
+			r, terminated = evaluateRequestRules(global, w, r, varCtx)
+			if terminated {
 				return
 			}
-			if evaluateRequestRules(route, w, r, varCtx) {
+			r, terminated = evaluateRequestRules(route, w, r, varCtx)
+			if terminated {
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -129,16 +135,17 @@ func requestRulesMW(global, route *rules.RuleEngine) middleware.Middleware {
 	}
 }
 
-// evaluateRequestRules runs request rules on the given engine and returns true if terminated.
-func evaluateRequestRules(engine *rules.RuleEngine, w http.ResponseWriter, r *http.Request, varCtx *variables.Context) bool {
+// evaluateRequestRules runs request rules on the given engine.
+// Returns the (possibly modified) request and true if a terminating action fired.
+func evaluateRequestRules(engine *rules.RuleEngine, w http.ResponseWriter, r *http.Request, varCtx *variables.Context) (*http.Request, bool) {
 	if engine == nil || !engine.HasRequestRules() {
-		return false
+		return r, false
 	}
 	reqEnv := rules.NewRequestEnv(r, varCtx)
 	for _, result := range engine.EvaluateRequest(reqEnv) {
 		if result.Terminated {
 			rules.ExecuteTerminatingAction(w, r, result.Action)
-			return true
+			return r, true
 		}
 		switch result.Action.Type {
 		case "set_headers":
@@ -149,9 +156,22 @@ func evaluateRequestRules(engine *rules.RuleEngine, w http.ResponseWriter, r *ht
 			rules.ExecuteGroup(varCtx, result.Action.Group)
 		case "log":
 			rules.ExecuteLog(result.RuleID, r, varCtx, result.Action.LogMessage)
+		case "delay":
+			rules.ExecuteDelay(result.Action.Delay)
+		case "set_var":
+			rules.ExecuteSetVar(varCtx, result.Action.Variables)
+		case "cache_bypass":
+			r = rules.SetCacheBypass(r)
+		case "lua":
+			if err := rules.ExecuteLuaRequest(engine.LuaPool(), result.Action.LuaProto, r, varCtx); err != nil {
+				logging.Error("lua rule action error",
+					zap.String("rule_id", result.RuleID),
+					zap.Error(err),
+				)
+			}
 		}
 	}
-	return false
+	return r, false
 }
 
 // 6. bodyLimitMW enforces a request body size limit.
@@ -207,7 +227,7 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			shouldCache := h.ShouldCache(r)
+			shouldCache := h.ShouldCache(r) && !rules.IsCacheBypass(r)
 			if shouldCache {
 				if hasStale {
 					key := h.KeyForRequest(r)
@@ -511,6 +531,18 @@ func evaluateResponseRules(engine *rules.RuleEngine, rw *rules.RulesResponseWrit
 			rules.ExecuteResponseHeaders(rw, result.Action.Headers)
 		case "log":
 			rules.ExecuteResponseLog(result.RuleID, r, rw.StatusCode(), result.Action.LogMessage)
+		case "set_status":
+			rules.ExecuteSetStatus(rw, result.Action.StatusCode)
+		case "set_body":
+			rules.ExecuteSetBody(rw, result.Action.Body)
+		case "lua":
+			varCtx := variables.GetFromRequest(r)
+			if err := rules.ExecuteLuaResponse(engine.LuaPool(), result.Action.LuaProto, rw, r, varCtx); err != nil {
+				logging.Error("lua rule action error",
+					zap.String("rule_id", result.RuleID),
+					zap.Error(err),
+				)
+			}
 		}
 	}
 }

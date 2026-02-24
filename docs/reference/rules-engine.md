@@ -138,14 +138,107 @@ rules:
 | `rewrite` | Rewrite path, query, or headers |
 | `group` | Assign request to a traffic split group |
 | `log` | Log a message and continue processing |
+| `delay` | Pause request processing for `delay` duration |
+| `set_var` | Set custom variables on the request context |
+| `cache_bypass` | Mark the request to skip cache lookup |
+| `lua` | Execute inline Lua script with full gateway context |
 
 ### Response-Phase Actions
 
 | Action | Description |
 |--------|-------------|
 | `set_headers` | Modify response headers |
+| `log` | Log a message and continue processing |
+| `set_status` | Override the response status code |
+| `set_body` | Replace the response body |
+| `lua` | Execute inline Lua script with response access |
 
-Response rules cannot use terminating actions (`block`, `custom_response`, `redirect`) or request-only actions (`rewrite`, `group`).
+Response rules cannot use terminating actions (`block`, `custom_response`, `redirect`) or request-only actions (`rewrite`, `group`, `delay`, `set_var`, `cache_bypass`). Response-only actions (`set_status`, `set_body`) cannot be used in request rules.
+
+### New Action Examples
+
+**Delay** — add latency for testing or rate shaping:
+
+```yaml
+rules:
+  request:
+    - id: "slow-down-scraper"
+      expression: 'http.request.headers["User-Agent"] contains "Scrapy"'
+      action: "delay"
+      delay: 2s
+```
+
+**Set Variable** — set custom variables for downstream middleware:
+
+```yaml
+rules:
+  request:
+    - id: "mark-premium"
+      expression: 'auth.claims["tier"] == "premium"'
+      action: "set_var"
+      variables:
+        user_tier: "premium"
+        rate_limit_override: "1000"
+```
+
+**Cache Bypass** — skip cache for specific requests:
+
+```yaml
+rules:
+  request:
+    - id: "bypass-cache-for-admin"
+      expression: 'auth.claims["role"] == "admin"'
+      action: "cache_bypass"
+```
+
+**Set Status** — override response status code:
+
+```yaml
+rules:
+  response:
+    - id: "mask-404-as-200"
+      expression: 'http.response.code == 404 && http.request.uri.path startsWith "/api/optional"'
+      action: "set_status"
+      status_code: 200
+```
+
+**Set Body** — replace response body:
+
+```yaml
+rules:
+  response:
+    - id: "custom-error-body"
+      expression: 'http.response.code >= 500'
+      action: "set_body"
+      body: '{"error": "service unavailable"}'
+```
+
+**Lua** — run inline Lua with full gateway context:
+
+```yaml
+rules:
+  request:
+    - id: "lua-auth-routing"
+      expression: 'auth.type == "jwt"'
+      action: "lua"
+      lua_script: |
+        local claims_sub = ctx:claim("sub")
+        req:set_header("X-User-ID", claims_sub)
+        local data = json.encode({user = claims_sub})
+        req:set_header("X-User-Data", data)
+
+  response:
+    - id: "lua-response-transform"
+      expression: 'http.response.code == 200'
+      action: "lua"
+      lua_script: |
+        local body = resp:body()
+        local data = json.decode(body)
+        data.gateway_processed = true
+        resp:set_body(json.encode(data))
+```
+
+The `lua` action provides access to `req`/`resp` objects, a `ctx` object for gateway context (route ID, auth claims, geo data, custom variables), and utility modules (`json`, `base64`, `url`, `re`, `log`). See the [Lua Scripting](#lua-scripting-in-rules) section below for full API details.
 
 ## Per-Route Rules
 
@@ -191,9 +284,79 @@ Rules can be disabled without removal:
 | `id` | string | Unique rule identifier |
 | `expression` | string | expr-lang expression |
 | `action` | string | Action to take on match |
-| `status_code` | int | HTTP status (for block/custom_response) |
+| `status_code` | int | HTTP status (for block/custom_response/set_status) |
+| `body` | string | Response body (for custom_response/set_body) |
 | `redirect_url` | string | Redirect target URL |
 | `headers` | HeaderTransform | Header modifications |
 | `rewrite.path` | string | New path for rewrite action |
+| `delay` | duration | Delay duration (e.g. `500ms`, `2s`) |
+| `variables` | map | Key-value pairs for set_var action |
+| `lua_script` | string | Inline Lua code for lua action |
 
 See [Configuration Reference](configuration-reference.md#rules-global) for all fields.
+
+## Lua Scripting in Rules {#lua-scripting-in-rules}
+
+The `lua` rule action executes inline Lua scripts with access to the full gateway context. Scripts are pre-compiled at config load time and run in pooled VMs.
+
+### Available Globals
+
+**Request phase:** `req`, `ctx`, plus utility modules
+**Response phase:** `resp`, `ctx`, plus utility modules
+
+### Request Object (`req`)
+
+| Method | Description |
+|--------|-------------|
+| `req:get_header(name)` | Get a request header |
+| `req:set_header(name, value)` | Set a request header |
+| `req:del_header(name)` | Delete a request header |
+| `req:path()` | Get request path |
+| `req:method()` | Get HTTP method |
+| `req:query_param(name)` | Get a query parameter |
+| `req:host()` | Get request host |
+| `req:scheme()` | Get `http` or `https` |
+| `req:remote_addr()` | Get remote address |
+| `req:body()` | Read request body (buffered for re-read) |
+| `req:set_body(string)` | Replace request body |
+| `req:cookie(name)` | Get a cookie value |
+| `req:set_path(path)` | Rewrite request path |
+| `req:set_query(query)` | Rewrite query string |
+
+### Response Object (`resp`)
+
+| Method | Description |
+|--------|-------------|
+| `resp:get_header(name)` | Get a response header |
+| `resp:set_header(name, value)` | Set a response header |
+| `resp:del_header(name)` | Delete a response header |
+| `resp:status()` | Get response status code |
+| `resp:set_status(code)` | Set response status code |
+| `resp:body()` | Get response body |
+| `resp:set_body(string)` | Replace response body |
+
+### Context Object (`ctx`)
+
+| Method | Description |
+|--------|-------------|
+| `ctx:route_id()` | Current route ID |
+| `ctx:request_id()` | Request ID |
+| `ctx:tenant_id()` | Tenant ID |
+| `ctx:client_id()` | Authenticated client ID |
+| `ctx:auth_type()` | Auth method (jwt, api_key) |
+| `ctx:claim(name)` | Get a JWT claim value |
+| `ctx:geo_country()` | ISO country code |
+| `ctx:geo_city()` | City name |
+| `ctx:path_param(name)` | Get a path parameter |
+| `ctx:get_var(name)` | Get a custom variable |
+| `ctx:set_var(name, value)` | Set a custom variable |
+
+### Utility Modules
+
+| Module | Functions | Description |
+|--------|-----------|-------------|
+| `json` | `json.encode(table)`, `json.decode(string)` | JSON encode/decode |
+| `base64` | `base64.encode(string)`, `base64.decode(string)` | Base64 encode/decode |
+| `url` | `url.encode(string)`, `url.decode(string)` | URL encode/decode |
+| `re` | `re.match(pattern, string)`, `re.find(pattern, string)` | Go regex match/find |
+| `log` | `log.info(msg)`, `log.warn(msg)`, `log.error(msg)` | Structured logging |

@@ -2,10 +2,14 @@ package rules
 
 import (
 	"fmt"
+	"sync"
+
+	lua "github.com/yuin/gopher-lua"
 
 	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/logging"
+	"github.com/wudi/gateway/internal/luautil"
 	"go.uber.org/zap"
 )
 
@@ -22,6 +26,7 @@ type RuleEngine struct {
 	requestRules  []*CompiledRule
 	responseRules []*CompiledRule
 	metrics       *Metrics
+	luaPool       *sync.Pool // Lua VM pool, initialized when any rule uses action=="lua"
 }
 
 // NewEngine compiles all request and response rules from config.
@@ -30,12 +35,16 @@ func NewEngine(reqCfgs, respCfgs []config.RuleConfig) (*RuleEngine, error) {
 		metrics: &Metrics{},
 	}
 
+	hasLua := false
 	for _, cfg := range reqCfgs {
 		cr, err := CompileRequestRule(cfg)
 		if err != nil {
 			return nil, err
 		}
 		e.requestRules = append(e.requestRules, cr)
+		if cfg.Action == "lua" {
+			hasLua = true
+		}
 	}
 
 	for _, cfg := range respCfgs {
@@ -44,6 +53,23 @@ func NewEngine(reqCfgs, respCfgs []config.RuleConfig) (*RuleEngine, error) {
 			return nil, err
 		}
 		e.responseRules = append(e.responseRules, cr)
+		if cfg.Action == "lua" {
+			hasLua = true
+		}
+	}
+
+	if hasLua {
+		e.luaPool = &sync.Pool{
+			New: func() interface{} {
+				L := lua.NewState(lua.Options{SkipOpenLibs: true})
+				lua.OpenBase(L)
+				lua.OpenString(L)
+				lua.OpenTable(L)
+				lua.OpenMath(L)
+				luautil.RegisterAll(L)
+				return L
+			},
+		}
 	}
 
 	return e, nil
@@ -119,6 +145,11 @@ func (e *RuleEngine) HasResponseRules() bool {
 // GetMetrics returns the metrics snapshot.
 func (e *RuleEngine) GetMetrics() MetricsSnapshot {
 	return e.metrics.Snapshot()
+}
+
+// LuaPool returns the Lua VM pool, or nil if no Lua actions exist.
+func (e *RuleEngine) LuaPool() *sync.Pool {
+	return e.luaPool
 }
 
 // RuleInfo holds metadata about a compiled rule for the admin API.

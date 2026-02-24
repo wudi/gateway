@@ -347,7 +347,7 @@ Returns per-route stats:
 
 ## Lua Scripting
 
-Execute Lua scripts during the request and/or response phases. Scripts are pre-compiled at config load time and executed in pooled Lua VMs for performance. Only safe standard libraries are loaded (base, string, table, math).
+Execute Lua scripts during the request and/or response phases. Scripts are pre-compiled at config load time and executed in pooled Lua VMs for performance. Only safe standard libraries are loaded (base, string, table, math), plus utility modules (json, base64, url, re, log).
 
 ### Configuration
 
@@ -364,11 +364,27 @@ routes:
         if auth == "" then
           req:set_header("Authorization", "Bearer default-token")
         end
+
+        -- Access gateway context
+        local rid = ctx:route_id()
+        log.info("processing route: " .. rid)
+
+        -- Early termination (return status, body)
+        if req:get_header("X-Block") ~= "" then
+          return 403, "blocked by lua"
+        end
       response_script: |
         local body = resp:body()
         local status = resp:status()
         if status >= 400 then
           resp:set_header("X-Error", "true")
+        end
+
+        -- JSON manipulation
+        local data = json.decode(body)
+        if data then
+          data.processed = true
+          resp:set_body(json.encode(data))
         end
 ```
 
@@ -388,9 +404,24 @@ The `req` global is available in request scripts:
 |--------|-------------|
 | `req:get_header(name)` | Get a request header value |
 | `req:set_header(name, value)` | Set a request header |
+| `req:del_header(name)` | Delete a request header |
 | `req:path()` | Get the request path |
 | `req:method()` | Get the HTTP method |
 | `req:query_param(name)` | Get a query parameter value |
+| `req:host()` | Get the request host |
+| `req:scheme()` | Get `http` or `https` |
+| `req:remote_addr()` | Get the remote address |
+| `req:body()` | Read the request body (buffered for re-read) |
+| `req:set_body(string)` | Replace the request body |
+| `req:cookie(name)` | Get a cookie value |
+| `req:set_path(path)` | Rewrite the request path |
+| `req:set_query(query)` | Rewrite the query string |
+
+Request scripts can return two values to short-circuit the request:
+
+```lua
+return 403, "forbidden"  -- returns 403 with body, skips backend
+```
 
 ### Response Phase API
 
@@ -400,9 +431,82 @@ The `resp` global is available in response scripts:
 |--------|-------------|
 | `resp:get_header(name)` | Get a response header value |
 | `resp:set_header(name, value)` | Set a response header |
+| `resp:del_header(name)` | Delete a response header |
 | `resp:status()` | Get the HTTP status code |
+| `resp:set_status(code)` | Set the HTTP status code |
 | `resp:body()` | Get the response body as a string |
 | `resp:set_body(string)` | Replace the response body |
+
+### Gateway Context (`ctx`)
+
+The `ctx` global provides access to gateway context in both request and response scripts:
+
+| Method | Description |
+|--------|-------------|
+| `ctx:route_id()` | Current route ID |
+| `ctx:request_id()` | Request ID |
+| `ctx:tenant_id()` | Tenant ID |
+| `ctx:client_id()` | Authenticated client ID |
+| `ctx:auth_type()` | Auth method (jwt, api_key) |
+| `ctx:claim(name)` | Get a JWT claim value |
+| `ctx:geo_country()` | ISO 3166-1 alpha-2 country code |
+| `ctx:geo_city()` | City name |
+| `ctx:path_param(name)` | Get a path parameter |
+| `ctx:get_var(name)` | Get a custom variable |
+| `ctx:set_var(name, value)` | Set a custom variable |
+
+### Utility Modules
+
+All Lua scripts (both route-level and rule-level) have access to these modules:
+
+| Module | Functions | Description |
+|--------|-----------|-------------|
+| `json` | `json.encode(table)`, `json.decode(string)` | JSON encode/decode |
+| `base64` | `base64.encode(string)`, `base64.decode(string)` | Base64 encode/decode |
+| `url` | `url.encode(string)`, `url.decode(string)` | URL percent encode/decode |
+| `re` | `re.match(pattern, string)`, `re.find(pattern, string)` | Go regex match/find |
+| `log` | `log.info(msg)`, `log.warn(msg)`, `log.error(msg)` | Structured logging via zap |
+
+### Examples
+
+**Auth-based header injection:**
+
+```lua
+-- request_script
+local cid = ctx:client_id()
+if cid ~= "" then
+  req:set_header("X-Client-ID", cid)
+  local sub = ctx:claim("sub")
+  req:set_header("X-User-ID", sub)
+end
+```
+
+**Geo-based routing:**
+
+```lua
+-- request_script
+local country = ctx:geo_country()
+if country == "EU" or country == "DE" or country == "FR" then
+  req:set_header("X-Region", "eu")
+else
+  req:set_header("X-Region", "global")
+end
+```
+
+**JSON response transformation:**
+
+```lua
+-- response_script
+local body = resp:body()
+local data = json.decode(body)
+if data then
+  data.metadata = {
+    processed_at = os.time and os.time() or 0,
+    route = ctx:route_id()
+  }
+  resp:set_body(json.encode(data))
+end
+```
 
 ### Security
 

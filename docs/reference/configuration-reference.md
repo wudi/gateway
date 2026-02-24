@@ -714,7 +714,7 @@ Note: The `database` field is only valid at the global level. Per-route geo conf
         - id: string           # required, unique
           enabled: bool        # default true
           expression: string   # required, expr-lang expression
-          action: string       # block, custom_response, redirect, set_headers, rewrite, group, log
+          action: string       # block, custom_response, redirect, set_headers, rewrite, group, log, delay, set_var, cache_bypass, lua
           status_code: int     # for block/custom_response (100-599)
           body: string         # for custom_response
           redirect_url: string # for redirect
@@ -728,8 +728,12 @@ Note: The `database` field is only valid at the global level. Per-route geo conf
             headers: {add, set, remove}
           group: string        # for group action
           log_message: string  # for log action
+          delay: duration      # for delay action (e.g. "500ms", "2s")
+          variables:           # for set_var action
+            key: value
+          lua_script: string   # for lua action (inline Lua code)
           description: string
-      response:               # same structure, limited actions (set_headers only)
+      response:               # same structure; actions: set_headers, log, set_status, set_body, lua
 ```
 
 ### Protocol Translation

@@ -2,6 +2,7 @@ package rules
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 )
 
@@ -45,11 +46,16 @@ func (rw *RulesResponseWriter) Write(b []byte) (int, error) {
 
 // Flush sends the (possibly modified) status and buffered body to the underlying writer.
 // It is safe to call multiple times; only the first call takes effect.
+// Content-Length is deleted before writing since body may have been modified.
 func (rw *RulesResponseWriter) Flush() {
 	if rw.flushed {
 		return
 	}
 	rw.flushed = true
+	rw.underlying.Header().Del("Content-Length")
+	if rw.body.Len() > 0 {
+		rw.underlying.Header().Set("Content-Length", fmt.Sprintf("%d", rw.body.Len()))
+	}
 	rw.underlying.WriteHeader(rw.statusCode)
 	if rw.body.Len() > 0 {
 		rw.underlying.Write(rw.body.Bytes())
@@ -59,6 +65,26 @@ func (rw *RulesResponseWriter) Flush() {
 // StatusCode returns the captured status code.
 func (rw *RulesResponseWriter) StatusCode() int {
 	return rw.statusCode
+}
+
+// SetStatusCode updates the buffered status code (pre-flush only).
+func (rw *RulesResponseWriter) SetStatusCode(code int) {
+	if !rw.flushed {
+		rw.statusCode = code
+	}
+}
+
+// ReadBody returns the buffered body as a string.
+func (rw *RulesResponseWriter) ReadBody() string {
+	return rw.body.String()
+}
+
+// SetBody replaces the buffered body (pre-flush only).
+func (rw *RulesResponseWriter) SetBody(s string) {
+	if !rw.flushed {
+		rw.body.Reset()
+		rw.body.WriteString(s)
+	}
 }
 
 // Flushed returns whether the status has been flushed to the underlying writer.

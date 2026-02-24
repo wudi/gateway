@@ -1021,3 +1021,190 @@ func TestGeoExpressionCity(t *testing.T) {
 		t.Error("expected rule to match Beijing")
 	}
 }
+
+// --- New action tests ---
+
+func TestExecuteDelay(t *testing.T) {
+	start := time.Now()
+	ExecuteDelay(10 * time.Millisecond)
+	elapsed := time.Since(start)
+	if elapsed < 10*time.Millisecond {
+		t.Errorf("expected at least 10ms delay, got %v", elapsed)
+	}
+}
+
+func TestExecuteSetVar(t *testing.T) {
+	varCtx := &variables.Context{}
+	ExecuteSetVar(varCtx, map[string]string{"key1": "val1", "key2": "val2"})
+
+	if varCtx.Custom["key1"] != "val1" {
+		t.Errorf("expected key1=val1, got %s", varCtx.Custom["key1"])
+	}
+	if varCtx.Custom["key2"] != "val2" {
+		t.Errorf("expected key2=val2, got %s", varCtx.Custom["key2"])
+	}
+}
+
+func TestExecuteSetVar_NilContext(t *testing.T) {
+	// Should not panic
+	ExecuteSetVar(nil, map[string]string{"key": "val"})
+}
+
+func TestExecuteSetVar_ExistingCustom(t *testing.T) {
+	varCtx := &variables.Context{
+		Custom: map[string]string{"existing": "value"},
+	}
+	ExecuteSetVar(varCtx, map[string]string{"new": "added"})
+
+	if varCtx.Custom["existing"] != "value" {
+		t.Errorf("expected existing=value, got %s", varCtx.Custom["existing"])
+	}
+	if varCtx.Custom["new"] != "added" {
+		t.Errorf("expected new=added, got %s", varCtx.Custom["new"])
+	}
+}
+
+func TestExecuteSetStatus(t *testing.T) {
+	rec := httptest.NewRecorder()
+	rw := NewRulesResponseWriter(rec)
+	rw.WriteHeader(200)
+
+	ExecuteSetStatus(rw, 404)
+
+	if rw.StatusCode() != 404 {
+		t.Errorf("expected status 404, got %d", rw.StatusCode())
+	}
+}
+
+func TestExecuteSetBody(t *testing.T) {
+	rec := httptest.NewRecorder()
+	rw := NewRulesResponseWriter(rec)
+	rw.Write([]byte("original"))
+
+	ExecuteSetBody(rw, "replaced")
+
+	if rw.ReadBody() != "replaced" {
+		t.Errorf("expected body 'replaced', got %s", rw.ReadBody())
+	}
+}
+
+func TestCacheBypass(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+
+	if IsCacheBypass(r) {
+		t.Error("expected no cache bypass initially")
+	}
+
+	r = SetCacheBypass(r)
+	if !IsCacheBypass(r) {
+		t.Error("expected cache bypass after SetCacheBypass")
+	}
+}
+
+func TestRulesResponseWriter_SetStatusCode(t *testing.T) {
+	rec := httptest.NewRecorder()
+	rw := NewRulesResponseWriter(rec)
+	rw.WriteHeader(200)
+
+	rw.SetStatusCode(404)
+	if rw.StatusCode() != 404 {
+		t.Errorf("expected status 404, got %d", rw.StatusCode())
+	}
+
+	// After flush, SetStatusCode should be ignored
+	rw.Flush()
+	rw.SetStatusCode(500)
+	if rec.Code != 404 {
+		t.Errorf("expected flushed status 404, got %d", rec.Code)
+	}
+}
+
+func TestRulesResponseWriter_SetBody(t *testing.T) {
+	rec := httptest.NewRecorder()
+	rw := NewRulesResponseWriter(rec)
+	rw.Write([]byte("original"))
+
+	rw.SetBody("new body")
+	if rw.ReadBody() != "new body" {
+		t.Errorf("expected 'new body', got %s", rw.ReadBody())
+	}
+
+	// Flush and verify
+	rw.Flush()
+	if rec.Body.String() != "new body" {
+		t.Errorf("expected flushed body 'new body', got %s", rec.Body.String())
+	}
+}
+
+func TestRulesResponseWriter_FlushUpdatesContentLength(t *testing.T) {
+	rec := httptest.NewRecorder()
+	rw := NewRulesResponseWriter(rec)
+	rw.Header().Set("Content-Length", "8")
+	rw.Write([]byte("original"))
+
+	// Modify body to a different size
+	rw.SetBody("short")
+	rw.Flush()
+
+	if rec.Header().Get("Content-Length") != "5" {
+		t.Errorf("expected Content-Length 5, got %s", rec.Header().Get("Content-Length"))
+	}
+	if rec.Body.String() != "short" {
+		t.Errorf("expected body 'short', got %s", rec.Body.String())
+	}
+}
+
+func TestIsTerminating_NewActions(t *testing.T) {
+	// All new actions should be non-terminating
+	for _, action := range []string{"delay", "set_var", "set_status", "set_body", "cache_bypass", "lua"} {
+		if IsTerminating(Action{Type: action}) {
+			t.Errorf("expected %s to be non-terminating", action)
+		}
+	}
+}
+
+func TestEngine_NewActions_Compile(t *testing.T) {
+	// Test that new action types compile successfully
+	engine, err := NewEngine(
+		[]config.RuleConfig{
+			{
+				ID:         "delay-rule",
+				Expression: `true`,
+				Action:     "delay",
+			},
+			{
+				ID:         "set-var-rule",
+				Expression: `true`,
+				Action:     "set_var",
+			},
+			{
+				ID:         "cache-bypass-rule",
+				Expression: `true`,
+				Action:     "cache_bypass",
+			},
+		},
+		[]config.RuleConfig{
+			{
+				ID:         "set-status-rule",
+				Expression: `true`,
+				Action:     "set_status",
+				StatusCode: 201,
+			},
+			{
+				ID:         "set-body-rule",
+				Expression: `true`,
+				Action:     "set_body",
+				Body:       "new body",
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("engine creation error: %v", err)
+	}
+	if !engine.HasRequestRules() {
+		t.Error("expected request rules")
+	}
+	if !engine.HasResponseRules() {
+		t.Error("expected response rules")
+	}
+}

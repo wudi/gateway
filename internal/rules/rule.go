@@ -2,10 +2,14 @@ package rules
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/vm"
+	lua "github.com/yuin/gopher-lua"
+
 	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/luautil"
 )
 
 // CompiledRule is a pre-compiled expression rule ready for evaluation.
@@ -19,7 +23,7 @@ type CompiledRule struct {
 
 // Action defines what happens when a rule matches.
 type Action struct {
-	Type        string // block, custom_response, redirect, set_headers, rewrite, group, log
+	Type        string // block, custom_response, redirect, set_headers, rewrite, group, log, delay, set_var, set_status, set_body, cache_bypass, lua
 	StatusCode  int
 	Body        string
 	RedirectURL string
@@ -27,6 +31,9 @@ type Action struct {
 	Rewrite     *config.RewriteActionConfig // rewrite action config
 	Group       string                      // traffic split group name
 	LogMessage  string                      // optional log message
+	LuaProto    *lua.FunctionProto          // pre-compiled Lua for lua action
+	Delay       time.Duration               // delay duration for delay action
+	Variables   map[string]string           // key-value pairs for set_var action
 }
 
 // IsTerminating returns true for actions that end request processing.
@@ -51,11 +58,16 @@ func CompileRequestRule(cfg config.RuleConfig) (*CompiledRule, error) {
 		return nil, fmt.Errorf("rule %s: failed to compile expression: %w", cfg.ID, err)
 	}
 
+	action, err := actionFromConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("rule %s: %w", cfg.ID, err)
+	}
+
 	return &CompiledRule{
 		ID:         cfg.ID,
 		Expression: cfg.Expression,
 		program:    program,
-		Action:     actionFromConfig(cfg),
+		Action:     action,
 		Enabled:    enabled,
 	}, nil
 }
@@ -72,11 +84,16 @@ func CompileResponseRule(cfg config.RuleConfig) (*CompiledRule, error) {
 		return nil, fmt.Errorf("rule %s: failed to compile expression: %w", cfg.ID, err)
 	}
 
+	action, err := actionFromConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("rule %s: %w", cfg.ID, err)
+	}
+
 	return &CompiledRule{
 		ID:         cfg.ID,
 		Expression: cfg.Expression,
 		program:    program,
-		Action:     actionFromConfig(cfg),
+		Action:     action,
 		Enabled:    enabled,
 	}, nil
 }
@@ -94,7 +111,16 @@ func (cr *CompiledRule) Evaluate(env any) (bool, error) {
 	return result, nil
 }
 
-func actionFromConfig(cfg config.RuleConfig) Action {
+func actionFromConfig(cfg config.RuleConfig) (Action, error) {
+	var luaProto *lua.FunctionProto
+	if cfg.Action == "lua" && cfg.LuaScript != "" {
+		proto, err := luautil.CompileScript(cfg.LuaScript, "rule-"+cfg.ID)
+		if err != nil {
+			return Action{}, fmt.Errorf("failed to compile lua_script: %w", err)
+		}
+		luaProto = proto
+	}
+
 	return Action{
 		Type:        cfg.Action,
 		StatusCode:  cfg.StatusCode,
@@ -104,5 +130,8 @@ func actionFromConfig(cfg config.RuleConfig) Action {
 		Rewrite:     cfg.Rewrite,
 		Group:       cfg.Group,
 		LogMessage:  cfg.LogMessage,
-	}
+		LuaProto:    luaProto,
+		Delay:       cfg.Delay,
+		Variables:   cfg.Variables,
+	}, nil
 }

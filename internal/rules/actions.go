@@ -2,6 +2,7 @@ package rules
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/logging"
@@ -117,4 +118,32 @@ func ExecuteResponseLog(ruleID string, r *http.Request, statusCode int, message 
 		fields = append(fields, zap.String("message", message))
 	}
 	logging.Info("rule_log", fields...)
+}
+
+// ExecuteDelay pauses the request for the given duration (non-terminating).
+func ExecuteDelay(d time.Duration) {
+	time.Sleep(d)
+}
+
+// ExecuteSetVar writes key-value pairs to the variable context (non-terminating).
+func ExecuteSetVar(varCtx *variables.Context, vars map[string]string) {
+	if varCtx == nil {
+		return
+	}
+	if varCtx.Custom == nil {
+		varCtx.Custom = make(map[string]string, len(vars))
+	}
+	for k, v := range vars {
+		varCtx.Custom[k] = v
+	}
+}
+
+// ExecuteSetStatus updates the buffered response status code (non-terminating).
+func ExecuteSetStatus(rw *RulesResponseWriter, code int) {
+	rw.SetStatusCode(code)
+}
+
+// ExecuteSetBody replaces the buffered response body (non-terminating).
+func ExecuteSetBody(rw *RulesResponseWriter, body string) {
+	rw.SetBody(body)
 }

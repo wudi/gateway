@@ -1,12 +1,14 @@
 package luascript
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/variables"
 )
 
 func TestRequestScript_SetHeader(t *testing.T) {
@@ -509,6 +511,233 @@ func TestResponseScript_GetHeader(t *testing.T) {
 
 	if rec.Header().Get("X-Content-Type-Was") != "application/json" {
 		t.Errorf("expected X-Content-Type-Was=application/json, got %q", rec.Header().Get("X-Content-Type-Was"))
+	}
+}
+
+// withVarCtx attaches a variables.Context to the request.
+func withVarCtx(r *http.Request, varCtx *variables.Context) *http.Request {
+	ctx := context.WithValue(r.Context(), variables.RequestContextKey{}, varCtx)
+	return r.WithContext(ctx)
+}
+
+func TestRequestScript_CtxAccess(t *testing.T) {
+	cfg := config.LuaConfig{
+		Enabled: true,
+		RequestScript: `
+			local rid = ctx:route_id()
+			req:set_header("X-Route-ID", rid)
+			local cid = ctx:client_id()
+			req:set_header("X-Client-ID", cid)
+		`,
+	}
+
+	ls, err := New(cfg)
+	if err != nil {
+		t.Fatalf("failed to create LuaScript: %v", err)
+	}
+
+	var capturedRouteID, capturedClientID string
+	backend := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedRouteID = r.Header.Get("X-Route-ID")
+		capturedClientID = r.Header.Get("X-Client-ID")
+		w.WriteHeader(http.StatusOK)
+	})
+
+	handler := ls.RequestMiddleware()(backend)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	varCtx := &variables.Context{
+		RouteID: "my-route",
+		Identity: &variables.Identity{
+			ClientID: "client-abc",
+		},
+	}
+	req = withVarCtx(req, varCtx)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if capturedRouteID != "my-route" {
+		t.Errorf("expected route_id 'my-route', got %q", capturedRouteID)
+	}
+	if capturedClientID != "client-abc" {
+		t.Errorf("expected client_id 'client-abc', got %q", capturedClientID)
+	}
+}
+
+func TestRequestScript_UtilityModules(t *testing.T) {
+	cfg := config.LuaConfig{
+		Enabled: true,
+		RequestScript: `
+			local encoded = json.encode({key = "value"})
+			req:set_header("X-JSON", encoded)
+
+			local b64 = base64.encode("hello")
+			req:set_header("X-B64", b64)
+
+			local matched = re.match("^/api", req:path())
+			if matched then
+				req:set_header("X-API", "true")
+			end
+		`,
+	}
+
+	ls, err := New(cfg)
+	if err != nil {
+		t.Fatalf("failed to create LuaScript: %v", err)
+	}
+
+	var capturedJSON, capturedB64, capturedAPI string
+	backend := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedJSON = r.Header.Get("X-JSON")
+		capturedB64 = r.Header.Get("X-B64")
+		capturedAPI = r.Header.Get("X-API")
+		w.WriteHeader(http.StatusOK)
+	})
+
+	handler := ls.RequestMiddleware()(backend)
+
+	req := httptest.NewRequest("GET", "/api/test", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if capturedJSON == "" {
+		t.Error("expected non-empty X-JSON header")
+	}
+	if capturedB64 != "aGVsbG8=" {
+		t.Errorf("expected X-B64 'aGVsbG8=', got %q", capturedB64)
+	}
+	if capturedAPI != "true" {
+		t.Errorf("expected X-API 'true', got %q", capturedAPI)
+	}
+}
+
+func TestRequestScript_EarlyTermination(t *testing.T) {
+	cfg := config.LuaConfig{
+		Enabled: true,
+		RequestScript: `
+			return 403, "forbidden by lua"
+		`,
+	}
+
+	ls, err := New(cfg)
+	if err != nil {
+		t.Fatalf("failed to create LuaScript: %v", err)
+	}
+
+	backendCalled := false
+	backend := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		backendCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	handler := ls.RequestMiddleware()(backend)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if backendCalled {
+		t.Error("expected backend NOT to be called on early termination")
+	}
+	if rec.Code != 403 {
+		t.Errorf("expected status 403, got %d", rec.Code)
+	}
+	if rec.Body.String() != "forbidden by lua" {
+		t.Errorf("expected body 'forbidden by lua', got %q", rec.Body.String())
+	}
+}
+
+func TestRequestScript_NoEarlyTermination(t *testing.T) {
+	cfg := config.LuaConfig{
+		Enabled: true,
+		RequestScript: `
+			req:set_header("X-Lua", "ok")
+		`,
+	}
+
+	ls, err := New(cfg)
+	if err != nil {
+		t.Fatalf("failed to create LuaScript: %v", err)
+	}
+
+	backendCalled := false
+	backend := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		backendCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	handler := ls.RequestMiddleware()(backend)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if !backendCalled {
+		t.Error("expected backend to be called")
+	}
+	if rec.Code != 200 {
+		t.Errorf("expected status 200, got %d", rec.Code)
+	}
+}
+
+func TestResponseScript_SetStatus(t *testing.T) {
+	cfg := config.LuaConfig{
+		Enabled: true,
+		ResponseScript: `
+			resp:set_status(201)
+			resp:set_body("created by lua")
+		`,
+	}
+
+	ls, err := New(cfg)
+	if err != nil {
+		t.Fatalf("failed to create LuaScript: %v", err)
+	}
+
+	backend := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("original"))
+	})
+
+	handler := ls.ResponseMiddleware()(backend)
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != 201 {
+		t.Errorf("expected status 201, got %d", rec.Code)
+	}
+	if rec.Body.String() != "created by lua" {
+		t.Errorf("expected body 'created by lua', got %q", rec.Body.String())
+	}
+}
+
+func TestResponseScript_DelHeader(t *testing.T) {
+	cfg := config.LuaConfig{
+		Enabled: true,
+		ResponseScript: `
+			resp:del_header("X-Remove-Me")
+		`,
+	}
+
+	ls, err := New(cfg)
+	if err != nil {
+		t.Fatalf("failed to create LuaScript: %v", err)
+	}
+
+	backend := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Remove-Me", "value")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	})
+
+	handler := ls.ResponseMiddleware()(backend)
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Header().Get("X-Remove-Me") != "" {
+		t.Errorf("expected X-Remove-Me to be deleted, got %q", rec.Header().Get("X-Remove-Me"))
 	}
 }
 

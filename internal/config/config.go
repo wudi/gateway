@@ -1428,7 +1428,7 @@ type RuleConfig struct {
 	ID          string               `yaml:"id"`
 	Enabled     *bool                `yaml:"enabled"`       // default true
 	Expression  string               `yaml:"expression"`
-	Action      string               `yaml:"action"`        // block, custom_response, redirect, set_headers, rewrite, group, log
+	Action      string               `yaml:"action"`        // block, custom_response, redirect, set_headers, rewrite, group, log, delay, set_var, set_status, set_body, cache_bypass, lua
 	StatusCode  int                  `yaml:"status_code"`
 	Body        string               `yaml:"body"`
 	RedirectURL string               `yaml:"redirect_url"`
@@ -1437,6 +1437,9 @@ type RuleConfig struct {
 	Rewrite     *RewriteActionConfig `yaml:"rewrite"`
 	Group       string               `yaml:"group"`       // traffic split group name
 	LogMessage  string               `yaml:"log_message"` // optional custom log message
+	LuaScript   string               `yaml:"lua_script"`  // inline Lua for lua action
+	Delay       time.Duration        `yaml:"delay"`        // delay duration for delay action
+	Variables   map[string]string    `yaml:"variables"`   // key-value pairs for set_var action
 }
 
 // RewriteActionConfig defines path/query/header rewriting for the rewrite action.

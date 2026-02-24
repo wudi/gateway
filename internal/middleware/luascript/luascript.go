@@ -4,16 +4,16 @@ import (
 	"bytes"
 	"io"
 	"net/http"
-	"strings"
 	"sync"
 	"sync/atomic"
 
 	lua "github.com/yuin/gopher-lua"
-	"github.com/yuin/gopher-lua/parse"
 
 	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
+	"github.com/wudi/gateway/internal/luautil"
 	"github.com/wudi/gateway/internal/middleware"
+	"github.com/wudi/gateway/internal/variables"
 )
 
 // LuaScript holds pre-compiled Lua scripts and a pool of Lua VMs.
@@ -32,7 +32,7 @@ func New(cfg config.LuaConfig) (*LuaScript, error) {
 	ls := &LuaScript{}
 
 	if cfg.RequestScript != "" {
-		proto, err := compileScript(cfg.RequestScript, "request")
+		proto, err := luautil.CompileScript(cfg.RequestScript, "request")
 		if err != nil {
 			return nil, err
 		}
@@ -40,7 +40,7 @@ func New(cfg config.LuaConfig) (*LuaScript, error) {
 	}
 
 	if cfg.ResponseScript != "" {
-		proto, err := compileScript(cfg.ResponseScript, "response")
+		proto, err := luautil.CompileScript(cfg.ResponseScript, "response")
 		if err != nil {
 			return nil, err
 		}
@@ -55,24 +55,12 @@ func New(cfg config.LuaConfig) (*LuaScript, error) {
 			lua.OpenString(L)
 			lua.OpenTable(L)
 			lua.OpenMath(L)
+			luautil.RegisterAll(L)
 			return L
 		},
 	}
 
 	return ls, nil
-}
-
-// compileScript parses and compiles a Lua source string into a FunctionProto.
-func compileScript(source, name string) (*lua.FunctionProto, error) {
-	chunk, err := parse.Parse(strings.NewReader(source), name)
-	if err != nil {
-		return nil, err
-	}
-	proto, err := lua.Compile(chunk, name)
-	if err != nil {
-		return nil, err
-	}
-	return proto, nil
 }
 
 // getLuaState obtains a Lua VM from the pool.
@@ -86,6 +74,7 @@ func (ls *LuaScript) putLuaState(L *lua.LState) {
 }
 
 // RequestMiddleware returns a middleware that executes the request-phase Lua script.
+// The script may return two values (status, body) to short-circuit the request.
 func (ls *LuaScript) RequestMiddleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		if ls.requestProto == nil {
@@ -95,19 +84,38 @@ func (ls *LuaScript) RequestMiddleware() middleware.Middleware {
 			L := ls.getLuaState()
 			defer ls.putLuaState(L)
 
-			reqUD := ls.newRequestUserData(L, r)
+			reqUD := luautil.NewRequestUserData(L, r)
 			fn := L.NewFunctionFromProto(ls.requestProto)
 
 			L.SetGlobal("req", reqUD)
 
+			// Set ctx global if variable context is available.
+			if varCtx := variables.GetFromRequest(r); varCtx != nil {
+				L.SetGlobal("ctx", luautil.NewContextUserData(L, r, varCtx))
+			}
+
 			ls.requestsRun.Add(1)
 			if err := L.CallByParam(lua.P{
 				Fn:      fn,
-				NRet:    0,
+				NRet:    2,
 				Protect: true,
 			}); err != nil {
 				ls.errors.Add(1)
 				http.Error(w, "lua request script error", http.StatusInternalServerError)
+				return
+			}
+
+			// Check for early termination: return status, body
+			ret1 := L.Get(-2)
+			ret2 := L.Get(-1)
+			L.Pop(2)
+
+			if status, ok := ret1.(lua.LNumber); ok && int(status) > 0 {
+				code := int(status)
+				w.WriteHeader(code)
+				if body, ok := ret2.(lua.LString); ok {
+					w.Write([]byte(string(body)))
+				}
 				return
 			}
 
@@ -135,10 +143,15 @@ func (ls *LuaScript) ResponseMiddleware() middleware.Middleware {
 			L := ls.getLuaState()
 			defer ls.putLuaState(L)
 
-			respUD := ls.newResponseUserData(L, bw)
+			respUD := luautil.NewResponseUserData(L, bw)
 			fn := L.NewFunctionFromProto(ls.responseProto)
 
 			L.SetGlobal("resp", respUD)
+
+			// Set ctx global if variable context is available.
+			if varCtx := variables.GetFromRequest(r); varCtx != nil {
+				L.SetGlobal("ctx", luautil.NewContextUserData(L, r, varCtx))
+			}
 
 			ls.responsesRun.Add(1)
 			if err := L.CallByParam(lua.P{
@@ -172,136 +185,10 @@ func (ls *LuaScript) Stats() map[string]interface{} {
 	}
 }
 
-// --- Request userdata ---
-
-func (ls *LuaScript) newRequestUserData(L *lua.LState, r *http.Request) *lua.LUserData {
-	ud := L.NewUserData()
-	ud.Value = r
-
-	mt := L.NewTable()
-	index := L.NewTable()
-
-	L.SetField(index, "get_header", L.NewFunction(reqGetHeader))
-	L.SetField(index, "set_header", L.NewFunction(reqSetHeader))
-	L.SetField(index, "path", L.NewFunction(reqPath))
-	L.SetField(index, "method", L.NewFunction(reqMethod))
-	L.SetField(index, "query_param", L.NewFunction(reqQueryParam))
-
-	L.SetField(mt, "__index", index)
-	L.SetMetatable(ud, mt)
-	return ud
-}
-
-func checkRequest(L *lua.LState) *http.Request {
-	ud := L.CheckUserData(1)
-	if r, ok := ud.Value.(*http.Request); ok {
-		return r
-	}
-	L.ArgError(1, "request expected")
-	return nil
-}
-
-func reqGetHeader(L *lua.LState) int {
-	r := checkRequest(L)
-	name := L.CheckString(2)
-	L.Push(lua.LString(r.Header.Get(name)))
-	return 1
-}
-
-func reqSetHeader(L *lua.LState) int {
-	r := checkRequest(L)
-	name := L.CheckString(2)
-	value := L.CheckString(3)
-	r.Header.Set(name, value)
-	return 0
-}
-
-func reqPath(L *lua.LState) int {
-	r := checkRequest(L)
-	L.Push(lua.LString(r.URL.Path))
-	return 1
-}
-
-func reqMethod(L *lua.LState) int {
-	r := checkRequest(L)
-	L.Push(lua.LString(r.Method))
-	return 1
-}
-
-func reqQueryParam(L *lua.LState) int {
-	r := checkRequest(L)
-	name := L.CheckString(2)
-	L.Push(lua.LString(r.URL.Query().Get(name)))
-	return 1
-}
-
-// --- Response userdata ---
-
-func (ls *LuaScript) newResponseUserData(L *lua.LState, bw *bufferedResponseWriter) *lua.LUserData {
-	ud := L.NewUserData()
-	ud.Value = bw
-
-	mt := L.NewTable()
-	index := L.NewTable()
-
-	L.SetField(index, "get_header", L.NewFunction(respGetHeader))
-	L.SetField(index, "set_header", L.NewFunction(respSetHeader))
-	L.SetField(index, "status", L.NewFunction(respStatus))
-	L.SetField(index, "body", L.NewFunction(respBody))
-	L.SetField(index, "set_body", L.NewFunction(respSetBody))
-
-	L.SetField(mt, "__index", index)
-	L.SetMetatable(ud, mt)
-	return ud
-}
-
-func checkBufferedWriter(L *lua.LState) *bufferedResponseWriter {
-	ud := L.CheckUserData(1)
-	if bw, ok := ud.Value.(*bufferedResponseWriter); ok {
-		return bw
-	}
-	L.ArgError(1, "buffered response writer expected")
-	return nil
-}
-
-func respGetHeader(L *lua.LState) int {
-	bw := checkBufferedWriter(L)
-	name := L.CheckString(2)
-	L.Push(lua.LString(bw.header.Get(name)))
-	return 1
-}
-
-func respSetHeader(L *lua.LState) int {
-	bw := checkBufferedWriter(L)
-	name := L.CheckString(2)
-	value := L.CheckString(3)
-	bw.header.Set(name, value)
-	return 0
-}
-
-func respStatus(L *lua.LState) int {
-	bw := checkBufferedWriter(L)
-	L.Push(lua.LNumber(bw.code))
-	return 1
-}
-
-func respBody(L *lua.LState) int {
-	bw := checkBufferedWriter(L)
-	L.Push(lua.LString(bw.body.String()))
-	return 1
-}
-
-func respSetBody(L *lua.LState) int {
-	bw := checkBufferedWriter(L)
-	body := L.CheckString(2)
-	bw.body.Reset()
-	bw.body.WriteString(body)
-	return 0
-}
-
 // --- Buffered response writer ---
 
 // bufferedResponseWriter captures the response so Lua can inspect and modify it.
+// It implements luautil.ResponseBuffer.
 type bufferedResponseWriter struct {
 	header      http.Header
 	body        *bytes.Buffer
@@ -332,10 +219,22 @@ func (bw *bufferedResponseWriter) Flush() {
 	// no-op: the buffer is flushed when written to the real writer.
 }
 
+// StatusCode implements luautil.ResponseBuffer.
+func (bw *bufferedResponseWriter) StatusCode() int {
+	return bw.code
+}
+
+// SetStatusCode implements luautil.ResponseBuffer.
+func (bw *bufferedResponseWriter) SetStatusCode(code int) {
+	bw.code = code
+}
+
+// ReadBody implements luautil.ResponseBuffer.
 func (bw *bufferedResponseWriter) ReadBody() string {
 	return bw.body.String()
 }
 
+// SetBody implements luautil.ResponseBuffer.
 func (bw *bufferedResponseWriter) SetBody(s string) {
 	bw.body.Reset()
 	io.WriteString(bw.body, s)

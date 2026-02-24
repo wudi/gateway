@@ -1731,6 +1731,12 @@ func (l *Loader) validateRules(rules []RuleConfig, phase string) error {
 		"rewrite":         true,
 		"group":           true,
 		"log":             true,
+		"delay":           true,
+		"set_var":         true,
+		"set_status":      true,
+		"set_body":        true,
+		"cache_bypass":    true,
+		"lua":             true,
 	}
 
 	terminatingActions := map[string]bool{
@@ -1740,8 +1746,16 @@ func (l *Loader) validateRules(rules []RuleConfig, phase string) error {
 	}
 
 	requestOnlyActions := map[string]bool{
-		"rewrite": true,
-		"group":   true,
+		"rewrite":      true,
+		"group":        true,
+		"delay":        true,
+		"set_var":      true,
+		"cache_bypass": true,
+	}
+
+	responseOnlyActions := map[string]bool{
+		"set_status": true,
+		"set_body":   true,
 	}
 
 	ids := make(map[string]bool)
@@ -1760,7 +1774,7 @@ func (l *Loader) validateRules(rules []RuleConfig, phase string) error {
 		}
 
 		if !validActions[rule.Action] {
-			return fmt.Errorf("%s rule %s: invalid action %q (must be block, custom_response, redirect, set_headers, rewrite, group, or log)", phase, rule.ID, rule.Action)
+			return fmt.Errorf("%s rule %s: invalid action %q", phase, rule.ID, rule.Action)
 		}
 
 		if phase == "response" && terminatingActions[rule.Action] {
@@ -1769,6 +1783,10 @@ func (l *Loader) validateRules(rules []RuleConfig, phase string) error {
 
 		if phase == "response" && requestOnlyActions[rule.Action] {
 			return fmt.Errorf("%s rule %s: action %q is only allowed in request phase", phase, rule.ID, rule.Action)
+		}
+
+		if phase == "request" && responseOnlyActions[rule.Action] {
+			return fmt.Errorf("%s rule %s: action %q is only allowed in response phase", phase, rule.ID, rule.Action)
 		}
 
 		if rule.Action == "redirect" && rule.RedirectURL == "" {
@@ -1798,6 +1816,30 @@ func (l *Loader) validateRules(rules []RuleConfig, phase string) error {
 		if rule.Action == "group" {
 			if rule.Group == "" {
 				return fmt.Errorf("%s rule %s: group action requires group field", phase, rule.ID)
+			}
+		}
+
+		if rule.Action == "delay" {
+			if rule.Delay <= 0 {
+				return fmt.Errorf("%s rule %s: delay action requires a positive delay duration", phase, rule.ID)
+			}
+		}
+
+		if rule.Action == "set_var" {
+			if len(rule.Variables) == 0 {
+				return fmt.Errorf("%s rule %s: set_var action requires at least one variable", phase, rule.ID)
+			}
+		}
+
+		if rule.Action == "set_status" {
+			if rule.StatusCode < 100 || rule.StatusCode > 599 {
+				return fmt.Errorf("%s rule %s: set_status action requires a valid status_code (100-599)", phase, rule.ID)
+			}
+		}
+
+		if rule.Action == "lua" {
+			if rule.LuaScript == "" {
+				return fmt.Errorf("%s rule %s: lua action requires lua_script", phase, rule.ID)
 			}
 		}
 	}
