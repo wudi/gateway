@@ -41,6 +41,7 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		l.validateSLO,
 		l.validateTenantBackends,
 		l.validateBatchBFeatures,
+		l.validateGoPlugins,
 	}
 	for _, v := range validators {
 		if err := v(route, cfg); err != nil {
@@ -160,6 +161,17 @@ func (l *Loader) validateMockAndStaticFiles(route RouteConfig, _ *Config) error 
 	if route.MockResponse.Enabled {
 		if route.MockResponse.StatusCode != 0 && (route.MockResponse.StatusCode < 100 || route.MockResponse.StatusCode > 599) {
 			return fmt.Errorf("route %s: mock_response.status_code must be 100-599", routeID)
+		}
+		if route.MockResponse.FromSpec {
+			if route.OpenAPI.SpecFile == "" && route.OpenAPI.SpecID == "" {
+				return fmt.Errorf("route %s: mock_response.from_spec requires openapi.spec_file or openapi.spec_id", routeID)
+			}
+			if route.MockResponse.Body != "" {
+				return fmt.Errorf("route %s: mock_response.from_spec is mutually exclusive with mock_response.body", routeID)
+			}
+		}
+		if route.MockResponse.DefaultStatus != 0 && (route.MockResponse.DefaultStatus < 100 || route.MockResponse.DefaultStatus > 599) {
+			return fmt.Errorf("route %s: mock_response.default_status must be 100-599", routeID)
 		}
 	}
 	if route.Static.Enabled {
@@ -3068,5 +3080,33 @@ func (l *Loader) validateBatchBFeatures(route RouteConfig, cfg *Config) error {
 		}
 	}
 
+	return nil
+}
+
+func (l *Loader) validateGoPlugins(route RouteConfig, _ *Config) error {
+	routeID := route.ID
+	validPhases := map[string]bool{"": true, "request": true, "response": true, "both": true}
+	names := make(map[string]bool)
+	for i, p := range route.GoPlugins {
+		if !p.Enabled {
+			continue
+		}
+		if p.Name == "" {
+			return fmt.Errorf("route %s: go_plugins[%d].name is required", routeID, i)
+		}
+		if names[p.Name] {
+			return fmt.Errorf("route %s: duplicate go_plugins name %q", routeID, p.Name)
+		}
+		names[p.Name] = true
+		if p.Path == "" {
+			return fmt.Errorf("route %s: go_plugins[%d].path is required", routeID, i)
+		}
+		if !validPhases[p.Phase] {
+			return fmt.Errorf("route %s: go_plugins[%d].phase must be request, response, or both", routeID, i)
+		}
+		if route.Echo {
+			return fmt.Errorf("route %s: go_plugins is mutually exclusive with echo", routeID)
+		}
+	}
 	return nil
 }

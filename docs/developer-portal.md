@@ -181,8 +181,31 @@ Tags are appended in the order listed above. A route with multiple features enab
 - The catalog is rebuilt from scratch on every request. There is no caching layer — this keeps it consistent with the current gateway state after reloads.
 - The `backends` field is an integer count, not a list of URLs.
 
+## SDK Generation
+
+The catalog includes built-in SDK generation. When enabled, developers can download auto-generated client SDKs for any spec in the catalog.
+
+```yaml
+admin:
+  catalog:
+    enabled: true
+    sdk:
+      enabled: true
+      languages: [go, python, typescript]
+      cache_ttl: 1h
+```
+
+SDK endpoints:
+
+- `GET /catalog/sdk` — list all specs with available languages
+- `GET /catalog/sdk/{specID}` — list languages for a spec
+- `GET /catalog/sdk/{specID}/{language}` — download SDK zip
+
+See [SDK Generation](sdk-generation.md) for full details.
+
 ## See Also
 
+- [SDK Generation](sdk-generation.md) — Auto-generated client SDKs
 - [Admin API Reference](admin-api.md#api-catalog) — Catalog endpoints in the admin API reference
 - [OpenAPI Validation](validation.md) — How OpenAPI specs are loaded via `openapi.spec_file`
 - [Configuration Reference](configuration-reference.md#admin) — Catalog config fields

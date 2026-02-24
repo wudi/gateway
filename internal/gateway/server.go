@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/wudi/gateway/internal/catalog"
+	"github.com/wudi/gateway/internal/catalog/sdk"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/grpchealth"
 	gatewayerrors "github.com/wudi/gateway/internal/errors"
@@ -534,7 +535,19 @@ func (s *Server) adminHandler() http.Handler {
 		if cb := s.gateway.GetCatalogBuilder(); cb != nil {
 			catalogHandler := catalog.NewHandler(cb)
 			catalogHandler.RegisterRoutes(mux)
+
+			// SDK generation
+			if s.config.Admin.Catalog.SDK.Enabled {
+				sdkGen := sdk.NewGenerator(s.config.Admin.Catalog.SDK, s.gateway.openapiValidators)
+				sdkGen.RegisterRoutes(mux)
+			}
 		}
+	}
+
+	// Schema evolution
+	if s.gateway.schemaChecker != nil {
+		mux.HandleFunc("/schema-evolution", jsonStatsHandler(func() any { return s.gateway.schemaChecker.GetAllReports() }))
+		mux.HandleFunc("/schema-evolution/", s.handleSchemaEvolution)
 	}
 
 	// pprof endpoints (when enabled)
@@ -1554,6 +1567,27 @@ func (s *Server) handleCanaryAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": actionName, "route": routeID})
+}
+
+// handleSchemaEvolution handles GET /schema-evolution/{specID}.
+func (s *Server) handleSchemaEvolution(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	specID := strings.TrimPrefix(r.URL.Path, "/schema-evolution/")
+	if specID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(s.gateway.schemaChecker.GetAllReports())
+		return
+	}
+	report := s.gateway.schemaChecker.GetReport(specID)
+	if report == nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(report)
 }
 
 // handleCircuitBreakerAction handles POST /circuit-breakers/{route}/{action}.

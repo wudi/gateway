@@ -78,6 +78,7 @@ type Config struct {
 	CompletionHeader       bool                         `yaml:"completion_header"`         // Add X-Gateway-Completed header to aggregate/sequential responses
 	Deprecation            DeprecationConfig            `yaml:"deprecation"`               // Global API deprecation lifecycle (RFC 8594)
 	ConsumerGroups         ConsumerGroupsConfig         `yaml:"consumer_groups"`           // Consumer group definitions
+	GoPlugins              GoPluginsConfig              `yaml:"go_plugins"`                // Go plugin runtime settings
 }
 
 // ListenerConfig defines a listener configuration
@@ -413,6 +414,7 @@ type RouteConfig struct {
 	OPA                  OPAConfig                      `yaml:"opa"`                    // Per-route OPA policy engine
 	RequestCost          RequestCostConfig              `yaml:"request_cost"`           // Per-route request cost tracking
 	Connect              ConnectConfig                  `yaml:"connect"`                // HTTP CONNECT tunneling
+	GoPlugins            []GoPluginRouteConfig          `yaml:"go_plugins"`             // Go plugin chain
 }
 
 // StickyConfig defines sticky session settings for consistent traffic group assignment.
@@ -692,10 +694,13 @@ type OPAConfig struct {
 
 // MockResponseConfig defines static mock responses.
 type MockResponseConfig struct {
-	Enabled    bool              `yaml:"enabled"`
-	StatusCode int               `yaml:"status_code"`
-	Headers    map[string]string `yaml:"headers"`
-	Body       string            `yaml:"body"`
+	Enabled       bool              `yaml:"enabled"`
+	StatusCode    int               `yaml:"status_code"`
+	Headers       map[string]string `yaml:"headers"`
+	Body          string            `yaml:"body"`
+	FromSpec      bool              `yaml:"from_spec"`       // generate mock responses from OpenAPI spec
+	DefaultStatus int               `yaml:"default_status"`  // which response status to mock (default 200)
+	Seed          int64             `yaml:"seed"`            // deterministic fake data seed (0 = random)
 }
 
 // HTTPSRedirectConfig defines automatic HTTP→HTTPS redirect settings.
@@ -815,6 +820,23 @@ type ConnectConfig struct {
 	ConnectTimeout time.Duration `yaml:"connect_timeout"`
 	IdleTimeout    time.Duration `yaml:"idle_timeout"`
 	MaxTunnels     int           `yaml:"max_tunnels"`
+}
+
+// GoPluginsConfig defines top-level Go plugin settings.
+type GoPluginsConfig struct {
+	PluginDir    string        `yaml:"plugin_dir"`    // directory for plugin binaries
+	HandshakeKey string        `yaml:"handshake_key"` // shared handshake key (default "gateway-v1")
+	KillTimeout  time.Duration `yaml:"kill_timeout"`  // timeout for killing plugins on shutdown (default 5s)
+}
+
+// GoPluginRouteConfig defines a Go plugin in the per-route plugin chain.
+type GoPluginRouteConfig struct {
+	Enabled bool              `yaml:"enabled"`
+	Name    string            `yaml:"name"`    // plugin name (unique per route)
+	Path    string            `yaml:"path"`    // path to plugin binary
+	Phase   string            `yaml:"phase"`   // "request", "response", or "both" (default "both")
+	Timeout time.Duration     `yaml:"timeout"` // per-call timeout (default 10ms)
+	Config  map[string]string `yaml:"config"`  // arbitrary config passed to plugin Init
 }
 
 // RewriteConfig defines URL rewriting rules for a route.
@@ -1177,7 +1199,16 @@ type AccessLogConditions struct {
 
 // OpenAPIConfig defines top-level OpenAPI settings for spec-based validation and route generation.
 type OpenAPIConfig struct {
-	Specs []OpenAPISpecConfig `yaml:"specs"`
+	Specs           []OpenAPISpecConfig   `yaml:"specs"`
+	SchemaEvolution SchemaEvolutionConfig `yaml:"schema_evolution"`
+}
+
+// SchemaEvolutionConfig defines schema compatibility checking during config reload.
+type SchemaEvolutionConfig struct {
+	Enabled     bool   `yaml:"enabled"`
+	Mode        string `yaml:"mode"`         // "warn" (log) or "block" (reject reload)
+	StoreDir    string `yaml:"store_dir"`    // directory for spec version history
+	MaxVersions int    `yaml:"max_versions"` // max stored versions per spec (default 10)
 }
 
 // OpenAPISpecConfig defines a single OpenAPI spec for route generation.
@@ -1394,9 +1425,17 @@ type GRPCHealthConfig struct {
 
 // CatalogConfig defines developer portal / API catalog settings.
 type CatalogConfig struct {
-	Enabled     bool   `yaml:"enabled"`
-	Title       string `yaml:"title"`       // Portal title (default "API Gateway")
-	Description string `yaml:"description"` // Portal description
+	Enabled     bool      `yaml:"enabled"`
+	Title       string    `yaml:"title"`       // Portal title (default "API Gateway")
+	Description string    `yaml:"description"` // Portal description
+	SDK         SDKConfig `yaml:"sdk"`         // SDK generation settings
+}
+
+// SDKConfig defines auto-generated SDK settings.
+type SDKConfig struct {
+	Enabled   bool          `yaml:"enabled"`
+	Languages []string      `yaml:"languages"` // "go", "python", "typescript"
+	CacheTTL  time.Duration `yaml:"cache_ttl"` // how long to cache generated SDKs (default 1h)
 }
 
 // ReadinessConfig defines readiness probe settings.

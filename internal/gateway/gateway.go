@@ -16,6 +16,7 @@ import (
 	"github.com/wudi/gateway/internal/cache"
 	"github.com/wudi/gateway/internal/canary"
 	"github.com/wudi/gateway/internal/catalog"
+	"github.com/wudi/gateway/internal/schemaevolution"
 	"github.com/wudi/gateway/internal/circuitbreaker"
 	"github.com/wudi/gateway/internal/coalesce"
 	"github.com/wudi/gateway/internal/config"
@@ -63,6 +64,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/nonce"
 	"github.com/wudi/gateway/internal/middleware/opa"
 	"github.com/wudi/gateway/internal/middleware/maintenance"
+	"github.com/wudi/gateway/internal/middleware/goplugin"
 	"github.com/wudi/gateway/internal/middleware/mock"
 	"github.com/wudi/gateway/internal/middleware/proxyratelimit"
 	"github.com/wudi/gateway/internal/middleware/quota"
@@ -270,9 +272,11 @@ type Gateway struct {
 	consumerGroups       *consumergroup.GroupByRoute
 	graphqlSubs          *graphqlsub.SubscriptionByRoute
 	connectHandlers      *connect.ConnectByRoute
+	goPlugins            *goplugin.GoPluginByRoute
 
-	tenantManager *tenant.Manager
+	tenantManager  *tenant.Manager
 	catalogBuilder *catalog.Builder
+	schemaChecker  *schemaevolution.Checker
 
 	features []Feature
 
@@ -445,6 +449,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		consumerGroups:       consumergroup.NewGroupByRoute(),
 		graphqlSubs:          graphqlsub.NewSubscriptionByRoute(),
 		connectHandlers:      connect.NewConnectByRoute(),
+		goPlugins:            goplugin.NewGoPluginByRoute(cfg.GoPlugins.HandshakeKey),
 		watchCancels:      make(map[string]context.CancelFunc),
 	}
 
@@ -604,6 +609,17 @@ func New(cfg *config.Config) (*Gateway, error) {
 		}, g.tokenExchangers.RouteIDs, func() any { return g.tokenExchangers.Stats() }),
 		newFeature("mock_response", "/mock-responses", func(id string, rc config.RouteConfig) error {
 			if rc.MockResponse.Enabled {
+				if rc.MockResponse.FromSpec {
+					specFile := rc.OpenAPI.SpecFile
+					if specFile != "" {
+						doc, err := openapivalidation.LoadSpec(specFile)
+						if err != nil {
+							return fmt.Errorf("mock from_spec: %w", err)
+						}
+						g.mockHandlers.AddSpecRoute(id, rc.MockResponse, doc)
+						return nil
+					}
+				}
 				g.mockHandlers.AddRoute(id, rc.MockResponse)
 			}
 			return nil
@@ -1072,6 +1088,22 @@ func New(cfg *config.Config) (*Gateway, error) {
 			return nil
 		}, g.connectHandlers.RouteIDs, func() any { return g.connectHandlers.Stats() }),
 
+		// Go plugins
+		newFeature("go_plugins", "/go-plugins", func(id string, rc config.RouteConfig) error {
+			if len(rc.GoPlugins) > 0 {
+				var enabled []config.GoPluginRouteConfig
+				for _, p := range rc.GoPlugins {
+					if p.Enabled {
+						enabled = append(enabled, p)
+					}
+				}
+				if len(enabled) > 0 {
+					return g.goPlugins.AddRoute(id, enabled)
+				}
+			}
+			return nil
+		}, g.goPlugins.RouteIDs, func() any { return g.goPlugins.Stats() }),
+
 		noOpFeature("session_affinity", "/session-affinity", func() []string {
 			var ids []string
 			for routeID, rp := range *g.routeProxies.Load() {
@@ -1360,6 +1392,38 @@ func New(cfg *config.Config) (*Gateway, error) {
 			g.router.GetRoutes,
 			g.openapiValidators,
 		)
+	}
+
+	// Initialize schema evolution checker
+	if cfg.OpenAPI.SchemaEvolution.Enabled {
+		checker, err := schemaevolution.NewChecker(cfg.OpenAPI.SchemaEvolution, logging.Global())
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize schema evolution checker: %w", err)
+		}
+		g.schemaChecker = checker
+
+		// Store initial spec versions (no comparison on first load)
+		for _, specCfg := range cfg.OpenAPI.Specs {
+			if specCfg.File != "" {
+				doc, loadErr := openapivalidation.LoadSpec(specCfg.File)
+				if loadErr == nil {
+					checker.CheckAndStore(specCfg.ID, doc)
+				}
+			}
+		}
+		// Also store per-route specs
+		for _, rc := range cfg.Routes {
+			if rc.OpenAPI.SpecFile != "" {
+				doc, loadErr := openapivalidation.LoadSpec(rc.OpenAPI.SpecFile)
+				if loadErr == nil {
+					specID := rc.OpenAPI.SpecFile
+					if rc.OpenAPI.SpecID != "" {
+						specID = rc.OpenAPI.SpecID
+					}
+					checker.CheckAndStore(specID, doc)
+				}
+			}
+		}
 	}
 
 	return g, nil
@@ -2050,6 +2114,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		/* 7.85 */ func() middleware.Middleware {
 			if wc := g.wasmPlugins.GetChain(routeID); wc != nil { return wc.RequestMiddleware() }; return nil
 		},
+		/* 7.9  */ func() middleware.Middleware {
+			if gc := g.goPlugins.GetChain(routeID); gc != nil { return gc.RequestMiddleware() }; return nil
+		},
 		/* 8    */ func() middleware.Middleware {
 			if !skipBody && route.MaxBodySize > 0 { return bodyLimitMW(route.MaxBodySize) }; return nil
 		},
@@ -2172,6 +2239,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		},
 		/* 17.05*/ func() middleware.Middleware {
 			if wc := g.wasmPlugins.GetChain(routeID); wc != nil { return wc.ResponseMiddleware() }; return nil
+		},
+		/* 17.08*/ func() middleware.Middleware {
+			if gc := g.goPlugins.GetChain(routeID); gc != nil { return gc.ResponseMiddleware() }; return nil
 		},
 		/* 17.1 */ func() middleware.Middleware {
 			if ls := g.luaScripters.GetScript(routeID); ls != nil { return ls.ResponseMiddleware() }; return nil
@@ -2633,6 +2703,9 @@ func (g *Gateway) Close() error {
 
 	// Stop SSE fan-out hubs
 	g.sseHandlers.StopAllHubs()
+
+	// Close Go plugin processes
+	g.goPlugins.Close()
 
 	// Close WASM plugin runtime and pools
 	g.wasmPlugins.Close(context.Background())

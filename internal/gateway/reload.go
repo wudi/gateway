@@ -51,6 +51,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/cdnheaders"
 	"github.com/wudi/gateway/internal/middleware/claimsprop"
 	"github.com/wudi/gateway/internal/middleware/maintenance"
+	"github.com/wudi/gateway/internal/middleware/goplugin"
 	"github.com/wudi/gateway/internal/middleware/mock"
 	"github.com/wudi/gateway/internal/middleware/paramforward"
 	"github.com/wudi/gateway/internal/middleware/requestqueue"
@@ -200,6 +201,7 @@ type gatewayState struct {
 	consumerGroups       *consumergroup.GroupByRoute
 	graphqlSubs          *graphqlsub.SubscriptionByRoute
 	connectHandlers      *connect.ConnectByRoute
+	goPlugins            *goplugin.GoPluginByRoute
 
 	tenantManager *tenant.Manager
 
@@ -296,6 +298,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		consumerGroups:       consumergroup.NewGroupByRoute(),
 		graphqlSubs:          graphqlsub.NewSubscriptionByRoute(),
 		connectHandlers:      connect.NewConnectByRoute(),
+		goPlugins:            goplugin.NewGoPluginByRoute(cfg.GoPlugins.HandshakeKey),
 	}
 
 	// Initialize tenant manager
@@ -516,7 +519,20 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 			return nil
 		}, s.proxyRateLimiters.RouteIDs, func() any { return s.proxyRateLimiters.Stats() }),
 		newFeature("mock_response", "/mock-responses", func(id string, rc config.RouteConfig) error {
-			if rc.MockResponse.Enabled { s.mockHandlers.AddRoute(id, rc.MockResponse) }
+			if rc.MockResponse.Enabled {
+				if rc.MockResponse.FromSpec {
+					specFile := rc.OpenAPI.SpecFile
+					if specFile != "" {
+						doc, err := openapivalidation.LoadSpec(specFile)
+						if err != nil {
+							return fmt.Errorf("mock from_spec: %w", err)
+						}
+						s.mockHandlers.AddSpecRoute(id, rc.MockResponse, doc)
+						return nil
+					}
+				}
+				s.mockHandlers.AddRoute(id, rc.MockResponse)
+			}
 			return nil
 		}, s.mockHandlers.RouteIDs, func() any { return s.mockHandlers.Stats() }),
 		newFeature("claims_propagation", "/claims-propagation", func(id string, rc config.RouteConfig) error {
@@ -649,6 +665,20 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		newFeature("connect", "/connect", func(id string, rc config.RouteConfig) error {
 			if rc.Connect.Enabled { s.connectHandlers.AddRoute(id, rc.Connect) }; return nil
 		}, s.connectHandlers.RouteIDs, func() any { return s.connectHandlers.Stats() }),
+		newFeature("go_plugins", "/go-plugins", func(id string, rc config.RouteConfig) error {
+			if len(rc.GoPlugins) > 0 {
+				var enabled []config.GoPluginRouteConfig
+				for _, p := range rc.GoPlugins {
+					if p.Enabled {
+						enabled = append(enabled, p)
+					}
+				}
+				if len(enabled) > 0 {
+					return s.goPlugins.AddRoute(id, enabled)
+				}
+			}
+			return nil
+		}, s.goPlugins.RouteIDs, func() any { return s.goPlugins.Stats() }),
 
 		// Non-per-route singleton features
 		noOpFeature("retry_budget_pools", "/retry-budget-pools", func() []string { return nil }, func() any {
@@ -1362,6 +1392,36 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 		return result
 	}
 
+	// Schema evolution check (before state swap)
+	if g.schemaChecker != nil && newCfg.OpenAPI.SchemaEvolution.Enabled {
+		for _, specCfg := range newCfg.OpenAPI.Specs {
+			if specCfg.File != "" {
+				doc, loadErr := openapivalidation.LoadSpec(specCfg.File)
+				if loadErr == nil {
+					if _, checkErr := g.schemaChecker.CheckAndStore(specCfg.ID, doc); checkErr != nil {
+						result.Error = checkErr.Error()
+						return result
+					}
+				}
+			}
+		}
+		for _, rc := range newCfg.Routes {
+			if rc.OpenAPI.SpecFile != "" {
+				doc, loadErr := openapivalidation.LoadSpec(rc.OpenAPI.SpecFile)
+				if loadErr == nil {
+					specID := rc.OpenAPI.SpecFile
+					if rc.OpenAPI.SpecID != "" {
+						specID = rc.OpenAPI.SpecID
+					}
+					if _, checkErr := g.schemaChecker.CheckAndStore(specID, doc); checkErr != nil {
+						result.Error = checkErr.Error()
+						return result
+					}
+				}
+			}
+		}
+	}
+
 	// Compute changes
 	result.Changes = diffConfig(g.config, newCfg)
 
@@ -1384,6 +1444,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	oldLoadShedder := g.loadShedder
 	oldBackpressureHandlers := g.backpressureHandlers
 	oldAuditLoggers := g.auditLoggers
+	oldGoPlugins := g.goPlugins
 
 	// Swap all state under write lock
 	g.mu.Lock()
@@ -1473,6 +1534,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.consumerGroups = newState.consumerGroups
 	g.graphqlSubs = newState.graphqlSubs
 	g.connectHandlers = newState.connectHandlers
+	g.goPlugins = newState.goPlugins
 	g.apiKeyAuth = newState.apiKeyAuth
 	g.jwtAuth = newState.jwtAuth
 	g.oauthAuth = newState.oauthAuth
@@ -1536,6 +1598,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	if oldJWT != nil {
 		oldJWT.Close()
 	}
+	oldGoPlugins.Close()
 
 	// Reconcile health checker: remove backends no longer present
 	newBackendURLs := make(map[string]bool)

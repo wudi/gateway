@@ -2902,3 +2902,71 @@ routes:
 **Validation:** `path` is required and must exist. `phase` must be `request`, `response`, or `both`. `timeout` and `pool_size` must be non-negative. Mutually exclusive with `passthrough`.
 
 See [WASM Plugins](wasm-plugins.md) for details.
+
+---
+
+## Go Plugins (global)
+
+```yaml
+go_plugins:
+  plugin_dir: string         # base directory for plugin binaries
+  handshake_key: string      # shared handshake key (default "gateway-v1")
+  kill_timeout: duration     # graceful shutdown timeout (default 5s)
+```
+
+See [Go Plugins](go-plugins.md) for details.
+
+---
+
+## Go Plugins (per-route)
+
+```yaml
+routes:
+  - id: example
+    go_plugins:
+      - enabled: bool             # enable this plugin (default false)
+        name: string              # required, unique name for metrics/admin
+        path: string              # required, path to plugin binary
+        phase: string             # "request", "response", or "both" (default "both")
+        timeout: duration         # per-invocation timeout (default 10ms)
+        config:                   # arbitrary k/v passed to Init()
+          key: value
+```
+
+**Validation:** `name` and `path` are required. `phase` must be `request`, `response`, or `both`. Plugin names must be unique within a route. Mutually exclusive with `echo`.
+
+See [Go Plugins](go-plugins.md) for details.
+
+---
+
+## Schema Evolution
+
+```yaml
+openapi:
+  schema_evolution:
+    enabled: bool            # enable schema evolution checking (default false)
+    mode: string             # "warn" or "block" (default "warn")
+    store_dir: string        # directory for spec version history
+    max_versions: int        # max versions to retain per spec (default 10)
+```
+
+**Validation:** `mode` must be `"warn"` or `"block"`. `max_versions` must be >= 0.
+
+See [Schema Evolution](schema-evolution.md) for details.
+
+---
+
+## SDK Generation
+
+```yaml
+admin:
+  catalog:
+    sdk:
+      enabled: bool          # enable SDK generation (default false)
+      languages: [string]    # supported languages: "go", "python", "typescript"
+      cache_ttl: duration    # cache TTL for generated SDKs (default 1h)
+```
+
+**Validation:** `sdk.enabled` requires `catalog.enabled`. `languages` must be a subset of `["go", "python", "typescript"]`.
+
+See [SDK Generation](sdk-generation.md) for details.

@@ -4,10 +4,18 @@ import (
 	"net/http"
 	"sync/atomic"
 
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/wudi/gateway/internal/byroute"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/middleware"
+	"github.com/wudi/gateway/internal/middleware/mock/specmock"
 )
+
+// Handler is a mock response handler that can serve static or spec-based responses.
+type Handler interface {
+	Middleware() middleware.Middleware
+	Served() int64
+}
 
 // MockHandler returns static mock responses without reaching the backend.
 type MockHandler struct {
@@ -53,7 +61,7 @@ func (m *MockHandler) Served() int64 {
 
 // MockByRoute manages per-route mock handlers.
 type MockByRoute struct {
-	byroute.Manager[*MockHandler]
+	byroute.Manager[Handler]
 }
 
 // NewMockByRoute creates a new per-route mock handler manager.
@@ -66,15 +74,24 @@ func (m *MockByRoute) AddRoute(routeID string, cfg config.MockResponseConfig) {
 	m.Add(routeID, New(cfg))
 }
 
+// AddSpecRoute adds a spec-based mock handler for a route.
+func (m *MockByRoute) AddSpecRoute(routeID string, cfg config.MockResponseConfig, doc *openapi3.T) {
+	m.Add(routeID, specmock.New(doc, cfg.DefaultStatus, cfg.Seed, cfg.Headers))
+}
+
 // GetHandler returns the mock handler for a route.
-func (m *MockByRoute) GetHandler(routeID string) *MockHandler {
+func (m *MockByRoute) GetHandler(routeID string) Handler {
 	v, _ := m.Get(routeID)
 	return v
 }
 
 // Stats returns per-route mock stats.
 func (m *MockByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(h *MockHandler) interface{} {
-		return map[string]interface{}{"served": h.Served()}
+	return byroute.CollectStats(&m.Manager, func(h Handler) interface{} {
+		result := map[string]interface{}{"served": h.Served()}
+		if _, ok := h.(*specmock.SpecMocker); ok {
+			result["from_spec"] = true
+		}
+		return result
 	})
 }

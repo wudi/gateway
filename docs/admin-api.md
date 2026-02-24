@@ -2365,6 +2365,124 @@ See [WASM Plugins](wasm-plugins.md) for configuration.
 
 ---
 
+## Go Plugins
+
+### GET `/go-plugins`
+
+Returns per-route Go plugin statistics.
+
+```bash
+curl http://localhost:8081/go-plugins
+```
+
+**Response:**
+
+```json
+{
+  "example": {
+    "my-auth": {
+      "phase": "request",
+      "served": 1520
+    },
+    "response-transform": {
+      "phase": "response",
+      "served": 1518
+    }
+  }
+}
+```
+
+See [Go Plugins](go-plugins.md) for configuration.
+
+---
+
+## Schema Evolution
+
+### GET `/schema-evolution`
+
+Returns all schema compatibility reports.
+
+```bash
+curl http://localhost:8081/schema-evolution
+```
+
+**Response:**
+
+```json
+{
+  "specs/users.yaml": {
+    "spec_id": "specs/users.yaml",
+    "old_version": "1.0.0",
+    "new_version": "1.1.0",
+    "compatible": false,
+    "breaking_changes": [
+      {
+        "type": "required_param_added",
+        "path": "/users",
+        "method": "GET",
+        "description": "Required parameter added: X-Tenant-ID"
+      }
+    ],
+    "checked_at": "2026-01-15T10:30:00Z"
+  }
+}
+```
+
+### GET `/schema-evolution/{specID}`
+
+Returns the compatibility report for a specific spec.
+
+```bash
+curl http://localhost:8081/schema-evolution/specs-users-yaml
+```
+
+Returns `404` if no report exists.
+
+See [Schema Evolution](schema-evolution.md) for configuration.
+
+---
+
+## SDK Generation
+
+### GET `/catalog/sdk`
+
+Lists all specs with available SDK languages.
+
+```bash
+curl http://localhost:8081/catalog/sdk
+```
+
+**Response:**
+
+```json
+{
+  "specs": [
+    {
+      "id": "specs-users-yaml",
+      "title": "Users API",
+      "version": "1.0.0",
+      "languages": ["go", "python", "typescript"]
+    }
+  ]
+}
+```
+
+### GET `/catalog/sdk/{specID}`
+
+Lists available languages for a specific spec.
+
+### GET `/catalog/sdk/{specID}/{language}`
+
+Downloads the generated SDK as a zip file.
+
+```bash
+curl -o users-go.zip http://localhost:8081/catalog/sdk/specs-users-yaml/go
+```
+
+See [SDK Generation](sdk-generation.md) for configuration.
+
+---
+
 ## Key Config Fields
 
 | Field | Type | Description |
