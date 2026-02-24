@@ -64,7 +64,6 @@ import (
 	"github.com/wudi/gateway/internal/middleware/nonce"
 	"github.com/wudi/gateway/internal/middleware/opa"
 	"github.com/wudi/gateway/internal/middleware/maintenance"
-	"github.com/wudi/gateway/internal/middleware/goplugin"
 	"github.com/wudi/gateway/internal/middleware/mock"
 	"github.com/wudi/gateway/internal/middleware/proxyratelimit"
 	"github.com/wudi/gateway/internal/middleware/quota"
@@ -272,7 +271,6 @@ type Gateway struct {
 	consumerGroups       *consumergroup.GroupByRoute
 	graphqlSubs          *graphqlsub.SubscriptionByRoute
 	connectHandlers      *connect.ConnectByRoute
-	goPlugins            *goplugin.GoPluginByRoute
 
 	tenantManager  *tenant.Manager
 	catalogBuilder *catalog.Builder
@@ -449,7 +447,6 @@ func New(cfg *config.Config) (*Gateway, error) {
 		consumerGroups:       consumergroup.NewGroupByRoute(),
 		graphqlSubs:          graphqlsub.NewSubscriptionByRoute(),
 		connectHandlers:      connect.NewConnectByRoute(),
-		goPlugins:            goplugin.NewGoPluginByRoute(cfg.GoPlugins.HandshakeKey),
 		watchCancels:      make(map[string]context.CancelFunc),
 	}
 
@@ -1087,22 +1084,6 @@ func New(cfg *config.Config) (*Gateway, error) {
 			}
 			return nil
 		}, g.connectHandlers.RouteIDs, func() any { return g.connectHandlers.Stats() }),
-
-		// Go plugins
-		newFeature("go_plugins", "/go-plugins", func(id string, rc config.RouteConfig) error {
-			if len(rc.GoPlugins) > 0 {
-				var enabled []config.GoPluginRouteConfig
-				for _, p := range rc.GoPlugins {
-					if p.Enabled {
-						enabled = append(enabled, p)
-					}
-				}
-				if len(enabled) > 0 {
-					return g.goPlugins.AddRoute(id, enabled)
-				}
-			}
-			return nil
-		}, g.goPlugins.RouteIDs, func() any { return g.goPlugins.Stats() }),
 
 		noOpFeature("session_affinity", "/session-affinity", func() []string {
 			var ids []string
@@ -2114,9 +2095,6 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		/* 7.85 */ func() middleware.Middleware {
 			if wc := g.wasmPlugins.GetChain(routeID); wc != nil { return wc.RequestMiddleware() }; return nil
 		},
-		/* 7.9  */ func() middleware.Middleware {
-			if gc := g.goPlugins.GetChain(routeID); gc != nil { return gc.RequestMiddleware() }; return nil
-		},
 		/* 8    */ func() middleware.Middleware {
 			if !skipBody && route.MaxBodySize > 0 { return bodyLimitMW(route.MaxBodySize) }; return nil
 		},
@@ -2239,9 +2217,6 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		},
 		/* 17.05*/ func() middleware.Middleware {
 			if wc := g.wasmPlugins.GetChain(routeID); wc != nil { return wc.ResponseMiddleware() }; return nil
-		},
-		/* 17.08*/ func() middleware.Middleware {
-			if gc := g.goPlugins.GetChain(routeID); gc != nil { return gc.ResponseMiddleware() }; return nil
 		},
 		/* 17.1 */ func() middleware.Middleware {
 			if ls := g.luaScripters.GetScript(routeID); ls != nil { return ls.ResponseMiddleware() }; return nil
@@ -2703,9 +2678,6 @@ func (g *Gateway) Close() error {
 
 	// Stop SSE fan-out hubs
 	g.sseHandlers.StopAllHubs()
-
-	// Close Go plugin processes
-	g.goPlugins.Close()
 
 	// Close WASM plugin runtime and pools
 	g.wasmPlugins.Close(context.Background())

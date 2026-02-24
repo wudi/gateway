@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/wudi/gateway/internal/catalog"
-	"github.com/wudi/gateway/internal/catalog/sdk"
 	"github.com/wudi/gateway/internal/config"
 	"github.com/wudi/gateway/internal/grpchealth"
 	gatewayerrors "github.com/wudi/gateway/internal/errors"
@@ -536,11 +535,6 @@ func (s *Server) adminHandler() http.Handler {
 			catalogHandler := catalog.NewHandler(cb)
 			catalogHandler.RegisterRoutes(mux)
 
-			// SDK generation
-			if s.config.Admin.Catalog.SDK.Enabled {
-				sdkGen := sdk.NewGenerator(s.config.Admin.Catalog.SDK, s.gateway.openapiValidators)
-				sdkGen.RegisterRoutes(mux)
-			}
 		}
 	}
 

@@ -51,7 +51,6 @@ import (
 	"github.com/wudi/gateway/internal/middleware/cdnheaders"
 	"github.com/wudi/gateway/internal/middleware/claimsprop"
 	"github.com/wudi/gateway/internal/middleware/maintenance"
-	"github.com/wudi/gateway/internal/middleware/goplugin"
 	"github.com/wudi/gateway/internal/middleware/mock"
 	"github.com/wudi/gateway/internal/middleware/paramforward"
 	"github.com/wudi/gateway/internal/middleware/requestqueue"
@@ -201,7 +200,6 @@ type gatewayState struct {
 	consumerGroups       *consumergroup.GroupByRoute
 	graphqlSubs          *graphqlsub.SubscriptionByRoute
 	connectHandlers      *connect.ConnectByRoute
-	goPlugins            *goplugin.GoPluginByRoute
 
 	tenantManager *tenant.Manager
 
@@ -298,7 +296,6 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		consumerGroups:       consumergroup.NewGroupByRoute(),
 		graphqlSubs:          graphqlsub.NewSubscriptionByRoute(),
 		connectHandlers:      connect.NewConnectByRoute(),
-		goPlugins:            goplugin.NewGoPluginByRoute(cfg.GoPlugins.HandshakeKey),
 	}
 
 	// Initialize tenant manager
@@ -665,21 +662,6 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		newFeature("connect", "/connect", func(id string, rc config.RouteConfig) error {
 			if rc.Connect.Enabled { s.connectHandlers.AddRoute(id, rc.Connect) }; return nil
 		}, s.connectHandlers.RouteIDs, func() any { return s.connectHandlers.Stats() }),
-		newFeature("go_plugins", "/go-plugins", func(id string, rc config.RouteConfig) error {
-			if len(rc.GoPlugins) > 0 {
-				var enabled []config.GoPluginRouteConfig
-				for _, p := range rc.GoPlugins {
-					if p.Enabled {
-						enabled = append(enabled, p)
-					}
-				}
-				if len(enabled) > 0 {
-					return s.goPlugins.AddRoute(id, enabled)
-				}
-			}
-			return nil
-		}, s.goPlugins.RouteIDs, func() any { return s.goPlugins.Stats() }),
-
 		// Non-per-route singleton features
 		noOpFeature("retry_budget_pools", "/retry-budget-pools", func() []string { return nil }, func() any {
 			if len(s.budgetPools) == 0 { return nil }
@@ -1444,7 +1426,6 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	oldLoadShedder := g.loadShedder
 	oldBackpressureHandlers := g.backpressureHandlers
 	oldAuditLoggers := g.auditLoggers
-	oldGoPlugins := g.goPlugins
 
 	// Swap all state under write lock
 	g.mu.Lock()
@@ -1534,7 +1515,6 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.consumerGroups = newState.consumerGroups
 	g.graphqlSubs = newState.graphqlSubs
 	g.connectHandlers = newState.connectHandlers
-	g.goPlugins = newState.goPlugins
 	g.apiKeyAuth = newState.apiKeyAuth
 	g.jwtAuth = newState.jwtAuth
 	g.oauthAuth = newState.oauthAuth
@@ -1598,8 +1578,6 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	if oldJWT != nil {
 		oldJWT.Close()
 	}
-	oldGoPlugins.Close()
-
 	// Reconcile health checker: remove backends no longer present
 	newBackendURLs := make(map[string]bool)
 	// Collect backend URLs from upstreams

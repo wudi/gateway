@@ -456,19 +456,6 @@ func (l *Loader) validate(cfg *Config) error {
 		return err
 	}
 
-	// === SDK generation ===
-	if cfg.Admin.Catalog.SDK.Enabled {
-		if !cfg.Admin.Catalog.Enabled {
-			return fmt.Errorf("admin.catalog.sdk.enabled requires admin.catalog.enabled")
-		}
-		validLangs := map[string]bool{"go": true, "python": true, "typescript": true}
-		for _, lang := range cfg.Admin.Catalog.SDK.Languages {
-			if !validLangs[lang] {
-				return fmt.Errorf("admin.catalog.sdk.languages: unsupported language %q (valid: go, python, typescript)", lang)
-			}
-		}
-	}
-
 	// === Schema Evolution ===
 	if cfg.OpenAPI.SchemaEvolution.Enabled {
 		mode := cfg.OpenAPI.SchemaEvolution.Mode
