@@ -2,8 +2,11 @@ package gateway
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net/http"
 	"net/http/pprof"
 	"os"
@@ -426,6 +429,7 @@ func (s *Server) makeHTTPListener(lc config.ListenerConfig) (*listener.HTTPListe
 		Address:           lc.Address,
 		Handler:           s.gateway.Handler(),
 		TLS:               lc.TLS,
+		ACME:              lc.TLS.ACME,
 		ReadTimeout:       lc.HTTP.ReadTimeout,
 		WriteTimeout:      lc.HTTP.WriteTimeout,
 		IdleTimeout:       lc.HTTP.IdleTimeout,
@@ -461,6 +465,9 @@ func (s *Server) adminHandler() http.Handler {
 
 	// Listeners endpoint
 	mux.HandleFunc("/listeners", s.handleListeners)
+
+	// TLS certificate status endpoint
+	mux.HandleFunc("/certificates", s.handleCertificates)
 
 	// Auto-register admin stats endpoints from features
 	for _, f := range s.gateway.features {
@@ -617,6 +624,15 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if s.gateway.tracer != nil {
 		checks["tracing"] = map[string]interface{}{
 			"status": "ok",
+		}
+	}
+
+	// TLS certificate expiry check
+	tlsCertStatus := s.checkTLSCertificates()
+	if tlsCertStatus != nil {
+		checks["tls_certificates"] = tlsCertStatus
+		if tlsCertStatus["status"] != "ok" {
+			allHealthy = false
 		}
 	}
 
@@ -837,6 +853,7 @@ func (s *Server) handleListeners(w http.ResponseWriter, r *http.Request) {
 		Protocol string `json:"protocol"`
 		Address  string `json:"address"`
 		HTTP3    bool   `json:"http3,omitempty"`
+		ACME     bool   `json:"acme,omitempty"`
 	}
 
 	result := make([]listenerInfo, 0, len(listenerIDs))
@@ -849,6 +866,7 @@ func (s *Server) handleListeners(w http.ResponseWriter, r *http.Request) {
 			}
 			if hl, ok := l.(*listener.HTTPListener); ok {
 				info.HTTP3 = hl.HTTP3Enabled()
+				info.ACME = hl.ACMEManager() != nil
 			}
 			result = append(result, info)
 		}
@@ -857,6 +875,144 @@ func (s *Server) handleListeners(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
+// handleCertificates returns TLS certificate status for all listeners.
+func (s *Server) handleCertificates(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	type certEntry struct {
+		ListenerID string      `json:"listener_id"`
+		Mode       string      `json:"mode"`
+		ACME       interface{} `json:"acme,omitempty"`
+		Manual     interface{} `json:"manual,omitempty"`
+	}
+
+	var result []certEntry
+	for _, id := range s.manager.List() {
+		l, ok := s.manager.Get(id)
+		if !ok {
+			continue
+		}
+		hl, ok := l.(*listener.HTTPListener)
+		if !ok {
+			continue
+		}
+
+		if acmeMgr := hl.ACMEManager(); acmeMgr != nil {
+			info := acmeMgr.CertStatus()
+			result = append(result, certEntry{
+				ListenerID: id,
+				Mode:       "acme",
+				ACME: map[string]interface{}{
+					"domains":    info.Domains,
+					"issuer":     info.Issuer,
+					"not_before": info.NotBefore,
+					"not_after":  info.NotAfter,
+					"days_left":  info.DaysLeft,
+					"serial":     info.Serial,
+				},
+			})
+		} else if cert := hl.CertPtr(); cert != nil {
+			// Manual TLS: parse leaf cert for expiry info
+			entry := certEntry{
+				ListenerID: id,
+				Mode:       "manual",
+			}
+			// Find the config for this listener to get file paths
+			var certFile, keyFile string
+			for _, lc := range s.config.Listeners {
+				if lc.ID == id {
+					certFile = lc.TLS.CertFile
+					keyFile = lc.TLS.KeyFile
+					break
+				}
+			}
+			manualInfo := map[string]interface{}{
+				"cert_file": certFile,
+				"key_file":  keyFile,
+			}
+			if leaf := parseCertLeaf(cert); leaf != nil {
+				manualInfo["not_after"] = leaf.NotAfter
+				manualInfo["days_left"] = int(time.Until(leaf.NotAfter).Hours() / 24)
+				manualInfo["serial"] = formatCertSerial(leaf.SerialNumber)
+			}
+			entry.Manual = manualInfo
+			result = append(result, entry)
+		}
+	}
+
+	json.NewEncoder(w).Encode(result)
+}
+
+// checkTLSCertificates checks all listener TLS certs and returns health status.
+// Returns nil if no TLS listeners exist.
+func (s *Server) checkTLSCertificates() map[string]interface{} {
+	const minDaysLeft = 7
+	hasTLS := false
+	allOK := true
+
+	for _, id := range s.manager.List() {
+		l, ok := s.manager.Get(id)
+		if !ok {
+			continue
+		}
+		hl, ok := l.(*listener.HTTPListener)
+		if !ok {
+			continue
+		}
+
+		if acmeMgr := hl.ACMEManager(); acmeMgr != nil {
+			hasTLS = true
+			info := acmeMgr.CertStatus()
+			if info.DaysLeft >= 0 && info.DaysLeft < minDaysLeft {
+				allOK = false
+			}
+		} else if cert := hl.CertPtr(); cert != nil {
+			hasTLS = true
+			if leaf := parseCertLeaf(cert); leaf != nil {
+				daysLeft := int(time.Until(leaf.NotAfter).Hours() / 24)
+				if daysLeft < minDaysLeft {
+					allOK = false
+				}
+			}
+		}
+	}
+
+	if !hasTLS {
+		return nil
+	}
+
+	status := "ok"
+	if !allOK {
+		status = "degraded"
+	}
+	return map[string]interface{}{
+		"status":           status,
+		"min_days_warning": minDaysLeft,
+	}
+}
+
+// parseCertLeaf parses the leaf certificate from a tls.Certificate.
+func parseCertLeaf(cert *tls.Certificate) *x509.Certificate {
+	if cert == nil || len(cert.Certificate) == 0 {
+		return nil
+	}
+	if cert.Leaf != nil {
+		return cert.Leaf
+	}
+	leaf, err := x509.ParseCertificate(cert.Certificate[0])
+	if err != nil {
+		return nil
+	}
+	return leaf
+}
+
+// formatCertSerial formats a certificate serial number as hex.
+func formatCertSerial(serial *big.Int) string {
+	if serial == nil {
+		return ""
+	}
+	return fmt.Sprintf("%X", serial)
+}
 
 // handleRules handles rules engine status requests
 func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {

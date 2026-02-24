@@ -111,11 +111,26 @@ func (l *Loader) validate(cfg *Config) error {
 			return fmt.Errorf("listener %s: invalid protocol: %s", listener.ID, listener.Protocol)
 		}
 		if listener.TLS.Enabled {
-			if listener.TLS.CertFile == "" {
-				return fmt.Errorf("listener %s: TLS enabled but cert_file not provided", listener.ID)
-			}
-			if listener.TLS.KeyFile == "" {
-				return fmt.Errorf("listener %s: TLS enabled but key_file not provided", listener.ID)
+			if listener.TLS.ACME.Enabled {
+				// ACME mode: domains required, cert_file/key_file must not be set
+				if len(listener.TLS.ACME.Domains) == 0 {
+					return fmt.Errorf("listener %s: acme.enabled requires acme.domains", listener.ID)
+				}
+				if listener.TLS.CertFile != "" || listener.TLS.KeyFile != "" {
+					return fmt.Errorf("listener %s: acme and cert_file/key_file are mutually exclusive", listener.ID)
+				}
+				ct := listener.TLS.ACME.ChallengeType
+				if ct != "" && ct != "tls-alpn-01" && ct != "http-01" {
+					return fmt.Errorf("listener %s: acme.challenge_type must be \"tls-alpn-01\" or \"http-01\"", listener.ID)
+				}
+			} else {
+				// Manual TLS: cert_file and key_file required
+				if listener.TLS.CertFile == "" {
+					return fmt.Errorf("listener %s: TLS enabled but cert_file not provided", listener.ID)
+				}
+				if listener.TLS.KeyFile == "" {
+					return fmt.Errorf("listener %s: TLS enabled but key_file not provided", listener.ID)
+				}
 			}
 		}
 		if listener.HTTP.EnableHTTP3 && !listener.TLS.Enabled {

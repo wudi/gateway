@@ -516,6 +516,78 @@ listeners:
 			wantErr: true,
 			errMsg:  "key_file not provided",
 		},
+		{
+			name: "ACME valid config",
+			yaml: `
+listeners:
+  - id: "https-acme"
+    address: ":443"
+    protocol: "http"
+    tls:
+      enabled: true
+      acme:
+        enabled: true
+        domains:
+          - "example.com"
+routes:
+  - id: "test"
+    path: "/"
+    backends:
+      - url: "http://localhost:8080"
+`,
+			wantErr: false,
+		},
+		{
+			name: "ACME without domains",
+			yaml: `
+listeners:
+  - id: "https-acme"
+    address: ":443"
+    protocol: "http"
+    tls:
+      enabled: true
+      acme:
+        enabled: true
+`,
+			wantErr: true,
+			errMsg:  "acme.enabled requires acme.domains",
+		},
+		{
+			name: "ACME with cert_file (mutual exclusion)",
+			yaml: `
+listeners:
+  - id: "https-acme"
+    address: ":443"
+    protocol: "http"
+    tls:
+      enabled: true
+      cert_file: "/path/to/cert"
+      acme:
+        enabled: true
+        domains:
+          - "example.com"
+`,
+			wantErr: true,
+			errMsg:  "acme and cert_file/key_file are mutually exclusive",
+		},
+		{
+			name: "ACME invalid challenge type",
+			yaml: `
+listeners:
+  - id: "https-acme"
+    address: ":443"
+    protocol: "http"
+    tls:
+      enabled: true
+      acme:
+        enabled: true
+        domains:
+          - "example.com"
+        challenge_type: "dns-01"
+`,
+			wantErr: true,
+			errMsg:  "challenge_type must be",
+		},
 	}
 
 	for _, tt := range tests {

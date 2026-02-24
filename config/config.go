@@ -191,12 +191,24 @@ type EtcdConfig struct {
 
 // TLSConfig defines TLS settings
 type TLSConfig struct {
-	Enabled    bool   `yaml:"enabled"`
-	CertFile   string `yaml:"cert_file"`
-	KeyFile    string `yaml:"key_file"`
-	CAFile     string `yaml:"ca_file"`
-	ClientAuth string `yaml:"client_auth"` // Feature 11: mTLS - none, request, require, verify
-	ClientCAFile string `yaml:"client_ca_file"` // Feature 11: mTLS
+	Enabled      bool       `yaml:"enabled"`
+	CertFile     string     `yaml:"cert_file"`
+	KeyFile      string     `yaml:"key_file"`
+	CAFile       string     `yaml:"ca_file"`
+	ClientAuth   string     `yaml:"client_auth"`   // Feature 11: mTLS - none, request, require, verify
+	ClientCAFile string     `yaml:"client_ca_file"` // Feature 11: mTLS
+	ACME         ACMEConfig `yaml:"acme"`           // Automatic certificate provisioning via ACME/Let's Encrypt
+}
+
+// ACMEConfig defines ACME (Let's Encrypt) automatic certificate provisioning settings.
+type ACMEConfig struct {
+	Enabled       bool     `yaml:"enabled"`
+	Domains       []string `yaml:"domains"`
+	Email         string   `yaml:"email"`
+	DirectoryURL  string   `yaml:"directory_url"`  // ACME directory (default: Let's Encrypt production)
+	CacheDir      string   `yaml:"cache_dir"`      // Certificate cache directory (default: /var/lib/gateway/acme)
+	ChallengeType string   `yaml:"challenge_type"` // "tls-alpn-01" (default) or "http-01"
+	HTTPAddress   string   `yaml:"http_address"`   // HTTP-01 challenge bind address (default ":80")
 }
 
 // KubernetesConfig defines Kubernetes-specific settings

@@ -23,6 +23,14 @@ listeners:
       ca_file: string        # path to CA certificate
       client_auth: string    # mTLS mode: "none", "request", "require", "verify"
       client_ca_file: string # path to client CA for mTLS
+      acme:
+        enabled: bool              # enable ACME certificate management (default false)
+        domains: [string]          # domain names to obtain certificates for
+        email: string              # contact email for the ACME account
+        directory_url: string      # ACME directory URL (default: Let's Encrypt production)
+        cache_dir: string          # certificate cache directory (default "/var/lib/gateway/acme")
+        challenge_type: string     # "tls-alpn-01" (default) or "http-01"
+        http_address: string       # bind address for HTTP-01 challenge server (default ":80")
     http:
       read_timeout: duration       # default 30s
       write_timeout: duration      # default 30s
@@ -41,7 +49,7 @@ listeners:
       write_buffer_size: int
 ```
 
-**Validation:** At least one listener required. If TLS enabled, both `cert_file` and `key_file` required. `enable_http3` requires `tls.enabled`.
+**Validation:** At least one listener required. If TLS enabled, either `cert_file`/`key_file` or `acme.enabled` is required (but not both). When `acme.enabled` is true, `domains` and `email` are required, and `challenge_type` must be `tls-alpn-01` or `http-01`. `enable_http3` requires `tls.enabled`.
 
 ---
 

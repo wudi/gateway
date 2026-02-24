@@ -44,12 +44,20 @@ curl http://localhost:8081/health
     },
     "tracing": {
       "status": "ok"
+    },
+    "tls_certificates": {
+      "status": "ok",
+      "listeners": {
+        "https": {
+          "days_remaining": 65
+        }
+      }
     }
   }
 }
 ```
 
-Returns `503` with `"status": "degraded"` when any check fails (e.g., all backends unhealthy). The `redis` check is only included when Redis is configured, and `tracing` only when tracing is enabled.
+Returns `503` with `"status": "degraded"` when any check fails (e.g., all backends unhealthy). The `redis` check is only included when Redis is configured, `tracing` only when tracing is enabled, and `tls_certificates` only when at least one listener has TLS enabled. The `tls_certificates` check reports `"ok"` when all certificates have more than 7 days until expiry and `"degraded"` when any certificate has 7 or fewer days remaining.
 
 ### GET `/ready` (alias: `/readyz`)
 
@@ -89,7 +97,8 @@ All feature endpoints return JSON with per-route status and metrics.
 | Endpoint | Description |
 |----------|-------------|
 | `GET /stats` | Overall gateway statistics (route/backend/listener counts) |
-| `GET /listeners` | Active listeners with protocol, address, and HTTP/3 status |
+| `GET /listeners` | Active listeners with protocol, address, HTTP/3 status, and `acme` boolean indicating ACME certificate management |
+| `GET /certificates` | Per-listener TLS certificate status (mode `acme` or `manual`, domains, expiry, issuer) |
 | `GET /routes` | All routes with matchers (path, methods, domains, headers, query). Echo routes include `"echo": true`. |
 | `GET /registry` | Configured registry type |
 | `GET /backends` | Backend health status with latency, last check time, and health check config |

@@ -13,6 +13,7 @@ import (
 
 	"github.com/quic-go/quic-go/http3"
 	"github.com/wudi/gateway/config"
+	"github.com/wudi/gateway/internal/acme"
 )
 
 // HTTPListener wraps an HTTP server as a Listener
@@ -27,6 +28,7 @@ type HTTPListener struct {
 	enableHTTP3 bool
 	http3Server *http3.Server
 	udpConn     net.PacketConn
+	acmeMgr     *acme.Manager // ACME certificate manager (nil if manual TLS)
 }
 
 // HTTPListenerConfig holds configuration for creating an HTTP listener
@@ -35,6 +37,7 @@ type HTTPListenerConfig struct {
 	Address           string
 	Handler           http.Handler
 	TLS               config.TLSConfig
+	ACME              config.ACMEConfig
 	ReadTimeout       time.Duration
 	WriteTimeout      time.Duration
 	IdleTimeout       time.Duration
@@ -54,21 +57,32 @@ func NewHTTPListener(cfg HTTPListenerConfig) (*HTTPListener, error) {
 
 	// Set up TLS if enabled
 	if cfg.TLS.Enabled {
-		cert, err := tls.LoadX509KeyPair(cfg.TLS.CertFile, cfg.TLS.KeyFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load TLS certificates: %w", err)
+		if cfg.ACME.Enabled {
+			// ACME mode: automatic certificate provisioning
+			acmeMgr, err := acme.New(cfg.ACME)
+			if err != nil {
+				return nil, fmt.Errorf("failed to initialize ACME: %w", err)
+			}
+			h.acmeMgr = acmeMgr
+			h.tlsCfg = acmeMgr.TLSConfig()
+		} else {
+			// Manual TLS mode
+			cert, err := tls.LoadX509KeyPair(cfg.TLS.CertFile, cfg.TLS.KeyFile)
+			if err != nil {
+				return nil, fmt.Errorf("failed to load TLS certificates: %w", err)
+			}
+
+			h.certPtr.Store(&cert)
+
+			h.tlsCfg = &tls.Config{
+				GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+					return h.certPtr.Load(), nil
+				},
+				MinVersion: tls.VersionTLS12,
+			}
 		}
 
-		h.certPtr.Store(&cert)
-
-		h.tlsCfg = &tls.Config{
-			GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
-				return h.certPtr.Load(), nil
-			},
-			MinVersion: tls.VersionTLS12,
-		}
-
-		// mTLS: Configure client certificate authentication
+		// mTLS: Configure client certificate authentication (applies to both ACME and manual)
 		if cfg.TLS.ClientAuth != "" {
 			switch cfg.TLS.ClientAuth {
 			case "request":
@@ -161,6 +175,13 @@ func (h *HTTPListener) Addr() string {
 
 // Start starts the HTTP listener
 func (h *HTTPListener) Start(ctx context.Context) error {
+	// Start ACME HTTP-01 challenge server if needed
+	if h.acmeMgr != nil {
+		if err := h.acmeMgr.StartHTTPChallenge(ctx); err != nil {
+			return fmt.Errorf("failed to start ACME HTTP challenge server: %w", err)
+		}
+	}
+
 	ln, err := net.Listen("tcp", h.address)
 	if err != nil {
 		return fmt.Errorf("failed to listen on %s: %w", h.address, err)
@@ -206,6 +227,11 @@ func (h *HTTPListener) Start(ctx context.Context) error {
 
 // Stop stops the HTTP listener
 func (h *HTTPListener) Stop(ctx context.Context) error {
+	// Shut down ACME HTTP challenge server
+	if h.acmeMgr != nil {
+		h.acmeMgr.Stop(ctx)
+	}
+
 	// Shut down HTTP/3 first
 	if h.http3Server != nil {
 		h.http3Server.Close()
@@ -235,4 +261,14 @@ func (h *HTTPListener) HTTP3Enabled() bool {
 // Server returns the underlying HTTP server
 func (h *HTTPListener) Server() *http.Server {
 	return h.server
+}
+
+// ACMEManager returns the ACME manager, or nil if manual TLS is used.
+func (h *HTTPListener) ACMEManager() *acme.Manager {
+	return h.acmeMgr
+}
+
+// CertPtr returns the manual TLS certificate pointer (for expiry monitoring of manual certs).
+func (h *HTTPListener) CertPtr() *tls.Certificate {
+	return h.certPtr.Load()
 }
