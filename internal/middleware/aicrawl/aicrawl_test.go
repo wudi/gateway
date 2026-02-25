@@ -16,14 +16,32 @@ func TestDetectBuiltinCrawlers(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Some crawlers have patterns that differ from their Name (e.g. spaces, alternation).
+	// Use a lookup for realistic UA strings; fall back to Name+"/1.0" for simple cases.
+	specialUAs := map[string]string{
+		"ChatGPT-Agent":     "ChatGPT Agent/1.0",
+		"SemrushBot-AI":     "SemrushBot-OCOB/1.0",
+		"Kangaroo-Bot":      "Kangaroo Bot/1.0",
+		"Linguee-Bot":       "Linguee Bot/1.0",
+		"Poseidon-Research":  "Poseidon Research Crawler/1.0",
+		"Datenbank-Crawler": "Datenbank Crawler/1.0",
+		"EchoboxBot":        "Echobox/1.0",
+		"bigsur.ai":         "bigsur.ai/1.0",
+		"QuillBot":          "QuillBot/1.0",
+	}
+
 	for _, c := range BuiltinCrawlers {
-		pol := ctrl.detect(c.Name + "/1.0")
+		ua := c.Name + "/1.0"
+		if special, ok := specialUAs[c.Name]; ok {
+			ua = special
+		}
+		pol := ctrl.detect(ua)
 		if pol == nil {
-			t.Errorf("expected to detect built-in crawler %q", c.Name)
+			t.Errorf("expected to detect built-in crawler %q with UA %q", c.Name, ua)
 			continue
 		}
 		if pol.name != c.Name {
-			t.Errorf("detected %q, want %q", pol.name, c.Name)
+			t.Errorf("detected %q, want %q for UA %q", pol.name, c.Name, ua)
 		}
 	}
 }

@@ -63,29 +63,107 @@ ai_crawl_control:
   enabled: true
 ```
 
-All 17 built-in crawlers will be detected and tracked in metrics with the default `monitor` action (requests pass through).
+All built-in crawlers will be detected and tracked in metrics with the default `monitor` action (requests pass through).
 
 ## Built-In Crawlers
 
+Over 100 AI crawlers are recognized. Sourced from [ai-robots-txt](https://github.com/ai-robots-txt/ai.robots.txt).
+
 | Name | Description |
 |------|-------------|
+| **OpenAI** | |
 | GPTBot | OpenAI training crawler |
 | ChatGPT-User | OpenAI ChatGPT browsing |
+| OAI-SearchBot | OpenAI search crawler |
+| ChatGPT-Agent | OpenAI ChatGPT agent |
+| Operator | OpenAI Operator agent |
+| **Anthropic** | |
 | ClaudeBot | Anthropic training crawler |
 | anthropic-ai | Anthropic AI agent |
+| Claude-SearchBot | Anthropic search crawler |
+| Claude-User | Anthropic Claude user agent |
+| Claude-Web | Anthropic Claude web browsing |
+| **Google** | |
 | Google-Extended | Google AI training |
-| CCBot | Common Crawl |
-| Bytespider | ByteDance/TikTok |
+| GoogleOther | Google other AI crawlers |
+| CloudVertexBot | Google Cloud Vertex AI |
+| NotebookLM | Google NotebookLM |
+| Google-Firebase | Google Firebase AI |
+| GoogleAgent-Mariner | Google Mariner agent |
+| Gemini-Deep-Research | Google Gemini deep research |
+| **Apple** | |
 | Applebot-Extended | Apple AI training |
-| PerplexityBot | Perplexity AI search |
-| Amazonbot | Amazon AI |
+| **Meta** | |
 | FacebookBot | Meta AI |
+| facebookexternalhit | Meta external fetcher |
+| Meta-ExternalAgent | Meta AI external agent |
+| Meta-ExternalFetcher | Meta AI external fetcher |
+| meta-webindexer | Meta web indexer |
+| **Amazon** | |
+| Amazonbot | Amazon AI |
+| AmazonBuyForMe | Amazon Buy For Me agent |
+| Amzn-SearchBot | Amazon search bot |
+| amazon-kendra | Amazon Kendra AI search |
+| bedrockbot | AWS Bedrock AI |
+| **ByteDance / TikTok** | |
+| Bytespider | ByteDance/TikTok |
+| PetalBot | ByteDance Petal search |
+| TikTokSpider | TikTok spider |
+| **Microsoft / Azure** | |
+| AzureAI-SearchBot | Azure AI search |
+| **Cohere** | |
 | cohere-ai | Cohere AI |
+| cohere-training-data-crawler | Cohere training data crawler |
+| **DeepSeek** | |
+| DeepSeekBot | DeepSeek AI |
+| **Mistral** | |
+| MistralAI-User | Mistral AI user agent |
+| **Perplexity** | |
+| PerplexityBot | Perplexity AI search |
+| Perplexity-User | Perplexity user agent |
+| **Common Crawl** | |
+| CCBot | Common Crawl |
+| **Other AI search** | |
+| DuckAssistBot | DuckDuckGo AI assistant |
+| Bravebot | Brave search AI |
+| YouBot | You.com AI search |
+| PhindBot | Phind AI search |
+| Andibot | Andi AI search |
+| iAskBot | iAsk AI search |
+| kagi-fetcher | Kagi search fetcher |
+| LinkupBot | Linkup AI search |
+| TavilyBot | Tavily AI search API |
+| **AI agents** | |
+| Devin | Cognition AI Devin |
+| NovaAct | Amazon Nova AI agent |
+| Manus-User | Manus AI agent |
+| TwinAgent | Twin AI agent |
+| **AI scraping** | |
+| Crawl4AI | Crawl4AI scraper |
+| FirecrawlAgent | Firecrawl AI scraper |
+| img2dataset | LAION image dataset scraper |
+| LAIONDownloader | LAION dataset downloader |
+| Crawlspace | Crawlspace AI scraper |
 | Diffbot | Diffbot extraction |
+| **Chinese AI** | |
+| ChatGLM-Spider | Zhipu AI ChatGLM |
+| PanguBot | Huawei PanGu AI |
+| SBIntuitionsBot | SB Intuitions AI |
+| **Other** | |
+| AI2Bot | Allen AI |
 | Timpibot | Timpi search |
 | ImagesiftBot | Imagesift AI |
 | Omgilibot | Omgili data crawler |
-| AI2Bot | Allen AI |
+| YandexAdditionalBot | Yandex AI training |
+| Cloudflare-AutoRAG | Cloudflare AutoRAG |
+| QuillBot | QuillBot AI writing |
+| LinerBot | Liner AI |
+| WRTNBot | WRTN AI |
+| SemrushBot-AI | Semrush AI crawlers |
+| KlaviyoAIBot | Klaviyo AI marketing |
+| Brightbot | Bright Data AI |
+| DeepSeekBot | DeepSeek AI |
+| *...and 20+ more* | |
 
 ## Custom Crawlers
 
