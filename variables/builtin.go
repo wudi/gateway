@@ -305,6 +305,9 @@ type Context struct {
 	// Access log config (interface{} to avoid import cycle)
 	AccessLogConfig interface{}
 
+	// Trace propagation flag (set by baggage middleware, read by proxy)
+	PropagateTrace bool
+
 	// Custom values
 	Custom map[string]string
 }
@@ -346,6 +349,7 @@ func ReleaseContext(c *Context) {
 	c.APIVersion = ""
 	c.TenantID = ""
 	c.AccessLogConfig = nil
+	c.PropagateTrace = false
 	c.Custom = nil
 	contextPool.Put(c)
 }
@@ -376,6 +380,7 @@ func (c *Context) Clone() *Context {
 		APIVersion:           c.APIVersion,
 		TenantID:             c.TenantID,
 		AccessLogConfig:      c.AccessLogConfig,
+		PropagateTrace:       c.PropagateTrace,
 	}
 
 	if c.PathParams != nil {

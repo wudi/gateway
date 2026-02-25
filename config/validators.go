@@ -1371,7 +1371,7 @@ func (l *Loader) validateTokenExchangeConfig(scope string, route RouteConfig) er
 	return nil
 }
 
-func (l *Loader) validateDelegatedMiddleware(route RouteConfig, _ *Config) error {
+func (l *Loader) validateDelegatedMiddleware(route RouteConfig, cfg *Config) error {
 	scope := fmt.Sprintf("route %s", route.ID)
 	if err := l.validateCompressionConfig(scope, route.Compression); err != nil {
 		return err
@@ -1401,27 +1401,8 @@ func (l *Loader) validateDelegatedMiddleware(route RouteConfig, _ *Config) error
 		return fmt.Errorf("%s: field_encryption is mutually exclusive with passthrough", scope)
 	}
 	if route.Baggage.Enabled {
-		if len(route.Baggage.Tags) == 0 {
-			return fmt.Errorf("%s: baggage requires at least one tag", scope)
-		}
-		validPrefixes := []string{"header:", "jwt_claim:", "query:", "cookie:", "static:"}
-		for i, tag := range route.Baggage.Tags {
-			if tag.Name == "" {
-				return fmt.Errorf("%s: baggage.tags[%d].name is required", scope, i)
-			}
-			if tag.Header == "" {
-				return fmt.Errorf("%s: baggage.tags[%d].header is required", scope, i)
-			}
-			valid := false
-			for _, p := range validPrefixes {
-				if strings.HasPrefix(tag.Source, p) {
-					valid = true
-					break
-				}
-			}
-			if !valid {
-				return fmt.Errorf("%s: baggage.tags[%d].source must start with header:, jwt_claim:, query:, cookie:, or static:", scope, i)
-			}
+		if err := l.validateBaggageConfig(scope, route.Baggage, cfg); err != nil {
+			return err
 		}
 	}
 	if route.Backpressure.Enabled {
@@ -1565,6 +1546,62 @@ func (l *Loader) validateBotDetectionConfig(scope string, cfg BotDetectionConfig
 	}
 	if len(cfg.Deny) == 0 {
 		return fmt.Errorf("%s: bot_detection.deny requires at least one pattern", scope)
+	}
+	return nil
+}
+
+// validateBaggageConfig validates baggage propagation config.
+func (l *Loader) validateBaggageConfig(scope string, cfg BaggageConfig, globalCfg *Config) error {
+	// propagate_trace requires tracing to be enabled
+	if cfg.PropagateTrace && !globalCfg.Tracing.Enabled {
+		return fmt.Errorf("%s: baggage.propagate_trace requires tracing.enabled", scope)
+	}
+	// require at least one tag OR propagate_trace (standalone trace propagation is valid)
+	if len(cfg.Tags) == 0 && !cfg.PropagateTrace {
+		return fmt.Errorf("%s: baggage requires at least one tag or propagate_trace", scope)
+	}
+	// w3c_baggage without tags is a no-op
+	if cfg.W3CBaggage && len(cfg.Tags) == 0 {
+		return fmt.Errorf("%s: baggage.w3c_baggage requires at least one tag", scope)
+	}
+	validPrefixes := []string{"header:", "jwt_claim:", "query:", "cookie:", "static:"}
+	seenW3CKeys := map[string]bool{}
+	for i, tag := range cfg.Tags {
+		if tag.Name == "" {
+			return fmt.Errorf("%s: baggage.tags[%d].name is required", scope, i)
+		}
+		// header is required unless w3c_baggage is active
+		if tag.Header == "" && !cfg.W3CBaggage {
+			return fmt.Errorf("%s: baggage.tags[%d].header is required", scope, i)
+		}
+		valid := false
+		for _, p := range validPrefixes {
+			if strings.HasPrefix(tag.Source, p) {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			return fmt.Errorf("%s: baggage.tags[%d].source must start with header:, jwt_claim:, query:, cookie:, or static:", scope, i)
+		}
+		// Validate W3C baggage keys when w3c_baggage is enabled
+		if cfg.W3CBaggage {
+			w3cKey := tag.BaggageKey
+			if w3cKey == "" {
+				w3cKey = tag.Name
+			}
+			if w3cKey == "" {
+				return fmt.Errorf("%s: baggage.tags[%d]: w3c baggage key must not be empty", scope, i)
+			}
+			if seenW3CKeys[w3cKey] {
+				return fmt.Errorf("%s: baggage.tags[%d]: duplicate w3c baggage key %q", scope, i, w3cKey)
+			}
+			seenW3CKeys[w3cKey] = true
+			// W3C token chars: no spaces, commas, semicolons, equals, double-quotes
+			if strings.ContainsAny(w3cKey, " ,;=\"") {
+				return fmt.Errorf("%s: baggage.tags[%d]: w3c baggage key %q contains invalid characters (no spaces, commas, semicolons, equals, or double-quotes allowed)", scope, i, w3cKey)
+			}
+		}
 	}
 	return nil
 }

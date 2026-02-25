@@ -471,6 +471,13 @@ func (l *Loader) validate(cfg *Config) error {
 		return err
 	}
 
+	// === Global baggage propagation ===
+	if cfg.Baggage.Enabled {
+		if err := l.validateBaggageConfig("global", cfg.Baggage, cfg); err != nil {
+			return err
+		}
+	}
+
 	// === Schema Evolution ===
 	if cfg.OpenAPI.SchemaEvolution.Enabled {
 		mode := cfg.OpenAPI.SchemaEvolution.Mode

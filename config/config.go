@@ -81,6 +81,7 @@ type Config struct {
 	CompletionHeader       bool                         `yaml:"completion_header"`         // Add X-Gateway-Completed header to aggregate/sequential responses
 	Deprecation            DeprecationConfig            `yaml:"deprecation"`               // Global API deprecation lifecycle (RFC 8594)
 	ConsumerGroups         ConsumerGroupsConfig         `yaml:"consumer_groups"`           // Consumer group definitions
+	Baggage                BaggageConfig                `yaml:"baggage"`                   // Global baggage propagation defaults
 	Extensions             map[string]yaml.RawMessage   `yaml:"extensions,omitempty"`      // Plugin extension config (raw YAML, decoded by plugins)
 }
 
@@ -2060,15 +2061,18 @@ type IPBlocklistFeed struct {
 
 // BaggageConfig defines baggage propagation settings for a route.
 type BaggageConfig struct {
-	Enabled bool            `yaml:"enabled"`
-	Tags    []BaggageTagDef `yaml:"tags"`
+	Enabled        bool            `yaml:"enabled"`
+	PropagateTrace bool            `yaml:"propagate_trace"` // inject traceparent/tracestate to backends
+	W3CBaggage     bool            `yaml:"w3c_baggage"`     // emit W3C baggage header from tag values
+	Tags           []BaggageTagDef `yaml:"tags"`
 }
 
 // BaggageTagDef defines a single baggage tag to extract and propagate.
 type BaggageTagDef struct {
-	Name   string `yaml:"name"`   // logical name for the tag (used in variable context)
-	Source string `yaml:"source"` // extraction source: header:<name>, jwt_claim:<name>, query:<name>, cookie:<name>, static:<value>
-	Header string `yaml:"header"` // backend header name to propagate as
+	Name       string `yaml:"name"`        // logical name for the tag (used in variable context)
+	Source     string `yaml:"source"`      // extraction source: header:<name>, jwt_claim:<name>, query:<name>, cookie:<name>, static:<value>
+	Header     string `yaml:"header"`      // backend header name to propagate as
+	BaggageKey string `yaml:"baggage_key"` // W3C baggage key; defaults to Name
 }
 
 // BackpressureConfig defines backend backpressure detection settings.

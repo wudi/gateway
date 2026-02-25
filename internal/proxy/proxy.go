@@ -11,6 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+
 	"github.com/wudi/gateway/config"
 	"github.com/wudi/gateway/internal/errors"
 	"github.com/wudi/gateway/internal/health"
@@ -355,6 +358,11 @@ func (p *Proxy) createProxyRequest(ctx context.Context, r *http.Request, target 
 
 	// Remove hop-by-hop headers
 	removeHopHeaders(proxyReq.Header)
+
+	// Inject OTEL trace context + W3C baggage into outbound request
+	if varCtx := variables.GetFromRequest(r); varCtx != nil && varCtx.PropagateTrace {
+		otel.GetTextMapPropagator().Inject(proxyReq.Context(), propagation.HeaderCarrier(proxyReq.Header))
+	}
 
 	return proxyReq
 }

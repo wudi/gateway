@@ -2,87 +2,55 @@ package baggage
 
 import (
 	"net/http"
-	"strings"
 	"sync/atomic"
 
-	"github.com/wudi/gateway/internal/byroute"
+	"go.opentelemetry.io/otel/baggage"
+
 	"github.com/wudi/gateway/config"
+	"github.com/wudi/gateway/internal/byroute"
+	"github.com/wudi/gateway/internal/extract"
 	"github.com/wudi/gateway/internal/middleware"
 	"github.com/wudi/gateway/variables"
 )
 
-// extractorFunc extracts a value from a request.
-type extractorFunc func(r *http.Request) string
-
 // compiledTag is a pre-compiled baggage tag definition.
 type compiledTag struct {
 	name    string
-	header  string
-	extract extractorFunc
+	header  string       // custom backend header; empty = W3C-only tag
+	w3cKey  string       // resolved W3C baggage key; empty if w3c_baggage disabled
+	extract extract.Func // value extractor
 }
 
 // Propagator extracts and propagates baggage tags for a single route.
 type Propagator struct {
-	tags       []compiledTag
-	propagated atomic.Int64
+	tags           []compiledTag
+	propagateTrace bool
+	w3cBaggage     bool
+	propagated     atomic.Int64
 }
 
 // New creates a Propagator from config.
 func New(cfg config.BaggageConfig) (*Propagator, error) {
 	tags := make([]compiledTag, 0, len(cfg.Tags))
 	for _, td := range cfg.Tags {
-		ext := buildExtractor(td.Source)
-		tags = append(tags, compiledTag{
+		ct := compiledTag{
 			name:    td.Name,
 			header:  td.Header,
-			extract: ext,
-		})
+			extract: extract.Build(td.Source),
+		}
+		if cfg.W3CBaggage {
+			ct.w3cKey = td.BaggageKey
+			if ct.w3cKey == "" {
+				ct.w3cKey = td.Name
+			}
+		}
+		tags = append(tags, ct)
 	}
-	return &Propagator{tags: tags}, nil
-}
-
-func buildExtractor(source string) extractorFunc {
-	switch {
-	case strings.HasPrefix(source, "header:"):
-		hdr := source[len("header:"):]
-		return func(r *http.Request) string {
-			return r.Header.Get(hdr)
-		}
-	case strings.HasPrefix(source, "jwt_claim:"):
-		claim := source[len("jwt_claim:"):]
-		return func(r *http.Request) string {
-			vc := variables.GetFromRequest(r)
-			if vc.Identity == nil || vc.Identity.Claims == nil {
-				return ""
-			}
-			if v, ok := vc.Identity.Claims[claim]; ok {
-				if s, ok := v.(string); ok {
-					return s
-				}
-			}
-			return ""
-		}
-	case strings.HasPrefix(source, "query:"):
-		param := source[len("query:"):]
-		return func(r *http.Request) string {
-			return r.URL.Query().Get(param)
-		}
-	case strings.HasPrefix(source, "cookie:"):
-		name := source[len("cookie:"):]
-		return func(r *http.Request) string {
-			if c, err := r.Cookie(name); err == nil {
-				return c.Value
-			}
-			return ""
-		}
-	case strings.HasPrefix(source, "static:"):
-		val := source[len("static:"):]
-		return func(r *http.Request) string {
-			return val
-		}
-	default:
-		return func(r *http.Request) string { return "" }
-	}
+	return &Propagator{
+		tags:           tags,
+		propagateTrace: cfg.PropagateTrace,
+		w3cBaggage:     cfg.W3CBaggage,
+	}, nil
 }
 
 // Middleware returns the baggage propagation middleware.
@@ -90,6 +58,13 @@ func (p *Propagator) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			vc := variables.GetFromRequest(r)
+
+			// Build W3C baggage from existing upstream context
+			var bag baggage.Baggage
+			if p.w3cBaggage {
+				bag = baggage.FromContext(r.Context())
+			}
+
 			for _, tag := range p.tags {
 				val := tag.extract(r)
 				if val == "" {
@@ -97,9 +72,31 @@ func (p *Propagator) Middleware() middleware.Middleware {
 				}
 				// Store in variable context custom data
 				vc.SetCustom(tag.name, val)
-				// Propagate as header to backend
-				r.Header.Set(tag.header, val)
+				// Propagate as custom header to backend (skip when header is empty = W3C-only tag)
+				if tag.header != "" {
+					r.Header.Set(tag.header, val)
+				}
+				// Add to W3C baggage
+				if tag.w3cKey != "" {
+					m, err := baggage.NewMember(tag.w3cKey, val)
+					if err != nil {
+						continue // value not W3C-encodable, skip
+					}
+					bag, _ = bag.SetMember(m)
+				}
 			}
+
+			// Store W3C baggage in context for OTEL propagator to serialize
+			if p.w3cBaggage {
+				ctx := baggage.ContextWithBaggage(r.Context(), bag)
+				r = r.WithContext(ctx)
+			}
+
+			// Set propagate trace flag for proxy layer
+			if p.propagateTrace {
+				vc.PropagateTrace = true
+			}
+
 			p.propagated.Add(1)
 			next.ServeHTTP(w, r)
 		})
@@ -109,6 +106,11 @@ func (p *Propagator) Middleware() middleware.Middleware {
 // Propagated returns the count of requests propagated.
 func (p *Propagator) Propagated() int64 {
 	return p.propagated.Load()
+}
+
+// MergeBaggageConfig merges per-route over global. MergeNonZero(base=global, overlay=perRoute).
+func MergeBaggageConfig(perRoute, global config.BaggageConfig) config.BaggageConfig {
+	return config.MergeNonZero(global, perRoute)
 }
 
 // BaggageByRoute manages per-route baggage propagators.
@@ -141,8 +143,10 @@ func (b *BaggageByRoute) GetPropagator(routeID string) *Propagator {
 func (b *BaggageByRoute) Stats() map[string]interface{} {
 	return byroute.CollectStats(&b.Manager, func(p *Propagator) interface{} {
 		return map[string]interface{}{
-			"tags":       len(p.tags),
-			"propagated": p.Propagated(),
+			"tags":            len(p.tags),
+			"propagated":      p.Propagated(),
+			"propagate_trace": p.propagateTrace,
+			"w3c_baggage":     p.w3cBaggage,
 		}
 	})
 }

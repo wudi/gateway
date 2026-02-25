@@ -956,7 +956,11 @@ func New(cfg *config.Config) (*Gateway, error) {
 
 		newFeature("baggage", "/baggage", func(id string, rc config.RouteConfig) error {
 			if rc.Baggage.Enabled {
-				return g.baggagePropagators.AddRoute(id, rc.Baggage)
+				merged := baggage.MergeBaggageConfig(rc.Baggage, cfg.Baggage)
+				return g.baggagePropagators.AddRoute(id, merged)
+			}
+			if cfg.Baggage.Enabled {
+				return g.baggagePropagators.AddRoute(id, cfg.Baggage)
 			}
 			return nil
 		}, g.baggagePropagators.RouteIDs, func() any { return g.baggagePropagators.Stats() }),

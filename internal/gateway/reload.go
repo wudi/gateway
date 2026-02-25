@@ -631,7 +631,13 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 			return nil
 		}, s.inboundVerifiers.RouteIDs, func() any { return s.inboundVerifiers.Stats() }),
 		newFeature("baggage", "/baggage", func(id string, rc config.RouteConfig) error {
-			if rc.Baggage.Enabled { return s.baggagePropagators.AddRoute(id, rc.Baggage) }
+			if rc.Baggage.Enabled {
+				merged := baggage.MergeBaggageConfig(rc.Baggage, cfg.Baggage)
+				return s.baggagePropagators.AddRoute(id, merged)
+			}
+			if cfg.Baggage.Enabled {
+				return s.baggagePropagators.AddRoute(id, cfg.Baggage)
+			}
 			return nil
 		}, s.baggagePropagators.RouteIDs, func() any { return s.baggagePropagators.Stats() }),
 		newFeature("audit_log", "/audit-log", func(id string, rc config.RouteConfig) error {

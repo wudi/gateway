@@ -2645,21 +2645,37 @@ ssrf_protection:
 
 See [SSRF Protection](../security/ssrf-protection.md) for details.
 
-## Baggage Propagation (per-route)
+## Baggage Propagation (global and per-route)
 
 ```yaml
+# Global defaults
+baggage:
+  enabled: bool              # enable baggage propagation for all routes (default false)
+  propagate_trace: bool      # inject traceparent/tracestate to backends (default false)
+  w3c_baggage: bool          # emit W3C baggage header from tag values (default false)
+  tags:                      # list of baggage tag definitions
+    - name: string           # logical tag name (required)
+      source: string         # source expression (required)
+      header: string         # backend header name (required unless w3c_baggage is true)
+      baggage_key: string    # W3C baggage key override (defaults to name)
+
+# Per-route (overrides global)
 routes:
   - id: my-route
     baggage:
-      enabled: bool              # enable baggage propagation (default false)
-      tags:                      # list of baggage tag definitions
-        - name: string           # header name to inject (required)
-          source: string         # source expression (required)
+      enabled: bool
+      propagate_trace: bool
+      w3c_baggage: bool
+      tags:
+        - name: string
+          source: string
+          header: string
+          baggage_key: string
 ```
 
 Source types: `header:<name>`, `jwt_claim:<name>`, `query:<name>`, `cookie:<name>`, `static:<value>`.
 
-**Validation:** At least one tag required when enabled. Each tag must have `name` and `source`. `source` must use a valid prefix (`header:`, `jwt_claim:`, `query:`, `cookie:`, `static:`). `jwt_claim` sources require auth to be configured on the route.
+**Validation:** At least one tag or `propagate_trace: true` required when enabled. `w3c_baggage` requires at least one tag. `propagate_trace` requires `tracing.enabled: true`. `header` is required per tag unless `w3c_baggage` is true. W3C baggage keys must be unique and contain no spaces, commas, semicolons, equals, or double-quotes. Per-route `tags` replaces global `tags` entirely (not additive).
 
 See [Baggage Propagation](../transformations/baggage-propagation.md) for details.
 
