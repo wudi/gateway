@@ -13,7 +13,10 @@ Gateway provides enterprise-grade traffic management, security, resilience, and 
 - **Resilience** — Retries with budgets, hedging, circuit breakers, adaptive concurrency, outlier detection, load shedding, backpressure, SLO enforcement
 - **Traffic control** — Rate limiting, spike arrest, quotas, throttling, bandwidth limits, priority queues, consumer groups, multi-tenancy, canary/blue-green/A/B
 - **Observability** — Prometheus metrics, OpenTelemetry tracing, structured logging (zap), event webhooks, audit logging, developer portal
+- **AI Gateway** — Native proxy for OpenAI, Anthropic, Azure OpenAI, and Gemini with prompt guard, token rate limiting, and response decoration
+- **Kubernetes native** — Ingress Controller supporting both Ingress v1 and Gateway API, plus hybrid CP/DP cluster mode with mTLS gRPC config streaming
 - **Zero-downtime ops** — Hot config reload via SIGHUP or admin API, graceful shutdown with connection draining, schema evolution validation
+- **Extensible** — Public Go module API for custom middleware, Lua scripting, WASM plugins, OPA policies
 - **Single binary** — No runtime dependencies. Add Redis for distributed features, or run fully standalone
 
 ## Quick Start
@@ -158,7 +161,10 @@ routes:
 | **Inbound Request Signing** | HMAC signature verification on incoming requests |
 | **Field-Level Encryption** | AES-GCM-256 encryption/decryption of specific JSON fields |
 | **PII Redaction** | Auto-detect and mask PII (emails, SSNs, credit cards) in bodies |
+| **ACME / Let's Encrypt** | Automatic TLS certificate provisioning and renewal |
+| **AI Crawl Control** | Block or allow AI training crawlers by User-Agent |
 | **WASM Plugins** | Sandboxed custom filters in Rust/C/Go/AssemblyScript via Wazero |
+| **Lua Scripting** | Inline Lua scripts for custom request/response logic |
 
 ### Resilience
 
@@ -223,6 +229,7 @@ routes:
 | **AMQP/RabbitMQ** | HTTP-to-AMQP message queue bridging |
 | **Pub/Sub** | HTTP-to-pub/sub (GCP, AWS SNS/SQS, NATS, Kafka, Azure) via Go CDK |
 | **FastCGI** | PHP-FPM and FastCGI backend proxying |
+| **AI Gateway** | Native proxy for OpenAI, Anthropic, Azure OpenAI, Gemini with prompt guard and token rate limiting |
 
 ### Caching & Performance
 
@@ -236,7 +243,19 @@ routes:
 | **Request Coalescing** | Singleflight deduplication of identical concurrent requests |
 | **Response Streaming** | Configurable flush behavior (immediate or periodic) for streaming APIs |
 | **Compression** | gzip, deflate, brotli, zstd response compression |
+| **Edge Cache Rules** | Conditional caching with expression-based bypass and override |
 | **Request Decompression** | Decompress inbound gzip/deflate/br/zstd with zip bomb protection |
+
+### Deployment & Operations
+
+| Feature | Description |
+|---|---|
+| **Kubernetes Ingress Controller** | Native Ingress v1 and Gateway API (GatewayClass, Gateway, HTTPRoute) support |
+| **Cluster Mode (CP/DP)** | Hybrid control plane / data plane with mTLS gRPC config streaming and static stability |
+| **Hot Config Reload** | SIGHUP or `POST /reload` with zero-downtime route swaps |
+| **Graceful Shutdown** | Configurable shutdown timeout with connection draining |
+| **ACME Certificates** | Automatic TLS provisioning via Let's Encrypt |
+| **Helm Chart** | Production-ready Helm chart for Kubernetes deployment |
 
 ### Request & Response Processing
 
@@ -325,8 +344,8 @@ routes:
               │                      │                      │
      ┌────────▼──────┐    ┌─────────▼────────┐   ┌────────▼───────┐
      │  HTTP Proxy   │    │  WebSocket / SSE  │   │ gRPC / Thrift  │
-     │  + Retries    │    │     Proxy         │   │  (Protocol     │
-     │  + Hedging    │    │                   │   │   Translation) │
+     │  + Retries    │    │     Proxy         │   │  / AI Gateway  │
+     │  + Hedging    │    │                   │   │                │
      └────────┬──────┘    └─────────┬────────┘   └────────┬───────┘
               │                     │                      │
      ┌────────▼─────────────────────▼──────────────────────▼───────┐
@@ -337,6 +356,23 @@ routes:
      ┌────────▼──────┐    ┌────────▼───────┐    ┌─────────▼──────┐
      │   Backend 1   │    │   Backend 2    │    │   Backend N    │
      └───────────────┘    └────────────────┘    └────────────────┘
+```
+
+### Cluster Mode (CP/DP)
+
+```
+     ┌──────────────────────────────────────┐
+     │          Control Plane (CP)           │
+     │  Config source → gRPC push to DPs    │
+     │  Admin API: /cluster/nodes            │
+     │            /api/v1/config             │
+     └──────┬──────────────┬────────────────┘
+            │ mTLS gRPC    │ mTLS gRPC
+     ┌──────▼──────┐  ┌───▼────────────┐
+     │ Data Plane  │  │  Data Plane    │   DPs receive config,
+     │  (DP #1)    │  │   (DP #2)      │   serve traffic, and
+     │  HTTP :8080 │  │   HTTP :8080   │   cache config to disk
+     └─────────────┘  └────────────────┘   for static stability
 ```
 
 ## Admin API
@@ -364,6 +400,13 @@ curl localhost:8081/circuit-breakers
 curl localhost:8081/rate-limits
 curl localhost:8081/cache
 curl localhost:8081/canary
+
+# Cluster mode (CP only)
+curl localhost:8081/cluster/nodes
+curl localhost:8081/api/v1/config/hash
+
+# Cluster mode (DP only)
+curl localhost:8081/cluster/status
 ```
 
 See [docs/admin-api.md](docs/reference/admin-api.md) for the full endpoint reference.
@@ -413,6 +456,48 @@ Flags:
   -version          Print version and exit
 ```
 
+### Kubernetes Ingress Controller
+
+```bash
+# Deploy via Helm
+helm install gateway deploy/kubernetes/helm/gateway/ \
+  --set controller.ingressClass=gateway
+
+# Or run standalone
+gateway-ingress -kubeconfig ~/.kube/config
+```
+
+Supports both Ingress v1 and Gateway API (GatewayClass, Gateway, HTTPRoute). Annotations use the `apigw.dev/` prefix. See [Kubernetes Ingress](docs/traffic-routing/kubernetes-ingress.md) for full details.
+
+### Cluster Mode (CP/DP)
+
+```yaml
+# Control plane
+cluster:
+  role: control_plane
+  control_plane:
+    address: ":9443"
+    tls:
+      enabled: true
+      cert_file: /path/to/cp-cert.pem
+      key_file: /path/to/cp-key.pem
+      client_ca_file: /path/to/ca.pem
+
+# Data plane (separate instance)
+cluster:
+  role: data_plane
+  data_plane:
+    address: "cp-host:9443"
+    cache_dir: /var/lib/gateway/cluster
+    tls:
+      enabled: true
+      cert_file: /path/to/dp-cert.pem
+      key_file: /path/to/dp-key.pem
+      ca_file: /path/to/ca.pem
+```
+
+Data planes receive configuration via mTLS gRPC streaming, cache it to disk for static stability, and automatically reconnect if the control plane restarts. See [Cluster Mode](docs/reference/cluster-mode.md) for full details.
+
 Signals:
 - `SIGHUP` — reload configuration without downtime
 - `SIGINT` / `SIGTERM` — graceful shutdown
@@ -438,6 +523,7 @@ Full documentation is available in the [docs/](docs/) directory:
 - [API Deprecation](docs/traffic-routing/deprecation.md) — RFC 8594 deprecation headers and sunset blocking
 - [URL Rewriting](docs/traffic-routing/url-rewriting.md) — Prefix stripping, regex rewrite, host override
 - [Service Discovery](docs/traffic-routing/service-discovery.md) — Consul, etcd, Kubernetes, memory registry
+- [Kubernetes Ingress](docs/traffic-routing/kubernetes-ingress.md) — Ingress v1 and Gateway API controller
 - [Sequential Proxy](docs/traffic-routing/sequential-proxy.md) — Multi-step backend chaining with data piping
 - [Response Aggregation](docs/traffic-routing/response-aggregation.md) — Parallel multi-backend calls with JSON merge
 - [Follow Redirects](docs/traffic-routing/follow-redirects.md) — Backend redirect following
@@ -458,6 +544,10 @@ Full documentation is available in the [docs/](docs/) directory:
 - [Pub/Sub](docs/protocol/pubsub.md) — HTTP-to-pub/sub (GCP, AWS, NATS, Kafka, Azure)
 - [AWS Lambda](docs/protocol/lambda.md) — HTTP-to-Lambda invocation
 - [FastCGI](docs/protocol/fastcgi.md) — PHP-FPM and FastCGI backend proxying
+
+### AI Gateway
+- [AI Gateway](docs/ai-gateway/ai-gateway.md) — AI model proxy with prompt guard, token rate limiting, response decoration
+- [AI Providers](docs/ai-gateway/ai-providers.md) — OpenAI, Anthropic, Azure OpenAI, Gemini provider configuration
 
 ### Resilience
 - [Resilience](docs/resilience/resilience.md) — Retries, budget, hedging, circuit breakers, timeouts
@@ -498,6 +588,8 @@ Full documentation is available in the [docs/](docs/) directory:
 - [Inbound Signing](docs/security/inbound-signing.md) — HMAC request signature verification
 - [Field Encryption](docs/security/field-encryption.md) — AES-GCM-256 per-field JSON encryption
 - [PII Redaction](docs/security/pii-redaction.md) — Auto-mask PII in request/response bodies
+- [ACME / Let's Encrypt](docs/security/acme.md) — Automatic TLS certificate provisioning
+- [AI Crawl Control](docs/security/ai-crawl-control.md) — Block or allow AI training crawlers
 - [WASM Plugins](docs/security/wasm-plugins.md) — Sandboxed custom filters via Wazero
 
 ### Caching
@@ -505,6 +597,7 @@ Full documentation is available in the [docs/](docs/) directory:
 - [Shared Cache Buckets](docs/caching/shared-cache-buckets.md) — Cross-route cache sharing
 - [CDN Cache Headers](docs/caching/cdn-cache-headers.md) — Cache-Control and Surrogate-Control injection
 - [ETag](docs/caching/etag.md) — SHA-256 ETag generation with conditional request support
+- [Edge Cache Rules](docs/caching/edge-cache-rules.md) — Conditional caching with expression-based bypass
 - [Response Streaming](docs/caching/response-streaming.md) — Flush control for streaming APIs
 
 ### Transformations
@@ -537,7 +630,10 @@ Full documentation is available in the [docs/](docs/) directory:
 
 ### Reference
 - [Admin API Reference](docs/reference/admin-api.md) — Health, feature endpoints, dashboard, reload
+- [Configuration Reference](docs/reference/configuration-reference.md) — Complete YAML schema
 - [Rules Engine](docs/reference/rules-engine.md) — Expression syntax, request/response rules, actions
+- [Cluster Mode](docs/reference/cluster-mode.md) — CP/DP hybrid deployment with mTLS gRPC config streaming
+- [Extensibility](docs/reference/extensibility.md) — Public Go module API for custom middleware and plugins
 
 ## Development
 
