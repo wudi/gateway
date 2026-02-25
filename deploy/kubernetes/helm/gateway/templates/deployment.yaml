@@ -1,0 +1,124 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "gateway.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gateway.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "gateway.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "gateway.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "gateway.serviceAccountName" . }}
+      {{- if .Values.priorityClass.create }}
+      priorityClassName: {{ include "gateway.fullname" . }}
+      {{- end }}
+      containers:
+        - name: controller
+          image: {{ include "gateway.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --ingress-class={{ .Values.controller.ingressClass }}
+            - --controller-name={{ .Values.controller.controllerName }}
+            - --http-port={{ .Values.ports.http }}
+            - --https-port={{ .Values.ports.https }}
+            - --admin-port={{ .Values.ports.admin }}
+            - --metrics-port={{ .Values.ports.metrics }}
+            - --debounce-delay={{ .Values.controller.debounceDelay }}
+            {{- if .Values.controller.watchNamespaces }}
+            - --watch-namespaces={{ .Values.controller.watchNamespaces }}
+            {{- end }}
+            {{- if .Values.controller.watchIngressWithoutClass }}
+            - --watch-ingress-without-class
+            {{- end }}
+            {{- if not .Values.controller.enableIngress }}
+            - --enable-ingress=false
+            {{- end }}
+            {{- if not .Values.controller.enableGatewayAPI }}
+            - --enable-gateway-api=false
+            {{- end }}
+            {{- if .Values.controller.publishService }}
+            - --publish-service={{ .Values.controller.publishService }}
+            {{- end }}
+            {{- if .Values.controller.publishStatusAddress }}
+            - --publish-status-address={{ .Values.controller.publishStatusAddress }}
+            {{- end }}
+            {{- if .Values.controller.baseConfig }}
+            - --base-config=/etc/gateway/base-config.yaml
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.ports.http }}
+              protocol: TCP
+            - name: https
+              containerPort: {{ .Values.ports.https }}
+              protocol: TCP
+            - name: admin
+              containerPort: {{ .Values.ports.admin }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.ports.metrics }}
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: admin
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: admin
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          startupProbe:
+            httpGet:
+              path: /ready
+              port: admin
+            failureThreshold: 30
+            periodSeconds: 2
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.controller.baseConfig }}
+          volumeMounts:
+            - name: base-config
+              mountPath: /etc/gateway
+              readOnly: true
+          {{- end }}
+      {{- if .Values.controller.baseConfig }}
+      volumes:
+        - name: base-config
+          configMap:
+            name: {{ include "gateway.fullname" . }}-config
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -41,6 +42,7 @@ type Server struct {
 	udpProxy      *udp.Proxy
 	startTime     time.Time
 	reloadHistory []ReloadResult
+	reloadMu      sync.Mutex // serializes concurrent ReloadWithConfig calls
 	grpcHealthServer *grpchealth.Server
 	draining         atomic.Bool
 	drainStart       atomic.Int64 // unix nano timestamp when drain started
@@ -358,6 +360,26 @@ func (s *Server) ReloadConfig() ReloadResult {
 	}
 
 	s.reloadHistory = appendReloadHistory(s.reloadHistory, result)
+	return result
+}
+
+// ReloadWithConfig performs a hot config reload using the provided Config object
+// instead of loading from a file. This is used by the ingress controller to push
+// K8s-derived configs. Concurrent calls are serialized by reloadMu.
+func (s *Server) ReloadWithConfig(newCfg *config.Config) ReloadResult {
+	s.reloadMu.Lock()
+	result := s.gateway.Reload(newCfg)
+	if result.Success {
+		s.config = newCfg
+	}
+	s.reloadHistory = appendReloadHistory(s.reloadHistory, result)
+	s.reloadMu.Unlock()
+
+	// Listener reconciliation outside lock — route handlers already swapped,
+	// listener start/stop can block (up to 10s graceful stop timeout).
+	if result.Success {
+		s.reconcileListeners(newCfg)
+	}
 	return result
 }
 

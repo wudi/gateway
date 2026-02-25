@@ -1,0 +1,10 @@
+{{- if and .Values.gatewayClass.create .Values.controller.enableGatewayAPI }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: {{ .Values.controller.ingressClass }}
+  labels:
+    {{- include "gateway.labels" . | nindent 4 }}
+spec:
+  controllerName: {{ .Values.controller.controllerName }}
+{{- end }}

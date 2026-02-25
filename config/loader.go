@@ -78,6 +78,12 @@ func (l *Loader) expandEnvVars(input string) string {
 	})
 }
 
+// Validate checks a Config for errors. It is the exported entry point
+// used by the ingress controller (which builds configs programmatically).
+func Validate(cfg *Config) error {
+	return NewLoader().validate(cfg)
+}
+
 // validate checks configuration for errors.
 func (l *Loader) validate(cfg *Config) error {
 	// === Listeners ===
@@ -124,12 +130,18 @@ func (l *Loader) validate(cfg *Config) error {
 					return fmt.Errorf("listener %s: acme.challenge_type must be \"tls-alpn-01\" or \"http-01\"", listener.ID)
 				}
 			} else {
-				// Manual TLS: cert_file and key_file required
-				if listener.TLS.CertFile == "" {
-					return fmt.Errorf("listener %s: TLS enabled but cert_file not provided", listener.ID)
+				// Manual TLS: need either top-level cert_file/key_file OR at least one Certificates entry (file-based or in-memory)
+				hasCertFile := listener.TLS.CertFile != "" && listener.TLS.KeyFile != ""
+				hasCerts := len(listener.TLS.Certificates) > 0
+				if !hasCertFile && !hasCerts {
+					return fmt.Errorf("listener %s: TLS enabled but no certificate source provided (set cert_file/key_file or certificates)", listener.ID)
 				}
-				if listener.TLS.KeyFile == "" {
-					return fmt.Errorf("listener %s: TLS enabled but key_file not provided", listener.ID)
+				for j, cp := range listener.TLS.Certificates {
+					hasFile := cp.CertFile != "" && cp.KeyFile != ""
+					hasData := len(cp.CertData) > 0 && len(cp.KeyData) > 0
+					if !hasFile && !hasData {
+						return fmt.Errorf("listener %s: certificates[%d]: need cert_file/key_file or in-memory cert/key data", listener.ID, j)
+					}
 				}
 			}
 		}

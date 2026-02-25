@@ -18,8 +18,12 @@ listeners:
     protocol: string         # required: "http", "tcp", or "udp"
     tls:
       enabled: bool          # enable TLS (default false)
-      cert_file: string      # path to TLS certificate
-      key_file: string       # path to TLS private key
+      cert_file: string      # path to TLS certificate (single-cert mode)
+      key_file: string       # path to TLS private key (single-cert mode)
+      certificates:          # multi-cert SNI mode (used by ingress controller)
+        - cert_file: string  # path to certificate PEM file
+          key_file: string   # path to key PEM file
+          hosts: [string]    # SNI hostnames this cert applies to
       ca_file: string        # path to CA certificate
       client_auth: string    # mTLS mode: "none", "request", "require", "verify"
       client_ca_file: string # path to client CA for mTLS
@@ -49,7 +53,7 @@ listeners:
       write_buffer_size: int
 ```
 
-**Validation:** At least one listener required. If TLS enabled, either `cert_file`/`key_file` or `acme.enabled` is required (but not both). When `acme.enabled` is true, `domains` and `email` are required, and `challenge_type` must be `tls-alpn-01` or `http-01`. `enable_http3` requires `tls.enabled`.
+**Validation:** At least one listener required. If TLS enabled, one of: `cert_file`/`key_file`, `certificates`, or `acme.enabled` is required. ACME and manual certs are mutually exclusive. When `acme.enabled` is true, `domains` and `email` are required, and `challenge_type` must be `tls-alpn-01` or `http-01`. `enable_http3` requires `tls.enabled`. The `certificates` field supports multiple cert/key pairs for SNI-based selection; each entry requires either `cert_file`/`key_file` (file paths) or in-memory PEM data (set programmatically by the ingress controller).
 
 ---
 

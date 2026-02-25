@@ -144,9 +144,15 @@ func (s *Server) IsDraining() bool {
 	return s.internal.IsDraining()
 }
 
-// ReloadConfig triggers a hot config reload.
+// ReloadConfig triggers a hot config reload from the config file.
 func (s *Server) ReloadConfig() igw.ReloadResult {
 	return s.internal.ReloadConfig()
+}
+
+// Reload performs a hot config reload using the provided Config object.
+// This is used by the ingress controller to push K8s-derived configs.
+func (s *Server) Reload(cfg *Config) igw.ReloadResult {
+	return s.internal.ReloadWithConfig(cfg)
 }
 
 // --- internal type conversions ---

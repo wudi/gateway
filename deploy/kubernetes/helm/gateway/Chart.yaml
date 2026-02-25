@@ -1,0 +1,14 @@
+apiVersion: v2
+name: gateway
+description: API Gateway with Kubernetes Ingress Controller
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - api-gateway
+  - ingress-controller
+  - gateway-api
+  - reverse-proxy
+home: https://github.com/wudi/gateway
+sources:
+  - https://github.com/wudi/gateway

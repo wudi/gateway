@@ -193,14 +193,25 @@ type EtcdConfig struct {
 }
 
 // TLSConfig defines TLS settings
+// TLSCertPair holds a TLS certificate+key pair for SNI-based selection.
+// CertData/KeyData are preferred over file paths when set (e.g. from K8s Secrets).
+type TLSCertPair struct {
+	CertData []byte   `yaml:"-"`         // PEM bytes (in-memory, never written to disk)
+	KeyData  []byte   `yaml:"-"`         // PEM bytes (in-memory, never written to disk)
+	CertFile string   `yaml:"cert_file"` // file path (standalone mode)
+	KeyFile  string   `yaml:"key_file"`  // file path (standalone mode)
+	Hosts    []string `yaml:"hosts"`     // SNI hostnames this cert applies to
+}
+
 type TLSConfig struct {
-	Enabled      bool       `yaml:"enabled"`
-	CertFile     string     `yaml:"cert_file"`
-	KeyFile      string     `yaml:"key_file"`
-	CAFile       string     `yaml:"ca_file"`
-	ClientAuth   string     `yaml:"client_auth"`   // Feature 11: mTLS - none, request, require, verify
-	ClientCAFile string     `yaml:"client_ca_file"` // Feature 11: mTLS
-	ACME         ACMEConfig `yaml:"acme"`           // Automatic certificate provisioning via ACME/Let's Encrypt
+	Enabled      bool            `yaml:"enabled"`
+	CertFile     string          `yaml:"cert_file"`
+	KeyFile      string          `yaml:"key_file"`
+	Certificates []TLSCertPair  `yaml:"certificates"` // multi-cert SNI
+	CAFile       string          `yaml:"ca_file"`
+	ClientAuth   string          `yaml:"client_auth"`   // Feature 11: mTLS - none, request, require, verify
+	ClientCAFile string          `yaml:"client_ca_file"` // Feature 11: mTLS
+	ACME         ACMEConfig      `yaml:"acme"`           // Automatic certificate provisioning via ACME/Let's Encrypt
 }
 
 // ACMEConfig defines ACME (Let's Encrypt) automatic certificate provisioning settings.

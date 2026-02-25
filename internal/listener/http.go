@@ -24,7 +24,8 @@ type HTTPListener struct {
 	handler     http.Handler
 	tlsCfg      *tls.Config
 	listener    net.Listener
-	certPtr     atomic.Pointer[tls.Certificate] // for hot TLS cert reload
+	certPtr     atomic.Pointer[tls.Certificate]   // single-cert hot reload
+	certsPtr    atomic.Pointer[[]tls.Certificate]  // multi-cert SNI hot reload
 	enableHTTP3 bool
 	http3Server *http3.Server
 	udpConn     net.PacketConn
@@ -65,8 +66,20 @@ func NewHTTPListener(cfg HTTPListenerConfig) (*HTTPListener, error) {
 			}
 			h.acmeMgr = acmeMgr
 			h.tlsCfg = acmeMgr.TLSConfig()
+		} else if len(cfg.TLS.Certificates) > 0 {
+			// Multi-cert SNI mode (used by ingress controller and multi-host configs)
+			certs, err := loadCertPairs(cfg.TLS)
+			if err != nil {
+				return nil, err
+			}
+			h.certsPtr.Store(&certs)
+
+			h.tlsCfg = &tls.Config{
+				GetCertificate: h.getCertificateSNI,
+				MinVersion:     tls.VersionTLS12,
+			}
 		} else {
-			// Manual TLS mode
+			// Single-cert manual TLS mode
 			cert, err := tls.LoadX509KeyPair(cfg.TLS.CertFile, cfg.TLS.KeyFile)
 			if err != nil {
 				return nil, fmt.Errorf("failed to load TLS certificates: %w", err)
@@ -271,4 +284,69 @@ func (h *HTTPListener) ACMEManager() *acme.Manager {
 // CertPtr returns the manual TLS certificate pointer (for expiry monitoring of manual certs).
 func (h *HTTPListener) CertPtr() *tls.Certificate {
 	return h.certPtr.Load()
+}
+
+// ReloadCertificates hot-swaps the multi-cert SNI certificate set without restarting the listener.
+func (h *HTTPListener) ReloadCertificates(tlsCfg config.TLSConfig) error {
+	certs, err := loadCertPairs(tlsCfg)
+	if err != nil {
+		return err
+	}
+	h.certsPtr.Store(&certs)
+	return nil
+}
+
+// getCertificateSNI selects a certificate by SNI hostname from the multi-cert set.
+func (h *HTTPListener) getCertificateSNI(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+	certsPtr := h.certsPtr.Load()
+	if certsPtr == nil || len(*certsPtr) == 0 {
+		return nil, fmt.Errorf("no TLS certificates loaded")
+	}
+	certs := *certsPtr
+
+	// Match by SNI
+	serverName := hello.ServerName
+	if serverName != "" {
+		for i := range certs {
+			if err := hello.SupportsCertificate(&certs[i]); err == nil {
+				return &certs[i], nil
+			}
+		}
+	}
+
+	// Fallback: return first certificate
+	return &certs[0], nil
+}
+
+// loadCertPairs loads TLS certificates from a TLSConfig, supporting both
+// in-memory CertData/KeyData and file-based CertFile/KeyFile.
+// If a top-level CertFile/KeyFile is set, it is loaded as the first cert.
+func loadCertPairs(tlsCfg config.TLSConfig) ([]tls.Certificate, error) {
+	var certs []tls.Certificate
+
+	// Load top-level cert if present
+	if tlsCfg.CertFile != "" && tlsCfg.KeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(tlsCfg.CertFile, tlsCfg.KeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load TLS certificate: %w", err)
+		}
+		certs = append(certs, cert)
+	}
+
+	// Load each certificate pair
+	for i, cp := range tlsCfg.Certificates {
+		var cert tls.Certificate
+		var err error
+		if len(cp.CertData) > 0 && len(cp.KeyData) > 0 {
+			cert, err = tls.X509KeyPair(cp.CertData, cp.KeyData)
+		} else {
+			cert, err = tls.LoadX509KeyPair(cp.CertFile, cp.KeyFile)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to load certificate[%d]: %w", i, err)
+		}
+		certs = append(certs, cert)
+	}
+
+	return certs, nil
 }

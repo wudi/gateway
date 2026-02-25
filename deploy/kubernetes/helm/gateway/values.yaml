@@ -1,0 +1,84 @@
+replicaCount: 2
+
+image:
+  repository: ghcr.io/wudi/gateway-ingress
+  tag: ""  # defaults to Chart.appVersion
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+controller:
+  ingressClass: gateway
+  controllerName: apigw.dev/ingress-controller
+  watchNamespaces: ""
+  watchIngressWithoutClass: false
+  enableIngress: true
+  enableGatewayAPI: true
+  debounceDelay: 100ms
+  publishService: ""
+  publishStatusAddress: ""
+  baseConfig: ""  # inline YAML or empty
+
+ports:
+  http: 8080
+  https: 8443
+  admin: 8081
+  metrics: 9090
+
+service:
+  type: LoadBalancer
+  annotations: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
+
+ingressClass:
+  create: true
+  default: false
+
+gatewayClass:
+  create: true
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+networkPolicy:
+  enabled: false
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  namespace: ""
+
+priorityClass:
+  create: false
+  value: 1000000
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podAnnotations: {}
+podLabels: {}
