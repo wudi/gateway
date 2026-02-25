@@ -86,6 +86,11 @@ func Validate(cfg *Config) error {
 
 // validate checks configuration for errors.
 func (l *Loader) validate(cfg *Config) error {
+	// === Cluster mode ===
+	if err := l.validateCluster(cfg); err != nil {
+		return err
+	}
+
 	// === Listeners ===
 	if len(cfg.Listeners) == 0 {
 		return fmt.Errorf("at least one listener is required")
@@ -230,6 +235,7 @@ func (l *Loader) validate(cfg *Config) error {
 	}
 
 	// === Routes (single loop via validateRoute) ===
+	// DP mode: routes may be empty (they come from the control plane)
 	routeIDs := make(map[string]bool)
 	for i, route := range cfg.Routes {
 		if route.ID == "" {
@@ -503,6 +509,53 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 		if cfg.OpenAPI.SchemaEvolution.MaxVersions < 0 {
 			return fmt.Errorf("openapi.schema_evolution.max_versions must be >= 0")
+		}
+	}
+
+	return nil
+}
+
+// validateCluster validates cluster mode configuration.
+func (l *Loader) validateCluster(cfg *Config) error {
+	role := cfg.Cluster.Role
+	if role == "" || role == "standalone" {
+		return nil
+	}
+
+	validRoles := map[string]bool{"standalone": true, "control_plane": true, "data_plane": true}
+	if !validRoles[role] {
+		return fmt.Errorf("cluster.role must be \"standalone\", \"control_plane\", or \"data_plane\", got %q", role)
+	}
+
+	if role == "control_plane" {
+		cp := cfg.Cluster.ControlPlane
+		if cp.Address == "" {
+			return fmt.Errorf("cluster.control_plane.address is required for control_plane role")
+		}
+		if !cp.TLS.Enabled {
+			return fmt.Errorf("cluster.control_plane.tls.enabled must be true (mTLS required)")
+		}
+		if cp.TLS.CertFile == "" || cp.TLS.KeyFile == "" {
+			return fmt.Errorf("cluster.control_plane.tls requires cert_file and key_file")
+		}
+		if cp.TLS.ClientCAFile == "" {
+			return fmt.Errorf("cluster.control_plane.tls.client_ca_file is required to verify data plane certificates")
+		}
+	}
+
+	if role == "data_plane" {
+		dp := cfg.Cluster.DataPlane
+		if dp.Address == "" {
+			return fmt.Errorf("cluster.data_plane.address is required for data_plane role")
+		}
+		if !dp.TLS.Enabled {
+			return fmt.Errorf("cluster.data_plane.tls.enabled must be true (mTLS required)")
+		}
+		if dp.TLS.CertFile == "" || dp.TLS.KeyFile == "" {
+			return fmt.Errorf("cluster.data_plane.tls requires cert_file and key_file")
+		}
+		if dp.TLS.CAFile == "" {
+			return fmt.Errorf("cluster.data_plane.tls.ca_file is required to verify control plane certificate")
 		}
 	}
 

@@ -11,6 +11,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.88.0
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/cenkalti/backoff/v4 v4.3.0
+	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/cloudwego/thriftgo v0.4.3
 	github.com/corazawaf/coraza/v3 v3.3.3
 	github.com/expr-lang/expr v1.17.7
@@ -85,7 +86,6 @@ require (
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/bytedance/gopkg v0.1.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
-	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudwego/gopkg v0.1.4 // indirect
 	github.com/corazawaf/libinjection-go v0.2.3 // indirect
 	github.com/coreos/go-semver v0.3.1 // indirect

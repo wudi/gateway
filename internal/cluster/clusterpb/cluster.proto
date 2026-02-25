@@ -1,0 +1,50 @@
+syntax = "proto3";
+package gateway.cluster.v1;
+option go_package = "github.com/wudi/gateway/internal/cluster/clusterpb";
+
+import "google/protobuf/timestamp.proto";
+
+service ClusterService {
+    // Bidirectional stream: DP sends connect + heartbeats, CP pushes config updates.
+    rpc ConfigStream(stream NodeMessage) returns (stream ConfigUpdate);
+}
+
+message NodeMessage {
+    oneof msg {
+        ConnectRequest connect = 1;
+        HeartbeatRequest heartbeat = 2;
+    }
+}
+
+message ConnectRequest {
+    string node_id = 1;
+    string version = 2;       // binary version e.g. "1.4.0"
+    string hostname = 3;
+    uint64 config_hash = 4;
+}
+
+message ConfigUpdate {
+    uint64 version = 1;                        // monotonically increasing
+    bytes config_yaml = 2;                     // full config YAML (Cluster block stripped)
+    uint64 config_hash = 3;                    // xxhash64 of config_yaml
+    google.protobuf.Timestamp timestamp = 4;
+    string source = 5;                         // "file", "admin-api"
+}
+
+message HeartbeatRequest {
+    string node_id = 1;
+    uint64 config_version = 2;
+    uint64 config_hash = 3;
+    NodeStatus status = 4;
+    google.protobuf.Timestamp timestamp = 5;
+}
+
+message NodeStatus {
+    int32 routes = 1;
+    int32 healthy_routes = 2;
+    int32 active_connections = 3;
+    string gateway_version = 4;
+    int64 uptime_seconds = 5;
+    string last_reload_error = 6;        // empty on success
+    uint64 last_successful_version = 7;  // last config version applied ok
+}

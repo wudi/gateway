@@ -84,6 +84,7 @@ type Config struct {
 	ConsumerGroups         ConsumerGroupsConfig         `yaml:"consumer_groups"`           // Consumer group definitions
 	Baggage                BaggageConfig                `yaml:"baggage"`                   // Global baggage propagation defaults
 	Extensions             map[string]yaml.RawMessage   `yaml:"extensions,omitempty"`      // Plugin extension config (raw YAML, decoded by plugins)
+	Cluster                ClusterConfig                `yaml:"cluster"`                   // CP/DP cluster mode
 }
 
 // ListenerConfig defines a listener configuration
@@ -223,6 +224,29 @@ type ACMEConfig struct {
 	CacheDir      string   `yaml:"cache_dir"`      // Certificate cache directory (default: /var/lib/gateway/acme)
 	ChallengeType string   `yaml:"challenge_type"` // "tls-alpn-01" (default) or "http-01"
 	HTTPAddress   string   `yaml:"http_address"`   // HTTP-01 challenge bind address (default ":80")
+}
+
+// ClusterConfig configures control plane / data plane separation.
+type ClusterConfig struct {
+	Role         string             `yaml:"role"`          // "standalone" (default), "control_plane", "data_plane"
+	ControlPlane ControlPlaneConfig `yaml:"control_plane"`
+	DataPlane    DataPlaneConfig    `yaml:"data_plane"`
+}
+
+// ControlPlaneConfig configures the CP gRPC config-push server.
+type ControlPlaneConfig struct {
+	Address string    `yaml:"address"` // gRPC listen address e.g. ":9443"
+	TLS     TLSConfig `yaml:"tls"`     // mTLS required for DP authentication
+}
+
+// DataPlaneConfig configures the DP gRPC client that receives config from CP.
+type DataPlaneConfig struct {
+	Address           string        `yaml:"address"`            // CP gRPC address e.g. "cp:9443"
+	TLS               TLSConfig     `yaml:"tls"`                // client mTLS certs
+	CacheDir          string        `yaml:"cache_dir"`          // disk cache for static stability (default "/var/lib/gateway/cluster")
+	RetryInterval     time.Duration `yaml:"retry_interval"`     // reconnection base interval (default 5s)
+	HeartbeatInterval time.Duration `yaml:"heartbeat_interval"` // heartbeat send interval (default 10s)
+	NodeID            string        `yaml:"node_id"`            // auto-generated UUID if empty
 }
 
 // KubernetesConfig defines Kubernetes-specific settings

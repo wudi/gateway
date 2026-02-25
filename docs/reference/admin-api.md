@@ -214,6 +214,11 @@ All feature endpoints return JSON with per-route status and metrics.
 | `POST /traffic-replay/{route}/replay` | Trigger replay (JSON body: target, concurrency, rate_per_sec) |
 | `POST /traffic-replay/{route}/cancel` | Cancel active replay |
 | `DELETE /traffic-replay/{route}/recordings` | Clear recorded requests |
+| `GET /cluster/nodes` | Connected DP fleet status (CP only) |
+| `GET /api/v1/config` | Current config YAML (CP only) |
+| `POST /api/v1/config` | Push new config YAML to cluster (CP only) |
+| `GET /api/v1/config/hash` | Config version, hash, timestamp (CP only) |
+| `GET /cluster/status` | DP cluster connection status (DP only) |
 
 ### Example: Querying Feature Endpoints
 
@@ -2504,3 +2509,128 @@ Returns per-route AI gateway statistics.
 Compute average latency as `latency_sum_ms / total_requests`.
 
 See [AI Gateway](../ai-gateway/ai-gateway.md) for full documentation.
+
+---
+
+## Cluster Mode
+
+Cluster endpoints are role-dependent. They only appear when `cluster.role` is set to `control_plane` or `data_plane`.
+
+### Control Plane Endpoints
+
+#### GET `/cluster/nodes`
+
+Returns the connected data plane fleet. Each entry includes the node's identity, config version, heartbeat status, and runtime status.
+
+```bash
+curl http://localhost:8081/cluster/nodes
+```
+
+**Response (200 OK):**
+```json
+[
+  {
+    "node_id": "a1b2c3d4-5678-90ab-cdef-1234567890ab",
+    "hostname": "dp-pod-1",
+    "version": "1.4.0",
+    "config_version": 3,
+    "config_hash": 12345678901234567,
+    "last_heartbeat": "2026-02-25T10:30:05Z",
+    "status": "connected",
+    "node_status": {
+      "gateway_version": "1.4.0",
+      "last_reload_error": "",
+      "last_successful_version": 3
+    }
+  }
+]
+```
+
+The `status` field is `"connected"` when heartbeats are arriving on time, or `"stale"` when no heartbeat has been received within 3x the heartbeat interval (default 30s).
+
+#### GET `/api/v1/config`
+
+Returns the current config YAML that the CP distributes to DPs. The response body is raw YAML (the `cluster` block is stripped from the distributed copy).
+
+```bash
+curl http://localhost:8081/api/v1/config
+```
+
+#### POST `/api/v1/config`
+
+Push a new config. The CP validates it, applies it locally, and pushes it to all connected DPs. The request body must be valid gateway YAML. Maximum body size is 10MB.
+
+```bash
+curl -X POST http://localhost:8081/api/v1/config \
+  -H "Content-Type: application/yaml" \
+  --data-binary @gateway.yaml
+```
+
+**Response (200 OK):**
+```json
+{
+  "Success": true,
+  "Timestamp": "2026-02-25T10:35:00Z",
+  "Changes": ["route:api-v2 added"]
+}
+```
+
+Returns `400` for parse/validation errors, `422` when the config is valid but the reload fails.
+
+#### GET `/api/v1/config/hash`
+
+Returns the current config version metadata without the full YAML body.
+
+```bash
+curl http://localhost:8081/api/v1/config/hash
+```
+
+**Response (200 OK):**
+```json
+{
+  "version": 3,
+  "hash": 12345678901234567,
+  "timestamp": "2026-02-25T10:28:00Z",
+  "source": "file"
+}
+```
+
+The `source` field indicates how the config was last set: `"file"` (disk reload), `"admin-api"` (`POST /api/v1/config`), or `"init"` (startup).
+
+### Data Plane Endpoints
+
+#### GET `/cluster/status`
+
+Returns this data plane's cluster connection status.
+
+```bash
+curl http://localhost:8081/cluster/status
+```
+
+**Response (200 OK):**
+```json
+{
+  "role": "data_plane",
+  "cp_address": "cp.example.com:9443",
+  "connected": true,
+  "config_version": 3,
+  "config_hash": 12345678901234567,
+  "node_id": "a1b2c3d4-5678-90ab-cdef-1234567890ab",
+  "has_config": true
+}
+```
+
+When `connected` is `false`, the DP is running from its cached config. When `has_config` is `false`, the DP has not yet received or loaded any config.
+
+### Data Plane Restrictions
+
+#### POST `/reload`
+
+Returns `403 Forbidden` when the gateway is running as a data plane. Config changes must go through the control plane.
+
+```bash
+curl -X POST http://localhost:8081/reload
+# 403 Forbidden: config changes must go through control plane
+```
+
+See [Cluster Mode](cluster-mode.md) for full documentation.

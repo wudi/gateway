@@ -3107,3 +3107,44 @@ AI routes are mutually exclusive with backends, echo, static, fastcgi, sequentia
 
 See [AI Gateway](../ai-gateway/ai-gateway.md) for full documentation.
 
+---
+
+## Cluster
+
+Control plane / data plane separation for multi-node deployments. The CP owns the config and pushes it to DPs over gRPC with mutual TLS.
+
+```yaml
+cluster:
+  role: string                    # "standalone" (default), "control_plane", "data_plane"
+
+  control_plane:                  # only used when role = "control_plane"
+    address: string               # required, gRPC listen address (e.g., ":9443")
+    tls:
+      enabled: bool               # must be true (mTLS required)
+      cert_file: string           # required, CP server certificate
+      key_file: string            # required, CP server private key
+      client_ca_file: string      # required, CA to verify DP client certificates
+
+  data_plane:                     # only used when role = "data_plane"
+    address: string               # required, CP gRPC address to connect to (e.g., "cp:9443")
+    tls:
+      enabled: bool               # must be true (mTLS required)
+      cert_file: string           # required, DP client certificate
+      key_file: string            # required, DP client private key
+      ca_file: string             # required, CA to verify CP server certificate
+    cache_dir: string             # disk cache for static stability (default "/var/lib/gateway/cluster")
+    retry_interval: duration      # reconnection base interval (default 5s)
+    heartbeat_interval: duration  # heartbeat send interval (default 10s)
+    node_id: string               # stable node identifier (auto-generated UUID if empty)
+```
+
+**Validation:**
+
+- `role` must be `"standalone"`, `"control_plane"`, or `"data_plane"`. Empty defaults to standalone.
+- Control plane requires `control_plane.address`, and `control_plane.tls` with `enabled: true`, `cert_file`, `key_file`, and `client_ca_file`.
+- Data plane requires `data_plane.address`, and `data_plane.tls` with `enabled: true`, `cert_file`, `key_file`, and `ca_file`.
+- Data plane nodes may omit `routes` entirely; routes are received from the CP.
+- CP and DP must share the same **major.minor** binary version. Version mismatch rejects the connection.
+
+See [Cluster Mode](cluster-mode.md) for full documentation.
+

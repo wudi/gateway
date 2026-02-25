@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"net/http/pprof"
@@ -17,8 +18,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cespare/xxhash/v2"
+	"github.com/goccy/go-yaml"
 	"github.com/wudi/gateway/internal/catalog"
 	"github.com/wudi/gateway/config"
+	"github.com/wudi/gateway/internal/cluster"
+	"github.com/wudi/gateway/internal/cluster/cp"
+	"github.com/wudi/gateway/internal/cluster/dp"
 	"github.com/wudi/gateway/internal/grpchealth"
 	gatewayerrors "github.com/wudi/gateway/internal/errors"
 	"github.com/wudi/gateway/internal/listener"
@@ -46,6 +52,9 @@ type Server struct {
 	grpcHealthServer *grpchealth.Server
 	draining         atomic.Bool
 	drainStart       atomic.Int64 // unix nano timestamp when drain started
+	cpServer         *cp.Server   // control plane gRPC server (CP mode only)
+	dpClient         *dp.Client   // data plane gRPC client (DP mode only)
+	dpCancel         context.CancelFunc
 }
 
 // NewServer creates a new gateway server.
@@ -100,7 +109,92 @@ func NewServer(cfg *config.Config, configPath string, opts ...ExternalOptions) (
 		})
 	}
 
+	// Configure cluster mode (CP/DP)
+	if err := s.initCluster(); err != nil {
+		return nil, fmt.Errorf("cluster init: %w", err)
+	}
+
 	return s, nil
+}
+
+// Version is the gateway binary version, used for CP/DP version compatibility checks.
+var Version = "dev"
+
+// initCluster initializes cluster mode (CP server or DP client).
+func (s *Server) initCluster() error {
+	role := s.config.Cluster.Role
+	if role == "" || role == "standalone" {
+		return nil
+	}
+
+	logger := logging.Global().With(zap.String("cluster.role", role))
+
+	switch role {
+	case "control_plane":
+		tlsCfg, err := cluster.BuildCPTLSConfig(s.config.Cluster.ControlPlane)
+		if err != nil {
+			return fmt.Errorf("build CP TLS: %w", err)
+		}
+		s.cpServer = cp.NewServer(
+			s.config.Cluster.ControlPlane.Address,
+			tlsCfg,
+			Version,
+			logger,
+		)
+		// Seed initial config
+		s.pushCurrentConfig("init")
+
+	case "data_plane":
+		tlsCfg, err := cluster.BuildDPTLSConfig(s.config.Cluster.DataPlane)
+		if err != nil {
+			return fmt.Errorf("build DP TLS: %w", err)
+		}
+		dpCfg := s.config.Cluster.DataPlane
+		hostname, _ := os.Hostname()
+		s.dpClient = dp.NewClient(dp.ClientConfig{
+			Address:           dpCfg.Address,
+			NodeID:            dpCfg.NodeID,
+			Version:           Version,
+			Hostname:          hostname,
+			TLSConfig:         tlsCfg,
+			CacheDir:          dpCfg.CacheDir,
+			RetryInterval:     dpCfg.RetryInterval,
+			HeartbeatInterval: dpCfg.HeartbeatInterval,
+			DPCluster:         s.config.Cluster,
+			ReloadFn: func(cfg *config.Config) dp.ReloadResult {
+				r := s.ReloadWithConfig(cfg)
+				return dp.ReloadResult{
+					Success:   r.Success,
+					Timestamp: r.Timestamp,
+					Error:     r.Error,
+				}
+			},
+			Logger: logger,
+		})
+	}
+
+	return nil
+}
+
+// pushCurrentConfig serializes the current config (stripping the Cluster block)
+// and pushes it to connected data planes via the CP server.
+func (s *Server) pushCurrentConfig(source string) {
+	if s.cpServer == nil {
+		return
+	}
+	stripped := *s.config
+	stripped.Cluster = config.ClusterConfig{}
+	yamlBytes, err := yaml.Marshal(&stripped)
+	if err != nil {
+		logging.Error("Failed to marshal config for cluster push", zap.Error(err))
+		return
+	}
+	s.cpServer.PushConfig(cp.ConfigEnvelope{
+		YAML:      yamlBytes,
+		Hash:      xxhash.Sum64(yamlBytes),
+		Timestamp: time.Now(),
+		Source:    source,
+	})
 }
 
 // initL4Proxies initializes TCP and UDP proxies if routes are configured
@@ -213,6 +307,20 @@ func (s *Server) Start() error {
 		}()
 	}
 
+	// Start cluster components
+	if s.cpServer != nil {
+		go func() {
+			if err := s.cpServer.Start(context.Background()); err != nil {
+				logging.Error("Cluster CP server failed", zap.Error(err))
+			}
+		}()
+	}
+	if s.dpClient != nil {
+		dpCtx, dpCancel := context.WithCancel(context.Background())
+		s.dpCancel = dpCancel
+		go s.dpClient.Run(dpCtx)
+	}
+
 	// Wait for error or continue
 	select {
 	case err := <-errCh:
@@ -238,6 +346,10 @@ func (s *Server) Run() error {
 	for sig := range quit {
 		switch sig {
 		case syscall.SIGHUP:
+			if s.config.Cluster.Role == "data_plane" {
+				logging.Info("SIGHUP ignored in data_plane mode: config changes must come from control plane")
+				continue
+			}
 			result := s.ReloadConfig()
 			if result.Success {
 				logging.Info("Config reloaded successfully",
@@ -283,7 +395,15 @@ func (s *Server) Shutdown(timeout time.Duration) error {
 		}
 	}
 
-	// Shutdown admin server first
+	// Stop cluster components before admin/listeners
+	if s.cpServer != nil {
+		s.cpServer.Stop()
+	}
+	if s.dpCancel != nil {
+		s.dpCancel()
+	}
+
+	// Shutdown admin server
 	if s.adminServer != nil {
 		if err := s.adminServer.Shutdown(ctx); err != nil {
 			logging.Error("Admin server shutdown error", zap.Error(err))
@@ -333,6 +453,13 @@ func (s *Server) IsDraining() bool {
 
 // ReloadConfig loads a new config from the config path and performs a hot reload.
 func (s *Server) ReloadConfig() ReloadResult {
+	if s.config.Cluster.Role == "data_plane" {
+		return ReloadResult{
+			Timestamp: time.Now(),
+			Error:     "config changes must come from control plane in data_plane mode",
+		}
+	}
+
 	if s.configPath == "" {
 		return ReloadResult{
 			Timestamp: time.Now(),
@@ -357,6 +484,7 @@ func (s *Server) ReloadConfig() ReloadResult {
 	if result.Success {
 		s.reconcileListeners(newCfg)
 		s.config = newCfg
+		s.pushCurrentConfig("file")
 	}
 
 	s.reloadHistory = appendReloadHistory(s.reloadHistory, result)
@@ -364,8 +492,8 @@ func (s *Server) ReloadConfig() ReloadResult {
 }
 
 // ReloadWithConfig performs a hot config reload using the provided Config object
-// instead of loading from a file. This is used by the ingress controller to push
-// K8s-derived configs. Concurrent calls are serialized by reloadMu.
+// instead of loading from a file. This is used by the ingress controller and DP
+// client to push configs. Concurrent calls are serialized by reloadMu.
 func (s *Server) ReloadWithConfig(newCfg *config.Config) ReloadResult {
 	s.reloadMu.Lock()
 	result := s.gateway.Reload(newCfg)
@@ -379,6 +507,10 @@ func (s *Server) ReloadWithConfig(newCfg *config.Config) ReloadResult {
 	// listener start/stop can block (up to 10s graceful stop timeout).
 	if result.Success {
 		s.reconcileListeners(newCfg)
+		// Push to cluster DPs (no-op if not CP mode or if called by DP itself)
+		if s.config.Cluster.Role == "control_plane" {
+			s.pushCurrentConfig("api")
+		}
 	}
 	return result
 }
@@ -595,6 +727,9 @@ func (s *Server) adminHandler() http.Handler {
 		mux.HandleFunc("/schema-evolution/", s.handleSchemaEvolution)
 	}
 
+	// Cluster mode admin endpoints
+	s.registerClusterAdminRoutes(mux)
+
 	// pprof endpoints (when enabled)
 	if s.config.Admin.Pprof {
 		mux.HandleFunc("/debug/pprof/", pprof.Index)
@@ -688,6 +823,12 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	if s.draining.Load() {
 		ready = false
 		reasons = append(reasons, "server is draining")
+	}
+
+	// DP readiness: must have config from CP or cache
+	if s.dpClient != nil && !s.dpClient.HasConfig() {
+		ready = false
+		reasons = append(reasons, "data plane has no config from control plane")
 	}
 
 	// Check healthy backends threshold
@@ -1395,6 +1536,10 @@ func jsonStatsHandler(fn func() any) http.HandlerFunc {
 func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.config.Cluster.Role == "data_plane" {
+		http.Error(w, "config changes must go through control plane", http.StatusForbidden)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -2158,4 +2303,108 @@ func (s *Server) handleTenantCRUD(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
+}
+
+// registerClusterAdminRoutes adds admin API endpoints for cluster mode.
+func (s *Server) registerClusterAdminRoutes(mux *http.ServeMux) {
+	role := s.config.Cluster.Role
+	if role == "" || role == "standalone" {
+		return
+	}
+
+	if role == "control_plane" {
+		mux.HandleFunc("/cluster/nodes", s.handleClusterNodes)
+		mux.HandleFunc("/api/v1/config", s.handleCPConfig)
+		mux.HandleFunc("/api/v1/config/hash", s.handleCPConfigHash)
+	}
+
+	if role == "data_plane" {
+		mux.HandleFunc("/cluster/status", s.handleDPStatus)
+	}
+}
+
+// handleClusterNodes returns connected DP fleet status (CP only).
+func (s *Server) handleClusterNodes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.cpServer.ConnectedNodes())
+}
+
+// handleCPConfig handles GET (read) and POST (push) config on the CP.
+func (s *Server) handleCPConfig(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	switch r.Method {
+	case http.MethodGet:
+		env := s.cpServer.CurrentConfig()
+		w.Write(env.YAML)
+
+	case http.MethodPost:
+		r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB limit
+		configData, err := io.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "failed to read body: " + err.Error()})
+			return
+		}
+		if len(configData) == 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "empty body"})
+			return
+		}
+
+		loader := config.NewLoader()
+		newCfg, err := loader.Parse(configData)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+
+		result := s.ReloadWithConfig(newCfg)
+		if !result.Success {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+		}
+		json.NewEncoder(w).Encode(result)
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleCPConfigHash returns the current config version and hash (CP only).
+func (s *Server) handleCPConfigHash(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	env := s.cpServer.CurrentConfig()
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"version":   env.Version,
+		"hash":      env.Hash,
+		"timestamp": env.Timestamp,
+		"source":    env.Source,
+	})
+}
+
+// handleDPStatus returns data plane cluster status.
+func (s *Server) handleDPStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"role":           "data_plane",
+		"cp_address":     s.config.Cluster.DataPlane.Address,
+		"connected":      s.dpClient.Connected(),
+		"config_version": s.dpClient.ConfigVersion(),
+		"config_hash":    s.dpClient.ConfigHash(),
+		"node_id":        s.dpClient.NodeID(),
+		"has_config":     s.dpClient.HasConfig(),
+	})
 }
