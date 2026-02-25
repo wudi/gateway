@@ -2474,3 +2474,33 @@ See [Schema Evolution](../resilience/schema-evolution.md) for configuration.
 | `admin.readiness.require_redis` | bool | Require Redis for ready |
 
 See [Configuration Reference](configuration-reference.md#admin) for all fields.
+
+---
+
+## AI Gateway
+
+### `GET /admin/ai`
+
+Returns per-route AI gateway statistics.
+
+**Response:**
+
+```json
+{
+  "route-1": {
+    "provider": "openai",
+    "model": "gpt-4o",
+    "total_requests": 1523,
+    "streaming_requests": 1200,
+    "non_streaming_requests": 323,
+    "total_tokens_in": 450000,
+    "total_tokens_out": 230000,
+    "total_errors": 12,
+    "latency_sum_ms": 1282366
+  }
+}
+```
+
+Compute average latency as `latency_sum_ms / total_requests`.
+
+See [AI Gateway](../ai-gateway/ai-gateway.md) for full documentation.

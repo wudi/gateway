@@ -39,6 +39,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/baggage"
 	"github.com/wudi/gateway/internal/middleware/backendenc"
 	"github.com/wudi/gateway/internal/middleware/bodygen"
+	"github.com/wudi/gateway/internal/middleware/ai"
 	"github.com/wudi/gateway/internal/middleware/aicrawl"
 	"github.com/wudi/gateway/internal/middleware/botdetect"
 	"github.com/wudi/gateway/internal/middleware/clientmtls"
@@ -276,6 +277,7 @@ type Gateway struct {
 	consumerGroups       *consumergroup.GroupByRoute
 	graphqlSubs          *graphqlsub.SubscriptionByRoute
 	connectHandlers      *connect.ConnectByRoute
+	aiHandlers           *ai.AIByRoute
 
 	tenantManager  *tenant.Manager
 	catalogBuilder *catalog.Builder
@@ -459,6 +461,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		consumerGroups:       consumergroup.NewGroupByRoute(),
 		graphqlSubs:          graphqlsub.NewSubscriptionByRoute(),
 		connectHandlers:      connect.NewConnectByRoute(),
+		aiHandlers:           ai.NewAIByRoute(),
 		watchCancels:      make(map[string]context.CancelFunc),
 	}
 
@@ -657,6 +660,12 @@ func New(cfg *config.Config) (*Gateway, error) {
 			}
 			return nil
 		}, g.fastcgiHandlers.RouteIDs, func() any { return g.fastcgiHandlers.Stats() }),
+		newFeature("ai", "/ai", func(id string, rc config.RouteConfig) error {
+			if rc.AI.Enabled {
+				return g.aiHandlers.AddRoute(id, rc.AI)
+			}
+			return nil
+		}, g.aiHandlers.RouteIDs, func() any { return g.aiHandlers.Stats() }),
 		newFeature("content_replacer", "/content-replacer", func(id string, rc config.RouteConfig) error {
 			if rc.ContentReplacer.Enabled && len(rc.ContentReplacer.Replacements) > 0 {
 				return g.contentReplacers.AddRoute(id, rc.ContentReplacer)
@@ -1698,7 +1707,7 @@ func (g *Gateway) addRoute(routeCfg config.RouteConfig) error {
 
 	// Set up backends (skip for echo, sequential, and aggregate routes — no backend needed)
 	var routeProxy *proxy.RouteProxy
-	if !routeCfg.Echo && !routeCfg.Sequential.Enabled && !routeCfg.Aggregate.Enabled {
+	if !routeCfg.Echo && !routeCfg.Sequential.Enabled && !routeCfg.Aggregate.Enabled && !routeCfg.AI.Enabled {
 		var backends []*loadbalancer.Backend
 
 		// Check if using service discovery
@@ -2239,6 +2248,15 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		{"graphql_subscription", func() middleware.Middleware {
 			if gs := g.graphqlSubs.GetHandler(routeID); gs != nil { return gs.Middleware() }; return nil
 		}},
+		{"ai_prompt_guard", func() middleware.Middleware {
+			if h := g.aiHandlers.GetHandler(routeID); h != nil { return h.PromptGuardMiddleware() }; return nil
+		}},
+		{"ai_prompt_decorate", func() middleware.Middleware {
+			if h := g.aiHandlers.GetHandler(routeID); h != nil { return h.PromptDecorateMiddleware() }; return nil
+		}},
+		{"ai_rate_limit", func() middleware.Middleware {
+			if h := g.aiHandlers.GetHandler(routeID); h != nil { return h.AIRateLimitMiddleware() }; return nil
+		}},
 		{"websocket", func() middleware.Middleware {
 			if route.WebSocket.Enabled {
 				return websocketMW(g.wsProxy, func() loadbalancer.Balancer { return rp.GetBalancer() })
@@ -2410,6 +2428,8 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		innermost = fcgiH
 	} else if fedH := g.federationHandlers.GetHandler(routeID); fedH != nil {
 		innermost = fedH
+	} else if aiH := g.aiHandlers.GetHandler(routeID); aiH != nil {
+		innermost = aiH
 	} else if translatorHandler := g.translators.GetHandler(routeID); translatorHandler != nil {
 		innermost = translatorHandler
 	} else if lambdaH := g.lambdaHandlers.GetHandler(routeID); lambdaH != nil {

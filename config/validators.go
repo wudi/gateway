@@ -42,6 +42,7 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 		l.validateSLO,
 		l.validateTenantBackends,
 		l.validateBatchBFeatures,
+		l.validateAI,
 	}
 	for _, v := range validators {
 		if err := v(route, cfg); err != nil {
@@ -55,7 +56,7 @@ func (l *Loader) validateRoute(route RouteConfig, cfg *Config) error {
 
 func (l *Loader) validateRouteBasics(route RouteConfig, _ *Config) error {
 	routeID := route.ID
-	if len(route.Backends) == 0 && route.Service.Name == "" && !route.Versioning.Enabled && route.Upstream == "" && !route.Echo && !route.Static.Enabled && !route.Sequential.Enabled && !route.Aggregate.Enabled && !route.FastCGI.Enabled && !route.GraphQLFederation.Enabled {
+	if len(route.Backends) == 0 && route.Service.Name == "" && !route.Versioning.Enabled && route.Upstream == "" && !route.Echo && !route.Static.Enabled && !route.Sequential.Enabled && !route.Aggregate.Enabled && !route.FastCGI.Enabled && !route.GraphQLFederation.Enabled && !route.AI.Enabled {
 		return fmt.Errorf("route %s: must have either backends, service name, or upstream", routeID)
 	}
 	if route.Upstream != "" {
@@ -3247,6 +3248,111 @@ func (l *Loader) validateBatchBFeatures(route RouteConfig, cfg *Config) error {
 			if port < 1 || port > 65535 {
 				return fmt.Errorf("route %s: connect.allowed_ports values must be 1-65535", routeID)
 			}
+		}
+	}
+
+	return nil
+}
+
+func (l *Loader) validateAI(route RouteConfig, _ *Config) error {
+	if !route.AI.Enabled {
+		return nil
+	}
+	routeID := route.ID
+	ai := route.AI
+
+	// Provider must be valid
+	validProviders := map[string]bool{"openai": true, "anthropic": true, "azure_openai": true, "gemini": true}
+	if !validProviders[ai.Provider] {
+		return fmt.Errorf("route %s: ai.provider must be one of: openai, anthropic, azure_openai, gemini", routeID)
+	}
+
+	// API key required
+	if ai.APIKey == "" {
+		return fmt.Errorf("route %s: ai.api_key is required", routeID)
+	}
+
+	// Azure-specific requirements
+	if ai.Provider == "azure_openai" {
+		if ai.BaseURL == "" {
+			return fmt.Errorf("route %s: ai.base_url is required for azure_openai", routeID)
+		}
+		if ai.DeploymentID == "" {
+			return fmt.Errorf("route %s: ai.deployment_id is required for azure_openai", routeID)
+		}
+		if ai.APIVersion == "" {
+			return fmt.Errorf("route %s: ai.api_version is required for azure_openai", routeID)
+		}
+	}
+
+	// Mutual exclusivity with other innermost handlers
+	if len(route.Backends) > 0 || route.Service.Name != "" || route.Upstream != "" {
+		return fmt.Errorf("route %s: ai is mutually exclusive with backends, service, and upstream", routeID)
+	}
+	if route.Echo {
+		return fmt.Errorf("route %s: ai is mutually exclusive with echo", routeID)
+	}
+	if route.Static.Enabled {
+		return fmt.Errorf("route %s: ai is mutually exclusive with static", routeID)
+	}
+	if route.FastCGI.Enabled {
+		return fmt.Errorf("route %s: ai is mutually exclusive with fastcgi", routeID)
+	}
+	if route.Sequential.Enabled {
+		return fmt.Errorf("route %s: ai is mutually exclusive with sequential", routeID)
+	}
+	if route.Aggregate.Enabled {
+		return fmt.Errorf("route %s: ai is mutually exclusive with aggregate", routeID)
+	}
+	if route.Lambda.Enabled {
+		return fmt.Errorf("route %s: ai is mutually exclusive with lambda", routeID)
+	}
+	if route.AMQP.Enabled {
+		return fmt.Errorf("route %s: ai is mutually exclusive with amqp", routeID)
+	}
+	if route.PubSub.Enabled {
+		return fmt.Errorf("route %s: ai is mutually exclusive with pubsub", routeID)
+	}
+	if route.MockResponse.Enabled {
+		return fmt.Errorf("route %s: ai is mutually exclusive with mock_response", routeID)
+	}
+	if route.Passthrough {
+		return fmt.Errorf("route %s: ai is mutually exclusive with passthrough", routeID)
+	}
+
+	// Prompt guard: compile deny/allow patterns
+	for _, p := range ai.PromptGuard.DenyPatterns {
+		if _, err := regexp.Compile(p); err != nil {
+			return fmt.Errorf("route %s: ai.prompt_guard.deny_patterns: invalid regex %q: %w", routeID, p, err)
+		}
+	}
+	for _, p := range ai.PromptGuard.AllowPatterns {
+		if _, err := regexp.Compile(p); err != nil {
+			return fmt.Errorf("route %s: ai.prompt_guard.allow_patterns: invalid regex %q: %w", routeID, p, err)
+		}
+	}
+	if ai.PromptGuard.DenyAction != "" && ai.PromptGuard.DenyAction != "block" && ai.PromptGuard.DenyAction != "log" {
+		return fmt.Errorf("route %s: ai.prompt_guard.deny_action must be \"block\" or \"log\"", routeID)
+	}
+
+	// Prompt decorator: validate roles
+	for _, msg := range ai.PromptDecorate.Prepend {
+		if msg.Role != "system" && msg.Role != "user" && msg.Role != "assistant" {
+			return fmt.Errorf("route %s: ai.prompt_decorate.prepend: role must be system, user, or assistant", routeID)
+		}
+	}
+	for _, msg := range ai.PromptDecorate.Append {
+		if msg.Role != "system" && msg.Role != "user" && msg.Role != "assistant" {
+			return fmt.Errorf("route %s: ai.prompt_decorate.append: role must be system, user, or assistant", routeID)
+		}
+	}
+
+	// Rate limit key validation
+	if ai.RateLimit.Key != "" {
+		key := ai.RateLimit.Key
+		validKeys := map[string]bool{"ip": true, "client_id": true}
+		if !validKeys[key] && !strings.HasPrefix(key, "header:") && !strings.HasPrefix(key, "cookie:") && !strings.HasPrefix(key, "jwt_claim:") {
+			return fmt.Errorf("route %s: ai.rate_limit.key must be ip, client_id, header:<name>, cookie:<name>, or jwt_claim:<name>", routeID)
 		}
 	}
 

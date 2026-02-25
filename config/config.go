@@ -433,6 +433,7 @@ type RouteConfig struct {
 	OPA                  OPAConfig                      `yaml:"opa"`                    // Per-route OPA policy engine
 	RequestCost          RequestCostConfig              `yaml:"request_cost"`           // Per-route request cost tracking
 	Connect              ConnectConfig                  `yaml:"connect"`                // HTTP CONNECT tunneling
+	AI                   AIConfig                       `yaml:"ai"`                     // AI gateway (LLM proxy)
 	Extensions           map[string]yaml.RawMessage     `yaml:"extensions,omitempty"`   // Plugin extension config (raw YAML, decoded by plugins)
 }
 
@@ -867,6 +868,59 @@ type ConnectConfig struct {
 	ConnectTimeout time.Duration `yaml:"connect_timeout"`
 	IdleTimeout    time.Duration `yaml:"idle_timeout"`
 	MaxTunnels     int           `yaml:"max_tunnels"`
+}
+
+// AIConfig configures the AI gateway for a route.
+type AIConfig struct {
+	Enabled       bool              `yaml:"enabled"`
+	Provider      string            `yaml:"provider"`        // "openai", "anthropic", "azure_openai", "gemini"
+	Model         string            `yaml:"model"`           // default model
+	ModelMapping  map[string]string `yaml:"model_mapping"`   // client model → provider model
+	APIKey        string            `yaml:"api_key"`         // env var reference: ${OPENAI_API_KEY}
+	BaseURL       string            `yaml:"base_url"`        // override provider base URL
+	APIVersion    string            `yaml:"api_version"`     // Azure: required
+	DeploymentID  string            `yaml:"deployment_id"`   // Azure: required
+	ProjectID     string            `yaml:"project_id"`      // Gemini: GCP project
+	Region        string            `yaml:"region"`          // Gemini: GCP region
+	OrgID         string            `yaml:"org_id"`          // OpenAI: organization
+	Timeout       time.Duration     `yaml:"timeout"`         // per-request timeout (default 60s)
+	MaxTokens     int               `yaml:"max_tokens"`      // enforce cap (overrides client if larger)
+	Temperature   *float64          `yaml:"temperature"`     // override (nil = use client value)
+	StreamDefault bool              `yaml:"stream_default"`  // stream by default if client omits
+	PassHeaders   []string          `yaml:"pass_headers"`    // client→provider header forwarding
+	IdleTimeout   time.Duration     `yaml:"idle_timeout"`    // per-event SSE idle timeout (default 30s)
+	MaxBodySize   int64             `yaml:"max_body_size"`   // max request body read (default 10MB)
+
+	PromptGuard    AIPromptGuardConfig    `yaml:"prompt_guard"`
+	PromptDecorate AIPromptDecorateConfig `yaml:"prompt_decorate"`
+	RateLimit      AIRateLimitConfig      `yaml:"rate_limit"`
+}
+
+// AIPromptGuardConfig configures prompt injection detection.
+type AIPromptGuardConfig struct {
+	DenyPatterns  []string `yaml:"deny_patterns"`
+	AllowPatterns []string `yaml:"allow_patterns"`
+	DenyAction    string   `yaml:"deny_action"`    // "block" (default) or "log"
+	MaxPromptLen  int      `yaml:"max_prompt_len"` // 0 = unlimited
+}
+
+// AIPromptDecorateConfig configures message prepend/append.
+type AIPromptDecorateConfig struct {
+	Prepend []AIPromptMessage `yaml:"prepend"`
+	Append  []AIPromptMessage `yaml:"append"`
+}
+
+// AIPromptMessage defines a message to prepend/append to chat completions.
+type AIPromptMessage struct {
+	Role    string `yaml:"role"`    // "system", "user", "assistant"
+	Content string `yaml:"content"`
+}
+
+// AIRateLimitConfig configures token-based rate limiting for AI routes.
+type AIRateLimitConfig struct {
+	TokensPerMinute int64  `yaml:"tokens_per_minute"`
+	TokensPerDay    int64  `yaml:"tokens_per_day"`
+	Key             string `yaml:"key"` // "ip", "client_id", "header:<name>", etc.
 }
 
 // RewriteConfig defines URL rewriting rules for a route.

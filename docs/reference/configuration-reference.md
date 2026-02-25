@@ -3049,3 +3049,57 @@ routes:
 
 See [Extensibility](extensibility.md) for the full plugin API.
 
+---
+
+## AI Gateway
+
+```yaml
+routes:
+  - id: ai-route
+    path: /v1/chat/completions
+    methods: [POST]
+    ai:
+      enabled: bool              # enable AI gateway (default false)
+      provider: string           # required: "openai", "anthropic", "azure_openai", "gemini"
+      model: string              # default model name
+      model_mapping:             # map client model names to provider models
+        <client-name>: <provider-name>
+      api_key: string            # required, supports ${ENV_VAR}
+      base_url: string           # override provider base URL
+      api_version: string        # Azure: required API version
+      deployment_id: string      # Azure: required deployment ID
+      project_id: string         # Gemini: GCP project ID
+      region: string             # Gemini: GCP region
+      org_id: string             # OpenAI: organization ID
+      timeout: duration          # per-request timeout (default 60s)
+      max_tokens: int            # cap on max_tokens
+      temperature: float         # override temperature
+      stream_default: bool       # stream if client omits (default false)
+      pass_headers: [string]     # forward these headers to provider
+      idle_timeout: duration     # SSE idle timeout (default 30s)
+      max_body_size: int64       # max request body (default 10MB)
+
+      prompt_guard:
+        deny_patterns: [string]  # regex patterns to block
+        allow_patterns: [string] # regex patterns that override deny
+        deny_action: string      # "block" (default) or "log"
+        max_prompt_len: int      # max prompt length (0 = unlimited)
+
+      prompt_decorate:
+        prepend:                 # messages to prepend
+          - role: string         # "system", "user", "assistant"
+            content: string
+        append:                  # messages to append
+          - role: string
+            content: string
+
+      rate_limit:
+        tokens_per_minute: int64 # max tokens/minute (0 = unlimited)
+        tokens_per_day: int64    # max tokens/day (0 = unlimited)
+        key: string              # "ip", "client_id", "header:<name>", etc.
+```
+
+AI routes are mutually exclusive with backends, echo, static, fastcgi, sequential, aggregate, lambda, amqp, pubsub, mock_response, and passthrough.
+
+See [AI Gateway](../ai-gateway/ai-gateway.md) for full documentation.
+
