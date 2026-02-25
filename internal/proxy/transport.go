@@ -50,10 +50,14 @@ type TransportConfig struct {
 	SSRFProtection *config.SSRFProtectionConfig
 }
 
-// DefaultTransportConfig provides default transport settings
+// DefaultTransportConfig provides default transport settings.
+// MaxIdleConnsPerHost must be large enough to sustain peak concurrency per backend
+// without forcing the transport to dial new connections on every request. The Go
+// http.Transport holds a global mutex while dialing, so a low idle-per-host limit
+// (the stdlib default is 2) becomes the dominant bottleneck under load.
 var DefaultTransportConfig = TransportConfig{
-	MaxIdleConns:          100,
-	MaxIdleConnsPerHost:   10,
+	MaxIdleConns:          512,
+	MaxIdleConnsPerHost:   256,
 	MaxConnsPerHost:       0, // unlimited
 	IdleConnTimeout:       90 * time.Second,
 	DialTimeout:           30 * time.Second,
@@ -62,7 +66,7 @@ var DefaultTransportConfig = TransportConfig{
 	ExpectContinueTimeout: 1 * time.Second,
 	InsecureSkipVerify:    false,
 	DisableKeepAlives:     false,
-	ForceHTTP2:            true,
+	ForceHTTP2:            false,
 }
 
 // buildTLSConfig creates a shared TLS configuration from transport settings.
@@ -122,6 +126,8 @@ func NewTransport(cfg TransportConfig) *http.Transport {
 		DisableKeepAlives:     cfg.DisableKeepAlives,
 		TLSClientConfig:       tlsConfig,
 		ForceAttemptHTTP2:     cfg.ForceHTTP2,
+		WriteBufferSize:       32 * 1024, // 32KB — reduce syscalls for large responses
+		ReadBufferSize:        32 * 1024,
 	}
 }
 

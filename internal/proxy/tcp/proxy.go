@@ -175,7 +175,6 @@ func (p *Proxy) Handle(ctx context.Context, conn net.Conn, listenerID string, sn
 	backendConn, err := p.connPool.Get(backend.URL)
 	if err != nil {
 		logging.Error("failed to connect to backend", zap.String("backend", backend.URL), zap.Error(err))
-		route.Balancer.MarkUnhealthy(backend.URL)
 		return fmt.Errorf("failed to connect to backend: %w", err)
 	}
 	defer backendConn.Close()

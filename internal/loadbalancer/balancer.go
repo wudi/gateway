@@ -49,17 +49,40 @@ type Balancer interface {
 
 // baseBalancer provides common functionality for balancers
 type baseBalancer struct {
-	backends []*Backend
-	urlIndex map[string]int // URL → index in backends for O(1) health mark
-	mu       sync.RWMutex
+	backends      []*Backend
+	urlIndex      map[string]int // URL → index in backends for O(1) health mark
+	cachedHealthy atomic.Value   // []*Backend — rebuilt on health changes, read lock-free
+	mu            sync.RWMutex
 }
 
 // buildIndex rebuilds the URL→index map from the current backends slice.
+// Caller must hold the write lock.
 func (b *baseBalancer) buildIndex() {
 	b.urlIndex = make(map[string]int, len(b.backends))
 	for i, backend := range b.backends {
 		b.urlIndex[backend.URL] = i
 	}
+	b.rebuildHealthyCache()
+}
+
+// rebuildHealthyCache updates the atomic cached healthy slice.
+// Caller must hold the write lock (or be called during init).
+func (b *baseBalancer) rebuildHealthyCache() {
+	healthy := make([]*Backend, 0, len(b.backends))
+	for _, be := range b.backends {
+		if be.Healthy {
+			healthy = append(healthy, be)
+		}
+	}
+	b.cachedHealthy.Store(healthy)
+}
+
+// CachedHealthyBackends returns the pre-computed healthy backends slice (lock-free).
+func (b *baseBalancer) CachedHealthyBackends() []*Backend {
+	if v := b.cachedHealthy.Load(); v != nil {
+		return v.([]*Backend)
+	}
+	return nil
 }
 
 // UpdateBackends updates the list of backends
@@ -93,6 +116,7 @@ func (b *baseBalancer) MarkHealthy(url string) {
 
 	if idx, ok := b.urlIndex[url]; ok {
 		b.backends[idx].Healthy = true
+		b.rebuildHealthyCache()
 	}
 }
 
@@ -103,6 +127,7 @@ func (b *baseBalancer) MarkUnhealthy(url string) {
 
 	if idx, ok := b.urlIndex[url]; ok {
 		b.backends[idx].Healthy = false
+		b.rebuildHealthyCache()
 	}
 }
 

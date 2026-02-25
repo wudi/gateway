@@ -44,6 +44,7 @@ spec:
             - --admin-port={{ .Values.ports.admin }}
             - --metrics-port={{ .Values.ports.metrics }}
             - --debounce-delay={{ .Values.controller.debounceDelay }}
+            - --leader-election-namespace={{ .Release.Namespace }}
             {{- if .Values.controller.watchNamespaces }}
             - --watch-namespaces={{ .Values.controller.watchNamespaces }}
             {{- end }}

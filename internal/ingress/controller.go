@@ -56,6 +56,8 @@ type ControllerConfig struct {
 	DefaultHTTPPort int
 	// DefaultHTTPSPort is the default HTTPS listener port.
 	DefaultHTTPSPort int
+	// LeaderElectionNamespace is the namespace for leader election resources.
+	LeaderElectionNamespace string
 }
 
 // Controller manages the controller-runtime manager and debounced reloader.
@@ -92,15 +94,20 @@ func NewController(cfg ControllerConfig) (*Controller, error) {
 
 	store := NewStore()
 
+	if cfg.LeaderElectionNamespace == "" {
+		cfg.LeaderElectionNamespace = "default"
+	}
+
 	opts := ctrl.Options{
 		Scheme: scheme,
 		Metrics: metricsserver.Options{
 			BindAddress: cfg.MetricsAddr,
 		},
-		HealthProbeBindAddress: "", // disabled; use gateway's /health and /ready
-		LeaderElection:         true,
-		LeaderElectionID:       "apigw-ingress-controller",
-		Logger:                 zap.New(),
+		HealthProbeBindAddress:  "", // disabled; use gateway's /health and /ready
+		LeaderElection:          true,
+		LeaderElectionID:        "apigw-ingress-controller",
+		LeaderElectionNamespace: cfg.LeaderElectionNamespace,
+		Logger:                  zap.New(),
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), opts)

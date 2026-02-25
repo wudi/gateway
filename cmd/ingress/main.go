@@ -43,6 +43,7 @@ func main() {
 	metricsPort := flag.Int("metrics-port", 9090, "Controller-runtime metrics port")
 	baseConfigPath := flag.String("base-config", "", "Path to base YAML config for global settings")
 	debounceDelay := flag.Duration("debounce-delay", 100*time.Millisecond, "Debounce delay for config rebuild")
+	leaderElectionNS := flag.String("leader-election-namespace", "default", "Namespace for leader election resources")
 	enableGatewayAPI := flag.Bool("enable-gateway-api", true, "Watch Gateway API resources")
 	enableIngress := flag.Bool("enable-ingress", true, "Watch Ingress v1 resources")
 	flag.Parse()
@@ -104,18 +105,19 @@ func main() {
 
 	// Create the ingress controller
 	controllerCfg := ingress.ControllerConfig{
-		IngressClass:      *ingressClass,
-		ControllerName:    *controllerName,
-		WatchNamespaces:   namespaces,
-		WatchWithoutClass: *watchWithoutClass,
-		EnableIngress:     *enableIngress,
-		EnableGatewayAPI:  *enableGatewayAPI,
-		DebounceDelay:     *debounceDelay,
-		MetricsAddr:       fmt.Sprintf(":%d", *metricsPort),
-		BaseConfig:        baseCfg,
-		PublishAddress:    addr,
-		DefaultHTTPPort:   *httpPort,
-		DefaultHTTPSPort:  *httpsPort,
+		IngressClass:            *ingressClass,
+		ControllerName:          *controllerName,
+		WatchNamespaces:         namespaces,
+		WatchWithoutClass:       *watchWithoutClass,
+		EnableIngress:           *enableIngress,
+		EnableGatewayAPI:        *enableGatewayAPI,
+		DebounceDelay:           *debounceDelay,
+		MetricsAddr:             fmt.Sprintf(":%d", *metricsPort),
+		BaseConfig:              baseCfg,
+		PublishAddress:          addr,
+		DefaultHTTPPort:         *httpPort,
+		DefaultHTTPSPort:        *httpsPort,
+		LeaderElectionNamespace: *leaderElectionNS,
 		ReloadFn: func(cfg *gw.Config) {
 			result := server.Reload(cfg)
 			if result.Success {
@@ -183,6 +185,7 @@ func buildStartupConfig(baseCfg *gw.Config, httpPort, adminPort int) *gw.Config 
 			}
 		}
 		// Ensure admin is configured
+		cfg.Admin.Enabled = true
 		if cfg.Admin.Port == 0 {
 			cfg.Admin.Port = adminPort
 		}
@@ -198,7 +201,8 @@ func buildStartupConfig(baseCfg *gw.Config, httpPort, adminPort int) *gw.Config 
 			},
 		},
 		Admin: gw.AdminConfig{
-			Port: adminPort,
+			Enabled: true,
+			Port:    adminPort,
 		},
 	}
 }

@@ -8,6 +8,11 @@ import (
 	"github.com/wudi/gateway/variables"
 )
 
+func init() {
+	// Batch crypto/rand reads into a pool to avoid a syscall per UUID.
+	uuid.EnableRandPool()
+}
+
 // RequestIDConfig configures the request ID middleware
 type RequestIDConfig struct {
 	// Header is the header name to use for the request ID

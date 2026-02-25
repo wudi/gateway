@@ -80,10 +80,7 @@ func (lrt *LeastResponseTime) RecordLatency(url string, d time.Duration) {
 // Next returns the healthy backend with the lowest EWMA latency.
 // Backends with no samples are preferred (cold start exploration).
 func (lrt *LeastResponseTime) Next() *Backend {
-	lrt.mu.RLock()
-	healthy := lrt.healthyBackends()
-	lrt.mu.RUnlock()
-
+	healthy := lrt.CachedHealthyBackends()
 	if len(healthy) == 0 {
 		return nil
 	}

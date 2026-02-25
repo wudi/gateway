@@ -48,7 +48,7 @@ upstreams:
 
 Settings merge in order, with later levels overriding earlier:
 
-1. **Hardcoded defaults** (100 idle conns, 30s dial timeout, etc.)
+1. **Hardcoded defaults** (512 idle conns, 256 per host, 30s dial timeout, etc.)
 2. **Global `transport:`** overrides defaults
 3. **Per-upstream `transport:`** overrides global
 
@@ -58,8 +58,8 @@ Only non-zero values at each level take effect. For example, setting `max_idle_c
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `max_idle_conns` | int | 100 | Maximum total idle connections across all hosts |
-| `max_idle_conns_per_host` | int | 10 | Maximum idle connections per upstream host |
+| `max_idle_conns` | int | 512 | Maximum total idle connections across all hosts |
+| `max_idle_conns_per_host` | int | 256 | Maximum idle connections per upstream host |
 | `max_conns_per_host` | int | 0 (unlimited) | Maximum total connections per host |
 | `idle_conn_timeout` | duration | 90s | Close idle connections after this duration |
 | `dial_timeout` | duration | 30s | TCP connection dial timeout |
@@ -71,7 +71,7 @@ Only non-zero values at each level take effect. For example, setting `max_idle_c
 | `ca_file` | string | - | Path to custom CA certificate (PEM) |
 | `cert_file` | string | - | Path to client certificate for upstream mTLS (PEM) |
 | `key_file` | string | - | Path to client private key for upstream mTLS (PEM) |
-| `force_http2` | bool | true | Attempt HTTP/2 via ALPN negotiation |
+| `force_http2` | bool | false | Attempt HTTP/2 via ALPN negotiation |
 | `enable_http3` | bool | false | Connect to upstream via HTTP/3 over QUIC (mutually exclusive with `force_http2`) |
 
 ## Tuning Guidance

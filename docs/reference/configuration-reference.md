@@ -1863,8 +1863,8 @@ Global upstream transport settings (connection pooling, timeouts, TLS). These de
 
 ```yaml
 transport:
-  max_idle_conns: int              # max total idle connections across all hosts (default 100)
-  max_idle_conns_per_host: int     # max idle connections per upstream host (default 10)
+  max_idle_conns: int              # max total idle connections across all hosts (default 512)
+  max_idle_conns_per_host: int     # max idle connections per upstream host (default 256)
   max_conns_per_host: int          # max total connections per host, 0 = unlimited (default 0)
   idle_conn_timeout: duration      # close idle connections after this duration (default 90s)
   dial_timeout: duration           # TCP dial timeout (default 30s)
@@ -1876,7 +1876,7 @@ transport:
   ca_file: string                  # path to custom CA certificate file
   cert_file: string                # path to client certificate for upstream mTLS
   key_file: string                 # path to client private key for upstream mTLS
-  force_http2: bool                # attempt HTTP/2 connections (default true)
+  force_http2: bool                # attempt HTTP/2 connections (default false)
   enable_http3: bool               # connect via HTTP/3 over QUIC (mutually exclusive with force_http2)
 ```
 

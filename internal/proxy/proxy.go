@@ -369,10 +369,9 @@ func (p *Proxy) createProxyRequest(ctx context.Context, r *http.Request, target 
 
 // handleError handles proxy errors
 func (p *Proxy) handleError(w http.ResponseWriter, r *http.Request, err error, backendURL string, balancer loadbalancer.Balancer) {
-	// Mark backend as unhealthy
-	if balancer != nil {
-		balancer.MarkUnhealthy(backendURL)
-	}
+	// Backend health is managed by the active health checker and outlier
+	// detector (when configured). Individual proxy errors should not
+	// permanently eject backends — that causes cascading failures under load.
 
 	if err == context.DeadlineExceeded {
 		errors.ErrGatewayTimeout.WriteJSON(w)
@@ -392,23 +391,39 @@ func (p *Proxy) copyHeaders(dst, src http.Header) {
 	removeHopHeaders(dst)
 }
 
+// copyBufPool avoids a 32KB allocation per io.Copy call on the proxy hot path.
+var copyBufPool = sync.Pool{
+	New: func() any {
+		buf := make([]byte, 32*1024)
+		return &buf
+	},
+}
+
 // copyBody copies the response body
 func (p *Proxy) copyBody(w http.ResponseWriter, body io.Reader) {
 	if p.flushInterval > 0 {
 		// Streaming copy with flush
 		if flusher, ok := w.(http.Flusher); ok {
+			bp := copyBufPool.Get().(*[]byte)
+			buf := *bp
 			for {
-				_, err := io.CopyN(w, body, 32*1024)
+				n, err := body.Read(buf)
+				if n > 0 {
+					w.Write(buf[:n])
+					flusher.Flush()
+				}
 				if err != nil {
 					break
 				}
-				flusher.Flush()
 			}
+			copyBufPool.Put(bp)
 			return
 		}
 	}
 
-	io.Copy(w, body)
+	bp := copyBufPool.Get().(*[]byte)
+	io.CopyBuffer(w, body, *bp)
+	copyBufPool.Put(bp)
 }
 
 // Hop-by-hop headers that should be removed

@@ -26,10 +26,7 @@ func NewLeastConnections(backends []*Backend) *LeastConnections {
 // Next returns the healthy backend with the lowest active request count.
 // Ties are broken by slice order.
 func (lc *LeastConnections) Next() *Backend {
-	lc.mu.RLock()
-	healthy := lc.healthyBackends()
-	lc.mu.RUnlock()
-
+	healthy := lc.CachedHealthyBackends()
 	if len(healthy) == 0 {
 		return nil
 	}

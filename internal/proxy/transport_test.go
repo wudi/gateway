@@ -22,8 +22,8 @@ func TestNewTransportDefault(t *testing.T) {
 	if tr == nil {
 		t.Fatal("expected non-nil transport")
 	}
-	if tr.MaxIdleConns != 100 {
-		t.Errorf("expected MaxIdleConns 100, got %d", tr.MaxIdleConns)
+	if tr.MaxIdleConns != 512 {
+		t.Errorf("expected MaxIdleConns 512, got %d", tr.MaxIdleConns)
 	}
 }
 
@@ -121,8 +121,8 @@ func TestTransportPoolSet(t *testing.T) {
 	if !ok {
 		t.Fatal("expected *http.Transport for default")
 	}
-	if defHTTP.MaxIdleConns != 100 {
-		t.Errorf("expected default MaxIdleConns 100 for unknown upstream, got %d", defHTTP.MaxIdleConns)
+	if defHTTP.MaxIdleConns != 512 {
+		t.Errorf("expected default MaxIdleConns 512 for unknown upstream, got %d", defHTTP.MaxIdleConns)
 	}
 }
 
@@ -147,11 +147,11 @@ func TestTransportPoolNames(t *testing.T) {
 func TestTransportPoolDefaultConfig(t *testing.T) {
 	pool := NewTransportPool()
 	dc := pool.DefaultConfig()
-	if dc["max_idle_conns"] != 100 {
-		t.Errorf("expected max_idle_conns=100, got %v", dc["max_idle_conns"])
+	if dc["max_idle_conns"] != 512 {
+		t.Errorf("expected max_idle_conns=512, got %v", dc["max_idle_conns"])
 	}
-	if dc["force_attempt_http2"] != true {
-		t.Errorf("expected force_attempt_http2=true, got %v", dc["force_attempt_http2"])
+	if dc["force_attempt_http2"] != false {
+		t.Errorf("expected force_attempt_http2=false, got %v", dc["force_attempt_http2"])
 	}
 }
 
@@ -180,8 +180,8 @@ func TestMergeTransportConfigs(t *testing.T) {
 	if merged.TLSHandshakeTimeout != 10*time.Second {
 		t.Errorf("expected TLSHandshakeTimeout unchanged at 10s, got %v", merged.TLSHandshakeTimeout)
 	}
-	if merged.ForceHTTP2 != true {
-		t.Errorf("expected ForceHTTP2 unchanged at true, got %v", merged.ForceHTTP2)
+	if merged.ForceHTTP2 != false {
+		t.Errorf("expected ForceHTTP2 unchanged at false, got %v", merged.ForceHTTP2)
 	}
 }
 

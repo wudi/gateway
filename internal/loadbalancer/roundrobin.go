@@ -29,12 +29,10 @@ func NewRoundRobin(backends []*Backend) *RoundRobin {
 	return rr
 }
 
-// Next returns the next healthy backend using round-robin
+// Next returns the next healthy backend using round-robin.
+// Uses the pre-computed healthy cache for lock-free reads on the hot path.
 func (rr *RoundRobin) Next() *Backend {
-	rr.mu.RLock()
-	healthy := rr.healthyBackends()
-	rr.mu.RUnlock()
-
+	healthy := rr.CachedHealthyBackends()
 	if len(healthy) == 0 {
 		return nil
 	}
@@ -104,7 +102,7 @@ func (wrr *WeightedRoundRobin) Next() *Backend {
 	wrr.mu.Lock()
 	defer wrr.mu.Unlock()
 
-	healthy := wrr.healthyBackends()
+	healthy := wrr.CachedHealthyBackends()
 	if len(healthy) == 0 {
 		return nil
 	}
