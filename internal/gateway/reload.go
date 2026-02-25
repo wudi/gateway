@@ -47,6 +47,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/opa"
 	"github.com/wudi/gateway/internal/middleware/decompress"
 	"github.com/wudi/gateway/internal/middleware/deprecation"
+	"github.com/wudi/gateway/internal/middleware/aicrawl"
 	"github.com/wudi/gateway/internal/middleware/botdetect"
 	"github.com/wudi/gateway/internal/middleware/cdnheaders"
 	"github.com/wudi/gateway/internal/middleware/edgecacherules"
@@ -154,6 +155,7 @@ type gatewayState struct {
 	securityHeaders     *securityheaders.SecurityHeadersByRoute
 	maintenanceHandlers *maintenance.MaintenanceByRoute
 	botDetectors        *botdetect.BotDetectByRoute
+	aiCrawlControllers  *aicrawl.AICrawlByRoute
 	proxyRateLimiters   *proxyratelimit.ProxyRateLimitByRoute
 	mockHandlers        *mock.MockByRoute
 	claimsPropagators   *claimsprop.ClaimsPropByRoute
@@ -253,6 +255,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		securityHeaders:     securityheaders.NewSecurityHeadersByRoute(),
 		maintenanceHandlers: maintenance.NewMaintenanceByRoute(),
 		botDetectors:        botdetect.NewBotDetectByRoute(),
+		aiCrawlControllers:  aicrawl.NewAICrawlByRoute(),
 		proxyRateLimiters:   proxyratelimit.NewProxyRateLimitByRoute(),
 		mockHandlers:        mock.NewMockByRoute(),
 		claimsPropagators:   claimsprop.NewClaimsPropByRoute(),
@@ -514,6 +517,11 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 			if cfg.BotDetection.Enabled { return s.botDetectors.AddRoute(id, cfg.BotDetection) }
 			return nil
 		}, s.botDetectors.RouteIDs, func() any { return s.botDetectors.Stats() }),
+		newFeature("ai_crawl_control", "/ai-crawl-control", func(id string, rc config.RouteConfig) error {
+			if rc.AICrawlControl.Enabled { return s.aiCrawlControllers.AddRoute(id, aicrawl.MergeAICrawlConfig(rc.AICrawlControl, cfg.AICrawlControl)) }
+			if cfg.AICrawlControl.Enabled { return s.aiCrawlControllers.AddRoute(id, cfg.AICrawlControl) }
+			return nil
+		}, s.aiCrawlControllers.RouteIDs, func() any { return s.aiCrawlControllers.Stats() }),
 		newFeature("proxy_rate_limit", "/proxy-rate-limits", func(id string, rc config.RouteConfig) error {
 			if rc.ProxyRateLimit.Enabled { s.proxyRateLimiters.AddRoute(id, rc.ProxyRateLimit) }
 			return nil
@@ -1164,6 +1172,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	oldSecurityHeaders := g.securityHeaders
 	oldMaintenanceHandlers := g.maintenanceHandlers
 	oldBotDetectors := g.botDetectors
+	oldAICrawlControllers := g.aiCrawlControllers
 	oldProxyRateLimiters := g.proxyRateLimiters
 	oldMockHandlers := g.mockHandlers
 	oldClaimsPropagators := g.claimsPropagators
@@ -1247,6 +1256,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.securityHeaders = s.securityHeaders
 	g.maintenanceHandlers = s.maintenanceHandlers
 	g.botDetectors = s.botDetectors
+	g.aiCrawlControllers = s.aiCrawlControllers
 	g.proxyRateLimiters = s.proxyRateLimiters
 	g.mockHandlers = s.mockHandlers
 	g.claimsPropagators = s.claimsPropagators
@@ -1332,6 +1342,7 @@ func (g *Gateway) buildRouteHandlerForState(s *gatewayState, routeID string, cfg
 	g.securityHeaders = oldSecurityHeaders
 	g.maintenanceHandlers = oldMaintenanceHandlers
 	g.botDetectors = oldBotDetectors
+	g.aiCrawlControllers = oldAICrawlControllers
 	g.proxyRateLimiters = oldProxyRateLimiters
 	g.mockHandlers = oldMockHandlers
 	g.claimsPropagators = oldClaimsPropagators
@@ -1492,6 +1503,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.securityHeaders = newState.securityHeaders
 	g.maintenanceHandlers = newState.maintenanceHandlers
 	g.botDetectors = newState.botDetectors
+	g.aiCrawlControllers = newState.aiCrawlControllers
 	g.proxyRateLimiters = newState.proxyRateLimiters
 	g.mockHandlers = newState.mockHandlers
 	g.claimsPropagators = newState.claimsPropagators

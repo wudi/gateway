@@ -423,6 +423,11 @@ func (l *Loader) validate(cfg *Config) error {
 			return err
 		}
 	}
+	if cfg.AICrawlControl.Enabled {
+		if err := l.validateAICrawlConfig("global", cfg.AICrawlControl); err != nil {
+			return err
+		}
+	}
 	if err := l.validateClientMTLSConfig("global", cfg.ClientMTLS); err != nil {
 		return err
 	}

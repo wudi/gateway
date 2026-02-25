@@ -39,6 +39,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/baggage"
 	"github.com/wudi/gateway/internal/middleware/backendenc"
 	"github.com/wudi/gateway/internal/middleware/bodygen"
+	"github.com/wudi/gateway/internal/middleware/aicrawl"
 	"github.com/wudi/gateway/internal/middleware/botdetect"
 	"github.com/wudi/gateway/internal/middleware/clientmtls"
 	"github.com/wudi/gateway/internal/middleware/cdnheaders"
@@ -208,6 +209,7 @@ type Gateway struct {
 	securityHeaders     *securityheaders.SecurityHeadersByRoute
 	maintenanceHandlers *maintenance.MaintenanceByRoute
 	botDetectors        *botdetect.BotDetectByRoute
+	aiCrawlControllers  *aicrawl.AICrawlByRoute
 	proxyRateLimiters   *proxyratelimit.ProxyRateLimitByRoute
 	mockHandlers        *mock.MockByRoute
 	claimsPropagators   *claimsprop.ClaimsPropByRoute
@@ -402,6 +404,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		securityHeaders:     securityheaders.NewSecurityHeadersByRoute(),
 		maintenanceHandlers: maintenance.NewMaintenanceByRoute(),
 		botDetectors:        botdetect.NewBotDetectByRoute(),
+		aiCrawlControllers:  aicrawl.NewAICrawlByRoute(),
 		proxyRateLimiters:   proxyratelimit.NewProxyRateLimitByRoute(),
 		mockHandlers:        mock.NewMockByRoute(),
 		claimsPropagators:   claimsprop.NewClaimsPropByRoute(),
@@ -907,6 +910,16 @@ func New(cfg *config.Config) (*Gateway, error) {
 			}
 			return nil
 		}, g.botDetectors.RouteIDs, func() any { return g.botDetectors.Stats() }),
+		newFeature("ai_crawl_control", "/ai-crawl-control", func(id string, rc config.RouteConfig) error {
+			if rc.AICrawlControl.Enabled {
+				merged := aicrawl.MergeAICrawlConfig(rc.AICrawlControl, cfg.AICrawlControl)
+				return g.aiCrawlControllers.AddRoute(id, merged)
+			}
+			if cfg.AICrawlControl.Enabled {
+				return g.aiCrawlControllers.AddRoute(id, cfg.AICrawlControl)
+			}
+			return nil
+		}, g.aiCrawlControllers.RouteIDs, func() any { return g.aiCrawlControllers.Stats() }),
 		newFeature("spike_arrest", "/spike-arrest", func(id string, rc config.RouteConfig) error {
 			rc2 := rc.SpikeArrest
 			if !rc2.Enabled && !cfg.SpikeArrest.Enabled {
@@ -2065,6 +2078,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		}},
 		{"bot_detection", func() middleware.Middleware {
 			if bd := g.botDetectors.GetDetector(routeID); bd != nil { return bd.Middleware() }; return nil
+		}},
+		{"ai_crawl_control", func() middleware.Middleware {
+			if ctrl := g.aiCrawlControllers.GetController(routeID); ctrl != nil { return ctrl.Middleware() }; return nil
 		}},
 		{"ip_blocklist", func() middleware.Middleware {
 			bl := g.ipBlocklists.GetBlocklist(routeID)

@@ -346,6 +346,30 @@ See [Mock Responses](../transformations/mock-responses.md) for use cases.
 
 **Validation:** At least one `deny` pattern required when enabled. All patterns must be valid regexes.
 
+### AI Crawl Control (per-route)
+
+```yaml
+    ai_crawl_control:
+      enabled: bool
+      default_action: string        # "monitor" (default), "allow", "block"
+      block_status: int             # HTTP status for blocked requests (default 403)
+      block_body: string            # optional response body
+      block_content_type: string    # Content-Type for block response (default "text/plain")
+      expose_headers: bool          # add X-AI-Crawler-* response headers (default false)
+      policies:
+        - crawler: string           # crawler name (built-in or custom)
+          action: string            # "allow", "block", "monitor"
+          disallow_paths: [string]  # doublestar glob patterns to block
+          allow_paths: [string]     # doublestar glob patterns to exclusively allow
+      custom_crawlers:
+        - name: string
+          pattern: string           # regex for User-Agent matching
+```
+
+**Validation:** `allow_paths` and `disallow_paths` are mutually exclusive per policy. Custom crawler names must be unique with valid regex patterns.
+
+See [AI Crawl Control](../security/ai-crawl-control.md) for details.
+
 ### Client mTLS (per-route)
 
 ```yaml
@@ -1907,6 +1931,32 @@ Per-route `bot_detection` config overrides the global block when both are enable
 **Validation:** At least one `deny` pattern required when enabled. All patterns must be valid Go regexes.
 
 See [Bot Detection](../security/bot-detection.md) for details.
+
+## AI Crawl Control (global)
+
+```yaml
+ai_crawl_control:
+  enabled: bool
+  default_action: string        # "monitor" (default), "allow", "block"
+  block_status: int             # HTTP status for blocked requests (default 403)
+  block_body: string            # optional response body
+  block_content_type: string    # Content-Type for block response (default "text/plain")
+  expose_headers: bool          # add X-AI-Crawler-* response headers (default false)
+  policies:
+    - crawler: string           # crawler name (built-in or custom)
+      action: string            # "allow", "block", "monitor"
+      disallow_paths: [string]  # doublestar glob patterns to block
+      allow_paths: [string]     # doublestar glob patterns to exclusively allow
+  custom_crawlers:
+    - name: string
+      pattern: string           # regex for User-Agent matching
+```
+
+Per-route `ai_crawl_control` config merges with global config when both are enabled.
+
+**Validation:** `default_action` must be monitor/allow/block. `block_status` must be 100-599. `allow_paths` and `disallow_paths` are mutually exclusive per policy. Custom crawler names must be unique with valid regex patterns.
+
+See [AI Crawl Control](../security/ai-crawl-control.md) for details.
 
 ## Client mTLS (global)
 

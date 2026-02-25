@@ -175,6 +175,7 @@ All feature endpoints return JSON with per-route status and metrics.
 | `GET /cdn-cache-headers` | Per-route CDN cache header injection stats |
 | `GET /backend-encoding` | Per-route backend encoding stats |
 | `GET /bot-detection` | Per-route bot detection block counts |
+| `GET /ai-crawl-control` | Per-route AI crawler detection and policy stats |
 | `GET /client-mtls` | Per-route client mTLS verification stats |
 | `GET /proxy-rate-limits` | Per-route backend-facing rate limit stats |
 | `GET /mock-responses` | Per-route mock response served count |
@@ -1343,6 +1344,44 @@ curl http://localhost:8081/bot-detection
 {
   "api": {
     "blocked": 42
+  }
+}
+```
+
+### GET `/ai-crawl-control`
+
+Returns per-route AI crawler detection statistics including per-crawler metrics.
+
+```bash
+curl http://localhost:8081/ai-crawl-control
+```
+
+**Response:**
+```json
+{
+  "api": {
+    "total_detected": 150,
+    "total_blocked": 100,
+    "total_allowed": 30,
+    "total_monitored": 20,
+    "crawlers": {
+      "GPTBot": {
+        "requests": 80,
+        "blocked": 80,
+        "allowed": 0,
+        "monitored": 0,
+        "last_seen": "2026-02-25T10:30:00Z",
+        "action": "block"
+      },
+      "ClaudeBot": {
+        "requests": 30,
+        "blocked": 0,
+        "allowed": 30,
+        "monitored": 0,
+        "last_seen": "2026-02-25T10:28:00Z",
+        "action": "allow"
+      }
+    }
   }
 }
 ```

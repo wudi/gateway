@@ -1303,6 +1303,11 @@ func (l *Loader) validateDelegatedSecurity(route RouteConfig, cfg *Config) error
 			return err
 		}
 	}
+	if route.AICrawlControl.Enabled {
+		if err := l.validateAICrawlConfig(scope, route.AICrawlControl); err != nil {
+			return err
+		}
+	}
 	if err := l.validateInboundSigningConfig(scope, route.InboundSigning); err != nil {
 		return err
 	}
@@ -1546,6 +1551,48 @@ func (l *Loader) validateBotDetectionConfig(scope string, cfg BotDetectionConfig
 	}
 	if len(cfg.Deny) == 0 {
 		return fmt.Errorf("%s: bot_detection.deny requires at least one pattern", scope)
+	}
+	return nil
+}
+
+// validateAICrawlConfig validates AI crawl control config.
+func (l *Loader) validateAICrawlConfig(scope string, cfg AICrawlConfig) error {
+	validActions := map[string]bool{"": true, "monitor": true, "allow": true, "block": true}
+	if !validActions[cfg.DefaultAction] {
+		return fmt.Errorf("%s: ai_crawl_control.default_action must be monitor, allow, or block", scope)
+	}
+	if cfg.BlockStatus != 0 && (cfg.BlockStatus < 100 || cfg.BlockStatus > 599) {
+		return fmt.Errorf("%s: ai_crawl_control.block_status must be 100-599", scope)
+	}
+	for i, p := range cfg.Policies {
+		if p.Crawler == "" {
+			return fmt.Errorf("%s: ai_crawl_control.policies[%d].crawler is required", scope, i)
+		}
+		if p.Action == "" {
+			return fmt.Errorf("%s: ai_crawl_control.policies[%d].action is required", scope, i)
+		}
+		if !validActions[p.Action] {
+			return fmt.Errorf("%s: ai_crawl_control.policies[%d].action must be monitor, allow, or block", scope, i)
+		}
+		if len(p.AllowPaths) > 0 && len(p.DisallowPaths) > 0 {
+			return fmt.Errorf("%s: ai_crawl_control.policies[%d]: allow_paths and disallow_paths are mutually exclusive", scope, i)
+		}
+	}
+	seen := make(map[string]bool, len(cfg.CustomCrawlers))
+	for i, cc := range cfg.CustomCrawlers {
+		if cc.Name == "" {
+			return fmt.Errorf("%s: ai_crawl_control.custom_crawlers[%d].name is required", scope, i)
+		}
+		if cc.Pattern == "" {
+			return fmt.Errorf("%s: ai_crawl_control.custom_crawlers[%d].pattern is required", scope, i)
+		}
+		if _, err := regexp.Compile(cc.Pattern); err != nil {
+			return fmt.Errorf("%s: ai_crawl_control.custom_crawlers[%d].pattern: invalid regex %q: %w", scope, i, cc.Pattern, err)
+		}
+		if seen[cc.Name] {
+			return fmt.Errorf("%s: ai_crawl_control.custom_crawlers: duplicate name %q", scope, cc.Name)
+		}
+		seen[cc.Name] = true
 	}
 	return nil
 }

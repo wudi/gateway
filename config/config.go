@@ -61,6 +61,7 @@ type Config struct {
 	Shutdown               ShutdownConfig               `yaml:"shutdown"`                 // Graceful shutdown settings
 	TrustedProxies         TrustedProxiesConfig         `yaml:"trusted_proxies"`          // Trusted proxy IP extraction
 	BotDetection           BotDetectionConfig           `yaml:"bot_detection"`            // Global bot detection
+	AICrawlControl         AICrawlConfig                `yaml:"ai_crawl_control"`         // Global AI crawler control
 	ClientMTLS             ClientMTLSConfig             `yaml:"client_mtls"`              // Global per-route client mTLS verification
 	HTTPSRedirect          HTTPSRedirectConfig          `yaml:"https_redirect"`           // Automatic HTTP→HTTPS redirect
 	AllowedHosts           AllowedHostsConfig           `yaml:"allowed_hosts"`            // Host header validation
@@ -372,6 +373,7 @@ type RouteConfig struct {
 	Maintenance          MaintenanceConfig          `yaml:"maintenance"`           // Per-route maintenance mode
 	Rewrite              RewriteConfig              `yaml:"rewrite"`               // URL rewriting (prefix, regex, host override)
 	BotDetection         BotDetectionConfig         `yaml:"bot_detection"`         // Per-route bot detection
+	AICrawlControl       AICrawlConfig              `yaml:"ai_crawl_control"`      // Per-route AI crawler control
 	ClientMTLS           ClientMTLSConfig           `yaml:"client_mtls"`           // Per-route client mTLS verification
 	ProxyRateLimit       ProxyRateLimitConfig       `yaml:"proxy_rate_limit"`      // Per-route backend rate limiting
 	MockResponse         MockResponseConfig         `yaml:"mock_response"`         // Per-route mock responses
@@ -667,6 +669,32 @@ type BotDetectionConfig struct {
 	Enabled bool     `yaml:"enabled"`
 	Deny    []string `yaml:"deny"`  // regex patterns to block
 	Allow   []string `yaml:"allow"` // regex patterns to allow (bypass deny)
+}
+
+// AICrawlConfig defines AI crawler detection and policy enforcement.
+type AICrawlConfig struct {
+	Enabled          bool                  `yaml:"enabled"`
+	DefaultAction    string                `yaml:"default_action"`     // "monitor" (default), "allow", "block"
+	Policies         []AICrawlPolicyConfig `yaml:"policies"`
+	CustomCrawlers   []CustomCrawlerConfig `yaml:"custom_crawlers"`
+	BlockStatus      int                   `yaml:"block_status"`       // HTTP status for blocked requests (default 403)
+	BlockBody        string                `yaml:"block_body"`         // optional response body (sent as-is)
+	BlockContentType string                `yaml:"block_content_type"` // Content-Type for block response (default "text/plain")
+	ExposeHeaders    bool                  `yaml:"expose_headers"`     // add X-AI-Crawler-* response headers (default false)
+}
+
+// AICrawlPolicyConfig defines a per-crawler policy.
+type AICrawlPolicyConfig struct {
+	Crawler       string   `yaml:"crawler"`        // name matching built-in or custom crawler
+	Action        string   `yaml:"action"`         // "allow", "block", "monitor"
+	DisallowPaths []string `yaml:"disallow_paths"` // doublestar glob patterns to block
+	AllowPaths    []string `yaml:"allow_paths"`    // doublestar glob patterns to exclusively allow
+}
+
+// CustomCrawlerConfig defines a user-provided AI crawler pattern.
+type CustomCrawlerConfig struct {
+	Name    string `yaml:"name"`
+	Pattern string `yaml:"pattern"` // regex for User-Agent matching
 }
 
 // ClientMTLSConfig defines per-route client certificate verification.
