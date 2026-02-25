@@ -262,6 +262,12 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 	})
 }
 
+// Pre-allocated header values for X-Forwarded-Proto.
+var (
+	xForwardedProtoHTTP  = []string{"http"}
+	xForwardedProtoHTTPS = []string{"https"}
+)
+
 var proxyHeaderPool = sync.Pool{
 	New: func() any { return make(http.Header, 16) },
 }
@@ -339,22 +345,22 @@ func (p *Proxy) createProxyRequest(ctx context.Context, r *http.Request, target 
 		proxyReq.Host = route.Rewrite.Host
 	}
 
-	// Set X-Forwarded headers
+	// Set X-Forwarded headers via direct map access to bypass CanonicalMIMEHeaderKey.
 	if clientIP := variables.ExtractClientIP(r); clientIP != "" {
-		if prior := proxyReq.Header.Get("X-Forwarded-For"); prior != "" {
-			proxyReq.Header.Set("X-Forwarded-For", prior+", "+clientIP)
+		if prior, ok := proxyReq.Header["X-Forwarded-For"]; ok && len(prior) > 0 {
+			proxyReq.Header["X-Forwarded-For"] = []string{prior[0] + ", " + clientIP}
 		} else {
-			proxyReq.Header.Set("X-Forwarded-For", clientIP)
+			proxyReq.Header["X-Forwarded-For"] = []string{clientIP}
 		}
 	}
 
 	if r.TLS != nil {
-		proxyReq.Header.Set("X-Forwarded-Proto", "https")
+		proxyReq.Header["X-Forwarded-Proto"] = xForwardedProtoHTTPS
 	} else {
-		proxyReq.Header.Set("X-Forwarded-Proto", "http")
+		proxyReq.Header["X-Forwarded-Proto"] = xForwardedProtoHTTP
 	}
 
-	proxyReq.Header.Set("X-Forwarded-Host", r.Host)
+	proxyReq.Header["X-Forwarded-Host"] = []string{r.Host}
 
 	// Remove hop-by-hop headers
 	removeHopHeaders(proxyReq.Header)
@@ -381,10 +387,12 @@ func (p *Proxy) handleError(w http.ResponseWriter, r *http.Request, err error, b
 	errors.ErrBadGateway.WithDetails(err.Error()).WriteJSON(w)
 }
 
-// copyHeaders copies headers from source to destination
+// copyHeaders copies headers from source to destination.
+// Source slices are assigned directly instead of cloned — response headers
+// from the backend are not mutated after copy, so sharing is safe.
 func (p *Proxy) copyHeaders(dst, src http.Header) {
 	for k, vv := range src {
-		dst[k] = append(dst[k][:0:0], vv...)
+		dst[k] = vv
 	}
 
 	// Remove hop-by-hop headers from response
@@ -426,22 +434,22 @@ func (p *Proxy) copyBody(w http.ResponseWriter, body io.Reader) {
 	copyBufPool.Put(bp)
 }
 
-// Hop-by-hop headers that should be removed
-var hopHeaders = []string{
-	"Connection",
-	"Proxy-Connection",
-	"Keep-Alive",
-	"Proxy-Authenticate",
-	"Proxy-Authorization",
-	"Te",
-	"Trailer",
-	"Transfer-Encoding",
-	"Upgrade",
+// hopHeaders lists hop-by-hop headers that should be removed.
+var hopHeaders = map[string]struct{}{
+	"Connection":          {},
+	"Proxy-Connection":    {},
+	"Keep-Alive":          {},
+	"Proxy-Authenticate":  {},
+	"Proxy-Authorization": {},
+	"Te":                  {},
+	"Trailer":             {},
+	"Transfer-Encoding":   {},
+	"Upgrade":             {},
 }
 
 func removeHopHeaders(header http.Header) {
-	for _, h := range hopHeaders {
-		header.Del(h)
+	for h := range hopHeaders {
+		delete(header, h)
 	}
 }
 
