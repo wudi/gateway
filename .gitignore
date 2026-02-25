@@ -1,8 +1,6 @@
 # Build artifacts
 /build/
 /dist/
-# Binary output (use -o flag since gateway/ directory exists)
-/gateway.bin
 
 # Test artifacts
 coverage.out

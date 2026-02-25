@@ -2,7 +2,7 @@
 
 ## Build & Test
 
-- Build: `go build ./cmd/gateway/`
+- Build: `go build -o ./build/gateway ./cmd/gateway/`
 - Test all: `go test ./...`
 - Test specific package: `go test ./internal/retry/ -v`
 - Integration tests (tagged): `go test -tags integration ./test/`
