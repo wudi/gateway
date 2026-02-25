@@ -716,6 +716,11 @@ func (s *Server) adminHandler() http.Handler {
 			return s.gateway.GetLDAPAuth().Stats()
 		}))
 	}
+	if s.gateway.GetSAMLAuth() != nil {
+		mux.HandleFunc("/saml/stats", jsonStatsHandler(func() any {
+			return s.gateway.GetSAMLAuth().Stats()
+		}))
+	}
 
 	// API Catalog (developer portal)
 	if s.config.Admin.Catalog.Enabled {

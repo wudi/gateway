@@ -157,6 +157,7 @@ type Gateway struct {
 	oauthAuth     *auth.OAuthAuth
 	basicAuth     *auth.BasicAuth
 	ldapAuth      *auth.LDAPAuth
+	samlAuth      *auth.SAMLAuth
 	rateLimiters  *ratelimit.RateLimitByRoute
 	resolver      *variables.Resolver
 
@@ -1605,6 +1606,15 @@ func (g *Gateway) initAuth() error {
 		}
 	}
 
+	// Initialize SAML auth
+	if g.config.Authentication.SAML.Enabled {
+		var err error
+		g.samlAuth, err = auth.NewSAMLAuth(g.config.Authentication.SAML)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -2754,6 +2764,12 @@ func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// SAML protocol endpoint intercept (before route matching)
+	if g.samlAuth != nil && g.samlAuth.MatchesPath(r.URL.Path) {
+		g.samlAuth.ServeHTTP(w, r)
+		return
+	}
+
 	match := g.router.Match(r)
 	if match == nil {
 		errors.ErrNotFound.WriteJSON(w)
@@ -2784,6 +2800,7 @@ func (g *Gateway) authenticate(w http.ResponseWriter, r *http.Request, methods [
 	var identity *variables.Identity
 	var err error
 	hasBasicMethod := false
+	hasSAMLMethod := false
 
 	for _, method := range methods {
 		switch method {
@@ -2824,6 +2841,14 @@ func (g *Gateway) authenticate(w http.ResponseWriter, r *http.Request, methods [
 					break
 				}
 			}
+		case "saml":
+			hasSAMLMethod = true
+			if g.samlAuth != nil && g.samlAuth.IsEnabled() {
+				identity, err = g.samlAuth.Authenticate(r)
+				if err == nil {
+					break
+				}
+			}
 		}
 
 		if identity != nil {
@@ -2832,6 +2857,17 @@ func (g *Gateway) authenticate(w http.ResponseWriter, r *http.Request, methods [
 	}
 
 	if identity == nil {
+		// SAML-only routes: return JSON with login_url instead of WWW-Authenticate
+		if hasSAMLMethod && !hasBasicMethod {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			loginURL := "/saml/login"
+			if g.samlAuth != nil {
+				loginURL = g.samlAuth.PathPrefix() + "login"
+			}
+			fmt.Fprintf(w, `{"error":"unauthorized","login_url":%q}`, loginURL)
+			return false
+		}
 		// Build WWW-Authenticate header dynamically
 		wwwAuth := `Bearer realm="api", API-Key`
 		if hasBasicMethod {
@@ -2876,6 +2912,11 @@ func (g *Gateway) Close() error {
 	// Close LDAP connection pool
 	if g.ldapAuth != nil {
 		g.ldapAuth.Close()
+	}
+
+	// Close SAML metadata refresh
+	if g.samlAuth != nil {
+		g.samlAuth.Close()
 	}
 
 	// Close tracer
@@ -3239,6 +3280,11 @@ func (g *Gateway) GetBasicAuth() *auth.BasicAuth {
 // GetLDAPAuth returns the LDAP auth provider.
 func (g *Gateway) GetLDAPAuth() *auth.LDAPAuth {
 	return g.ldapAuth
+}
+
+// GetSAMLAuth returns the SAML auth provider.
+func (g *Gateway) GetSAMLAuth() *auth.SAMLAuth {
+	return g.samlAuth
 }
 
 // Stats returns gateway statistics

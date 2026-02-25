@@ -400,6 +400,60 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// === SAML Auth ===
+	if cfg.Authentication.SAML.Enabled {
+		saml := cfg.Authentication.SAML
+		if saml.EntityID == "" {
+			return fmt.Errorf("SAML authentication enabled but entity_id is required")
+		}
+		if saml.CertFile == "" {
+			return fmt.Errorf("SAML authentication enabled but cert_file is required")
+		}
+		if _, err := os.Stat(saml.CertFile); err != nil {
+			return fmt.Errorf("SAML cert_file %q: %w", saml.CertFile, err)
+		}
+		if saml.KeyFile == "" {
+			return fmt.Errorf("SAML authentication enabled but key_file is required")
+		}
+		if _, err := os.Stat(saml.KeyFile); err != nil {
+			return fmt.Errorf("SAML key_file %q: %w", saml.KeyFile, err)
+		}
+		if saml.IDPMetadataURL == "" && saml.IDPMetadataFile == "" {
+			return fmt.Errorf("SAML authentication enabled but one of idp_metadata_url or idp_metadata_file is required")
+		}
+		if saml.IDPMetadataURL != "" && saml.IDPMetadataFile != "" {
+			return fmt.Errorf("SAML: specify only one of idp_metadata_url or idp_metadata_file, not both")
+		}
+		if saml.IDPMetadataFile != "" {
+			if _, err := os.Stat(saml.IDPMetadataFile); err != nil {
+				return fmt.Errorf("SAML idp_metadata_file %q: %w", saml.IDPMetadataFile, err)
+			}
+		}
+		if saml.Session.SigningKey == "" {
+			return fmt.Errorf("SAML authentication enabled but session.signing_key is required")
+		}
+		if len(saml.Session.SigningKey) < 32 {
+			return fmt.Errorf("SAML session.signing_key must be at least 32 bytes")
+		}
+		switch saml.NameIDFormat {
+		case "", "email", "persistent", "transient", "unspecified":
+			// valid
+		default:
+			return fmt.Errorf("SAML name_id_format must be one of: email, persistent, transient, unspecified")
+		}
+		switch saml.Session.SameSite {
+		case "", "lax", "strict", "none":
+			// valid
+		default:
+			return fmt.Errorf("SAML session.same_site must be one of: lax, strict, none")
+		}
+		if saml.PathPrefix != "" {
+			if !strings.HasPrefix(saml.PathPrefix, "/") || !strings.HasSuffix(saml.PathPrefix, "/") {
+				return fmt.Errorf("SAML path_prefix must start and end with /")
+			}
+		}
+	}
+
 	// === DNS resolver ===
 	if len(cfg.DNSResolver.Nameservers) > 0 {
 		for i, ns := range cfg.DNSResolver.Nameservers {

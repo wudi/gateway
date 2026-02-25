@@ -265,11 +265,12 @@ type MemoryConfig struct {
 
 // AuthenticationConfig defines auth settings
 type AuthenticationConfig struct {
-	APIKey APIKeyConfig   `yaml:"api_key"`
-	JWT    JWTConfig      `yaml:"jwt"`
-	OAuth  OAuthConfig    `yaml:"oauth"` // Feature 7: OAuth 2.0 / OIDC
+	APIKey APIKeyConfig    `yaml:"api_key"`
+	JWT    JWTConfig       `yaml:"jwt"`
+	OAuth  OAuthConfig     `yaml:"oauth"` // Feature 7: OAuth 2.0 / OIDC
 	Basic  BasicAuthConfig `yaml:"basic"`
-	LDAP   LDAPConfig     `yaml:"ldap"`
+	LDAP   LDAPConfig      `yaml:"ldap"`
+	SAML   SAMLConfig      `yaml:"saml"`
 }
 
 // TokenExchangeConfig defines OAuth2/OIDC token exchange (RFC 8693) settings.
@@ -401,6 +402,43 @@ type LDAPAttributeMapping struct {
 type LDAPTLSConfig struct {
 	SkipVerify bool   `yaml:"skip_verify"`
 	CAFile     string `yaml:"ca_file"`
+}
+
+// SAMLSessionConfig defines session cookie settings for SAML SSO.
+type SAMLSessionConfig struct {
+	CookieName string        `yaml:"cookie_name"` // default "gateway_saml"
+	MaxAge     time.Duration `yaml:"max_age"`     // default 8h
+	SigningKey  string       `yaml:"signing_key"` // HMAC key for session JWT (>= 32 bytes); supports ${ENV_VAR}
+	Domain     string        `yaml:"domain"`
+	Secure     bool          `yaml:"secure"`    // default true
+	SameSite   string        `yaml:"same_site"` // "lax" (default), "strict", "none"
+}
+
+// SAMLAttributeMapping defines how SAML assertion attributes map to identity fields.
+type SAMLAttributeMapping struct {
+	ClientID    string `yaml:"client_id"`     // default "uid"
+	Email       string `yaml:"email"`
+	DisplayName string `yaml:"display_name"`
+	Roles       string `yaml:"roles"`         // multi-valued → []string
+}
+
+// SAMLConfig defines SAML 2.0 SSO authentication settings.
+type SAMLConfig struct {
+	Enabled                 bool                 `yaml:"enabled"`
+	EntityID                string               `yaml:"entity_id"`
+	CertFile                string               `yaml:"cert_file"`
+	KeyFile                 string               `yaml:"key_file"`
+	IDPMetadataURL          string               `yaml:"idp_metadata_url"`
+	IDPMetadataFile         string               `yaml:"idp_metadata_file"`
+	MetadataRefreshInterval time.Duration        `yaml:"metadata_refresh_interval"` // default 24h; 0 disables
+	PathPrefix              string               `yaml:"path_prefix"`               // default "/saml/"
+	NameIDFormat            string               `yaml:"name_id_format"`            // email, persistent, transient, unspecified
+	SignRequests            *bool                `yaml:"sign_requests"`             // default true
+	ForceAuthn              bool                 `yaml:"force_authn"`
+	AllowIDPInitiated       bool                 `yaml:"allow_idp_initiated"`
+	AssertionHeader         string               `yaml:"assertion_header"`          // default "X-SAML-Assertion"
+	Session                 SAMLSessionConfig    `yaml:"session"`
+	AttributeMapping        SAMLAttributeMapping `yaml:"attribute_mapping"`
 }
 
 // RouteConfig defines a single route

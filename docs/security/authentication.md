@@ -565,3 +565,113 @@ Exchange results are cached by SHA-256 of the subject token. Set `cache_ttl` sli
 The middleware is positioned at step 6.07 in the chain — after auth (6) and token revocation (6.05), before claims propagation (6.15).
 
 **Admin endpoint:** `GET /token-exchange` returns per-route exchange metrics.
+
+---
+
+## SAML 2.0 SSO
+
+The gateway can act as a SAML 2.0 Service Provider (SP), enabling browser-based Single Sign-On with enterprise identity providers (Okta, Azure AD, ADFS, OneLogin, etc.). It also supports stateless token validation via SAML assertions passed in an HTTP header.
+
+### Authentication Modes
+
+**Browser SSO (SP-initiated):** The user visits a protected route, gets redirected to the IdP login page, authenticates, and is redirected back to the gateway's ACS endpoint. The gateway validates the SAML response, creates a signed session cookie, and redirects the user to the original URL.
+
+**Header-based token validation:** For API clients, a Base64-encoded SAML assertion can be passed in the `X-SAML-Assertion` header (configurable). The gateway validates the assertion's XML structure, time conditions, and checks for replay before granting access.
+
+### SAML Endpoints
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/saml/metadata` | GET | SP metadata XML for IdP registration |
+| `/saml/login` | GET | Initiates SSO redirect to IdP |
+| `/saml/acs` | POST | Assertion Consumer Service — processes IdP response |
+| `/saml/slo` | GET/POST | Single Logout (SP-initiated and IdP-initiated) |
+
+The path prefix (`/saml/`) is configurable via `path_prefix`.
+
+### Configuration
+
+```yaml
+authentication:
+  saml:
+    enabled: true
+    entity_id: "https://gateway.example.com"
+    cert_file: /etc/gateway/saml/sp.cert      # SP X.509 certificate (PEM)
+    key_file: /etc/gateway/saml/sp.key         # SP private key (PEM)
+    idp_metadata_url: https://idp.example.com/metadata   # OR idp_metadata_file
+    # idp_metadata_file: /etc/gateway/saml/idp-metadata.xml
+    metadata_refresh_interval: 24h             # auto-refresh IdP metadata (0 disables)
+    path_prefix: /saml/                        # default "/saml/"
+    name_id_format: email                      # email, persistent, transient, unspecified
+    sign_requests: true                        # sign AuthnRequests (default true)
+    force_authn: false                         # force re-authentication at IdP
+    allow_idp_initiated: false                 # allow unsolicited IdP responses
+    assertion_header: X-SAML-Assertion         # header for stateless mode
+    session:
+      signing_key: "${SAML_SESSION_KEY}"       # HMAC key for session JWT (>= 32 bytes)
+      cookie_name: gateway_saml                # default "gateway_saml"
+      max_age: 8h                              # session lifetime
+      domain: .example.com                     # cookie domain
+      secure: true                             # Secure flag (default true)
+      same_site: lax                           # lax, strict, none
+    attribute_mapping:
+      client_id: uid                           # SAML attribute → Identity.ClientID
+      email: email
+      display_name: displayName
+      roles: groups                            # multi-valued → []string
+```
+
+### Per-Route Usage
+
+SAML is not included in the default auth methods (it requires browser redirects). Add it explicitly:
+
+```yaml
+routes:
+  - id: dashboard
+    path: /dashboard
+    path_prefix: true
+    auth:
+      required: true
+      methods: [saml]
+    backends:
+      - url: http://dashboard-service:8080
+```
+
+You can combine SAML with other methods. The gateway tries each method in order and uses the first that succeeds:
+
+```yaml
+    auth:
+      required: true
+      methods: [jwt, saml]   # API clients use JWT; browsers use SAML session
+```
+
+### Single Logout (SLO)
+
+**SP-initiated:** A GET to `/saml/slo` clears the session cookie and redirects the user to the IdP's SLO endpoint.
+
+**IdP-initiated:** The IdP sends a LogoutRequest to `/saml/slo`. The gateway clears the session and responds with a LogoutResponse.
+
+### IdP Setup
+
+1. Start the gateway with SAML enabled
+2. Access `GET /saml/metadata` to download the SP metadata XML
+3. Register the SP in your IdP using this metadata (or manually configure ACS URL and Entity ID)
+4. Configure the IdP to release required attribute statements (at minimum: `uid` or whichever attribute maps to `client_id`)
+5. Set `idp_metadata_url` to the IdP's metadata endpoint, or download the IdP metadata XML and use `idp_metadata_file`
+
+### Security
+
+- **Session cookies** are always `HttpOnly` (not configurable) to prevent XSS access
+- **Relay state** is HMAC-signed to prevent CSRF/tampering on the return URL
+- **`return_to`** parameter on `/saml/login` is validated as a relative path only — absolute URLs are rejected
+- **Assertion replay protection**: Each assertion ID is tracked in a bounded TTL cache; reuse is rejected
+- **IdP metadata auto-refresh**: When using `idp_metadata_url`, the gateway periodically re-fetches metadata (default 24h) to handle IdP certificate rotation
+
+### Troubleshooting
+
+- **Clock skew errors**: The gateway allows up to 180 seconds of clock skew (matching Shibboleth defaults). Ensure your server's clock is synchronized via NTP.
+- **Certificate mismatch**: Verify that the IdP metadata contains the certificate the IdP is currently using to sign assertions. Use `metadata_refresh_interval` to auto-update.
+- **Relay state invalid**: If users land on `/` after login instead of their original page, check that the session `signing_key` hasn't changed between the login redirect and the ACS callback.
+- **"SAML assertion already consumed"**: This indicates a replay attempt or the user refreshed the ACS POST page. The assertion ID cache prevents reuse.
+
+**Admin endpoint:** `GET /saml/stats` returns authentication counters (SSO attempts/successes/failures, token validations, session auths, logout requests).

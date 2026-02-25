@@ -213,6 +213,7 @@ type gatewayState struct {
 	oauthAuth  *auth.OAuthAuth
 	basicAuth  *auth.BasicAuth
 	ldapAuth   *auth.LDAPAuth
+	samlAuth   *auth.SAMLAuth
 }
 
 // buildState builds all route-scoped state from a config.
@@ -777,6 +778,13 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		s.ldapAuth, err = auth.NewLDAPAuth(cfg.Authentication.LDAP)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize LDAP auth: %w", err)
+		}
+	}
+	if cfg.Authentication.SAML.Enabled {
+		var err error
+		s.samlAuth, err = auth.NewSAMLAuth(cfg.Authentication.SAML)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize SAML auth: %w", err)
 		}
 	}
 
@@ -1458,6 +1466,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	oldTranslators := g.translators
 	oldJWT := g.jwtAuth
 	oldLDAP := g.ldapAuth
+	oldSAML := g.samlAuth
 	oldCanaryControllers := g.canaryControllers
 	oldBlueGreenControllers := g.blueGreenControllers
 	oldAdaptiveLimiters := g.adaptiveLimiters
@@ -1566,6 +1575,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.oauthAuth = newState.oauthAuth
 	g.basicAuth = newState.basicAuth
 	g.ldapAuth = newState.ldapAuth
+	g.samlAuth = newState.samlAuth
 	// Swap tenant manager (close old one's quota goroutines)
 	oldTenantMgr := g.tenantManager
 	g.tenantManager = newState.tenantManager
@@ -1628,6 +1638,9 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	}
 	if oldLDAP != nil {
 		oldLDAP.Close()
+	}
+	if oldSAML != nil {
+		oldSAML.Close()
 	}
 	// Reconcile health checker: remove backends no longer present
 	newBackendURLs := make(map[string]bool)

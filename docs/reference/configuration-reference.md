@@ -171,9 +171,35 @@ authentication:
       skip_verify: bool
       ca_file: string
     realm: string                   # default "Restricted"
+  saml:
+    enabled: bool
+    entity_id: string                           # required; SP entity ID (typically the gateway's base URL)
+    cert_file: string                           # required; path to SP X.509 certificate (PEM)
+    key_file: string                            # required; path to SP private key (PEM)
+    idp_metadata_url: string                    # IdP metadata URL (mutually exclusive with idp_metadata_file)
+    idp_metadata_file: string                   # IdP metadata file path (mutually exclusive with idp_metadata_url)
+    metadata_refresh_interval: duration         # default 24h; 0 disables auto-refresh
+    path_prefix: string                         # default "/saml/"; must start and end with /
+    name_id_format: string                      # "email", "persistent", "transient", "unspecified" (default)
+    sign_requests: bool                         # default true; sign AuthnRequests with SP key
+    force_authn: bool                           # force re-authentication at IdP
+    allow_idp_initiated: bool                   # allow unsolicited IdP responses
+    assertion_header: string                    # default "X-SAML-Assertion"
+    session:
+      signing_key: string                       # required; HMAC key for session JWT (>= 32 bytes); supports ${ENV_VAR}
+      cookie_name: string                       # default "gateway_saml"
+      max_age: duration                         # default 8h
+      domain: string                            # cookie domain
+      secure: bool                              # default true
+      same_site: string                         # "lax" (default), "strict", "none"
+    attribute_mapping:
+      client_id: string                         # default "uid"
+      email: string
+      display_name: string
+      roles: string                             # multi-valued attribute → []string
 ```
 
-**Validation:** JWT requires at least one of `secret`, `public_key`, or `jwks_url`. Basic auth requires at least one user with `username`, `password_hash`, and `client_id`. LDAP requires `url`, `bind_dn`, `bind_password`, `user_search_base`, and `user_search_filter` (must contain `{{username}}`).
+**Validation:** JWT requires at least one of `secret`, `public_key`, or `jwks_url`. Basic auth requires at least one user with `username`, `password_hash`, and `client_id`. LDAP requires `url`, `bind_dn`, `bind_password`, `user_search_base`, and `user_search_filter` (must contain `{{username}}`). SAML requires `entity_id`, `cert_file`, `key_file`, exactly one of `idp_metadata_url` or `idp_metadata_file`, and `session.signing_key` (>= 32 bytes).
 
 ---
 
@@ -290,7 +316,7 @@ routes:
     upstream: string           # named upstream reference (alternative to backends/service)
     auth:
       required: bool
-      methods: [string]       # "jwt", "api_key", "oauth"
+      methods: [string]       # "jwt", "api_key", "oauth", "basic", "ldap", "saml"
     timeout: duration
     retries: int              # simple retry count (use retry_policy for advanced)
     strip_prefix: bool
