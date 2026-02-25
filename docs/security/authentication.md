@@ -103,6 +103,156 @@ authentication:
     cache_ttl: 5m
 ```
 
+## Basic Authentication
+
+Validates requests using HTTP Basic Authentication against a local list of users with bcrypt-hashed passwords. This is the simplest auth method and is suitable for internal tools, staging environments, or small-scale APIs.
+
+```yaml
+authentication:
+  basic:
+    enabled: true
+    realm: "My API"    # optional, default "Restricted"
+    users:
+      - username: "admin"
+        password_hash: "$2a$10$..."    # bcrypt hash
+        client_id: "admin-user"
+        roles: ["admin", "write"]
+      - username: "reader"
+        password_hash: "$2a$10$..."
+        client_id: "reader-user"
+        roles: ["read"]
+```
+
+### Generating Password Hashes
+
+Use `htpasswd` (from Apache) or any bcrypt tool:
+
+```bash
+htpasswd -nbBC 10 admin mypassword | cut -d: -f2
+```
+
+Or in Go:
+
+```go
+hash, _ := bcrypt.GenerateFromPassword([]byte("mypassword"), bcrypt.DefaultCost)
+```
+
+### Timing-Safe Authentication
+
+When an unknown username is submitted, the gateway still runs a bcrypt comparison against a dummy hash. This prevents timing-based user enumeration attacks.
+
+### Per-Route Usage
+
+Basic auth is **not** included in the default auth methods — it must be explicitly listed in `auth.methods` to avoid triggering browser credential dialogs on API routes:
+
+```yaml
+routes:
+  - id: "internal-tool"
+    path: "/internal/*"
+    backends:
+      - url: "http://backend:9000"
+    auth:
+      required: true
+      methods: ["basic"]
+```
+
+## LDAP Authentication
+
+Validates requests using HTTP Basic Authentication against an LDAP or Active Directory server. The gateway uses a bind-search-bind flow: it binds as a service account, searches for the user, then binds as the found user to verify the password.
+
+```yaml
+authentication:
+  ldap:
+    enabled: true
+    url: "ldap://ldap.example.com:389"      # or ldaps:// for TLS
+    start_tls: false
+    bind_dn: "cn=gateway,ou=services,dc=example,dc=org"
+    bind_password: "${LDAP_BIND_PASSWORD}"   # env var expansion
+    user_search_base: "ou=users,dc=example,dc=org"
+    user_search_filter: "(uid={{username}})"
+    user_search_scope: "sub"                 # sub (default), one, base
+    realm: "LDAP"
+    attribute_mapping:
+      client_id: "uid"                       # default "uid"
+      email: "mail"
+      display_name: "displayName"
+    tls:
+      skip_verify: false
+      ca_file: "/etc/certs/ldap-ca.pem"
+    cache_ttl: 5m           # auth result cache TTL (default 5m)
+    conn_timeout: 10s       # connection timeout (default 10s)
+    max_conn_lifetime: 5m   # max lifetime for pooled connections (default 5m)
+    pool_size: 5            # connection pool size (default 5)
+```
+
+### Bind-Search-Bind Flow
+
+1. The gateway binds to LDAP as the service account (`bind_dn` / `bind_password`)
+2. It searches for the user using the `user_search_filter` with `{{username}}` replaced by the login name (LDAP-escaped)
+3. If found, it binds as the user's DN with the provided password to verify credentials
+4. If `group_search_base` is set, it re-binds as the service account and searches for group membership
+
+### Active Directory Example
+
+```yaml
+authentication:
+  ldap:
+    enabled: true
+    url: "ldaps://ad.corp.example.com:636"
+    bind_dn: "CN=Gateway Service,OU=Services,DC=corp,DC=example,DC=com"
+    bind_password: "${AD_BIND_PASSWORD}"
+    user_search_base: "OU=Users,DC=corp,DC=example,DC=com"
+    user_search_filter: "(sAMAccountName={{username}})"
+    attribute_mapping:
+      client_id: "sAMAccountName"
+      email: "mail"
+      display_name: "displayName"
+    group_search_base: "OU=Groups,DC=corp,DC=example,DC=com"
+    group_search_filter: "(member={{dn}})"
+    group_attribute: "cn"
+    tls:
+      skip_verify: false
+```
+
+### Group Membership
+
+When `group_search_base` is set, the gateway searches for groups the user belongs to. The `group_search_filter` supports `{{dn}}` (user's DN) and `{{username}}` placeholders. The `group_attribute` (default `cn`) is extracted from each group entry and included as `roles` in the identity claims.
+
+### Connection Pool & Caching
+
+- **Connection pool:** Maintains a pool of reusable LDAP connections (`pool_size`, default 5). Stale connections older than `max_conn_lifetime` are discarded.
+- **Result cache:** Successful authentications are cached using an LRU cache (capacity 10,000) with per-entry TTL (`cache_ttl`, default 5m). Cache entries are evicted individually on TTL expiry — no thundering-herd evict-all.
+
+### Admin Endpoint
+
+`GET /ldap/stats` returns authentication statistics:
+
+```json
+{
+  "attempts": 1234,
+  "successes": 1200,
+  "failures": 34,
+  "cache_hits": 950,
+  "cache_misses": 284,
+  "pool_size": 3
+}
+```
+
+### Per-Route Usage
+
+Like basic auth, LDAP auth must be explicitly listed in `auth.methods`:
+
+```yaml
+routes:
+  - id: "corp-api"
+    path: "/api/*"
+    backends:
+      - url: "http://backend:9000"
+    auth:
+      required: true
+      methods: ["ldap"]
+```
+
 ## External Auth (ExtAuth)
 
 Delegates authentication decisions to an external HTTP or gRPC service. This is the "ForwardAuth" / "ext_authz" pattern used by Traefik, Envoy, and NGINX. The gateway sends request metadata to the external service and acts on its allow/deny response.
@@ -308,7 +458,13 @@ With `mode: distributed`, the revocation store uses Redis (requires `redis.addre
 | `authentication.jwt.jwks_url` | string | JWKS endpoint for dynamic key fetching |
 | `authentication.oauth.scopes` | []string | Required OAuth scopes |
 | `auth.required` | bool | Require auth on this route |
-| `auth.methods` | []string | Allowed methods: `jwt`, `api_key`, `oauth` |
+| `authentication.basic.enabled` | bool | Enable Basic auth |
+| `authentication.basic.realm` | string | WWW-Authenticate realm (default `Restricted`) |
+| `authentication.ldap.enabled` | bool | Enable LDAP auth |
+| `authentication.ldap.url` | string | LDAP server URL (`ldap://` or `ldaps://`) |
+| `authentication.ldap.cache_ttl` | duration | Auth result cache TTL (default 5m) |
+| `authentication.ldap.pool_size` | int | Connection pool size (default 5) |
+| `auth.methods` | []string | Allowed methods: `jwt`, `api_key`, `oauth`, `basic`, `ldap` |
 | `claims_propagation.enabled` | bool | Enable claims propagation (per-route) |
 | `claims_propagation.claims` | map | Claim-to-header mappings |
 | `token_revocation.enabled` | bool | Enable token revocation (global) |

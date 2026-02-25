@@ -345,6 +345,61 @@ func (l *Loader) validate(cfg *Config) error {
 		}
 	}
 
+	// === Basic Auth ===
+	if cfg.Authentication.Basic.Enabled {
+		if len(cfg.Authentication.Basic.Users) == 0 {
+			return fmt.Errorf("basic authentication enabled but no users configured")
+		}
+		seen := make(map[string]bool, len(cfg.Authentication.Basic.Users))
+		for i, u := range cfg.Authentication.Basic.Users {
+			if u.Username == "" {
+				return fmt.Errorf("basic auth user %d: username is required", i)
+			}
+			if u.PasswordHash == "" {
+				return fmt.Errorf("basic auth user %d (%s): password_hash is required", i, u.Username)
+			}
+			if u.ClientID == "" {
+				return fmt.Errorf("basic auth user %d (%s): client_id is required", i, u.Username)
+			}
+			if seen[u.Username] {
+				return fmt.Errorf("basic auth: duplicate username %q", u.Username)
+			}
+			seen[u.Username] = true
+		}
+	}
+
+	// === LDAP Auth ===
+	if cfg.Authentication.LDAP.Enabled {
+		ldap := cfg.Authentication.LDAP
+		if ldap.URL == "" {
+			return fmt.Errorf("LDAP authentication enabled but url is required")
+		}
+		if ldap.BindDN == "" {
+			return fmt.Errorf("LDAP authentication enabled but bind_dn is required")
+		}
+		if ldap.BindPassword == "" {
+			return fmt.Errorf("LDAP authentication enabled but bind_password is required")
+		}
+		if ldap.UserSearchBase == "" {
+			return fmt.Errorf("LDAP authentication enabled but user_search_base is required")
+		}
+		if ldap.UserSearchFilter == "" {
+			return fmt.Errorf("LDAP authentication enabled but user_search_filter is required")
+		}
+		if !strings.Contains(ldap.UserSearchFilter, "{{username}}") {
+			return fmt.Errorf("LDAP user_search_filter must contain {{username}} placeholder")
+		}
+		switch ldap.UserSearchScope {
+		case "", "sub", "one", "base":
+			// valid
+		default:
+			return fmt.Errorf("LDAP user_search_scope must be one of: sub, one, base")
+		}
+		if ldap.PoolSize < 0 {
+			return fmt.Errorf("LDAP pool_size must be >= 0")
+		}
+	}
+
 	// === DNS resolver ===
 	if len(cfg.DNSResolver.Nameservers) > 0 {
 		for i, ns := range cfg.DNSResolver.Nameservers {

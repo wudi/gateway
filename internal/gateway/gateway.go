@@ -155,6 +155,8 @@ type Gateway struct {
 	apiKeyAuth    *auth.APIKeyAuth
 	jwtAuth       *auth.JWTAuth
 	oauthAuth     *auth.OAuthAuth
+	basicAuth     *auth.BasicAuth
+	ldapAuth      *auth.LDAPAuth
 	rateLimiters  *ratelimit.RateLimitByRoute
 	resolver      *variables.Resolver
 
@@ -1589,6 +1591,20 @@ func (g *Gateway) initAuth() error {
 		}
 	}
 
+	// Initialize Basic auth
+	if g.config.Authentication.Basic.Enabled {
+		g.basicAuth = auth.NewBasicAuth(g.config.Authentication.Basic)
+	}
+
+	// Initialize LDAP auth
+	if g.config.Authentication.LDAP.Enabled {
+		var err error
+		g.ldapAuth, err = auth.NewLDAPAuth(g.config.Authentication.LDAP)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -2760,13 +2776,14 @@ func (g *Gateway) serveHTTP(w http.ResponseWriter, r *http.Request) {
 
 // authenticate handles authentication for a request
 func (g *Gateway) authenticate(w http.ResponseWriter, r *http.Request, methods []string) bool {
-	// If no specific methods, try all available
+	// If no specific methods, try all available (basic/ldap excluded from default — they trigger browser dialogs)
 	if len(methods) == 0 {
 		methods = []string{"jwt", "api_key", "oauth"}
 	}
 
 	var identity *variables.Identity
 	var err error
+	hasBasicMethod := false
 
 	for _, method := range methods {
 		switch method {
@@ -2791,6 +2808,22 @@ func (g *Gateway) authenticate(w http.ResponseWriter, r *http.Request, methods [
 					break
 				}
 			}
+		case "basic":
+			hasBasicMethod = true
+			if g.basicAuth != nil && g.basicAuth.IsEnabled() {
+				identity, err = g.basicAuth.Authenticate(r)
+				if err == nil {
+					break
+				}
+			}
+		case "ldap":
+			hasBasicMethod = true
+			if g.ldapAuth != nil && g.ldapAuth.IsEnabled() {
+				identity, err = g.ldapAuth.Authenticate(r)
+				if err == nil {
+					break
+				}
+			}
 		}
 
 		if identity != nil {
@@ -2799,7 +2832,18 @@ func (g *Gateway) authenticate(w http.ResponseWriter, r *http.Request, methods [
 	}
 
 	if identity == nil {
-		w.Header().Set("WWW-Authenticate", `Bearer realm="api", API-Key`)
+		// Build WWW-Authenticate header dynamically
+		wwwAuth := `Bearer realm="api", API-Key`
+		if hasBasicMethod {
+			realm := "Restricted"
+			if g.basicAuth != nil {
+				realm = g.basicAuth.Realm()
+			} else if g.ldapAuth != nil {
+				realm = g.ldapAuth.Realm()
+			}
+			wwwAuth = fmt.Sprintf(`Basic realm="%s"`, realm)
+		}
+		w.Header().Set("WWW-Authenticate", wwwAuth)
 		errors.ErrUnauthorized.WriteJSON(w)
 		return false
 	}
@@ -2827,6 +2871,11 @@ func (g *Gateway) Close() error {
 	// Close JWKS providers
 	if g.jwtAuth != nil {
 		g.jwtAuth.Close()
+	}
+
+	// Close LDAP connection pool
+	if g.ldapAuth != nil {
+		g.ldapAuth.Close()
 	}
 
 	// Close tracer
@@ -3180,6 +3229,16 @@ func (g *Gateway) GetTrafficSplitStats() map[string]interface{} {
 // GetAPIKeyAuth returns the API key auth for admin API
 func (g *Gateway) GetAPIKeyAuth() *auth.APIKeyAuth {
 	return g.apiKeyAuth
+}
+
+// GetBasicAuth returns the basic auth provider.
+func (g *Gateway) GetBasicAuth() *auth.BasicAuth {
+	return g.basicAuth
+}
+
+// GetLDAPAuth returns the LDAP auth provider.
+func (g *Gateway) GetLDAPAuth() *auth.LDAPAuth {
+	return g.ldapAuth
 }
 
 // Stats returns gateway statistics

@@ -211,6 +211,8 @@ type gatewayState struct {
 	apiKeyAuth *auth.APIKeyAuth
 	jwtAuth    *auth.JWTAuth
 	oauthAuth  *auth.OAuthAuth
+	basicAuth  *auth.BasicAuth
+	ldapAuth   *auth.LDAPAuth
 }
 
 // buildState builds all route-scoped state from a config.
@@ -765,6 +767,16 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		s.oauthAuth, err = auth.NewOAuthAuth(cfg.Authentication.OAuth)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize OAuth auth: %w", err)
+		}
+	}
+	if cfg.Authentication.Basic.Enabled {
+		s.basicAuth = auth.NewBasicAuth(cfg.Authentication.Basic)
+	}
+	if cfg.Authentication.LDAP.Enabled {
+		var err error
+		s.ldapAuth, err = auth.NewLDAPAuth(cfg.Authentication.LDAP)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize LDAP auth: %w", err)
 		}
 	}
 
@@ -1445,6 +1457,7 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	oldWatchCancels := g.watchCancels
 	oldTranslators := g.translators
 	oldJWT := g.jwtAuth
+	oldLDAP := g.ldapAuth
 	oldCanaryControllers := g.canaryControllers
 	oldBlueGreenControllers := g.blueGreenControllers
 	oldAdaptiveLimiters := g.adaptiveLimiters
@@ -1551,6 +1564,8 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	g.apiKeyAuth = newState.apiKeyAuth
 	g.jwtAuth = newState.jwtAuth
 	g.oauthAuth = newState.oauthAuth
+	g.basicAuth = newState.basicAuth
+	g.ldapAuth = newState.ldapAuth
 	// Swap tenant manager (close old one's quota goroutines)
 	oldTenantMgr := g.tenantManager
 	g.tenantManager = newState.tenantManager
@@ -1610,6 +1625,9 @@ func (g *Gateway) Reload(newCfg *config.Config) ReloadResult {
 	}
 	if oldJWT != nil {
 		oldJWT.Close()
+	}
+	if oldLDAP != nil {
+		oldLDAP.Close()
 	}
 	// Reconcile health checker: remove backends no longer present
 	newBackendURLs := make(map[string]bool)

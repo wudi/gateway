@@ -139,7 +139,41 @@ authentication:
     cache_ttl: duration         # token cache TTL
 ```
 
-**Validation:** JWT requires at least one of `secret`, `public_key`, or `jwks_url`.
+  basic:
+    enabled: bool
+    realm: string              # default "Restricted"
+    users:
+      - username: string       # required
+        password_hash: string  # bcrypt hash, required
+        client_id: string      # required
+        roles: [string]        # optional
+  ldap:
+    enabled: bool
+    url: string                     # ldap:// or ldaps://
+    start_tls: bool                 # upgrade to TLS via StartTLS
+    bind_dn: string                 # service account DN
+    bind_password: string           # supports ${ENV_VAR}
+    user_search_base: string        # e.g., "ou=users,dc=example,dc=org"
+    user_search_filter: string      # must contain {{username}}
+    user_search_scope: string       # "sub" (default), "one", "base"
+    group_search_base: string       # groups searched only when non-empty
+    group_search_filter: string     # supports {{dn}} and {{username}}
+    group_attribute: string         # default "cn"
+    attribute_mapping:
+      client_id: string             # default "uid"
+      email: string
+      display_name: string
+    cache_ttl: duration             # default 5m
+    conn_timeout: duration          # default 10s
+    max_conn_lifetime: duration     # default 5m
+    pool_size: int                  # default 5
+    tls:
+      skip_verify: bool
+      ca_file: string
+    realm: string                   # default "Restricted"
+```
+
+**Validation:** JWT requires at least one of `secret`, `public_key`, or `jwks_url`. Basic auth requires at least one user with `username`, `password_hash`, and `client_id`. LDAP requires `url`, `bind_dn`, `bind_password`, `user_search_base`, and `user_search_filter` (must contain `{{username}}`).
 
 ---
 

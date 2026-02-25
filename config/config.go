@@ -265,9 +265,11 @@ type MemoryConfig struct {
 
 // AuthenticationConfig defines auth settings
 type AuthenticationConfig struct {
-	APIKey APIKeyConfig `yaml:"api_key"`
-	JWT    JWTConfig    `yaml:"jwt"`
-	OAuth  OAuthConfig  `yaml:"oauth"` // Feature 7: OAuth 2.0 / OIDC
+	APIKey APIKeyConfig   `yaml:"api_key"`
+	JWT    JWTConfig      `yaml:"jwt"`
+	OAuth  OAuthConfig    `yaml:"oauth"` // Feature 7: OAuth 2.0 / OIDC
+	Basic  BasicAuthConfig `yaml:"basic"`
+	LDAP   LDAPConfig     `yaml:"ldap"`
 }
 
 // TokenExchangeConfig defines OAuth2/OIDC token exchange (RFC 8693) settings.
@@ -349,6 +351,56 @@ type OAuthConfig struct {
 	Audience             string        `yaml:"audience"`
 	Scopes               []string      `yaml:"scopes"`
 	CacheTTL             time.Duration `yaml:"cache_ttl"`
+}
+
+// BasicAuthConfig defines HTTP Basic Authentication settings
+type BasicAuthConfig struct {
+	Enabled bool            `yaml:"enabled"`
+	Realm   string          `yaml:"realm"`
+	Users   []BasicAuthUser `yaml:"users"`
+}
+
+// BasicAuthUser defines a single basic auth user
+type BasicAuthUser struct {
+	Username     string   `yaml:"username"`
+	PasswordHash string   `yaml:"password_hash"` // bcrypt
+	ClientID     string   `yaml:"client_id"`
+	Roles        []string `yaml:"roles"`
+}
+
+// LDAPConfig defines LDAP/Active Directory authentication settings
+type LDAPConfig struct {
+	Enabled          bool                 `yaml:"enabled"`
+	URL              string               `yaml:"url"`
+	StartTLS         bool                 `yaml:"start_tls"`
+	BindDN           string               `yaml:"bind_dn"`
+	BindPassword     string               `yaml:"bind_password"` // supports ${ENV_VAR}
+	UserSearchBase   string               `yaml:"user_search_base"`
+	UserSearchFilter string               `yaml:"user_search_filter"` // must contain {{username}}
+	UserSearchScope  string               `yaml:"user_search_scope"`  // sub (default), one, base
+	GroupSearchBase  string               `yaml:"group_search_base"`  // groups searched only when non-empty
+	GroupSearchFilter string              `yaml:"group_search_filter"`
+	GroupAttribute   string               `yaml:"group_attribute"` // default "cn"
+	AttributeMapping LDAPAttributeMapping `yaml:"attribute_mapping"`
+	CacheTTL         time.Duration        `yaml:"cache_ttl"`          // default 5m
+	ConnTimeout      time.Duration        `yaml:"conn_timeout"`       // default 10s
+	MaxConnLifetime  time.Duration        `yaml:"max_conn_lifetime"`  // default 5m
+	PoolSize         int                  `yaml:"pool_size"`          // default 5
+	TLS              LDAPTLSConfig        `yaml:"tls"`
+	Realm            string               `yaml:"realm"`
+}
+
+// LDAPAttributeMapping defines how LDAP attributes map to identity fields
+type LDAPAttributeMapping struct {
+	ClientID    string `yaml:"client_id"`     // default "uid"
+	Email       string `yaml:"email"`
+	DisplayName string `yaml:"display_name"`
+}
+
+// LDAPTLSConfig defines TLS settings for LDAP connections
+type LDAPTLSConfig struct {
+	SkipVerify bool   `yaml:"skip_verify"`
+	CAFile     string `yaml:"ca_file"`
 }
 
 // RouteConfig defines a single route

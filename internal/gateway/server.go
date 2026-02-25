@@ -711,6 +711,11 @@ func (s *Server) adminHandler() http.Handler {
 			mux.HandleFunc("/api-keys/", s.handleAPIKeyAction)
 		}
 	}
+	if s.gateway.GetLDAPAuth() != nil {
+		mux.HandleFunc("/ldap/stats", jsonStatsHandler(func() any {
+			return s.gateway.GetLDAPAuth().Stats()
+		}))
+	}
 
 	// API Catalog (developer portal)
 	if s.config.Admin.Catalog.Enabled {
