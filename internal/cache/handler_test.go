@@ -1096,6 +1096,203 @@ func TestKeyForRequest(t *testing.T) {
 	}
 }
 
+func TestHandler_StoreWithMeta_PathIndex(t *testing.T) {
+	h := newTestHandler(config.CacheConfig{
+		Enabled: true,
+		MaxSize: 100,
+	})
+
+	key1 := "key1"
+	key2 := "key2"
+	h.StoreWithMeta(key1, "/api/users", &Entry{StatusCode: 200, Body: []byte("users")})
+	h.StoreWithMeta(key2, "/api/posts", &Entry{StatusCode: 200, Body: []byte("posts")})
+
+	// Both should be retrievable
+	if _, ok := h.cache.Get(key1); !ok {
+		t.Error("expected key1 in cache")
+	}
+	if _, ok := h.cache.Get(key2); !ok {
+		t.Error("expected key2 in cache")
+	}
+}
+
+func TestHandler_StoreWithMeta_TagExtraction(t *testing.T) {
+	h := newTestHandler(config.CacheConfig{
+		Enabled:    true,
+		MaxSize:    100,
+		TagHeaders: []string{"Cache-Tag", "Surrogate-Key"},
+		Tags:       []string{"static-tag"},
+	})
+
+	entry := &Entry{
+		StatusCode: 200,
+		Headers:    http.Header{"Cache-Tag": {"product listing"}, "Surrogate-Key": {"home"}},
+		Body:       []byte("data"),
+	}
+	h.StoreWithMeta("key1", "/page", entry)
+
+	// Entry should have tags
+	if len(entry.Tags) != 4 {
+		t.Errorf("expected 4 tags (static-tag + product + listing + home), got %d: %v", len(entry.Tags), entry.Tags)
+	}
+}
+
+func TestHandler_PurgeByPathPattern(t *testing.T) {
+	h := newTestHandler(config.CacheConfig{
+		Enabled: true,
+		MaxSize: 100,
+	})
+
+	h.StoreWithMeta("key1", "/api/users", &Entry{StatusCode: 200, Body: []byte("users")})
+	h.StoreWithMeta("key2", "/api/posts", &Entry{StatusCode: 200, Body: []byte("posts")})
+	h.StoreWithMeta("key3", "/static/style.css", &Entry{StatusCode: 200, Body: []byte("css")})
+
+	count := h.PurgeByPathPattern("/api/*")
+	if count != 2 {
+		t.Errorf("expected 2 purged, got %d", count)
+	}
+
+	// /static entry should still exist
+	if _, ok := h.cache.Get("key3"); !ok {
+		t.Error("expected key3 to still exist")
+	}
+
+	// api entries should be gone
+	if _, ok := h.cache.Get("key1"); ok {
+		t.Error("expected key1 to be purged")
+	}
+	if _, ok := h.cache.Get("key2"); ok {
+		t.Error("expected key2 to be purged")
+	}
+}
+
+func TestHandler_PurgeByPathPattern_NoMatch(t *testing.T) {
+	h := newTestHandler(config.CacheConfig{
+		Enabled: true,
+		MaxSize: 100,
+	})
+
+	h.StoreWithMeta("key1", "/api/users", &Entry{StatusCode: 200, Body: []byte("users")})
+
+	count := h.PurgeByPathPattern("/nonexistent/*")
+	if count != 0 {
+		t.Errorf("expected 0 purged, got %d", count)
+	}
+}
+
+func TestHandler_PurgeByTags(t *testing.T) {
+	h := newTestHandler(config.CacheConfig{
+		Enabled: true,
+		MaxSize: 100,
+		Tags:    []string{"route-tag"},
+	})
+
+	h.StoreWithMeta("key1", "/page1", &Entry{StatusCode: 200, Body: []byte("1")})
+	h.StoreWithMeta("key2", "/page2", &Entry{StatusCode: 200, Body: []byte("2")})
+
+	count := h.PurgeByTags([]string{"route-tag"})
+	if count != 2 {
+		t.Errorf("expected 2 purged, got %d", count)
+	}
+
+	if _, ok := h.cache.Get("key1"); ok {
+		t.Error("expected key1 to be purged")
+	}
+}
+
+func TestHandler_PurgeByTags_WithHeaderTags(t *testing.T) {
+	h := newTestHandler(config.CacheConfig{
+		Enabled:    true,
+		MaxSize:    100,
+		TagHeaders: []string{"Cache-Tag"},
+	})
+
+	h.StoreWithMeta("key1", "/page1", &Entry{
+		StatusCode: 200,
+		Headers:    http.Header{"Cache-Tag": {"product"}},
+		Body:       []byte("1"),
+	})
+	h.StoreWithMeta("key2", "/page2", &Entry{
+		StatusCode: 200,
+		Headers:    http.Header{"Cache-Tag": {"user"}},
+		Body:       []byte("2"),
+	})
+
+	count := h.PurgeByTags([]string{"product"})
+	if count != 1 {
+		t.Errorf("expected 1 purged, got %d", count)
+	}
+
+	if _, ok := h.cache.Get("key1"); ok {
+		t.Error("expected key1 to be purged")
+	}
+	if _, ok := h.cache.Get("key2"); !ok {
+		t.Error("expected key2 to still exist")
+	}
+}
+
+func TestHandler_MultipleKeysPerPath(t *testing.T) {
+	h := newTestHandler(config.CacheConfig{
+		Enabled: true,
+		MaxSize: 100,
+	})
+
+	// Same path, different keys (e.g., different query strings reflected in key)
+	h.StoreWithMeta("key1", "/api/users", &Entry{StatusCode: 200, Body: []byte("json")})
+	h.StoreWithMeta("key2", "/api/users", &Entry{StatusCode: 200, Body: []byte("xml")})
+
+	count := h.PurgeByPathPattern("/api/users")
+	if count != 2 {
+		t.Errorf("expected 2 purged for same path, got %d", count)
+	}
+}
+
+func TestCacheByRoute_PurgeByPathPattern(t *testing.T) {
+	cbr := NewCacheByRoute(nil)
+	cbr.AddRoute("route1", config.CacheConfig{Enabled: true, MaxSize: 100})
+
+	h := cbr.GetHandler("route1")
+	h.StoreWithMeta("key1", "/api/users", &Entry{StatusCode: 200, Body: []byte("users")})
+	h.StoreWithMeta("key2", "/api/posts", &Entry{StatusCode: 200, Body: []byte("posts")})
+
+	count, ok := cbr.PurgeByPathPattern("route1", "/api/*")
+	if !ok {
+		t.Fatal("expected route found")
+	}
+	if count != 2 {
+		t.Errorf("expected 2 purged, got %d", count)
+	}
+
+	// Not found
+	_, ok = cbr.PurgeByPathPattern("nonexistent", "/api/*")
+	if ok {
+		t.Error("expected not found for nonexistent route")
+	}
+}
+
+func TestCacheByRoute_PurgeByTags(t *testing.T) {
+	cbr := NewCacheByRoute(nil)
+	cbr.AddRoute("route1", config.CacheConfig{Enabled: true, MaxSize: 100, Tags: []string{"all"}})
+
+	h := cbr.GetHandler("route1")
+	h.StoreWithMeta("key1", "/page1", &Entry{StatusCode: 200, Body: []byte("1")})
+	h.StoreWithMeta("key2", "/page2", &Entry{StatusCode: 200, Body: []byte("2")})
+
+	count, ok := cbr.PurgeByTags("route1", []string{"all"})
+	if !ok {
+		t.Fatal("expected route found")
+	}
+	if count != 2 {
+		t.Errorf("expected 2 purged, got %d", count)
+	}
+
+	// Not found
+	_, ok = cbr.PurgeByTags("nonexistent", []string{"all"})
+	if ok {
+		t.Error("expected not found for nonexistent route")
+	}
+}
+
 func TestCacheByRouteDistributedFallback(t *testing.T) {
 	// When no Redis client is configured, distributed mode falls back to local
 	cbr := NewCacheByRoute(nil)

@@ -295,6 +295,8 @@ The cache check happens before the circuit breaker. A cache hit never touches th
 | `cache.key_headers` | []string | Extra headers to include in cache key |
 | `cache.stale_while_revalidate` | duration | Serve stale while refreshing in background |
 | `cache.stale_if_error` | duration | Serve stale on backend 5xx errors |
+| `cache.tag_headers` | []string | Response headers to extract cache tags from (split on space/comma) |
+| `cache.tags` | []string | Static tags applied to all cached entries on this route |
 | `coalesce.enabled` | bool | Enable request coalescing |
 | `coalesce.timeout` | duration | Max wait for coalesced requests (default 30s) |
 | `coalesce.key_headers` | []string | Headers included in coalesce key |
@@ -363,6 +365,64 @@ curl -X POST http://localhost:8081/cache/purge \
 ```
 
 This clears every cached entry across all routes.
+
+#### Purge by cache tags
+
+```bash
+curl -X POST http://localhost:8081/cache/purge \
+  -H "Content-Type: application/json" \
+  -d '{"route": "products", "tags": ["product", "listing"]}'
+```
+
+**Response (200 OK):**
+```json
+{
+  "purged": true,
+  "entries_removed": 15
+}
+```
+
+Removes all cached entries on the route that are tagged with any of the specified tags. Tags are collected from two sources:
+
+- **Static tags** — configured via `cache.tags` on the route, applied to every cached entry.
+- **Header tags** — extracted from response headers listed in `cache.tag_headers`. Header values are split on spaces and commas.
+
+```yaml
+routes:
+  - id: products
+    path: /api/products
+    path_prefix: true
+    backends:
+      - url: http://product-service:9000
+    cache:
+      enabled: true
+      ttl: 10m
+      tag_headers:
+        - Cache-Tag
+        - Surrogate-Key
+      tags:
+        - products
+```
+
+When the backend returns `Cache-Tag: product listing`, the entry is tagged with `["products", "product", "listing"]` (static tag + header tags).
+
+#### Purge by path pattern
+
+```bash
+curl -X POST http://localhost:8081/cache/purge \
+  -H "Content-Type: application/json" \
+  -d '{"route": "products", "path_pattern": "/api/products/*"}'
+```
+
+**Response (200 OK):**
+```json
+{
+  "purged": true,
+  "entries_removed": 8
+}
+```
+
+Removes all cached entries on the route whose original request path matches the given glob pattern. Uses Go's `path.Match` syntax (supports `*` and `?` wildcards).
 
 #### Error responses
 

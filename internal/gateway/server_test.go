@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -436,6 +437,172 @@ func TestAdminCacheEndpoint(t *testing.T) {
 
 	if _, ok := result["cache-test"]; !ok {
 		t.Error("Expected cache stats for cache-test route")
+	}
+}
+
+func TestAdminCachePurgeByTags(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Tag", "product listing")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("cached"))
+	}))
+	defer backend.Close()
+
+	cfg := &config.Config{
+		Listeners: []config.ListenerConfig{{
+			ID: "default-http", Address: ":0", Protocol: config.ProtocolHTTP,
+		}},
+		Registry: config.RegistryConfig{Type: "memory"},
+		Routes: []config.RouteConfig{
+			{
+				ID:       "tag-test",
+				Path:     "/tag-test",
+				Backends: []config.BackendConfig{{URL: backend.URL}},
+				Cache: config.CacheConfig{
+					Enabled:    true,
+					TTL:        60 * time.Second,
+					MaxSize:    100,
+					TagHeaders: []string{"Cache-Tag"},
+					Tags:       []string{"route-tag"},
+				},
+			},
+		},
+		Admin: config.AdminConfig{Enabled: true, Port: 8082},
+	}
+
+	server, err := NewServer(cfg, "")
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+	defer server.Gateway().Close()
+
+	// Warm cache by making a request
+	gwHandler := server.Gateway().Handler()
+	reqWarm := httptest.NewRequest("GET", "/tag-test/page", nil)
+	wWarm := httptest.NewRecorder()
+	gwHandler.ServeHTTP(wWarm, reqWarm)
+
+	// Purge by tags
+	body := strings.NewReader(`{"route":"tag-test","tags":["route-tag"]}`)
+	req := httptest.NewRequest("POST", "/cache/purge", body)
+	w := httptest.NewRecorder()
+	server.adminHandler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+	if result["purged"] != true {
+		t.Error("Expected purged=true")
+	}
+}
+
+func TestAdminCachePurgeByPathPattern(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("cached"))
+	}))
+	defer backend.Close()
+
+	cfg := &config.Config{
+		Listeners: []config.ListenerConfig{{
+			ID: "default-http", Address: ":0", Protocol: config.ProtocolHTTP,
+		}},
+		Registry: config.RegistryConfig{Type: "memory"},
+		Routes: []config.RouteConfig{
+			{
+				ID:       "path-test",
+				Path:     "/path-test",
+				Backends: []config.BackendConfig{{URL: backend.URL}},
+				Cache: config.CacheConfig{
+					Enabled: true,
+					TTL:     60 * time.Second,
+					MaxSize: 100,
+				},
+			},
+		},
+		Admin: config.AdminConfig{Enabled: true, Port: 8082},
+	}
+
+	server, err := NewServer(cfg, "")
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+	defer server.Gateway().Close()
+
+	// Purge by path pattern
+	body := strings.NewReader(`{"route":"path-test","path_pattern":"/path-test/*"}`)
+	req := httptest.NewRequest("POST", "/cache/purge", body)
+	w := httptest.NewRecorder()
+	server.adminHandler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+	if result["purged"] != true {
+		t.Error("Expected purged=true")
+	}
+}
+
+func TestAdminCachePurgeNotFound(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	cfg := &config.Config{
+		Listeners: []config.ListenerConfig{{
+			ID: "default-http", Address: ":0", Protocol: config.ProtocolHTTP,
+		}},
+		Registry: config.RegistryConfig{Type: "memory"},
+		Routes: []config.RouteConfig{
+			{
+				ID:       "test",
+				Path:     "/test",
+				Backends: []config.BackendConfig{{URL: backend.URL}},
+				Cache: config.CacheConfig{
+					Enabled: true,
+					TTL:     60 * time.Second,
+					MaxSize: 100,
+				},
+			},
+		},
+		Admin: config.AdminConfig{Enabled: true, Port: 8082},
+	}
+
+	server, err := NewServer(cfg, "")
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+	defer server.Gateway().Close()
+
+	// Purge by tags on nonexistent route
+	body := strings.NewReader(`{"route":"nonexistent","tags":["tag"]}`)
+	req := httptest.NewRequest("POST", "/cache/purge", body)
+	w := httptest.NewRecorder()
+	server.adminHandler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Purge by path pattern on nonexistent route
+	body = strings.NewReader(`{"route":"nonexistent","path_pattern":"/x/*"}`)
+	req = httptest.NewRequest("POST", "/cache/purge", body)
+	w = httptest.NewRecorder()
+	server.adminHandler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

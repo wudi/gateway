@@ -69,6 +69,7 @@ type Config struct {
 	SpikeArrest            SpikeArrestConfig            `yaml:"spike_arrest"`              // Global spike arrest defaults
 	DebugEndpoint          DebugEndpointConfig          `yaml:"debug_endpoint"`            // Debug endpoint for request inspection
 	CDNCacheHeaders        CDNCacheConfig               `yaml:"cdn_cache_headers"`         // Global CDN cache header injection
+	EdgeCacheRules         EdgeCacheRulesConfig         `yaml:"edge_cache_rules"`          // Global conditional edge cache rules
 	RetryBudgets           map[string]BudgetConfig      `yaml:"retry_budgets"`             // Named shared retry budget pools
 	InboundSigning         InboundSigningConfig         `yaml:"inbound_signing"`           // Global inbound request signature verification
 	SSRFProtection         SSRFProtectionConfig         `yaml:"ssrf_protection"`           // SSRF protection for outbound connections
@@ -390,6 +391,7 @@ type RouteConfig struct {
 	ParamForwarding      ParamForwardingConfig       `yaml:"param_forwarding"`      // Zero-trust parameter forwarding
 	ContentNegotiation   ContentNegotiationConfig    `yaml:"content_negotiation"`   // Accept header → response encoding
 	CDNCacheHeaders      CDNCacheConfig              `yaml:"cdn_cache_headers"`     // Per-route CDN cache header injection
+	EdgeCacheRules       EdgeCacheRulesConfig        `yaml:"edge_cache_rules"`      // Per-route conditional edge cache rules
 	BackendEncoding      BackendEncodingConfig       `yaml:"backend_encoding"`      // Decode XML/YAML backend responses to JSON
 	SSE                  SSEConfig                   `yaml:"sse"`                   // Server-Sent Events proxy
 	InboundSigning       InboundSigningConfig        `yaml:"inbound_signing"`       // Per-route inbound request signature verification
@@ -536,6 +538,8 @@ type CacheConfig struct {
 	Bucket               string        `yaml:"bucket"`                 // named shared cache bucket (routes with same bucket share a store)
 	StaleWhileRevalidate time.Duration `yaml:"stale_while_revalidate"` // serve stale while refreshing in background
 	StaleIfError         time.Duration `yaml:"stale_if_error"`         // serve stale on backend 5xx errors
+	TagHeaders           []string      `yaml:"tag_headers"`            // response headers to extract cache tags from (values split on space/comma)
+	Tags                 []string      `yaml:"tags"`                   // static tags applied to all entries on this route
 }
 
 // WebSocketConfig defines WebSocket proxy settings
@@ -1990,6 +1994,31 @@ type CDNCacheConfig struct {
 	StaleWhileRevalidate int      `yaml:"stale_while_revalidate"` // seconds (appended to Cache-Control)
 	StaleIfError         int      `yaml:"stale_if_error"`         // seconds (appended to Cache-Control)
 	Override             *bool    `yaml:"override"`               // override backend Cache-Control (default true)
+}
+
+// EdgeCacheRulesConfig defines conditional cache-control rules based on response properties.
+type EdgeCacheRulesConfig struct {
+	Enabled bool            `yaml:"enabled"`
+	Rules   []EdgeCacheRule `yaml:"rules"`
+}
+
+// EdgeCacheRule defines a single conditional cache-control rule.
+type EdgeCacheRule struct {
+	Match        EdgeCacheMatch `yaml:"match"`
+	CacheControl string         `yaml:"cache_control"` // raw Cache-Control value (overrides other fields)
+	SMaxAge      int            `yaml:"s_maxage"`       // shared cache TTL in seconds (CDN)
+	MaxAge       int            `yaml:"max_age"`        // private cache TTL in seconds (browser)
+	Vary         []string       `yaml:"vary"`
+	NoStore      bool           `yaml:"no_store"`  // force Cache-Control: no-store
+	Private      bool           `yaml:"private"`   // force Cache-Control: private
+	Override     *bool          `yaml:"override"`  // override backend headers (default true)
+}
+
+// EdgeCacheMatch defines the conditions under which an edge cache rule applies.
+type EdgeCacheMatch struct {
+	StatusCodes  []int    `yaml:"status_codes"`  // e.g., [200, 301]
+	ContentTypes []string `yaml:"content_types"` // e.g., ["text/html", "application/json"]
+	PathPatterns []string `yaml:"path_patterns"` // glob patterns, e.g., ["/api/*", "/static/*"]
 }
 
 // BackendEncodingConfig defines backend response format decoding to JSON.

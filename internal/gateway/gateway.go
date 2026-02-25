@@ -42,6 +42,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/botdetect"
 	"github.com/wudi/gateway/internal/middleware/clientmtls"
 	"github.com/wudi/gateway/internal/middleware/cdnheaders"
+	"github.com/wudi/gateway/internal/middleware/edgecacherules"
 	"github.com/wudi/gateway/internal/middleware/claimsprop"
 	"github.com/wudi/gateway/internal/middleware/tokenexchange"
 	"github.com/wudi/gateway/internal/middleware/compression"
@@ -225,6 +226,7 @@ type Gateway struct {
 	paramForwarders     *paramforward.ParamForwardByRoute
 	contentNegotiators  *contentneg.NegotiatorByRoute
 	cdnHeaders          *cdnheaders.CDNHeadersByRoute
+	edgeCacheRules      *edgecacherules.EdgeCacheRulesByRoute
 	backendEncoders     *backendenc.EncoderByRoute
 	sseHandlers         *sse.SSEByRoute
 	serviceLimiter      *serviceratelimit.ServiceLimiter
@@ -418,6 +420,7 @@ func New(cfg *config.Config) (*Gateway, error) {
 		paramForwarders:     paramforward.NewParamForwardByRoute(),
 		contentNegotiators:  contentneg.NewNegotiatorByRoute(),
 		cdnHeaders:          cdnheaders.NewCDNHeadersByRoute(),
+		edgeCacheRules:      edgecacherules.NewEdgeCacheRulesByRoute(),
 		backendEncoders:     backendenc.NewEncoderByRoute(),
 		sseHandlers:          sse.NewSSEByRoute(),
 		inboundVerifiers:     inboundsigning.NewInboundSigningByRoute(),
@@ -930,6 +933,13 @@ func New(cfg *config.Config) (*Gateway, error) {
 			}
 			return nil
 		}, g.cdnHeaders.RouteIDs, func() any { return g.cdnHeaders.Stats() }),
+		newFeature("edge_cache_rules", "/edge-cache-rules", func(id string, rc config.RouteConfig) error {
+			merged := edgecacherules.MergeEdgeCacheRulesConfig(rc.EdgeCacheRules, cfg.EdgeCacheRules)
+			if merged.Enabled {
+				g.edgeCacheRules.AddRoute(id, merged)
+			}
+			return nil
+		}, g.edgeCacheRules.RouteIDs, func() any { return g.edgeCacheRules.Stats() }),
 		newFeature("quota", "/quotas", func(id string, rc config.RouteConfig) error {
 			if rc.Quota.Enabled {
 				g.quotaEnforcers.AddRoute(id, rc.Quota, g.redisClient)
@@ -2068,6 +2078,9 @@ func (g *Gateway) buildRouteHandler(routeID string, cfg config.RouteConfig, rout
 		}},
 		{"cdn_headers", func() middleware.Middleware {
 			if cdn := g.cdnHeaders.GetHandler(routeID); cdn != nil { return cdn.Middleware() }; return nil
+		}},
+		{"edge_cache_rules", func() middleware.Middleware {
+			if ecr := g.edgeCacheRules.GetHandler(routeID); ecr != nil { return ecr.Middleware() }; return nil
 		}},
 		{"error_pages", func() middleware.Middleware {
 			if ep := g.errorPages.GetErrorPages(routeID); ep != nil { return ep.Middleware() }; return nil

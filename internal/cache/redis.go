@@ -82,6 +82,73 @@ func (s *RedisStore) Delete(key string) {
 	}
 }
 
+// SetWithTags stores an entry and associates it with tags using Redis sets.
+func (s *RedisStore) SetWithTags(key string, entry *Entry, tags []string) {
+	s.Set(key, entry)
+	if len(tags) == 0 {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	pipe := s.client.Pipeline()
+	for _, tag := range tags {
+		pipe.SAdd(ctx, s.prefix+"tag:"+tag, key)
+		pipe.Expire(ctx, s.prefix+"tag:"+tag, s.ttl)
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		logging.Warn("Redis cache tag set failed", zap.Error(err))
+	}
+}
+
+// DeleteByTags removes all entries matching any of the given tags. Returns count of deleted keys.
+func (s *RedisStore) DeleteByTags(tags []string) int {
+	if len(tags) == 0 {
+		return 0
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Collect tag set keys
+	tagKeys := make([]string, len(tags))
+	for i, tag := range tags {
+		tagKeys[i] = s.prefix + "tag:" + tag
+	}
+
+	// SUNION all tag sets to get all member keys
+	members, err := s.client.SUnion(ctx, tagKeys...).Result()
+	if err != nil {
+		logging.Warn("Redis cache tag union failed", zap.Error(err))
+		return 0
+	}
+
+	if len(members) == 0 {
+		return 0
+	}
+
+	// Delete all member entry keys + the tag set keys
+	delKeys := make([]string, 0, len(members)+len(tagKeys))
+	for _, m := range members {
+		delKeys = append(delKeys, s.prefix+m)
+	}
+	delKeys = append(delKeys, tagKeys...)
+
+	deleted, err := s.client.Del(ctx, delKeys...).Result()
+	if err != nil {
+		logging.Warn("Redis cache tag bulk delete failed", zap.Error(err))
+		return 0
+	}
+
+	// Subtract tag set keys from count to return only entry deletions
+	entryCount := int(deleted) - len(tagKeys)
+	if entryCount < 0 {
+		entryCount = 0
+	}
+	return entryCount
+}
+
 func (s *RedisStore) DeleteByPrefix(prefix string) {
 	s.scanAndDelete(s.prefix + prefix)
 }

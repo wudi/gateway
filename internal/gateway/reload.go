@@ -49,6 +49,7 @@ import (
 	"github.com/wudi/gateway/internal/middleware/deprecation"
 	"github.com/wudi/gateway/internal/middleware/botdetect"
 	"github.com/wudi/gateway/internal/middleware/cdnheaders"
+	"github.com/wudi/gateway/internal/middleware/edgecacherules"
 	"github.com/wudi/gateway/internal/middleware/claimsprop"
 	"github.com/wudi/gateway/internal/middleware/maintenance"
 	"github.com/wudi/gateway/internal/middleware/mock"
@@ -169,6 +170,7 @@ type gatewayState struct {
 	paramForwarders     *paramforward.ParamForwardByRoute
 	contentNegotiators  *contentneg.NegotiatorByRoute
 	cdnHeaders          *cdnheaders.CDNHeadersByRoute
+	edgeCacheRules      *edgecacherules.EdgeCacheRulesByRoute
 	backendEncoders     *backendenc.EncoderByRoute
 	sseHandlers         *sse.SSEByRoute
 	realIPExtractor     *realip.CompiledRealIP
@@ -267,6 +269,7 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 		paramForwarders:     paramforward.NewParamForwardByRoute(),
 		contentNegotiators:  contentneg.NewNegotiatorByRoute(),
 		cdnHeaders:          cdnheaders.NewCDNHeadersByRoute(),
+		edgeCacheRules:      edgecacherules.NewEdgeCacheRulesByRoute(),
 		backendEncoders:     backendenc.NewEncoderByRoute(),
 		sseHandlers:         sse.NewSSEByRoute(),
 		outlierDetectors:    outlier.NewDetectorByRoute(),
@@ -591,6 +594,11 @@ func (g *Gateway) buildState(cfg *config.Config) (*gatewayState, error) {
 			if merged.Enabled { s.cdnHeaders.AddRoute(id, merged) }
 			return nil
 		}, s.cdnHeaders.RouteIDs, func() any { return s.cdnHeaders.Stats() }),
+		newFeature("edge_cache_rules", "/edge-cache-rules", func(id string, rc config.RouteConfig) error {
+			merged := edgecacherules.MergeEdgeCacheRulesConfig(rc.EdgeCacheRules, cfg.EdgeCacheRules)
+			if merged.Enabled { s.edgeCacheRules.AddRoute(id, merged) }
+			return nil
+		}, s.edgeCacheRules.RouteIDs, func() any { return s.edgeCacheRules.Stats() }),
 		newFeature("backend_encoding", "/backend-encoding", func(id string, rc config.RouteConfig) error {
 			if rc.BackendEncoding.Encoding != "" { s.backendEncoders.AddRoute(id, rc.BackendEncoding) }
 			return nil

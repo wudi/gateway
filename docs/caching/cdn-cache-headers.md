@@ -87,7 +87,9 @@ Produces: `Cache-Control: public, max-age=3600, stale-while-revalidate=300, stal
 
 ## Middleware Position
 
-Step 4.07 in the middleware chain — after security headers (4.05), before error pages (4.1). Headers are injected when the response is written.
+Step 4.07 in the middleware chain — after security headers (4.05), before edge cache rules (4.08) and error pages (4.1). Headers are injected when the response is written.
+
+For conditional cache-control rules that vary based on response status code, content type, or path patterns, see [Edge Cache Rules](./edge-cache-rules.md). Edge cache rules run after CDN cache headers and can override them when both are configured.
 
 ## Admin API
 

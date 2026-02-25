@@ -491,9 +491,11 @@ See [FastCGI Proxy](../protocol/fastcgi.md) for modes, CGI parameters, and examp
       key_headers: [string]     # extra headers in cache key
       stale_while_revalidate: duration  # serve stale while refreshing in background
       stale_if_error: duration          # serve stale on backend 5xx errors
+      tag_headers: [string]     # response headers to extract cache tags from (split on space/comma)
+      tags: [string]            # static tags applied to all cached entries
 ```
 
-**Validation:** `ttl` must be > 0. `max_size` must be > 0. `methods` must be valid HTTP methods. `stale_while_revalidate` and `stale_if_error` must be >= 0. When `stale_while_revalidate` is set, expired entries are served immediately while a background refresh is triggered. When `stale_if_error` is set, stale entries are served if the backend returns a 5xx error within the duration after expiry.
+**Validation:** `ttl` must be > 0. `max_size` must be > 0. `methods` must be valid HTTP methods. `stale_while_revalidate` and `stale_if_error` must be >= 0. When `stale_while_revalidate` is set, expired entries are served immediately while a background refresh is triggered. When `stale_if_error` is set, stale entries are served if the backend returns a 5xx error within the duration after expiry. `tag_headers` and `tags` must be non-empty strings when specified.
 
 ### Coalesce (Request Coalescing)
 
@@ -2330,6 +2332,29 @@ cdn_cache_headers:
 **Validation:** When enabled, at least one of `cache_control`, `surrogate_control`, or `vary` must be set.
 
 See [CDN Cache Headers](../caching/cdn-cache-headers.md) for details.
+
+## Edge Cache Rules (global + per-route)
+
+```yaml
+edge_cache_rules:
+  enabled: bool
+  rules:
+    - match:
+        status_codes: [int]       # e.g., [200, 301]
+        content_types: [string]   # e.g., ["text/html", "application/json"]
+        path_patterns: [string]   # glob patterns, e.g., ["/api/*", "/static/*"]
+      cache_control: string       # raw Cache-Control value (overrides other fields)
+      s_maxage: int               # shared cache TTL in seconds (CDN)
+      max_age: int                # private cache TTL in seconds (browser)
+      vary: [string]              # Vary header values
+      no_store: bool              # force Cache-Control: no-store
+      private: bool               # force Cache-Control: private
+      override: bool              # override backend headers (default true)
+```
+
+**Validation:** Each rule requires at least one match condition (`status_codes`, `content_types`, or `path_patterns`) and at least one action (`cache_control`, `s_maxage`, `max_age`, `no_store`, `private`, or `vary`). Status codes must be 100-599. Path patterns must be valid Go `path.Match` globs. Rules are evaluated in order; first match wins.
+
+See [Edge Cache Rules](../caching/edge-cache-rules.md) for details.
 
 ## Backend Encoding (per-route)
 

@@ -295,7 +295,7 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 								if conditional {
 									cache.PopulateConditionalFields(newEntry)
 								}
-								h.Store(r, newEntry)
+								h.StoreWithMeta(key, r.URL.Path, newEntry)
 							}
 							return
 						}
@@ -360,7 +360,7 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 						if conditional {
 							cache.PopulateConditionalFields(entry)
 						}
-						h.Store(r, entry)
+						h.StoreWithMeta(key, r.URL.Path, entry)
 					}
 					return
 				}
@@ -379,7 +379,7 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 					if conditional {
 						cache.PopulateConditionalFields(entry)
 					}
-					h.Store(r, entry)
+					h.StoreWithMeta(h.KeyForRequest(r), r.URL.Path, entry)
 				}
 				return
 			}
@@ -434,7 +434,7 @@ func revalidateInBackground(h *cache.Handler, next http.Handler, origReq *http.R
 		if conditional {
 			cache.PopulateConditionalFields(entry)
 		}
-		h.StoreByKey(key, entry)
+		h.StoreWithMeta(key, origReq.URL.Path, entry)
 	}
 }
 

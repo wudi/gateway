@@ -1599,9 +1599,11 @@ func (s *Server) handleCachePurge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Route string `json:"route"`
-		Key   string `json:"key"`
-		All   bool   `json:"all"`
+		Route       string   `json:"route"`
+		Key         string   `json:"key"`
+		PathPattern string   `json:"path_pattern"`
+		Tags        []string `json:"tags"`
+		All         bool     `json:"all"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -1617,6 +1619,26 @@ func (s *Server) handleCachePurge(w http.ResponseWriter, r *http.Request) {
 	if req.Route == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "route is required (or set all: true)"})
+		return
+	}
+	if len(req.Tags) > 0 {
+		count, ok := s.gateway.caches.PurgeByTags(req.Route, req.Tags)
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": "route not found"})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"purged": true, "entries_removed": count})
+		return
+	}
+	if req.PathPattern != "" {
+		count, ok := s.gateway.caches.PurgeByPathPattern(req.Route, req.PathPattern)
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": "route not found"})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"purged": true, "entries_removed": count})
 		return
 	}
 	if req.Key != "" {

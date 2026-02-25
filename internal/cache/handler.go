@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path"
 	"sort"
 	"strings"
 	"sync"
@@ -28,6 +29,8 @@ type Entry struct {
 	ETag         string    // strong ETag, e.g. `"abc123def..."`
 	LastModified time.Time // when entry was cached (or backend value)
 	StoredAt     time.Time // when this entry was stored (for staleness checks)
+	Tags         []string  // cache tags for tag-based purge
+	Path         string    // original request path for pattern-based purge
 }
 
 // Handler manages caching for a single route.
@@ -41,6 +44,10 @@ type Handler struct {
 	staleWhileRevalidate time.Duration
 	staleIfError         time.Duration
 	revalidating         sync.Map // key dedup for background refresh
+	pathIndex            map[string]map[string]struct{} // path → set of cache keys
+	pathMu               sync.RWMutex
+	tagHeaders           []string // response headers to extract tags from
+	staticTags           []string // static tags for all entries
 }
 
 // NewHandler creates a new cache handler for a route with the given store backend.
@@ -79,6 +86,9 @@ func NewHandler(cfg config.CacheConfig, store Store) *Handler {
 		conditional:          cfg.Conditional,
 		staleWhileRevalidate: cfg.StaleWhileRevalidate,
 		staleIfError:         cfg.StaleIfError,
+		pathIndex:            make(map[string]map[string]struct{}),
+		tagHeaders:           cfg.TagHeaders,
+		staticTags:           cfg.Tags,
 	}
 }
 
@@ -242,6 +252,103 @@ func (h *Handler) Store(r *http.Request, entry *Entry) {
 	entry.StoredAt = time.Now()
 	key := h.BuildKey(r, h.keyHeaders)
 	h.cache.Set(key, entry)
+}
+
+// StoreWithMeta stores a response in the cache with tag and path metadata.
+// It extracts tags from configured response headers and static tags,
+// and maintains a path→key reverse index for pattern-based purge.
+func (h *Handler) StoreWithMeta(key, reqPath string, entry *Entry) {
+	entry.StoredAt = time.Now()
+	entry.Path = reqPath
+
+	// Collect tags: static tags + header-extracted tags
+	tags := h.extractTags(entry.Headers)
+	entry.Tags = tags
+
+	// Store with tags
+	type tagSetter interface {
+		SetWithTags(key string, entry *Entry, tags []string)
+	}
+	if ts, ok := h.cache.store.(tagSetter); ok && len(tags) > 0 {
+		ts.SetWithTags(key, entry, tags)
+	} else {
+		h.cache.Set(key, entry)
+	}
+
+	// Update path index
+	h.pathMu.Lock()
+	if h.pathIndex[reqPath] == nil {
+		h.pathIndex[reqPath] = make(map[string]struct{})
+	}
+	h.pathIndex[reqPath][key] = struct{}{}
+	h.pathMu.Unlock()
+}
+
+// extractTags collects tags from static config and response headers.
+func (h *Handler) extractTags(headers http.Header) []string {
+	var tags []string
+	tags = append(tags, h.staticTags...)
+	for _, hdr := range h.tagHeaders {
+		val := headers.Get(hdr)
+		if val == "" {
+			continue
+		}
+		// Split on comma and space
+		for _, part := range strings.FieldsFunc(val, func(r rune) bool {
+			return r == ',' || r == ' '
+		}) {
+			part = strings.TrimSpace(part)
+			if part != "" {
+				tags = append(tags, part)
+			}
+		}
+	}
+	return tags
+}
+
+// PurgeByPathPattern removes all entries whose path matches the given glob pattern.
+// Returns count of purged entries.
+func (h *Handler) PurgeByPathPattern(pattern string) int {
+	h.pathMu.Lock()
+	defer h.pathMu.Unlock()
+
+	var count int
+	for p, keys := range h.pathIndex {
+		matched, err := path.Match(pattern, p)
+		if err != nil || !matched {
+			continue
+		}
+		for key := range keys {
+			h.cache.Delete(key)
+			count++
+		}
+		delete(h.pathIndex, p)
+	}
+	return count
+}
+
+// PurgeByTags removes all entries matching any of the given tags.
+// Returns count of purged entries.
+func (h *Handler) PurgeByTags(tags []string) int {
+	count := h.cache.store.DeleteByTags(tags)
+
+	// Clean up path index entries for deleted keys
+	// We can't know exactly which keys were deleted, so we rebuild lazily
+	// by removing path entries pointing to keys that no longer exist in the store.
+	h.pathMu.Lock()
+	for p, keys := range h.pathIndex {
+		for key := range keys {
+			if _, ok := h.cache.store.Get(key); !ok {
+				delete(keys, key)
+			}
+		}
+		if len(keys) == 0 {
+			delete(h.pathIndex, p)
+		}
+	}
+	h.pathMu.Unlock()
+
+	return count
 }
 
 // InvalidateByPath invalidates cache entries matching the request path prefix.
@@ -571,6 +678,26 @@ func (cbr *CacheByRoute) PurgeRouteKey(routeID, key string) bool {
 	}
 	h.cache.Delete(key)
 	return true
+}
+
+// PurgeByPathPattern removes entries matching a glob pattern from a route's cache.
+// Returns (count, true) if the route was found, (0, false) otherwise.
+func (cbr *CacheByRoute) PurgeByPathPattern(routeID, pattern string) (int, bool) {
+	h := cbr.GetHandler(routeID)
+	if h == nil {
+		return 0, false
+	}
+	return h.PurgeByPathPattern(pattern), true
+}
+
+// PurgeByTags removes entries matching any of the given tags from a route's cache.
+// Returns (count, true) if the route was found, (0, false) otherwise.
+func (cbr *CacheByRoute) PurgeByTags(routeID string, tags []string) (int, bool) {
+	h := cbr.GetHandler(routeID)
+	if h == nil {
+		return 0, false
+	}
+	return h.PurgeByTags(tags), true
 }
 
 // PurgeAll purges all cache entries across all routes. Returns total pre-purge entry count.

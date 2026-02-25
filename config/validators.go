@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -415,6 +416,50 @@ func (l *Loader) validateSmallRouteFeatures(route RouteConfig, _ *Config) error 
 	if route.CDNCacheHeaders.Enabled {
 		if route.CDNCacheHeaders.CacheControl == "" && route.CDNCacheHeaders.SurrogateControl == "" && len(route.CDNCacheHeaders.Vary) == 0 {
 			return fmt.Errorf("route %s: cdn_cache_headers requires at least one of cache_control, surrogate_control, or vary", routeID)
+		}
+	}
+
+	// Edge cache rules
+	if route.EdgeCacheRules.Enabled {
+		for i, rule := range route.EdgeCacheRules.Rules {
+			// Validate status codes
+			for _, sc := range rule.Match.StatusCodes {
+				if sc < 100 || sc > 599 {
+					return fmt.Errorf("route %s: edge_cache_rules rule %d: status_code %d must be 100-599", routeID, i, sc)
+				}
+			}
+			// Validate content types are non-empty
+			for _, ct := range rule.Match.ContentTypes {
+				if strings.TrimSpace(ct) == "" {
+					return fmt.Errorf("route %s: edge_cache_rules rule %d: content_types must be non-empty strings", routeID, i)
+				}
+			}
+			// Validate path patterns are valid globs
+			for _, pp := range rule.Match.PathPatterns {
+				if _, err := path.Match(pp, ""); err != nil {
+					return fmt.Errorf("route %s: edge_cache_rules rule %d: invalid path_pattern %q: %v", routeID, i, pp, err)
+				}
+			}
+			// Require at least one match condition
+			if len(rule.Match.StatusCodes) == 0 && len(rule.Match.ContentTypes) == 0 && len(rule.Match.PathPatterns) == 0 {
+				return fmt.Errorf("route %s: edge_cache_rules rule %d: at least one match condition required", routeID, i)
+			}
+			// Require at least one action
+			if rule.CacheControl == "" && rule.SMaxAge == 0 && rule.MaxAge == 0 && !rule.NoStore && !rule.Private && len(rule.Vary) == 0 {
+				return fmt.Errorf("route %s: edge_cache_rules rule %d: at least one action (cache_control, s_maxage, max_age, no_store, private, or vary) required", routeID, i)
+			}
+		}
+	}
+
+	// Cache tag headers
+	for _, th := range route.Cache.TagHeaders {
+		if strings.TrimSpace(th) == "" {
+			return fmt.Errorf("route %s: cache tag_headers must be non-empty strings", routeID)
+		}
+	}
+	for _, t := range route.Cache.Tags {
+		if strings.TrimSpace(t) == "" {
+			return fmt.Errorf("route %s: cache tags must be non-empty strings", routeID)
 		}
 	}
 

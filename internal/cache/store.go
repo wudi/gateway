@@ -13,6 +13,7 @@ type Store interface {
 	Set(key string, entry *Entry)
 	Delete(key string)
 	DeleteByPrefix(prefix string)
+	DeleteByTags(tags []string) int
 	Purge()
 	Stats() StoreStats
 }
