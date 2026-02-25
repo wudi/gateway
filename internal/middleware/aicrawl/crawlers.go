@@ -1,11 +1,15 @@
 package aicrawl
 
-import "regexp"
+import (
+	"regexp"
+	"strings"
+)
 
 // CrawlerInfo describes a known AI crawler.
 type CrawlerInfo struct {
 	Name        string
 	Pattern     *regexp.Regexp
+	Keyword     string // lowercase substring for fast pre-screening (derived from Name if empty)
 	Description string
 }
 
@@ -17,7 +21,7 @@ var BuiltinCrawlers = []*CrawlerInfo{
 	{Name: "GPTBot", Pattern: regexp.MustCompile(`(?i)GPTBot`), Description: "OpenAI training crawler"},
 	{Name: "ChatGPT-User", Pattern: regexp.MustCompile(`(?i)ChatGPT-User`), Description: "OpenAI ChatGPT browsing"},
 	{Name: "OAI-SearchBot", Pattern: regexp.MustCompile(`(?i)OAI-SearchBot`), Description: "OpenAI search crawler"},
-	{Name: "ChatGPT-Agent", Pattern: regexp.MustCompile(`(?i)ChatGPT[\s-]Agent`), Description: "OpenAI ChatGPT agent"},
+	{Name: "ChatGPT-Agent", Pattern: regexp.MustCompile(`(?i)ChatGPT[\s-]Agent`), Keyword: "chatgpt", Description: "OpenAI ChatGPT agent"},
 	{Name: "Operator", Pattern: regexp.MustCompile(`(?i)Operator`), Description: "OpenAI Operator agent"},
 
 	// Anthropic
@@ -93,7 +97,7 @@ var BuiltinCrawlers = []*CrawlerInfo{
 	{Name: "LinkupBot", Pattern: regexp.MustCompile(`(?i)LinkupBot`), Description: "Linkup AI search"},
 
 	// AI coding / agents
-	{Name: "Devin", Pattern: regexp.MustCompile(`(?i)\bDevin\b`), Description: "Cognition AI Devin"},
+	{Name: "Devin", Pattern: regexp.MustCompile(`(?i)\bDevin\b`), Keyword: "devin", Description: "Cognition AI Devin"},
 	{Name: "NovaAct", Pattern: regexp.MustCompile(`(?i)NovaAct`), Description: "Amazon Nova AI agent"},
 	{Name: "Manus-User", Pattern: regexp.MustCompile(`(?i)Manus-User`), Description: "Manus AI agent"},
 	{Name: "TwinAgent", Pattern: regexp.MustCompile(`(?i)TwinAgent`), Description: "Twin AI agent"},
@@ -114,14 +118,14 @@ var BuiltinCrawlers = []*CrawlerInfo{
 	{Name: "SBIntuitionsBot", Pattern: regexp.MustCompile(`(?i)SBIntuitionsBot`), Description: "SB Intuitions AI"},
 
 	// AI content tools
-	{Name: "QuillBot", Pattern: regexp.MustCompile(`(?i)QuillBot|quillbot\.com`), Description: "QuillBot AI writing"},
+	{Name: "QuillBot", Pattern: regexp.MustCompile(`(?i)QuillBot|quillbot\.com`), Keyword: "quillbot", Description: "QuillBot AI writing"},
 	{Name: "LinerBot", Pattern: regexp.MustCompile(`(?i)LinerBot`), Description: "Liner AI highlighter"},
 	{Name: "WRTNBot", Pattern: regexp.MustCompile(`(?i)WRTNBot`), Description: "WRTN AI"},
 	{Name: "TavilyBot", Pattern: regexp.MustCompile(`(?i)TavilyBot`), Description: "Tavily AI search API"},
 	{Name: "Thinkbot", Pattern: regexp.MustCompile(`(?i)Thinkbot`), Description: "Thinkbot AI"},
 
 	// SEO / Marketing AI
-	{Name: "SemrushBot-AI", Pattern: regexp.MustCompile(`(?i)SemrushBot-(?:OCOB|SWA)`), Description: "Semrush AI crawlers"},
+	{Name: "SemrushBot-AI", Pattern: regexp.MustCompile(`(?i)SemrushBot-(?:OCOB|SWA)`), Keyword: "semrushbot-", Description: "Semrush AI crawlers"},
 	{Name: "Awario", Pattern: regexp.MustCompile(`(?i)Awario`), Description: "Awario social listening"},
 	{Name: "KlaviyoAIBot", Pattern: regexp.MustCompile(`(?i)KlaviyoAIBot`), Description: "Klaviyo AI marketing"},
 	{Name: "QualifiedBot", Pattern: regexp.MustCompile(`(?i)QualifiedBot`), Description: "Qualified AI sales"},
@@ -147,21 +151,21 @@ var BuiltinCrawlers = []*CrawlerInfo{
 	{Name: "Anomura", Pattern: regexp.MustCompile(`(?i)Anomura`), Description: "Anomura AI"},
 	{Name: "AddSearchBot", Pattern: regexp.MustCompile(`(?i)AddSearchBot`), Description: "AddSearch AI"},
 	{Name: "aiHitBot", Pattern: regexp.MustCompile(`(?i)aiHitBot`), Description: "aiHit AI"},
-	{Name: "bigsur.ai", Pattern: regexp.MustCompile(`(?i)bigsur\.ai`), Description: "BigSur AI"},
+	{Name: "bigsur.ai", Pattern: regexp.MustCompile(`(?i)bigsur\.ai`), Keyword: "bigsur.ai", Description: "BigSur AI"},
 	{Name: "Brightbot", Pattern: regexp.MustCompile(`(?i)Brightbot`), Description: "Bright Data AI"},
 	{Name: "BuddyBot", Pattern: regexp.MustCompile(`(?i)BuddyBot`), Description: "Buddy AI"},
 	{Name: "Channel3Bot", Pattern: regexp.MustCompile(`(?i)Channel3Bot`), Description: "Channel3 AI"},
 	{Name: "Cotoyogi", Pattern: regexp.MustCompile(`(?i)Cotoyogi`), Description: "Cotoyogi AI"},
-	{Name: "EchoboxBot", Pattern: regexp.MustCompile(`(?i)Echobox|Echobot`), Description: "Echobox AI"},
+	{Name: "EchoboxBot", Pattern: regexp.MustCompile(`(?i)Echobox|Echobot`), Keyword: "echo", Description: "Echobox AI"},
 	{Name: "FriendlyCrawler", Pattern: regexp.MustCompile(`(?i)FriendlyCrawler`), Description: "FriendlyCrawler AI"},
 	{Name: "IbouBot", Pattern: regexp.MustCompile(`(?i)IbouBot`), Description: "Ibou AI"},
 	{Name: "imageSpider", Pattern: regexp.MustCompile(`(?i)imageSpider`), Description: "Image spider AI"},
-	{Name: "Kangaroo-Bot", Pattern: regexp.MustCompile(`(?i)Kangaroo Bot`), Description: "Kangaroo AI"},
-	{Name: "Linguee-Bot", Pattern: regexp.MustCompile(`(?i)Linguee Bot`), Description: "DeepL/Linguee AI"},
+	{Name: "Kangaroo-Bot", Pattern: regexp.MustCompile(`(?i)Kangaroo Bot`), Keyword: "kangaroo bot", Description: "Kangaroo AI"},
+	{Name: "Linguee-Bot", Pattern: regexp.MustCompile(`(?i)Linguee Bot`), Keyword: "linguee bot", Description: "DeepL/Linguee AI"},
 	{Name: "MyCentralAIScraperBot", Pattern: regexp.MustCompile(`(?i)MyCentralAIScraperBot`), Description: "MyCentral AI scraper"},
 	{Name: "netEstate", Pattern: regexp.MustCompile(`(?i)netEstate`), Description: "netEstate crawler"},
 	{Name: "Poggio-Citations", Pattern: regexp.MustCompile(`(?i)Poggio-Citations`), Description: "Poggio citations crawler"},
-	{Name: "Poseidon-Research", Pattern: regexp.MustCompile(`(?i)Poseidon Research`), Description: "Poseidon research crawler"},
+	{Name: "Poseidon-Research", Pattern: regexp.MustCompile(`(?i)Poseidon Research`), Keyword: "poseidon research", Description: "Poseidon research crawler"},
 	{Name: "ShapBot", Pattern: regexp.MustCompile(`(?i)ShapBot`), Description: "Shap AI"},
 	{Name: "Sidetrade", Pattern: regexp.MustCompile(`(?i)Sidetrade`), Description: "Sidetrade AI indexer"},
 	{Name: "TerraCotta", Pattern: regexp.MustCompile(`(?i)TerraCotta`), Description: "TerraCotta AI"},
@@ -169,7 +173,7 @@ var BuiltinCrawlers = []*CrawlerInfo{
 	{Name: "WARDBot", Pattern: regexp.MustCompile(`(?i)WARDBot`), Description: "WARD AI bot"},
 	{Name: "Webzio-Extended", Pattern: regexp.MustCompile(`(?i)Webzio-Extended`), Description: "Webzio AI extended"},
 	{Name: "ZanistaBot", Pattern: regexp.MustCompile(`(?i)ZanistaBot`), Description: "Zanista AI"},
-	{Name: "Datenbank-Crawler", Pattern: regexp.MustCompile(`(?i)Datenbank Crawler`), Description: "Datenbank AI crawler"},
+	{Name: "Datenbank-Crawler", Pattern: regexp.MustCompile(`(?i)Datenbank Crawler`), Keyword: "datenbank crawler", Description: "Datenbank AI crawler"},
 }
 
 // BuiltinByName provides O(1) lookup of built-in crawlers by name.
@@ -178,6 +182,9 @@ var BuiltinByName map[string]*CrawlerInfo
 func init() {
 	BuiltinByName = make(map[string]*CrawlerInfo, len(BuiltinCrawlers))
 	for _, c := range BuiltinCrawlers {
+		if c.Keyword == "" {
+			c.Keyword = strings.ToLower(c.Name)
+		}
 		BuiltinByName[c.Name] = c
 	}
 }

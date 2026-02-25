@@ -36,7 +36,7 @@ type crawlerMetrics struct {
 
 // AICrawlController detects AI crawlers and enforces per-crawler policies.
 type AICrawlController struct {
-	preFilter        *regexp.Regexp // combined regex for fast rejection
+	keywords         []string // lowercase keywords for fast pre-screening
 	customPolicies   []*crawlerPolicy
 	builtinPolicies  []*crawlerPolicy
 	defaultAction    string
@@ -81,9 +81,6 @@ func New(cfg config.AICrawlConfig) (*AICrawlController, error) {
 		policyByName[p.Crawler] = p
 	}
 
-	// All pattern fragments for the combined preFilter
-	var fragments []string
-
 	// Build custom crawler policies
 	for _, cc := range cfg.CustomCrawlers {
 		re, err := regexp.Compile(cc.Pattern)
@@ -102,7 +99,7 @@ func New(cfg config.AICrawlConfig) (*AICrawlController, error) {
 		pol.action = action
 		c.customPolicies = append(c.customPolicies, &pol)
 		c.metrics[cc.Name] = &crawlerMetrics{}
-		fragments = append(fragments, cc.Pattern)
+		c.keywords = append(c.keywords, strings.ToLower(cc.Name))
 	}
 
 	// Build built-in crawler policies
@@ -119,17 +116,7 @@ func New(cfg config.AICrawlConfig) (*AICrawlController, error) {
 		pol.action = action
 		c.builtinPolicies = append(c.builtinPolicies, &pol)
 		c.metrics[bi.Name] = &crawlerMetrics{}
-		fragments = append(fragments, bi.Pattern.String())
-	}
-
-	// Build combined preFilter regex
-	if len(fragments) > 0 {
-		combined := "(?i)(?:" + strings.Join(fragments, "|") + ")"
-		var err error
-		c.preFilter, err = regexp.Compile(combined)
-		if err != nil {
-			return nil, fmt.Errorf("failed to compile preFilter regex: %w", err)
-		}
+		c.keywords = append(c.keywords, bi.Keyword)
 	}
 
 	return c, nil
@@ -137,16 +124,30 @@ func New(cfg config.AICrawlConfig) (*AICrawlController, error) {
 
 // detect checks a User-Agent string and returns the matching policy, or nil.
 func (c *AICrawlController) detect(ua string) *crawlerPolicy {
-	if ua == "" || c.preFilter == nil || !c.preFilter.MatchString(ua) {
+	if ua == "" {
 		return nil
 	}
-	// Check custom policies first
+	// Fast pre-screen: lowercase UA once, check for any keyword match.
+	// This rejects 99%+ of normal browser UAs without running any regex.
+	lower := strings.ToLower(ua)
+	found := false
+	for _, kw := range c.keywords {
+		if strings.Contains(lower, kw) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil
+	}
+	// Slow path: identify which specific crawler matched.
+	// Check custom policies first.
 	for _, pol := range c.customPolicies {
 		if pol.pattern.MatchString(ua) {
 			return pol
 		}
 	}
-	// Check built-in policies
+	// Check built-in policies.
 	for _, pol := range c.builtinPolicies {
 		if pol.pattern.MatchString(ua) {
 			return pol
