@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -156,4 +157,65 @@ func TestGetRequestID(t *testing.T) {
 	rr := httptest.NewRecorder()
 
 	final.ServeHTTP(rr, req)
+}
+
+func TestWithRequestID(t *testing.T) {
+	ctx := WithRequestID(t.Context(), "my-req-id")
+
+	// Verify we can extract it back via the requestIDKey.
+	if id, ok := ctx.Value(requestIDKey{}).(string); !ok || id != "my-req-id" {
+		t.Errorf("expected 'my-req-id', got %q (ok=%v)", id, ok)
+	}
+}
+
+func TestRequestIDFromContext(t *testing.T) {
+	t.Run("from requestIDKey", func(t *testing.T) {
+		ctx := WithRequestID(t.Context(), "key-id-1")
+		id := RequestIDFromContext(ctx)
+		if id != "key-id-1" {
+			t.Errorf("expected 'key-id-1', got %q", id)
+		}
+	})
+
+	t.Run("from variable context", func(t *testing.T) {
+		varCtx := &variables.Context{RequestID: "var-id-2"}
+		ctx := t.Context()
+		ctx = context.WithValue(ctx, variables.RequestContextKey{}, varCtx)
+		id := RequestIDFromContext(ctx)
+		if id != "var-id-2" {
+			t.Errorf("expected 'var-id-2', got %q", id)
+		}
+	})
+
+	t.Run("empty context returns empty string", func(t *testing.T) {
+		id := RequestIDFromContext(t.Context())
+		if id != "" {
+			t.Errorf("expected empty string, got %q", id)
+		}
+	})
+}
+
+func TestRequestIDWithConfigDefaults(t *testing.T) {
+	// Pass zero-value config to exercise the default Header and Generator paths.
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	cfg := RequestIDConfig{
+		Header:    "",  // should default to "X-Request-ID"
+		Generator: nil, // should default to defaultIDGenerator
+	}
+
+	mw := RequestIDWithConfig(cfg)
+	final := mw(handler)
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	rr := httptest.NewRecorder()
+
+	final.ServeHTTP(rr, req)
+
+	got := rr.Header().Get("X-Request-ID")
+	if got == "" {
+		t.Error("expected X-Request-ID to be set via default generator")
+	}
 }

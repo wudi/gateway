@@ -224,6 +224,170 @@ func TestBuilderUseIf(t *testing.T) {
 	}
 }
 
+func TestChainThenNil(t *testing.T) {
+	m := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Middleware", "applied")
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	chain := NewChain(m)
+	// Then(nil) should fall back to DefaultServeMux
+	final := chain.Then(nil)
+	if final == nil {
+		t.Fatal("Then(nil) should return a non-nil handler")
+	}
+}
+
+func TestChainThenFuncNil(t *testing.T) {
+	m := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Middleware", "applied")
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	chain := NewChain(m)
+	// ThenFunc(nil) should fall back to DefaultServeMux
+	final := chain.ThenFunc(nil)
+	if final == nil {
+		t.Fatal("ThenFunc(nil) should return a non-nil handler")
+	}
+}
+
+func TestBuilderHandlerNil(t *testing.T) {
+	var called bool
+	m := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			called = true
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	b := NewBuilder()
+	b.Use(m)
+	// Handler(nil) should fall back to DefaultServeMux
+	h := b.Handler(nil)
+	if h == nil {
+		t.Fatal("Handler(nil) should return non-nil handler")
+	}
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if !called {
+		t.Error("middleware should still be called")
+	}
+}
+
+func TestBuilderHandlerFunc(t *testing.T) {
+	var mwCalled, fnCalled bool
+
+	m := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mwCalled = true
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	b := NewBuilder()
+	b.Use(m)
+	h := b.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fnCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if !mwCalled {
+		t.Error("middleware should be called")
+	}
+	if !fnCalled {
+		t.Error("handler func should be called")
+	}
+}
+
+func TestBuilderBuildThen(t *testing.T) {
+	var order []string
+	m1 := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			order = append(order, "m1")
+			next.ServeHTTP(w, r)
+		})
+	}
+	m2 := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			order = append(order, "m2")
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	b := NewBuilder()
+	b.Use(m1).Use(m2)
+	chain := b.Build()
+	final := chain.Then(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		order = append(order, "handler")
+	}))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rr := httptest.NewRecorder()
+	final.ServeHTTP(rr, req)
+
+	expected := []string{"m1", "m2", "handler"}
+	if len(order) != len(expected) {
+		t.Fatalf("expected %d calls, got %d", len(expected), len(order))
+	}
+	for i, v := range expected {
+		if order[i] != v {
+			t.Errorf("at index %d: got %q, want %q", i, order[i], v)
+		}
+	}
+}
+
+func TestNewBuilderWithCap(t *testing.T) {
+	b := NewBuilderWithCap(10)
+	if b == nil {
+		t.Fatal("NewBuilderWithCap should return non-nil builder")
+	}
+	// Should behave like regular builder
+	called := false
+	m := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			called = true
+			next.ServeHTTP(w, r)
+		})
+	}
+	b.Use(m)
+	h := b.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if !called {
+		t.Error("middleware should be called")
+	}
+}
+
+func TestEmptyChainThen(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	})
+
+	chain := NewChain()
+	final := chain.Then(handler)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rr := httptest.NewRecorder()
+	final.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusTeapot {
+		t.Errorf("expected status %d, got %d", http.StatusTeapot, rr.Code)
+	}
+}
+
 func TestWrapFunc(t *testing.T) {
 	var called bool
 
