@@ -390,7 +390,28 @@ type CachingResponseWriter struct {
 	wroteHeader bool
 }
 
+var cachingWriterPool = sync.Pool{
+	New: func() any { return &CachingResponseWriter{} },
+}
+
+// AcquireCachingResponseWriter gets a CachingResponseWriter from the pool.
+func AcquireCachingResponseWriter(w http.ResponseWriter) *CachingResponseWriter {
+	crw := cachingWriterPool.Get().(*CachingResponseWriter)
+	crw.ResponseWriter = w
+	crw.statusCode = http.StatusOK
+	crw.Body.Reset()
+	crw.wroteHeader = false
+	return crw
+}
+
+// ReleaseCachingResponseWriter returns a CachingResponseWriter to the pool.
+func ReleaseCachingResponseWriter(crw *CachingResponseWriter) {
+	crw.ResponseWriter = nil
+	cachingWriterPool.Put(crw)
+}
+
 // NewCachingResponseWriter creates a new caching response writer.
+// Deprecated: use AcquireCachingResponseWriter/ReleaseCachingResponseWriter for pooled usage.
 func NewCachingResponseWriter(w http.ResponseWriter) *CachingResponseWriter {
 	return &CachingResponseWriter{
 		ResponseWriter: w,
@@ -441,7 +462,29 @@ type CapturingResponseWriter struct {
 	wroteHeader bool
 }
 
+var capturingWriterPool = sync.Pool{
+	New: func() any {
+		return &CapturingResponseWriter{headers: make(http.Header)}
+	},
+}
+
+// AcquireCapturingResponseWriter gets a CapturingResponseWriter from the pool.
+func AcquireCapturingResponseWriter() *CapturingResponseWriter {
+	crw := capturingWriterPool.Get().(*CapturingResponseWriter)
+	crw.statusCode = http.StatusOK
+	crw.Body.Reset()
+	crw.wroteHeader = false
+	clear(crw.headers)
+	return crw
+}
+
+// ReleaseCapturingResponseWriter returns a CapturingResponseWriter to the pool.
+func ReleaseCapturingResponseWriter(crw *CapturingResponseWriter) {
+	capturingWriterPool.Put(crw)
+}
+
 // NewCapturingResponseWriter creates a new capturing response writer.
+// Deprecated: use AcquireCapturingResponseWriter/ReleaseCapturingResponseWriter for pooled usage.
 func NewCapturingResponseWriter() *CapturingResponseWriter {
 	return &CapturingResponseWriter{
 		statusCode: http.StatusOK,

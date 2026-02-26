@@ -309,7 +309,8 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 						// Entry is stale but within stale-if-error window — proceed
 						// to backend but fall back to stale if backend fails.
 						if sie > 0 && age <= h.TTL()+sie {
-							capWriter := cache.NewCapturingResponseWriter()
+							capWriter := cache.AcquireCapturingResponseWriter()
+							defer cache.ReleaseCapturingResponseWriter(capWriter)
 							next.ServeHTTP(capWriter, r)
 
 							if capWriter.StatusCode() >= 500 {
@@ -376,7 +377,8 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 				if sie > 0 {
 					// stale-if-error: buffer the response so we can fall back to stale on 5xx
 					key := h.KeyForRequest(r)
-					capWriter := cache.NewCapturingResponseWriter()
+					capWriter := cache.AcquireCapturingResponseWriter()
+					defer cache.ReleaseCapturingResponseWriter(capWriter)
 					next.ServeHTTP(capWriter, r)
 
 					if capWriter.StatusCode() >= 500 {
@@ -425,7 +427,8 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 					return
 				}
 
-				cachingWriter := cache.NewCachingResponseWriter(w)
+				cachingWriter := cache.AcquireCachingResponseWriter(w)
+				defer cache.ReleaseCachingResponseWriter(cachingWriter)
 				cachingWriter.Header().Set("X-Cache", "MISS")
 				next.ServeHTTP(cachingWriter, r)
 
@@ -485,7 +488,8 @@ func revalidateInBackground(h *cache.Handler, next http.Handler, origReq *http.R
 	// Clone the request for background use (the original request's context may be cancelled)
 	bgReq := origReq.Clone(context.Background())
 
-	capWriter := cache.NewCapturingResponseWriter()
+	capWriter := cache.AcquireCapturingResponseWriter()
+	defer cache.ReleaseCapturingResponseWriter(capWriter)
 	next.ServeHTTP(capWriter, bgReq)
 
 	// Only store successful responses
@@ -578,7 +582,8 @@ func adaptiveConcurrencyMW(al *trafficshape.AdaptiveLimiter) middleware.Middlewa
 func responseRulesMW(global, route *rules.RuleEngine) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			rulesWriter := rules.NewRulesResponseWriter(w)
+			rulesWriter := rules.AcquireRulesResponseWriter(w)
+			defer rules.ReleaseRulesResponseWriter(rulesWriter)
 			next.ServeHTTP(rulesWriter, r)
 
 			varCtx := variables.GetFromRequest(r)

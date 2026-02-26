@@ -388,7 +388,7 @@ func ReleaseContext(c *Context) {
 	c.PropagateTrace = false
 	c.SkipFlags = 0
 	c.Overrides = nil
-	c.Custom = nil
+	clear(c.Custom)
 	contextPool.Put(c)
 }
 
@@ -397,30 +397,30 @@ func NewContext(r *http.Request) *Context {
 	return AcquireContext(r)
 }
 
-// Clone creates a copy of the context
+// Clone creates a copy of the context using the pool.
+// The caller must call ReleaseContext on the returned context when done.
 func (c *Context) Clone() *Context {
-	newCtx := &Context{
-		Request:              c.Request,
-		Response:             c.Response,
-		RequestID:            c.RequestID,
-		RouteID:              c.RouteID,
-		Identity:             c.Identity,
-		CertInfo:             c.CertInfo,
-		UpstreamAddr:         c.UpstreamAddr,
-		UpstreamStatus:       c.UpstreamStatus,
-		UpstreamResponseTime: c.UpstreamResponseTime,
-		StartTime:            c.StartTime,
-		ResponseTime:         c.ResponseTime,
-		Status:               c.Status,
-		BodyBytesSent:        c.BodyBytesSent,
-		ServerPort:           c.ServerPort,
-		TrafficGroup:         c.TrafficGroup,
-		APIVersion:           c.APIVersion,
-		TenantID:             c.TenantID,
-		AccessLogConfig:      c.AccessLogConfig,
-		PropagateTrace:       c.PropagateTrace,
-		SkipFlags:            c.SkipFlags,
-	}
+	newCtx := contextPool.Get().(*Context)
+	newCtx.Request = c.Request
+	newCtx.Response = c.Response
+	newCtx.RequestID = c.RequestID
+	newCtx.RouteID = c.RouteID
+	newCtx.Identity = c.Identity
+	newCtx.CertInfo = c.CertInfo
+	newCtx.UpstreamAddr = c.UpstreamAddr
+	newCtx.UpstreamStatus = c.UpstreamStatus
+	newCtx.UpstreamResponseTime = c.UpstreamResponseTime
+	newCtx.StartTime = c.StartTime
+	newCtx.ResponseTime = c.ResponseTime
+	newCtx.Status = c.Status
+	newCtx.BodyBytesSent = c.BodyBytesSent
+	newCtx.ServerPort = c.ServerPort
+	newCtx.TrafficGroup = c.TrafficGroup
+	newCtx.APIVersion = c.APIVersion
+	newCtx.TenantID = c.TenantID
+	newCtx.AccessLogConfig = c.AccessLogConfig
+	newCtx.PropagateTrace = c.PropagateTrace
+	newCtx.SkipFlags = c.SkipFlags
 
 	if c.Overrides != nil {
 		copied := *c.Overrides
@@ -428,14 +428,18 @@ func (c *Context) Clone() *Context {
 	}
 
 	if c.PathParams != nil {
-		newCtx.PathParams = make(map[string]string, len(c.PathParams))
+		if newCtx.PathParams == nil {
+			newCtx.PathParams = make(map[string]string, len(c.PathParams))
+		}
 		for k, v := range c.PathParams {
 			newCtx.PathParams[k] = v
 		}
 	}
 
 	if len(c.Custom) > 0 {
-		newCtx.Custom = make(map[string]string, len(c.Custom))
+		if newCtx.Custom == nil {
+			newCtx.Custom = make(map[string]string, len(c.Custom))
+		}
 		for k, v := range c.Custom {
 			newCtx.Custom[k] = v
 		}

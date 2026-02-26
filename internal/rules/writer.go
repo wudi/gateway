@@ -2,8 +2,9 @@ package rules
 
 import (
 	"bytes"
-	"fmt"
 	"net/http"
+	"strconv"
+	"sync"
 )
 
 // RulesResponseWriter intercepts WriteHeader and Write to buffer the entire
@@ -16,7 +17,28 @@ type RulesResponseWriter struct {
 	flushed    bool
 }
 
+var rulesWriterPool = sync.Pool{
+	New: func() any { return &RulesResponseWriter{} },
+}
+
+// AcquireRulesResponseWriter gets a RulesResponseWriter from the pool.
+func AcquireRulesResponseWriter(w http.ResponseWriter) *RulesResponseWriter {
+	rw := rulesWriterPool.Get().(*RulesResponseWriter)
+	rw.underlying = w
+	rw.statusCode = http.StatusOK
+	rw.body.Reset()
+	rw.flushed = false
+	return rw
+}
+
+// ReleaseRulesResponseWriter returns a RulesResponseWriter to the pool.
+func ReleaseRulesResponseWriter(rw *RulesResponseWriter) {
+	rw.underlying = nil
+	rulesWriterPool.Put(rw)
+}
+
 // NewRulesResponseWriter wraps an http.ResponseWriter for response-phase rule evaluation.
+// Deprecated: use AcquireRulesResponseWriter/ReleaseRulesResponseWriter for pooled usage.
 func NewRulesResponseWriter(w http.ResponseWriter) *RulesResponseWriter {
 	return &RulesResponseWriter{
 		underlying: w,
@@ -54,7 +76,7 @@ func (rw *RulesResponseWriter) Flush() {
 	rw.flushed = true
 	rw.underlying.Header().Del("Content-Length")
 	if rw.body.Len() > 0 {
-		rw.underlying.Header().Set("Content-Length", fmt.Sprintf("%d", rw.body.Len()))
+		rw.underlying.Header().Set("Content-Length", strconv.Itoa(rw.body.Len()))
 	}
 	rw.underlying.WriteHeader(rw.statusCode)
 	if rw.body.Len() > 0 {

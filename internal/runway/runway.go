@@ -299,26 +299,15 @@ type Runway struct {
 	mu           sync.RWMutex // cold: only held during route add/reload
 }
 
-// storeRouteProxy atomically stores a route proxy using copy-on-write.
-func (g *Runway) storeRouteProxy(id string, rp *proxy.RouteProxy) {
-	old := *g.routeProxies.Load()
-	m := make(map[string]*proxy.RouteProxy, len(old)+1)
+// storeAtomicMap atomically stores an entry in a copy-on-write map behind an atomic.Pointer.
+func storeAtomicMap[T any](p *atomic.Pointer[map[string]T], id string, item T) {
+	old := *p.Load()
+	m := make(map[string]T, len(old)+1)
 	for k, v := range old {
 		m[k] = v
 	}
-	m[id] = rp
-	g.routeProxies.Store(&m)
-}
-
-// storeRouteHandler atomically stores a route handler using copy-on-write.
-func (g *Runway) storeRouteHandler(id string, h http.Handler) {
-	old := *g.routeHandlers.Load()
-	m := make(map[string]http.Handler, len(old)+1)
-	for k, v := range old {
-		m[k] = v
-	}
-	m[id] = h
-	g.routeHandlers.Store(&m)
+	m[id] = item
+	p.Store(&m)
 }
 
 // statusRecorder wraps http.ResponseWriter to capture the status code
@@ -1846,7 +1835,7 @@ func (g *Runway) addRoute(routeCfg config.RouteConfig) error {
 			}
 			routeProxy = proxy.NewRouteProxyWithBalancer(g.proxy, route, bal)
 		}
-		g.storeRouteProxy(routeCfg.ID, routeProxy)
+		storeAtomicMap(&g.routeProxies, routeCfg.ID, routeProxy)
 
 		// Wire shared retry budget pool if configured
 		if routeCfg.RetryPolicy.BudgetPool != "" {
@@ -2046,7 +2035,7 @@ func (g *Runway) addRoute(routeCfg config.RouteConfig) error {
 
 	// Build the per-route middleware pipeline handler
 	handler := g.buildRouteHandler(routeCfg.ID, routeCfg, route, routeProxy)
-	g.storeRouteHandler(routeCfg.ID, handler)
+	storeAtomicMap(&g.routeHandlers, routeCfg.ID, handler)
 
 	return nil
 }
