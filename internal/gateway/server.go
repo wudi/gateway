@@ -194,6 +194,7 @@ func (s *Server) pushCurrentConfig(source string) {
 		Hash:      xxhash.Sum64(yamlBytes),
 		Timestamp: time.Now(),
 		Source:    source,
+		Config:    s.config,
 	})
 }
 
@@ -2345,14 +2346,28 @@ func (s *Server) handleClusterNodes(w http.ResponseWriter, r *http.Request) {
 
 // handleCPConfig handles GET (read) and POST (push) config on the CP.
 func (s *Server) handleCPConfig(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	switch r.Method {
 	case http.MethodGet:
 		env := s.cpServer.CurrentConfig()
-		w.Write(env.YAML)
+		if cfg, ok := env.Config.(*config.Config); ok && cfg != nil {
+			redacted, err := config.RedactConfig(cfg)
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]string{"error": "failed to redact config"})
+				return
+			}
+			out, _ := yaml.Marshal(redacted)
+			w.Header().Set("Content-Type", "application/x-yaml")
+			w.Write(out)
+		} else {
+			// Fallback: return raw YAML (pre-existing envelopes without Config)
+			w.Header().Set("Content-Type", "application/x-yaml")
+			w.Write(env.YAML)
+		}
 
 	case http.MethodPost:
+		w.Header().Set("Content-Type", "application/json")
 		r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB limit
 		configData, err := io.ReadAll(r.Body)
 		if err != nil {

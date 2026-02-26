@@ -26,6 +26,7 @@ type ConfigEnvelope struct {
 	YAML      []byte
 	Timestamp time.Time
 	Source    string // "file", "admin-api"
+	Config    any    // *config.Config — stored as any to avoid import cycle
 }
 
 // ConnectedNode tracks a connected data plane node.

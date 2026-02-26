@@ -15,7 +15,7 @@ registry:
     address: "localhost:8500"
     scheme: "http"
     datacenter: "dc1"
-    token: "${CONSUL_TOKEN}"
+    token: "${env:CONSUL_TOKEN}"
 
   etcd:
     endpoints:
@@ -48,7 +48,7 @@ authentication:
 
   jwt:
     enabled: true
-    secret: "${JWT_SECRET}"
+    secret: "${env:JWT_SECRET}"
     issuer: "https://auth.example.com"
     algorithm: "HS256"
 

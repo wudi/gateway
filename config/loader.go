@@ -18,16 +18,36 @@ var validHTTPMethods = map[string]bool{
 	"DELETE": true, "PATCH": true, "OPTIONS": true,
 }
 
+// LoaderOption configures a Loader.
+type LoaderOption func(*Loader)
+
+// WithSecretRegistry sets a custom secret registry on the loader.
+// This allows the public gateway builder API to inject custom providers
+// and share a registry across reloads.
+func WithSecretRegistry(r *SecretRegistry) LoaderOption {
+	return func(l *Loader) { l.registry = r }
+}
+
 // Loader handles configuration loading and parsing
 type Loader struct {
 	envPattern *regexp.Regexp
+	registry   *SecretRegistry
 }
 
-// NewLoader creates a new configuration loader
-func NewLoader() *Loader {
-	return &Loader{
+// NewLoader creates a new configuration loader.
+// By default it registers the env secret provider. Use LoaderOption
+// to inject a custom registry.
+func NewLoader(opts ...LoaderOption) *Loader {
+	reg := NewSecretRegistry()
+	reg.Register(&EnvProvider{})
+	l := &Loader{
 		envPattern: regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`),
+		registry:   reg,
 	}
+	for _, opt := range opts {
+		opt(l)
+	}
+	return l
 }
 
 // Load reads and parses a configuration file
@@ -42,28 +62,42 @@ func (l *Loader) Load(path string) (*Config, error) {
 
 // Parse parses configuration from YAML bytes
 func (l *Loader) Parse(data []byte) (*Config, error) {
-	// Expand environment variables
+	// Phase 1: Bare ${VAR} expansion. Does NOT match ${scheme:ref} (colon not in char class).
 	expanded := l.expandEnvVars(string(data))
 
-	// Start with defaults
+	// Phase 2: Unmarshal (secret refs like ${env:X} land as literal strings)
 	cfg := DefaultConfig()
-
-	// Unmarshal YAML into config
 	if err := yaml.Unmarshal([]byte(expanded), cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse YAML: %w", err)
 	}
 
-	// Expand OpenAPI spec routes before validation
+	// Phase 3: Resolve secret references in struct fields
+	if err := l.resolveSecrets(cfg); err != nil {
+		return nil, fmt.Errorf("secret resolution failed: %w", err)
+	}
+
+	// Phase 4: Expand OpenAPI spec routes before validation
 	if err := expandOpenAPIRoutes(cfg); err != nil {
 		return nil, fmt.Errorf("openapi route expansion: %w", err)
 	}
 
-	// Validate configuration
+	// Phase 5: Validate configuration
 	if err := l.validate(cfg); err != nil {
 		return nil, fmt.Errorf("configuration validation failed: %w", err)
 	}
 
 	return cfg, nil
+}
+
+// resolveSecrets creates a per-parse registry with env and file providers,
+// then walks the config resolving ${scheme:ref} strings in place.
+func (l *Loader) resolveSecrets(cfg *Config) error {
+	reg := l.registry.Clone()
+	// FileProvider is added per-parse because AllowedPrefixes comes from cfg.
+	reg.Register(&FileProvider{AllowedPrefixes: cfg.Secrets.File.AllowedPrefixes})
+	// TODO: pass shared registry to reload paths when stateful providers (Vault, AWS SM) are added
+	ctx := context.Background()
+	return resolveSecretRefs(cfg, reg, ctx)
 }
 
 // expandEnvVars replaces ${VAR_NAME} with environment variable values

@@ -83,8 +83,19 @@ type Config struct {
 	Deprecation            DeprecationConfig            `yaml:"deprecation"`               // Global API deprecation lifecycle (RFC 8594)
 	ConsumerGroups         ConsumerGroupsConfig         `yaml:"consumer_groups"`           // Consumer group definitions
 	Baggage                BaggageConfig                `yaml:"baggage"`                   // Global baggage propagation defaults
+	Secrets                SecretsConfig                `yaml:"secrets"`                   // Secret provider settings
 	Extensions             map[string]yaml.RawMessage   `yaml:"extensions,omitempty"`      // Plugin extension config (raw YAML, decoded by plugins)
 	Cluster                ClusterConfig                `yaml:"cluster"`                   // CP/DP cluster mode
+}
+
+// SecretsConfig defines secret provider settings.
+type SecretsConfig struct {
+	File FileSecretsConfig `yaml:"file"`
+}
+
+// FileSecretsConfig defines settings for the file secret provider.
+type FileSecretsConfig struct {
+	AllowedPrefixes []string `yaml:"allowed_prefixes"` // optional path restriction for ${file:...} references
 }
 
 // ListenerConfig defines a listener configuration
@@ -181,7 +192,7 @@ type ConsulConfig struct {
 	Address    string `yaml:"address"`
 	Scheme     string `yaml:"scheme"`
 	Datacenter string `yaml:"datacenter"`
-	Token      string `yaml:"token"`
+	Token      string `yaml:"token" redact:"true"`
 	Namespace  string `yaml:"namespace"`
 }
 
@@ -189,7 +200,7 @@ type ConsulConfig struct {
 type EtcdConfig struct {
 	Endpoints []string `yaml:"endpoints"`
 	Username  string   `yaml:"username"`
-	Password  string   `yaml:"password"`
+	Password  string   `yaml:"password" redact:"true"`
 	TLS       TLSConfig `yaml:"tls"`
 }
 
@@ -281,15 +292,15 @@ type TokenExchangeConfig struct {
 	TrustedIssuers   []string          `yaml:"trusted_issuers"`    // for jwt mode
 	IntrospectionURL string            `yaml:"introspection_url"`  // for introspection mode
 	ClientID         string            `yaml:"client_id"`          // for introspection mode
-	ClientSecret     string            `yaml:"client_secret"`      // for introspection mode
-	Issuer           string            `yaml:"issuer"`             // issuer claim in minted tokens
+	ClientSecret     string            `yaml:"client_secret" redact:"true"` // for introspection mode
+	Issuer           string            `yaml:"issuer"`                      // issuer claim in minted tokens
 	Audience         []string          `yaml:"audience"`           // audience claim in minted tokens
 	Scopes           []string          `yaml:"scopes"`             // scopes in minted tokens
 	TokenLifetime    time.Duration     `yaml:"token_lifetime"`     // lifetime of minted tokens
 	SigningAlgorithm string            `yaml:"signing_algorithm"`  // RS256, RS512, HS256, HS512
 	SigningKeyFile   string            `yaml:"signing_key_file"`   // PEM file for RSA signing
-	SigningKey       string            `yaml:"signing_key"`        // inline PEM for RSA signing
-	SigningSecret    string            `yaml:"signing_secret"`     // base64 secret for HMAC signing
+	SigningKey       string            `yaml:"signing_key" redact:"true"`    // inline PEM for RSA signing
+	SigningSecret    string            `yaml:"signing_secret" redact:"true"` // base64 secret for HMAC signing
 	CacheTTL         time.Duration     `yaml:"cache_ttl"`          // exchange result cache TTL
 	ClaimMappings    map[string]string `yaml:"claim_mappings"`     // subject claim → issued claim mappings
 }
@@ -321,7 +332,7 @@ type KeyRateLimitConfig struct {
 
 // APIKeyEntry represents a single API key
 type APIKeyEntry struct {
-	Key       string    `yaml:"key"`
+	Key       string    `yaml:"key" redact:"true"`
 	ClientID  string    `yaml:"client_id"`
 	Name      string    `yaml:"name"`
 	ExpiresAt string    `yaml:"expires_at"` // Feature 14: RFC3339 expiration
@@ -331,7 +342,7 @@ type APIKeyEntry struct {
 // JWTConfig defines JWT authentication settings
 type JWTConfig struct {
 	Enabled             bool          `yaml:"enabled"`
-	Secret              string        `yaml:"secret"`
+	Secret              string        `yaml:"secret" redact:"true"`
 	PublicKey           string        `yaml:"public_key"`
 	Issuer              string        `yaml:"issuer"`
 	Audience            []string      `yaml:"audience"`
@@ -345,7 +356,7 @@ type OAuthConfig struct {
 	Enabled              bool          `yaml:"enabled"`
 	IntrospectionURL     string        `yaml:"introspection_url"`
 	ClientID             string        `yaml:"client_id"`
-	ClientSecret         string        `yaml:"client_secret"`
+	ClientSecret         string        `yaml:"client_secret" redact:"true"`
 	JWKSURL              string        `yaml:"jwks_url"`
 	JWKSRefreshInterval  time.Duration `yaml:"jwks_refresh_interval"`
 	Issuer               string        `yaml:"issuer"`
@@ -375,7 +386,7 @@ type LDAPConfig struct {
 	URL              string               `yaml:"url"`
 	StartTLS         bool                 `yaml:"start_tls"`
 	BindDN           string               `yaml:"bind_dn"`
-	BindPassword     string               `yaml:"bind_password"` // supports ${ENV_VAR}
+	BindPassword     string               `yaml:"bind_password" redact:"true"` // supports ${ENV_VAR}
 	UserSearchBase   string               `yaml:"user_search_base"`
 	UserSearchFilter string               `yaml:"user_search_filter"` // must contain {{username}}
 	UserSearchScope  string               `yaml:"user_search_scope"`  // sub (default), one, base
@@ -408,7 +419,7 @@ type LDAPTLSConfig struct {
 type SAMLSessionConfig struct {
 	CookieName string        `yaml:"cookie_name"` // default "gateway_saml"
 	MaxAge     time.Duration `yaml:"max_age"`     // default 8h
-	SigningKey  string       `yaml:"signing_key"` // HMAC key for session JWT (>= 32 bytes); supports ${ENV_VAR}
+	SigningKey  string       `yaml:"signing_key" redact:"true"` // HMAC key for session JWT (>= 32 bytes); supports ${ENV_VAR}
 	Domain     string        `yaml:"domain"`
 	Secure     bool          `yaml:"secure"`    // default true
 	SameSite   string        `yaml:"same_site"` // "lax" (default), "strict", "none"
@@ -908,7 +919,7 @@ type BackendAuthConfig struct {
 	Type         string            `yaml:"type"`          // "oauth2_client_credentials"
 	TokenURL     string            `yaml:"token_url"`
 	ClientID     string            `yaml:"client_id"`
-	ClientSecret string            `yaml:"client_secret"`
+	ClientSecret string            `yaml:"client_secret" redact:"true"`
 	Scopes       []string          `yaml:"scopes"`
 	ExtraParams  map[string]string `yaml:"extra_params"`
 	Timeout      time.Duration     `yaml:"timeout"` // default 10s
@@ -1001,7 +1012,7 @@ type AIConfig struct {
 	Provider      string            `yaml:"provider"`        // "openai", "anthropic", "azure_openai", "gemini"
 	Model         string            `yaml:"model"`           // default model
 	ModelMapping  map[string]string `yaml:"model_mapping"`   // client model → provider model
-	APIKey        string            `yaml:"api_key"`         // env var reference: ${OPENAI_API_KEY}
+	APIKey        string            `yaml:"api_key" redact:"true"` // env var reference: ${OPENAI_API_KEY}
 	BaseURL       string            `yaml:"base_url"`        // override provider base URL
 	APIVersion    string            `yaml:"api_version"`     // Azure: required
 	DeploymentID  string            `yaml:"deployment_id"`   // Azure: required
@@ -1560,7 +1571,7 @@ type TierConfig struct {
 // RedisConfig defines Redis connection settings for distributed features.
 type RedisConfig struct {
 	Address     string        `yaml:"address"`
-	Password    string        `yaml:"password"`
+	Password    string        `yaml:"password" redact:"true"`
 	DB          int           `yaml:"db"`
 	TLS         bool          `yaml:"tls"`
 	PoolSize    int           `yaml:"pool_size"`
@@ -1772,7 +1783,7 @@ type WebhooksConfig struct {
 type WebhookEndpoint struct {
 	ID      string            `yaml:"id"`
 	URL     string            `yaml:"url"`
-	Secret  string            `yaml:"secret"`
+	Secret  string            `yaml:"secret" redact:"true"`
 	Events  []string          `yaml:"events"`
 	Headers map[string]string `yaml:"headers"`
 	Routes  []string          `yaml:"routes"`
@@ -1835,7 +1846,7 @@ type CSRFConfig struct {
 	Enabled               bool          `yaml:"enabled"`
 	CookieName            string        `yaml:"cookie_name"`             // default "_csrf"
 	HeaderName            string        `yaml:"header_name"`             // default "X-CSRF-Token"
-	Secret                string        `yaml:"secret"`                  // HMAC key (required when enabled)
+	Secret                string        `yaml:"secret" redact:"true"`    // HMAC key (required when enabled)
 	TokenTTL              time.Duration `yaml:"token_ttl"`               // default 1h
 	SafeMethods           []string      `yaml:"safe_methods"`            // default GET,HEAD,OPTIONS,TRACE
 	AllowedOrigins        []string      `yaml:"allowed_origins"`         // exact origin matches
@@ -1894,23 +1905,23 @@ type GeoConfig struct {
 type BackendSigningConfig struct {
 	Enabled        bool     `yaml:"enabled"`
 	Algorithm      string   `yaml:"algorithm"`        // "hmac-sha256" (default), "hmac-sha512", "rsa-sha256", "rsa-sha512", "rsa-pss-sha256"
-	Secret         string   `yaml:"secret"`            // base64-encoded HMAC secret, min 32 decoded bytes
-	KeyID          string   `yaml:"key_id"`            // key identifier for rotation
-	SignedHeaders  []string `yaml:"signed_headers"`    // headers to include in signature
-	IncludeBody    *bool    `yaml:"include_body"`      // default true (*bool for merge semantics)
-	HeaderPrefix   string   `yaml:"header_prefix"`     // default "X-Gateway-"
-	PrivateKey     string   `yaml:"private_key"`       // PEM-encoded RSA private key (for RSA algos)
-	PrivateKeyFile string   `yaml:"private_key_file"`  // path to PEM-encoded RSA private key file
+	Secret         string   `yaml:"secret" redact:"true"`      // base64-encoded HMAC secret, min 32 decoded bytes
+	KeyID          string   `yaml:"key_id"`                    // key identifier for rotation
+	SignedHeaders  []string `yaml:"signed_headers"`            // headers to include in signature
+	IncludeBody    *bool    `yaml:"include_body"`              // default true (*bool for merge semantics)
+	HeaderPrefix   string   `yaml:"header_prefix"`             // default "X-Gateway-"
+	PrivateKey     string   `yaml:"private_key" redact:"true"` // PEM-encoded RSA private key (for RSA algos)
+	PrivateKeyFile string   `yaml:"private_key_file"`          // path to PEM-encoded RSA private key file
 }
 
 // ResponseSigningConfig defines response body signing.
 type ResponseSigningConfig struct {
 	Enabled        bool     `yaml:"enabled"`
 	Algorithm      string   `yaml:"algorithm"`        // "hmac-sha256" (default), "hmac-sha512", "rsa-sha256"
-	Secret         string   `yaml:"secret"`            // base64-encoded HMAC secret, min 32 decoded bytes
-	KeyFile        string   `yaml:"key_file"`          // path to PEM-encoded RSA private key file
-	KeyID          string   `yaml:"key_id"`            // key identifier included in signature header
-	Header         string   `yaml:"header"`            // response header name (default "X-Response-Signature")
+	Secret         string   `yaml:"secret" redact:"true"` // base64-encoded HMAC secret, min 32 decoded bytes
+	KeyFile        string   `yaml:"key_file"`             // path to PEM-encoded RSA private key file
+	KeyID          string   `yaml:"key_id"`               // key identifier included in signature header
+	Header         string   `yaml:"header"`               // response header name (default "X-Response-Signature")
 	IncludeHeaders []string `yaml:"include_headers"`   // response headers to include in signature
 }
 
@@ -1918,8 +1929,8 @@ type ResponseSigningConfig struct {
 type InboundSigningConfig struct {
 	Enabled       bool          `yaml:"enabled"`
 	Algorithm     string        `yaml:"algorithm"`       // "hmac-sha256" (default), "hmac-sha512", "rsa-sha256", "rsa-sha512", "rsa-pss-sha256"
-	Secret        string        `yaml:"secret"`          // base64-encoded HMAC secret, min 32 decoded bytes
-	KeyID         string        `yaml:"key_id"`          // expected key identifier
+	Secret        string        `yaml:"secret" redact:"true"` // base64-encoded HMAC secret, min 32 decoded bytes
+	KeyID         string        `yaml:"key_id"`               // expected key identifier
 	SignedHeaders []string      `yaml:"signed_headers"`  // headers to include in verification
 	IncludeBody   *bool         `yaml:"include_body"`    // default true
 	HeaderPrefix  string        `yaml:"header_prefix"`   // default "X-Gateway-"
@@ -1950,7 +1961,7 @@ type PIIPattern struct {
 type FieldEncryptionConfig struct {
 	Enabled       bool     `yaml:"enabled"`
 	Algorithm     string   `yaml:"algorithm"`      // "aes-gcm-256" only
-	KeyBase64     string   `yaml:"key_base64"`     // base64-encoded 32-byte key
+	KeyBase64     string   `yaml:"key_base64" redact:"true"` // base64-encoded 32-byte key
 	EncryptFields []string `yaml:"encrypt_fields"` // gjson paths to encrypt in request
 	DecryptFields []string `yaml:"decrypt_fields"` // gjson paths to decrypt in response
 	Encoding      string   `yaml:"encoding"`       // "base64" (default), "hex"

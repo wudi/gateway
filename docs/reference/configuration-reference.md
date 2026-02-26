@@ -5,7 +5,29 @@ sidebar_position: 2
 
 Complete YAML configuration schema. All fields, types, defaults, and validation constraints.
 
-Values support environment variable expansion via `${VAR}` syntax. Durations use Go syntax: `30s`, `5m`, `1h`.
+Values support environment variable expansion via `${VAR}` syntax (silent passthrough if unset). For secrets, use strict `${env:VAR}` or `${file:/path}` syntax which errors on missing values. See [Secrets Management](../security/secrets-management.md) for details.
+
+Durations use Go syntax: `30s`, `5m`, `1h`.
+
+---
+
+## Secrets
+
+```yaml
+secrets:
+  file:
+    allowed_prefixes:      # optional: restrict ${file:...} to these directory prefixes
+      - /run/secrets/
+      - /var/run/secrets/
+```
+
+Secret references can be used in any string config field:
+
+| Syntax | Description |
+|--------|-------------|
+| `${env:VAR_NAME}` | Resolve from environment variable (strict — errors if unset) |
+| `${file:/path/to/file}` | Resolve from file contents (trailing whitespace trimmed) |
+| `${VAR_NAME}` | Legacy env expansion (silent passthrough if unset) |
 
 ---
 
