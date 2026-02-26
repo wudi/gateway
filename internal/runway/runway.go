@@ -2141,7 +2141,19 @@ func (g *Runway) buildRouteHandler(routeID string, cfg config.RouteConfig, route
 			if ep := g.errorPages.GetErrorPages(routeID); ep != nil { return ep.Middleware() }; return nil
 		}},
 		{"access_log", func() middleware.Middleware {
-			if al := g.accessLogConfigs.GetConfig(routeID); al != nil { return al.Middleware() }; return nil
+			if al := g.accessLogConfigs.GetConfig(routeID); al != nil {
+				inner := al.Middleware()
+				return func(next http.Handler) http.Handler {
+					h := inner(next)
+					return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						if variables.GetFromRequest(r).SkipFlags&variables.SkipAccessLog != 0 {
+							next.ServeHTTP(w, r)
+							return
+						}
+						h.ServeHTTP(w, r)
+					})
+				}
+			}; return nil
 		}},
 		{"audit_log", func() middleware.Middleware {
 			if al := g.auditLoggers.GetLogger(routeID); al != nil { return al.Middleware() }; return nil
@@ -2155,7 +2167,20 @@ func (g *Runway) buildRouteHandler(routeID string, cfg config.RouteConfig, route
 		{"timeout", func() middleware.Middleware {
 			if ct := g.timeoutConfigs.GetTimeout(routeID); ct != nil { return ct.Middleware() }; return nil
 		}},
-		{"rate_limit", func() middleware.Middleware { return g.rateLimiters.GetMiddleware(routeID) }},
+		{"rate_limit", func() middleware.Middleware {
+			if inner := g.rateLimiters.GetMiddleware(routeID); inner != nil {
+				return func(next http.Handler) http.Handler {
+					h := inner(next)
+					return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						if variables.GetFromRequest(r).SkipFlags&variables.SkipRateLimit != 0 {
+							next.ServeHTTP(w, r)
+							return
+						}
+						h.ServeHTTP(w, r)
+					})
+				}
+			}; return nil
+		}},
 		{"spike_arrest", func() middleware.Middleware {
 			if sa := g.spikeArresters.GetArrester(routeID); sa != nil { return sa.Middleware() }; return nil
 		}},
@@ -2163,7 +2188,19 @@ func (g *Runway) buildRouteHandler(routeID string, cfg config.RouteConfig, route
 			if qe := g.quotaEnforcers.GetEnforcer(routeID); qe != nil { return qe.Middleware() }; return nil
 		}},
 		{"throttle", func() middleware.Middleware {
-			if t := g.throttlers.GetThrottler(routeID); t != nil { return t.Middleware() }; return nil
+			if t := g.throttlers.GetThrottler(routeID); t != nil {
+				inner := t.Middleware()
+				return func(next http.Handler) http.Handler {
+					h := inner(next)
+					return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						if variables.GetFromRequest(r).SkipFlags&variables.SkipThrottle != 0 {
+							next.ServeHTTP(w, r)
+							return
+						}
+						h.ServeHTTP(w, r)
+					})
+				}
+			}; return nil
 		}},
 		{"request_queue", func() middleware.Middleware {
 			if rq := g.requestQueues.GetQueue(routeID); rq != nil { return rq.Middleware() }; return nil
@@ -2224,7 +2261,19 @@ func (g *Runway) buildRouteHandler(routeID string, cfg config.RouteConfig, route
 			if hasReq { return requestRulesMW(g.globalRules, routeEngine) }; return nil
 		}},
 		{"waf", func() middleware.Middleware {
-			if wh := g.wafHandlers.GetWAF(routeID); wh != nil { return wh.Middleware() }; return nil
+			if wh := g.wafHandlers.GetWAF(routeID); wh != nil {
+				inner := wh.Middleware()
+				return func(next http.Handler) http.Handler {
+					h := inner(next)
+					return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						if variables.GetFromRequest(r).SkipFlags&variables.SkipWAF != 0 {
+							next.ServeHTTP(w, r)
+							return
+						}
+						h.ServeHTTP(w, r)
+					})
+				}
+			}; return nil
 		}},
 		{"fault_injection", func() middleware.Middleware {
 			if fi := g.faultInjectors.GetInjector(routeID); fi != nil { return fi.Middleware() }; return nil
@@ -2253,7 +2302,28 @@ func (g *Runway) buildRouteHandler(routeID string, cfg config.RouteConfig, route
 		}},
 		{"bandwidth", func() middleware.Middleware {
 			if skipBody { return nil }
-			if bw := g.bandwidthLimiters.GetLimiter(routeID); bw != nil { return bw.Middleware() }; return nil
+			if bw := g.bandwidthLimiters.GetLimiter(routeID); bw != nil {
+				inner := bw.Middleware()
+				return func(next http.Handler) http.Handler {
+					h := inner(next)
+					return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						varCtx := variables.GetFromRequest(r)
+						if varCtx.Overrides != nil && varCtx.Overrides.BandwidthOverride > 0 {
+							// Create ephemeral per-request bandwidth limiter with override rate
+							ephemeral := trafficshape.NewBandwidthLimiter(
+								varCtx.Overrides.BandwidthOverride,
+								varCtx.Overrides.BandwidthOverride,
+								0, 0,
+							)
+							ephemeral.WrapRequest(r)
+							wrappedW := ephemeral.WrapResponse(w)
+							next.ServeHTTP(wrappedW, r)
+							return
+						}
+						h.ServeHTTP(w, r)
+					})
+				}
+			}; return nil
 		}},
 		{"field_encrypt", func() middleware.Middleware {
 			if skipBody { return nil }
@@ -2261,7 +2331,19 @@ func (g *Runway) buildRouteHandler(routeID string, cfg config.RouteConfig, route
 		}},
 		{"validation", func() middleware.Middleware {
 			if skipBody { return nil }
-			if v := g.validators.GetValidator(routeID); v != nil && v.IsEnabled() { return v.Middleware() }; return nil
+			if v := g.validators.GetValidator(routeID); v != nil && v.IsEnabled() {
+				inner := v.Middleware()
+				return func(next http.Handler) http.Handler {
+					h := inner(next)
+					return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						if variables.GetFromRequest(r).SkipFlags&variables.SkipValidation != 0 {
+							next.ServeHTTP(w, r)
+							return
+						}
+						h.ServeHTTP(w, r)
+					})
+				}
+			}; return nil
 		}},
 		{"openapi_request", func() middleware.Middleware {
 			if skipBody { return nil }
@@ -2319,7 +2401,19 @@ func (g *Runway) buildRouteHandler(routeID string, cfg config.RouteConfig, route
 		}},
 		{"compression", func() middleware.Middleware {
 			if skipBody { return nil }
-			if c := g.compressors.GetCompressor(routeID); c != nil && c.IsEnabled() { return c.Middleware() }; return nil
+			if c := g.compressors.GetCompressor(routeID); c != nil && c.IsEnabled() {
+				inner := c.Middleware()
+				return func(next http.Handler) http.Handler {
+					h := inner(next)
+					return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						if variables.GetFromRequest(r).SkipFlags&variables.SkipCompression != 0 {
+							next.ServeHTTP(w, r)
+							return
+						}
+						h.ServeHTTP(w, r)
+					})
+				}
+			}; return nil
 		}},
 		{"response_limit", func() middleware.Middleware {
 			if skipBody { return nil }
@@ -2335,7 +2429,19 @@ func (g *Runway) buildRouteHandler(routeID string, cfg config.RouteConfig, route
 			if hasResp { return responseRulesMW(g.globalRules, routeEngine) }; return nil
 		}},
 		{"mirror", func() middleware.Middleware {
-			if mh := g.mirrors.GetMirror(routeID); mh != nil && mh.IsEnabled() { return mh.Middleware() }; return nil
+			if mh := g.mirrors.GetMirror(routeID); mh != nil && mh.IsEnabled() {
+				inner := mh.Middleware()
+				return func(next http.Handler) http.Handler {
+					h := inner(next)
+					return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						if variables.GetFromRequest(r).SkipFlags&variables.SkipMirror != 0 {
+							next.ServeHTTP(w, r)
+							return
+						}
+						h.ServeHTTP(w, r)
+					})
+				}
+			}; return nil
 		}},
 		{"traffic_group", func() middleware.Middleware {
 			if rp == nil { return nil }

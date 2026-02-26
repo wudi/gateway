@@ -334,8 +334,11 @@ func buildTierKeyFunc(tierKey string) func(*http.Request) string {
 func (tl *TieredLimiter) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Determine tier
+			// Determine tier (rule override takes precedence)
 			tierName := tl.tierKeyFn(r)
+			if varCtx := variables.GetFromRequest(r); varCtx.Overrides != nil && varCtx.Overrides.RateLimitTier != "" {
+				tierName = varCtx.Overrides.RateLimitTier
+			}
 			tb, ok := tl.tiers[tierName]
 			if !ok {
 				tb = tl.tiers[tl.defaultTier]

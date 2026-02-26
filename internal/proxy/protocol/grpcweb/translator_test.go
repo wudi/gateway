@@ -704,6 +704,13 @@ func (m *mockBalancer) GetBackends() []*loadbalancer.Backend {
 	return []*loadbalancer.Backend{m.backend}
 }
 
+func (m *mockBalancer) GetBackendByURL(url string) *loadbalancer.Backend {
+	if m.backend != nil && m.backend.URL == url {
+		return m.backend
+	}
+	return nil
+}
+
 // startMockStreamingGRPCServer starts a gRPC server with a single streaming method
 // that responds with the given messages. Returns the server and the address to dial.
 func startMockStreamingGRPCServer(t *testing.T, messages [][]byte) (*grpc.Server, string) {

@@ -153,7 +153,104 @@ rules:
 | `set_body` | Replace the response body |
 | `lua` | Execute inline Lua script with response access |
 
-Response rules cannot use terminating actions (`block`, `custom_response`, `redirect`) or request-only actions (`rewrite`, `group`, `delay`, `set_var`, `cache_bypass`). Response-only actions (`set_status`, `set_body`) cannot be used in request rules.
+Response rules cannot use terminating actions (`block`, `custom_response`, `redirect`) or request-only actions (`rewrite`, `group`, `delay`, `set_var`, `cache_bypass`). Response-only actions (`set_status`, `set_body`, `cache_ttl_override`) cannot be used in request rules.
+
+### Skip Actions (Request-Phase)
+
+Skip actions dynamically disable downstream middleware for a request. They are non-terminating and only available in the request phase (except `skip_cache_store` which works in both phases).
+
+| Action | Controls | Unsafe |
+|--------|----------|--------|
+| `skip_auth` | Bypass authentication | **yes** |
+| `skip_rate_limit` | Bypass rate limiting | |
+| `skip_throttle` | Bypass throttle queue | |
+| `skip_circuit_breaker` | Bypass circuit breaker | |
+| `skip_waf` | Bypass WAF checks | **yes** |
+| `skip_validation` | Bypass request validation | |
+| `skip_compression` | Skip response compression | |
+| `skip_adaptive_concurrency` | Bypass concurrency limiter | |
+| `skip_body_limit` | Bypass body size limit | **yes** |
+| `skip_mirror` | Don't mirror request | |
+| `skip_access_log` | Don't log request | |
+| `skip_cache_store` | Don't cache response (both phases) | |
+
+**Unsafe actions** bypass security or safety controls. Config validation rejects them unless the rule has `unsafe: true`:
+
+```yaml
+rules:
+  request:
+    - id: skip-auth-internal
+      expression: 'ip.src startsWith "10."'
+      action: skip_auth
+      unsafe: true  # required
+```
+
+### Override Actions (Request-Phase)
+
+Override actions dynamically reconfigure downstream middleware parameters. They use `params` for action-specific values.
+
+| Action | Param | Description |
+|--------|-------|-------------|
+| `rate_limit_tier` | `tier` (string) | Override tier selection in TieredLimiter |
+| `timeout_override` | `timeout` (duration) | Override request timeout (capped at route config) |
+| `priority_override` | `priority` (int 1-10) | Override priority admission level |
+| `bandwidth_override` | `bandwidth` (int64 bytes/sec) | Override bandwidth limit (capped at 2x route config) |
+| `body_limit_override` | `body_limit` (int64 bytes) | Override max body size (capped at 2x route config) |
+| `switch_backend` | `backend` (string URL) | Force request to a named backend from the route's pool |
+
+### Override Actions (Response-Phase)
+
+| Action | Param | Description |
+|--------|-------|-------------|
+| `cache_ttl_override` | `cache_ttl` (duration) | Override cache TTL for storing this response |
+
+### Override Examples
+
+```yaml
+rules:
+  request:
+    - id: premium-tier
+      expression: 'auth.claims["plan"] == "premium"'
+      action: rate_limit_tier
+      params:
+        tier: "premium"
+
+    - id: upload-timeout
+      expression: 'http.request.uri.path startsWith "/upload"'
+      action: timeout_override
+      params:
+        timeout: "30s"
+
+    - id: canary-backend
+      expression: 'http.request.headers["X-Canary"] == "true"'
+      action: switch_backend
+      params:
+        backend: "http://canary-backend:8080"
+
+  response:
+    - id: extend-cache-static
+      expression: 'http.request.uri.path startsWith "/static"'
+      action: cache_ttl_override
+      params:
+        cache_ttl: "24h"
+```
+
+### Override Caps
+
+Override values are validated at config load time against the route's settings:
+
+- `timeout_override`: must be ≤ route's configured timeout (can only tighten, not loosen)
+- `body_limit_override`: must be ≤ 2x route's `max_body_size`
+- `bandwidth_override`: must be ≤ 2x route's configured bandwidth rate
+- `switch_backend`: target URL must exist in route's `backends` or referenced upstream's `backends`
+
+### Conflicting Overrides
+
+When multiple non-terminating rules fire, overrides are applied sequentially (global rules first, then per-route rules). Last rule to set an override wins.
+
+### Action Metrics
+
+All non-terminating action invocations are counted per action type and exposed via the existing rules stats in the admin API (`action_counts` map in metrics).
 
 ### New Action Examples
 
@@ -292,6 +389,8 @@ Rules can be disabled without removal:
 | `delay` | duration | Delay duration (e.g. `500ms`, `2s`) |
 | `variables` | map | Key-value pairs for set_var action |
 | `lua_script` | string | Inline Lua code for lua action |
+| `unsafe` | bool | Required for `skip_auth`, `skip_waf`, `skip_body_limit` |
+| `params` | map | Action-specific parameters for override actions |
 
 See [Configuration Reference](configuration-reference.md#rules-global) for all fields.
 

@@ -26,11 +26,12 @@ type Entry struct {
 	StatusCode   int
 	Headers      http.Header
 	Body         []byte
-	ETag         string    // strong ETag, e.g. `"abc123def..."`
-	LastModified time.Time // when entry was cached (or backend value)
-	StoredAt     time.Time // when this entry was stored (for staleness checks)
-	Tags         []string  // cache tags for tag-based purge
-	Path         string    // original request path for pattern-based purge
+	ETag         string        // strong ETag, e.g. `"abc123def..."`
+	LastModified time.Time     // when entry was cached (or backend value)
+	StoredAt     time.Time     // when this entry was stored (for staleness checks)
+	Tags         []string      // cache tags for tag-based purge
+	Path         string        // original request path for pattern-based purge
+	TTL          time.Duration // per-entry TTL override (0 = use handler default)
 }
 
 // Handler manages caching for a single route.
@@ -193,8 +194,12 @@ func (h *Handler) GetWithStaleness(key string) (entry *Entry, fresh bool, stale 
 	if !ok {
 		return nil, false, false
 	}
+	ttl := h.ttl
+	if e.TTL > 0 {
+		ttl = e.TTL
+	}
 	age := time.Since(e.StoredAt)
-	if age <= h.ttl {
+	if age <= ttl {
 		return e, true, false
 	}
 	swr := h.staleWhileRevalidate
@@ -203,7 +208,7 @@ func (h *Handler) GetWithStaleness(key string) (entry *Entry, fresh bool, stale 
 	if sie > maxStale {
 		maxStale = sie
 	}
-	if age <= h.ttl+maxStale {
+	if age <= ttl+maxStale {
 		return e, false, true
 	}
 	return nil, false, false

@@ -834,7 +834,11 @@ Note: The `database` field is only valid at the global level. Per-route geo conf
         - id: string           # required, unique
           enabled: bool        # default true
           expression: string   # required, expr-lang expression
-          action: string       # block, custom_response, redirect, set_headers, rewrite, group, log, delay, set_var, cache_bypass, lua
+          action: string       # block, custom_response, redirect, set_headers, rewrite, group, log, delay, set_var, cache_bypass, lua,
+                               # skip_auth, skip_rate_limit, skip_throttle, skip_circuit_breaker, skip_waf, skip_validation,
+                               # skip_compression, skip_adaptive_concurrency, skip_body_limit, skip_mirror, skip_access_log,
+                               # skip_cache_store, rate_limit_tier, timeout_override, priority_override, bandwidth_override,
+                               # body_limit_override, switch_backend
           status_code: int     # for block/custom_response (100-599)
           body: string         # for custom_response
           redirect_url: string # for redirect
@@ -852,8 +856,17 @@ Note: The `database` field is only valid at the global level. Per-route geo conf
           variables:           # for set_var action
             key: value
           lua_script: string   # for lua action (inline Lua code)
+          unsafe: bool         # required for skip_auth, skip_waf, skip_body_limit
+          params:              # for override actions
+            tier: string       # rate_limit_tier
+            timeout: duration  # timeout_override
+            priority: int      # priority_override (1-10)
+            bandwidth: int     # bandwidth_override (bytes/sec)
+            body_limit: int    # body_limit_override (bytes)
+            backend: string    # switch_backend (URL from route's pool)
+            cache_ttl: duration # cache_ttl_override (response phase only)
           description: string
-      response:               # same structure; actions: set_headers, log, set_status, set_body, lua
+      response:               # same structure; actions: set_headers, log, set_status, set_body, lua, skip_cache_store, cache_ttl_override
 ```
 
 ### Protocol Translation

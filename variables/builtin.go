@@ -275,6 +275,38 @@ type CertInfo struct {
 	DNSNames     []string
 }
 
+// SkipFlags is a bitfield controlling which middleware to skip for a request.
+// Set by rule actions (e.g. skip_auth, skip_rate_limit) and checked inline
+// at the top of each middleware handler.
+type SkipFlags uint32
+
+const (
+	SkipAuth                SkipFlags = 1 << iota
+	SkipRateLimit
+	SkipThrottle
+	SkipCircuitBreaker
+	SkipWAF
+	SkipValidation
+	SkipCompression
+	SkipAdaptiveConcurrency
+	SkipBodyLimit
+	SkipMirror
+	SkipAccessLog
+	SkipCacheStore
+)
+
+// ValueOverrides holds per-request override values set by rule actions.
+// Allocated lazily (nil for 99%+ of requests with no override rules).
+type ValueOverrides struct {
+	RateLimitTier     string
+	TimeoutOverride   time.Duration
+	PriorityOverride  int
+	BandwidthOverride int64
+	BodyLimitOverride int64
+	SwitchBackend     string
+	CacheTTLOverride  time.Duration
+}
+
 // Context holds the context for variable resolution
 type Context struct {
 	Request              *http.Request
@@ -307,6 +339,10 @@ type Context struct {
 
 	// Trace propagation flag (set by baggage middleware, read by proxy)
 	PropagateTrace bool
+
+	// Rule-driven middleware control
+	SkipFlags SkipFlags
+	Overrides *ValueOverrides // nil when no overrides active
 
 	// Custom values
 	Custom map[string]string
@@ -350,6 +386,8 @@ func ReleaseContext(c *Context) {
 	c.TenantID = ""
 	c.AccessLogConfig = nil
 	c.PropagateTrace = false
+	c.SkipFlags = 0
+	c.Overrides = nil
 	c.Custom = nil
 	contextPool.Put(c)
 }
@@ -381,6 +419,12 @@ func (c *Context) Clone() *Context {
 		TenantID:             c.TenantID,
 		AccessLogConfig:      c.AccessLogConfig,
 		PropagateTrace:       c.PropagateTrace,
+		SkipFlags:            c.SkipFlags,
+	}
+
+	if c.Overrides != nil {
+		copied := *c.Overrides
+		newCtx.Overrides = &copied
 	}
 
 	if c.PathParams != nil {

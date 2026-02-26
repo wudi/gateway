@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/variables"
 )
 
 // CompiledTimeout holds pre-compiled timeout configuration for a route.
@@ -54,7 +55,15 @@ func (ct *CompiledTimeout) Middleware() func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ct.metrics.TotalRequests.Add(1)
 
-			ctx, cancel := context.WithTimeout(r.Context(), ct.Request)
+			timeout := ct.Request
+			if varCtx := variables.GetFromRequest(r); varCtx.Overrides != nil && varCtx.Overrides.TimeoutOverride > 0 {
+				// Override can only tighten, not loosen
+				if varCtx.Overrides.TimeoutOverride < timeout {
+					timeout = varCtx.Overrides.TimeoutOverride
+				}
+			}
+
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 
 			rw := &retryAfterWriter{

@@ -2,6 +2,7 @@ package rules
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/expr-lang/expr"
@@ -23,7 +24,7 @@ type CompiledRule struct {
 
 // Action defines what happens when a rule matches.
 type Action struct {
-	Type        string // block, custom_response, redirect, set_headers, rewrite, group, log, delay, set_var, set_status, set_body, cache_bypass, lua
+	Type        string // block, custom_response, redirect, set_headers, rewrite, group, log, delay, set_var, set_status, set_body, cache_bypass, lua, skip_*, *_override, switch_backend
 	StatusCode  int
 	Body        string
 	RedirectURL string
@@ -34,6 +35,15 @@ type Action struct {
 	LuaProto    *lua.FunctionProto          // pre-compiled Lua for lua action
 	Delay       time.Duration               // delay duration for delay action
 	Variables   map[string]string           // key-value pairs for set_var action
+
+	// Parsed override parameters (from Params map)
+	Tier      string        // rate_limit_tier
+	Timeout   time.Duration // timeout_override
+	Priority  int           // priority_override
+	Bandwidth int64         // bandwidth_override
+	BodyLimit int64         // body_limit_override
+	Backend   string        // switch_backend
+	CacheTTL  time.Duration // cache_ttl_override
 }
 
 // IsTerminating returns true for actions that end request processing.
@@ -121,7 +131,7 @@ func actionFromConfig(cfg config.RuleConfig) (Action, error) {
 		luaProto = proto
 	}
 
-	return Action{
+	a := Action{
 		Type:        cfg.Action,
 		StatusCode:  cfg.StatusCode,
 		Body:        cfg.Body,
@@ -133,5 +143,37 @@ func actionFromConfig(cfg config.RuleConfig) (Action, error) {
 		LuaProto:    luaProto,
 		Delay:       cfg.Delay,
 		Variables:   cfg.Variables,
-	}, nil
+	}
+
+	// Parse override parameters from Params map (validation already done by config loader)
+	if len(cfg.Params) > 0 {
+		switch cfg.Action {
+		case "rate_limit_tier":
+			a.Tier = cfg.Params["tier"]
+		case "timeout_override":
+			if d, err := time.ParseDuration(cfg.Params["timeout"]); err == nil {
+				a.Timeout = d
+			}
+		case "priority_override":
+			if v, err := strconv.Atoi(cfg.Params["priority"]); err == nil {
+				a.Priority = v
+			}
+		case "bandwidth_override":
+			if v, err := strconv.ParseInt(cfg.Params["bandwidth"], 10, 64); err == nil {
+				a.Bandwidth = v
+			}
+		case "body_limit_override":
+			if v, err := strconv.ParseInt(cfg.Params["body_limit"], 10, 64); err == nil {
+				a.BodyLimit = v
+			}
+		case "switch_backend":
+			a.Backend = cfg.Params["backend"]
+		case "cache_ttl_override":
+			if d, err := time.ParseDuration(cfg.Params["cache_ttl"]); err == nil {
+				a.CacheTTL = d
+			}
+		}
+	}
+
+	return a, nil
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path"
 	"regexp"
@@ -596,6 +597,10 @@ func (l *Loader) validateTrafficControls(route RouteConfig, cfg *Config) error {
 	}
 	if err := l.validateRules(route.Rules.Response, "response"); err != nil {
 		return fmt.Errorf("route %s rules: %w", routeID, err)
+	}
+	allRules := append(route.Rules.Request, route.Rules.Response...)
+	if err := l.validateOverrideCaps(allRules, &route, cfg); err != nil {
+		return err
 	}
 
 	// Per-route traffic shaping
@@ -1867,6 +1872,27 @@ func (l *Loader) validateRules(rules []RuleConfig, phase string) error {
 		"set_body":        true,
 		"cache_bypass":    true,
 		"lua":             true,
+		// Skip actions
+		"skip_auth":                 true,
+		"skip_rate_limit":           true,
+		"skip_throttle":             true,
+		"skip_circuit_breaker":      true,
+		"skip_waf":                  true,
+		"skip_validation":           true,
+		"skip_compression":          true,
+		"skip_adaptive_concurrency": true,
+		"skip_body_limit":           true,
+		"skip_mirror":               true,
+		"skip_access_log":           true,
+		"skip_cache_store":          true,
+		// Override actions
+		"rate_limit_tier":    true,
+		"timeout_override":   true,
+		"priority_override":  true,
+		"bandwidth_override": true,
+		"body_limit_override": true,
+		"switch_backend":     true,
+		"cache_ttl_override": true,
 	}
 
 	terminatingActions := map[string]bool{
@@ -1876,16 +1902,48 @@ func (l *Loader) validateRules(rules []RuleConfig, phase string) error {
 	}
 
 	requestOnlyActions := map[string]bool{
-		"rewrite":      true,
-		"group":        true,
-		"delay":        true,
-		"set_var":      true,
-		"cache_bypass": true,
+		"rewrite":                   true,
+		"group":                     true,
+		"delay":                     true,
+		"set_var":                   true,
+		"cache_bypass":              true,
+		"skip_auth":                 true,
+		"skip_rate_limit":           true,
+		"skip_throttle":             true,
+		"skip_circuit_breaker":      true,
+		"skip_waf":                  true,
+		"skip_validation":           true,
+		"skip_compression":          true,
+		"skip_adaptive_concurrency": true,
+		"skip_body_limit":           true,
+		"skip_mirror":               true,
+		"skip_access_log":           true,
+		"rate_limit_tier":           true,
+		"timeout_override":          true,
+		"priority_override":         true,
+		"bandwidth_override":        true,
+		"body_limit_override":       true,
+		"switch_backend":            true,
 	}
 
 	responseOnlyActions := map[string]bool{
-		"set_status": true,
-		"set_body":   true,
+		"set_status":       true,
+		"set_body":         true,
+		"cache_ttl_override": true,
+	}
+
+	unsafeActions := map[string]bool{
+		"skip_auth":       true,
+		"skip_waf":        true,
+		"skip_body_limit": true,
+	}
+
+	skipActions := map[string]bool{
+		"skip_auth": true, "skip_rate_limit": true, "skip_throttle": true,
+		"skip_circuit_breaker": true, "skip_waf": true, "skip_validation": true,
+		"skip_compression": true, "skip_adaptive_concurrency": true,
+		"skip_body_limit": true, "skip_mirror": true, "skip_access_log": true,
+		"skip_cache_store": true,
 	}
 
 	ids := make(map[string]bool)
@@ -1917,6 +1975,16 @@ func (l *Loader) validateRules(rules []RuleConfig, phase string) error {
 
 		if phase == "request" && responseOnlyActions[rule.Action] {
 			return fmt.Errorf("%s rule %s: action %q is only allowed in response phase", phase, rule.ID, rule.Action)
+		}
+
+		// Unsafe gating for security-sensitive skip actions
+		if unsafeActions[rule.Action] && !rule.Unsafe {
+			return fmt.Errorf("%s rule %s: action %q requires unsafe: true", phase, rule.ID, rule.Action)
+		}
+
+		// Skip actions must not have params
+		if skipActions[rule.Action] && len(rule.Params) > 0 {
+			return fmt.Errorf("%s rule %s: skip action %q does not accept params", phase, rule.ID, rule.Action)
 		}
 
 		if rule.Action == "redirect" && rule.RedirectURL == "" {
@@ -1972,8 +2040,135 @@ func (l *Loader) validateRules(rules []RuleConfig, phase string) error {
 				return fmt.Errorf("%s rule %s: lua action requires lua_script", phase, rule.ID)
 			}
 		}
+
+		// Override action param validation
+		if err := l.validateRuleParams(rule, phase); err != nil {
+			return err
+		}
 	}
 
+	return nil
+}
+
+// validateRuleParams validates action-specific parameters for override actions.
+func (l *Loader) validateRuleParams(rule RuleConfig, phase string) error {
+	switch rule.Action {
+	case "rate_limit_tier":
+		if rule.Params["tier"] == "" {
+			return fmt.Errorf("%s rule %s: rate_limit_tier action requires params.tier", phase, rule.ID)
+		}
+	case "timeout_override":
+		raw := rule.Params["timeout"]
+		if raw == "" {
+			return fmt.Errorf("%s rule %s: timeout_override action requires params.timeout", phase, rule.ID)
+		}
+		d, err := time.ParseDuration(raw)
+		if err != nil || d <= 0 {
+			return fmt.Errorf("%s rule %s: params.timeout must be a positive duration", phase, rule.ID)
+		}
+	case "priority_override":
+		raw := rule.Params["priority"]
+		if raw == "" {
+			return fmt.Errorf("%s rule %s: priority_override action requires params.priority", phase, rule.ID)
+		}
+		v, err := strconv.Atoi(raw)
+		if err != nil || v < 1 || v > 10 {
+			return fmt.Errorf("%s rule %s: params.priority must be an integer 1-10", phase, rule.ID)
+		}
+	case "bandwidth_override":
+		raw := rule.Params["bandwidth"]
+		if raw == "" {
+			return fmt.Errorf("%s rule %s: bandwidth_override action requires params.bandwidth", phase, rule.ID)
+		}
+		v, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || v <= 0 {
+			return fmt.Errorf("%s rule %s: params.bandwidth must be a positive integer (bytes/sec)", phase, rule.ID)
+		}
+	case "body_limit_override":
+		raw := rule.Params["body_limit"]
+		if raw == "" {
+			return fmt.Errorf("%s rule %s: body_limit_override action requires params.body_limit", phase, rule.ID)
+		}
+		v, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || v <= 0 {
+			return fmt.Errorf("%s rule %s: params.body_limit must be a positive integer (bytes)", phase, rule.ID)
+		}
+	case "switch_backend":
+		raw := rule.Params["backend"]
+		if raw == "" {
+			return fmt.Errorf("%s rule %s: switch_backend action requires params.backend", phase, rule.ID)
+		}
+		if _, err := url.Parse(raw); err != nil {
+			return fmt.Errorf("%s rule %s: params.backend must be a valid URL: %w", phase, rule.ID, err)
+		}
+	case "cache_ttl_override":
+		raw := rule.Params["cache_ttl"]
+		if raw == "" {
+			return fmt.Errorf("%s rule %s: cache_ttl_override action requires params.cache_ttl", phase, rule.ID)
+		}
+		d, err := time.ParseDuration(raw)
+		if err != nil || d <= 0 {
+			return fmt.Errorf("%s rule %s: params.cache_ttl must be a positive duration", phase, rule.ID)
+		}
+	}
+	return nil
+}
+
+// validateOverrideCaps validates that override action values don't exceed route limits.
+func (l *Loader) validateOverrideCaps(rules []RuleConfig, route *RouteConfig, cfg *Config) error {
+	for _, rule := range rules {
+		switch rule.Action {
+		case "timeout_override":
+			d, _ := time.ParseDuration(rule.Params["timeout"])
+			routeTimeout := route.Timeout
+			if routeTimeout == 0 {
+				routeTimeout = route.TimeoutPolicy.Request
+			}
+			if routeTimeout > 0 && d > routeTimeout {
+				return fmt.Errorf("route %s rule %s: timeout_override %s exceeds route timeout %s",
+					route.ID, rule.ID, d, routeTimeout)
+			}
+		case "body_limit_override":
+			v, _ := strconv.ParseInt(rule.Params["body_limit"], 10, 64)
+			if route.MaxBodySize > 0 && v > 2*route.MaxBodySize {
+				return fmt.Errorf("route %s rule %s: body_limit_override %d exceeds 2x route max_body_size %d",
+					route.ID, rule.ID, v, route.MaxBodySize)
+			}
+		case "bandwidth_override":
+			v, _ := strconv.ParseInt(rule.Params["bandwidth"], 10, 64)
+			maxBW := route.TrafficShaping.Bandwidth.ResponseRate
+			if route.TrafficShaping.Bandwidth.RequestRate > maxBW {
+				maxBW = route.TrafficShaping.Bandwidth.RequestRate
+			}
+			if maxBW > 0 && v > 2*maxBW {
+				return fmt.Errorf("route %s rule %s: bandwidth_override %d exceeds 2x route bandwidth %d",
+					route.ID, rule.ID, v, maxBW)
+			}
+		case "switch_backend":
+			backendURL := rule.Params["backend"]
+			found := false
+			for _, b := range route.Backends {
+				if b.URL == backendURL {
+					found = true
+					break
+				}
+			}
+			if !found && route.Upstream != "" {
+				if up, ok := cfg.Upstreams[route.Upstream]; ok {
+					for _, b := range up.Backends {
+						if b.URL == backendURL {
+							found = true
+							break
+						}
+					}
+				}
+			}
+			if !found {
+				return fmt.Errorf("route %s rule %s: switch_backend target %q not found in route backends or upstream pool",
+					route.ID, rule.ID, backendURL)
+			}
+		}
+	}
 	return nil
 }
 

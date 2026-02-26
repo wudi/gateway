@@ -45,6 +45,10 @@ type Balancer interface {
 	GetBackends() []*Backend
 	// HealthyCount returns the number of healthy backends
 	HealthyCount() int
+	// GetBackendByURL returns the original Backend pointer for a URL, or nil.
+	// Used by switch_backend rule action to route to a specific backend
+	// while preserving health/connection tracking on the real object.
+	GetBackendByURL(url string) *Backend
 }
 
 // baseBalancer provides common functionality for balancers
@@ -160,6 +164,17 @@ func (b *baseBalancer) HealthyCount() int {
 		}
 	}
 	return count
+}
+
+// GetBackendByURL returns the original Backend pointer for a URL, or nil if not found.
+// Returns the real reference so IncrActive/DecrActive update the shared counter.
+func (b *baseBalancer) GetBackendByURL(backendURL string) *Backend {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if idx, ok := b.urlIndex[backendURL]; ok {
+		return b.backends[idx]
+	}
+	return nil
 }
 
 // RequestAwareBalancer is a balancer that can pick a backend based on the HTTP request

@@ -58,6 +58,11 @@ func (t *TenantAwareBalancer) HealthyCount() int {
 	return t.defaultBalancer.HealthyCount()
 }
 
+// GetBackendByURL delegates to the default balancer.
+func (t *TenantAwareBalancer) GetBackendByURL(url string) *Backend {
+	return t.defaultBalancer.GetBackendByURL(url)
+}
+
 // NextForHTTPRequest implements RequestAwareBalancer.
 // It checks for a resolved tenant and delegates to the tenant-specific balancer
 // if one exists, otherwise falls through to the default.

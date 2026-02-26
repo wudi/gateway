@@ -213,6 +213,18 @@ func (wb *WeightedBalancer) GetBackends() []*Backend {
 	return all
 }
 
+// GetBackendByURL searches all groups for a backend with the given URL.
+func (wb *WeightedBalancer) GetBackendByURL(url string) *Backend {
+	wb.mu.RLock()
+	defer wb.mu.RUnlock()
+	for _, g := range wb.groups {
+		if b := g.Balancer.GetBackendByURL(url); b != nil {
+			return b
+		}
+	}
+	return nil
+}
+
 // HealthyCount returns total healthy backends across all groups
 func (wb *WeightedBalancer) HealthyCount() int {
 	wb.mu.RLock()

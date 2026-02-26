@@ -79,6 +79,17 @@ func (m *mockBalancer) GetBackends() []*loadbalancer.Backend {
 	return result
 }
 
+func (m *mockBalancer) GetBackendByURL(url string) *loadbalancer.Backend {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, b := range m.backends {
+		if b.URL == url {
+			return b
+		}
+	}
+	return nil
+}
+
 func (m *mockBalancer) HealthyCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()

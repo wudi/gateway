@@ -32,7 +32,7 @@ type RuleEngine struct {
 // NewEngine compiles all request and response rules from config.
 func NewEngine(reqCfgs, respCfgs []config.RuleConfig) (*RuleEngine, error) {
 	e := &RuleEngine{
-		metrics: &Metrics{},
+		metrics: NewMetrics(),
 	}
 
 	hasLua := false
@@ -115,6 +115,9 @@ func (e *RuleEngine) evaluate(rules []*CompiledRule, env any) []Result {
 		}
 		if rule.Action.Type == "log" {
 			e.metrics.Logged.Add(1)
+		}
+		if !terminated {
+			e.metrics.IncrAction(rule.Action.Type)
 		}
 
 		results = append(results, Result{

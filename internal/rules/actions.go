@@ -147,3 +147,51 @@ func ExecuteSetStatus(rw *RulesResponseWriter, code int) {
 func ExecuteSetBody(rw *RulesResponseWriter, body string) {
 	rw.SetBody(body)
 }
+
+// ExecuteSkip sets a skip flag on the variable context (non-terminating).
+func ExecuteSkip(varCtx *variables.Context, flag variables.SkipFlags) {
+	varCtx.SkipFlags |= flag
+}
+
+// ensureOverrides lazy-initializes the Overrides pointer on the variable context.
+func ensureOverrides(varCtx *variables.Context) *variables.ValueOverrides {
+	if varCtx.Overrides == nil {
+		varCtx.Overrides = &variables.ValueOverrides{}
+	}
+	return varCtx.Overrides
+}
+
+// ExecuteRateLimitTier overrides the rate limit tier (non-terminating).
+func ExecuteRateLimitTier(varCtx *variables.Context, tier string) {
+	ensureOverrides(varCtx).RateLimitTier = tier
+}
+
+// ExecuteTimeoutOverride overrides the request timeout (non-terminating).
+func ExecuteTimeoutOverride(varCtx *variables.Context, d time.Duration) {
+	ensureOverrides(varCtx).TimeoutOverride = d
+}
+
+// ExecutePriorityOverride overrides the priority admission level (non-terminating).
+func ExecutePriorityOverride(varCtx *variables.Context, level int) {
+	ensureOverrides(varCtx).PriorityOverride = level
+}
+
+// ExecuteBandwidthOverride overrides the bandwidth limit (non-terminating).
+func ExecuteBandwidthOverride(varCtx *variables.Context, bw int64) {
+	ensureOverrides(varCtx).BandwidthOverride = bw
+}
+
+// ExecuteBodyLimitOverride overrides the body size limit (non-terminating).
+func ExecuteBodyLimitOverride(varCtx *variables.Context, limit int64) {
+	ensureOverrides(varCtx).BodyLimitOverride = limit
+}
+
+// ExecuteSwitchBackend overrides the backend selection (non-terminating).
+func ExecuteSwitchBackend(varCtx *variables.Context, backend string) {
+	ensureOverrides(varCtx).SwitchBackend = backend
+}
+
+// ExecuteCacheTTLOverride overrides the cache TTL (non-terminating).
+func ExecuteCacheTTLOverride(varCtx *variables.Context, ttl time.Duration) {
+	ensureOverrides(varCtx).CacheTTLOverride = ttl
+}

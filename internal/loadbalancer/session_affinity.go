@@ -81,6 +81,11 @@ func (s *SessionAffinityBalancer) HealthyCount() int {
 	return s.inner.HealthyCount()
 }
 
+// GetBackendByURL delegates to the inner balancer.
+func (s *SessionAffinityBalancer) GetBackendByURL(url string) *Backend {
+	return s.inner.GetBackendByURL(url)
+}
+
 // NextForHTTPRequest implements RequestAwareBalancer. It reads the affinity cookie,
 // finds the matching healthy backend, and returns it. If the cookie is absent,
 // invalid, or points to an unhealthy backend, it falls through to the inner balancer.

@@ -176,7 +176,15 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 		} else {
 			// Standard path: single backend selection
 			var backend *loadbalancer.Backend
-			if isRequestAware {
+
+			// Check for switch_backend override from rule actions
+			if varCtx.Overrides != nil && varCtx.Overrides.SwitchBackend != "" {
+				if b := balancer.GetBackendByURL(varCtx.Overrides.SwitchBackend); b != nil && b.Healthy {
+					backend = b
+				}
+			}
+
+			if backend == nil && isRequestAware {
 				// Check if rules pre-assigned a traffic group
 				if varCtx.TrafficGroup != "" && weightedBalancer != nil {
 					if tg := weightedBalancer.GetGroupByName(varCtx.TrafficGroup); tg != nil {
@@ -190,7 +198,7 @@ func (p *Proxy) HandlerWithPolicy(route *router.Route, balancer loadbalancer.Bal
 						varCtx.TrafficGroup = groupName
 					}
 				}
-			} else {
+			} else if backend == nil {
 				backend = balancer.Next()
 			}
 			if backend == nil {

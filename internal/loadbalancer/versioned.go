@@ -124,6 +124,18 @@ func (vb *VersionedBalancer) GetVersionBackends(version string) []*Backend {
 	return nil
 }
 
+// GetBackendByURL searches all versions for a backend with the given URL.
+func (vb *VersionedBalancer) GetBackendByURL(url string) *Backend {
+	vb.mu.RLock()
+	defer vb.mu.RUnlock()
+	for _, rr := range vb.versions {
+		if b := rr.GetBackendByURL(url); b != nil {
+			return b
+		}
+	}
+	return nil
+}
+
 // HealthyCount returns total healthy backends across all versions.
 func (vb *VersionedBalancer) HealthyCount() int {
 	vb.mu.RLock()

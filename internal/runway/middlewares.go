@@ -108,6 +108,10 @@ func geoMW(global *geo.CompiledGeo, route *geo.CompiledGeo) middleware.Middlewar
 func authMW(g *Runway, cfg router.RouteAuth) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if variables.GetFromRequest(r).SkipFlags&variables.SkipAuth != 0 {
+				next.ServeHTTP(w, r)
+				return
+			}
 			if !g.authenticate(w, r, cfg.Methods) {
 				return
 			}
@@ -169,9 +173,41 @@ func evaluateRequestRules(engine *rules.RuleEngine, w http.ResponseWriter, r *ht
 					zap.Error(err),
 				)
 			}
+		case "skip_auth", "skip_rate_limit", "skip_throttle", "skip_circuit_breaker",
+			"skip_waf", "skip_validation", "skip_compression", "skip_adaptive_concurrency",
+			"skip_body_limit", "skip_mirror", "skip_access_log", "skip_cache_store":
+			rules.ExecuteSkip(varCtx, skipFlagMap[result.Action.Type])
+		case "rate_limit_tier":
+			rules.ExecuteRateLimitTier(varCtx, result.Action.Tier)
+		case "timeout_override":
+			rules.ExecuteTimeoutOverride(varCtx, result.Action.Timeout)
+		case "priority_override":
+			rules.ExecutePriorityOverride(varCtx, result.Action.Priority)
+		case "bandwidth_override":
+			rules.ExecuteBandwidthOverride(varCtx, result.Action.Bandwidth)
+		case "body_limit_override":
+			rules.ExecuteBodyLimitOverride(varCtx, result.Action.BodyLimit)
+		case "switch_backend":
+			rules.ExecuteSwitchBackend(varCtx, result.Action.Backend)
 		}
 	}
 	return r, false
+}
+
+// skipFlagMap maps action type strings to SkipFlags constants.
+var skipFlagMap = map[string]variables.SkipFlags{
+	"skip_auth":                 variables.SkipAuth,
+	"skip_rate_limit":           variables.SkipRateLimit,
+	"skip_throttle":             variables.SkipThrottle,
+	"skip_circuit_breaker":      variables.SkipCircuitBreaker,
+	"skip_waf":                  variables.SkipWAF,
+	"skip_validation":           variables.SkipValidation,
+	"skip_compression":          variables.SkipCompression,
+	"skip_adaptive_concurrency": variables.SkipAdaptiveConcurrency,
+	"skip_body_limit":           variables.SkipBodyLimit,
+	"skip_mirror":               variables.SkipMirror,
+	"skip_access_log":           variables.SkipAccessLog,
+	"skip_cache_store":          variables.SkipCacheStore,
 }
 
 // 6. bodyLimitMW enforces a request body size limit.
@@ -180,7 +216,15 @@ func evaluateRequestRules(engine *rules.RuleEngine, w http.ResponseWriter, r *ht
 func bodyLimitMW(max int64) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			varCtx := variables.GetFromRequest(r)
+			if varCtx.SkipFlags&variables.SkipBodyLimit != 0 {
+				next.ServeHTTP(w, r)
+				return
+			}
 			limit := max
+			if varCtx.Overrides != nil && varCtx.Overrides.BodyLimitOverride > 0 {
+				limit = varCtx.Overrides.BodyLimitOverride
+			}
 			if ti := tenant.FromContext(r.Context()); ti != nil && ti.Config.MaxBodySize > 0 {
 				if ti.Config.MaxBodySize < limit {
 					limit = ti.Config.MaxBodySize
@@ -286,7 +330,9 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 							w.Write(capWriter.Body.Bytes())
 
 							// Store if response is cacheable
-							if h.ShouldStore(capWriter.StatusCode(), capWriter.Header(), int64(capWriter.Body.Len())) {
+							sieCtx := variables.GetFromRequest(r)
+							if sieCtx.SkipFlags&variables.SkipCacheStore == 0 &&
+								h.ShouldStore(capWriter.StatusCode(), capWriter.Header(), int64(capWriter.Body.Len())) {
 								newEntry := &cache.Entry{
 									StatusCode: capWriter.StatusCode(),
 									Headers:    capWriter.Header().Clone(),
@@ -294,6 +340,9 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 								}
 								if conditional {
 									cache.PopulateConditionalFields(newEntry)
+								}
+								if sieCtx.Overrides != nil && sieCtx.Overrides.CacheTTLOverride > 0 {
+									newEntry.TTL = sieCtx.Overrides.CacheTTLOverride
 								}
 								h.StoreWithMeta(key, r.URL.Path, newEntry)
 							}
@@ -351,7 +400,9 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 					w.Write(capWriter.Body.Bytes())
 
 					// Store if response is cacheable
-					if h.ShouldStore(capWriter.StatusCode(), capWriter.Header(), int64(capWriter.Body.Len())) {
+					sieVarCtx := variables.GetFromRequest(r)
+					skipStore := sieVarCtx.SkipFlags&variables.SkipCacheStore != 0
+					if !skipStore && h.ShouldStore(capWriter.StatusCode(), capWriter.Header(), int64(capWriter.Body.Len())) {
 						entry := &cache.Entry{
 							StatusCode: capWriter.StatusCode(),
 							Headers:    capWriter.Header().Clone(),
@@ -360,8 +411,17 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 						if conditional {
 							cache.PopulateConditionalFields(entry)
 						}
+						if sieVarCtx.Overrides != nil && sieVarCtx.Overrides.CacheTTLOverride > 0 {
+							entry.TTL = sieVarCtx.Overrides.CacheTTLOverride
+						}
 						h.StoreWithMeta(key, r.URL.Path, entry)
 					}
+					return
+				}
+
+				varCtx := variables.GetFromRequest(r)
+				if varCtx.SkipFlags&variables.SkipCacheStore != 0 {
+					next.ServeHTTP(w, r)
 					return
 				}
 
@@ -369,8 +429,9 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 				cachingWriter.Header().Set("X-Cache", "MISS")
 				next.ServeHTTP(cachingWriter, r)
 
-				// Store if response is cacheable
-				if h.ShouldStore(cachingWriter.StatusCode(), cachingWriter.Header(), int64(cachingWriter.Body.Len())) {
+				// Store if response is cacheable (check skip flag again — may be set by response rules)
+				if varCtx.SkipFlags&variables.SkipCacheStore == 0 &&
+					h.ShouldStore(cachingWriter.StatusCode(), cachingWriter.Header(), int64(cachingWriter.Body.Len())) {
 					entry := &cache.Entry{
 						StatusCode: cachingWriter.StatusCode(),
 						Headers:    cachingWriter.Header().Clone(),
@@ -378,6 +439,9 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 					}
 					if conditional {
 						cache.PopulateConditionalFields(entry)
+					}
+					if varCtx.Overrides != nil && varCtx.Overrides.CacheTTLOverride > 0 {
+						entry.TTL = varCtx.Overrides.CacheTTLOverride
 					}
 					h.StoreWithMeta(h.KeyForRequest(r), r.URL.Path, entry)
 				}
@@ -447,6 +511,10 @@ func circuitBreakerMW(cb circuitbreaker.BreakerInterface, isGRPC bool) middlewar
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if variables.GetFromRequest(r).SkipFlags&variables.SkipCircuitBreaker != 0 {
+				next.ServeHTTP(w, r)
+				return
+			}
 			var done func(error)
 			var err error
 			if isTenantAware {
@@ -488,6 +556,10 @@ func circuitBreakerMW(cb circuitbreaker.BreakerInterface, isGRPC bool) middlewar
 func adaptiveConcurrencyMW(al *trafficshape.AdaptiveLimiter) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if variables.GetFromRequest(r).SkipFlags&variables.SkipAdaptiveConcurrency != 0 {
+				next.ServeHTTP(w, r)
+				return
+			}
 			release, ok := al.Allow()
 			if !ok {
 				errors.ErrServiceUnavailable.WithDetails("Adaptive concurrency limit reached").WriteJSON(w)
@@ -543,6 +615,12 @@ func evaluateResponseRules(engine *rules.RuleEngine, rw *rules.RulesResponseWrit
 					zap.Error(err),
 				)
 			}
+		case "skip_cache_store":
+			varCtx := variables.GetFromRequest(r)
+			rules.ExecuteSkip(varCtx, variables.SkipCacheStore)
+		case "cache_ttl_override":
+			varCtx := variables.GetFromRequest(r)
+			rules.ExecuteCacheTTLOverride(varCtx, result.Action.CacheTTL)
 		}
 	}
 }
@@ -702,6 +780,9 @@ func priorityMW(admitter *trafficshape.PriorityAdmitter, cfg config.PriorityConf
 				tenantPriority = ti.Config.Priority
 			}
 			level := trafficshape.DetermineLevel(r, varCtx.Identity, cfg, tenantPriority)
+			if varCtx.Overrides != nil && varCtx.Overrides.PriorityOverride > 0 {
+				level = varCtx.Overrides.PriorityOverride
+			}
 
 			ctx := r.Context()
 			if cfg.MaxWait > 0 {
