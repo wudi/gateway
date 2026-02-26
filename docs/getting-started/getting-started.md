@@ -20,7 +20,17 @@ go build -ldflags "-X main.version=1.0.0 -X main.buildTime=$(date -u +%Y-%m-%dT%
 
 ## Docker
 
-Build and run with Docker:
+Pre-built multi-arch images (`linux/amd64`, `linux/arm64`) are available on GHCR:
+
+```bash
+docker run -p 8080:8080 -p 8081:8081 \
+  -v $(pwd)/configs:/app/configs:ro \
+  ghcr.io/wudi/runway:latest
+```
+
+Tags follow semver on release (e.g. `v1.2.3`, `1.2`) and `latest` + `sha-<commit>` on every push to master.
+
+Build locally with Make:
 
 ```bash
 make docker-build
