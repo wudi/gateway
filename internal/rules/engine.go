@@ -77,13 +77,13 @@ func NewEngine(reqCfgs, respCfgs []config.RuleConfig) (*RuleEngine, error) {
 
 // EvaluateRequest evaluates request-phase rules in order.
 // Stops on first terminating match.
-func (e *RuleEngine) EvaluateRequest(env RequestEnv) []Result {
+func (e *RuleEngine) EvaluateRequest(env *RequestEnv) []Result {
 	return e.evaluate(e.requestRules, env)
 }
 
 // EvaluateResponse evaluates response-phase rules in order.
 // Stops on first terminating match.
-func (e *RuleEngine) EvaluateResponse(env ResponseEnv) []Result {
+func (e *RuleEngine) EvaluateResponse(env *RequestEnv) []Result {
 	return e.evaluate(e.responseRules, env)
 }
 

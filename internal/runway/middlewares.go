@@ -145,7 +145,8 @@ func evaluateRequestRules(engine *rules.RuleEngine, w http.ResponseWriter, r *ht
 	if engine == nil || !engine.HasRequestRules() {
 		return r, false
 	}
-	reqEnv := rules.NewRequestEnv(r, varCtx)
+	reqEnv := rules.AcquireRequestEnv(r, varCtx)
+	defer rules.ReleaseRequestEnv(reqEnv)
 	for _, result := range engine.EvaluateRequest(reqEnv) {
 		if result.Terminated {
 			rules.ExecuteTerminatingAction(w, r, result.Action)
@@ -587,7 +588,8 @@ func responseRulesMW(global, route *rules.RuleEngine) middleware.Middleware {
 			next.ServeHTTP(rulesWriter, r)
 
 			varCtx := variables.GetFromRequest(r)
-			respEnv := rules.NewResponseEnv(r, varCtx, rulesWriter.StatusCode(), rulesWriter.Header())
+			respEnv := rules.AcquireResponseEnv(r, varCtx, rulesWriter.StatusCode(), rulesWriter.Header())
+			defer rules.ReleaseRequestEnv(respEnv)
 
 			evaluateResponseRules(global, rulesWriter, r, respEnv)
 			evaluateResponseRules(route, rulesWriter, r, respEnv)
@@ -598,7 +600,7 @@ func responseRulesMW(global, route *rules.RuleEngine) middleware.Middleware {
 }
 
 // evaluateResponseRules runs response rules on the given engine.
-func evaluateResponseRules(engine *rules.RuleEngine, rw *rules.RulesResponseWriter, r *http.Request, respEnv rules.ResponseEnv) {
+func evaluateResponseRules(engine *rules.RuleEngine, rw *rules.RulesResponseWriter, r *http.Request, respEnv *rules.RequestEnv) {
 	if engine == nil || !engine.HasResponseRules() {
 		return
 	}

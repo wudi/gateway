@@ -141,8 +141,8 @@ func TestActionCounts(t *testing.T) {
 
 	r := httptest.NewRequest("GET", "http://localhost/", nil)
 	env := NewRequestEnv(r, nil)
-	engine.EvaluateRequest(env)
-	engine.EvaluateRequest(env)
+	engine.EvaluateRequest(&env)
+	engine.EvaluateRequest(&env)
 
 	snap := engine.GetMetrics()
 	if snap.ActionCounts["skip_auth"] != 2 {

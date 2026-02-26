@@ -282,6 +282,31 @@ func TestStripPrefix(t *testing.T) {
 	}
 }
 
+func TestStripPrefixFast(t *testing.T) {
+	tests := []struct {
+		segments int
+		path     string
+		want     string
+	}{
+		{2, "/api/v1/users", "/users"},
+		{2, "/api/v1/users/123", "/users/123"},
+		{1, "/api/test", "/test"},
+		{1, "/api", "/"},
+		{0, "/test", "/test"},
+		{3, "/a/b/c/d", "/d"},
+		{2, "/a/b", "/"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			got := stripPrefixFast(tt.segments, tt.path)
+			if got != tt.want {
+				t.Errorf("stripPrefixFast(%d, %q) = %q, want %q", tt.segments, tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestProxyRewritePrefix(t *testing.T) {
 	var receivedPath string
 

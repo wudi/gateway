@@ -1460,3 +1460,23 @@ func BenchmarkRouterMatchWithMatchers(b *testing.B) {
 		r.Match(req)
 	}
 }
+
+func TestCountSegments(t *testing.T) {
+	tests := []struct {
+		path string
+		want int
+	}{
+		{"/api/v1", 2},
+		{"/api/v1/", 2},
+		{"api/v1", 2},
+		{"/", 0},
+		{"", 0},
+		{"/a/b/c/d", 4},
+		{"/single", 1},
+	}
+	for _, tt := range tests {
+		if got := countSegments(tt.path); got != tt.want {
+			t.Errorf("countSegments(%q) = %d, want %d", tt.path, got, tt.want)
+		}
+	}
+}

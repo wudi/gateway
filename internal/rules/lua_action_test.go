@@ -236,7 +236,7 @@ func TestEngine_LuaAction_Integration(t *testing.T) {
 	// POST request → rule matches, Lua sets header
 	r := httptest.NewRequest("POST", "http://localhost/", nil)
 	env := NewRequestEnv(r, nil)
-	results := engine.EvaluateRequest(env)
+	results := engine.EvaluateRequest(&env)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -259,7 +259,7 @@ func TestEngine_LuaAction_Integration(t *testing.T) {
 	// GET request → rule doesn't match
 	r = httptest.NewRequest("GET", "http://localhost/", nil)
 	env = NewRequestEnv(r, nil)
-	results = engine.EvaluateRequest(env)
+	results = engine.EvaluateRequest(&env)
 	if len(results) != 0 {
 		t.Errorf("expected 0 results for GET, got %d", len(results))
 	}
@@ -290,7 +290,7 @@ func TestEngine_LuaResponseAction(t *testing.T) {
 	varCtx := &variables.Context{}
 	respEnv := NewResponseEnv(r, varCtx, rw.StatusCode(), rw.Header())
 
-	results := engine.EvaluateResponse(respEnv)
+	results := engine.EvaluateResponse(&respEnv)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}

@@ -584,7 +584,7 @@ func TestEngine_EvaluateRequest_TerminatingStops(t *testing.T) {
 
 	r := httptest.NewRequest("GET", "http://localhost/", nil)
 	env := NewRequestEnv(r, nil)
-	results := engine.EvaluateRequest(env)
+	results := engine.EvaluateRequest(&env)
 
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result (terminating stops), got %d", len(results))
@@ -621,7 +621,7 @@ func TestEngine_EvaluateRequest_NonTerminatingContinues(t *testing.T) {
 
 	r := httptest.NewRequest("GET", "http://localhost/", nil)
 	env := NewRequestEnv(r, nil)
-	results := engine.EvaluateRequest(env)
+	results := engine.EvaluateRequest(&env)
 
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
@@ -652,7 +652,7 @@ func TestEngine_DisabledRuleSkipped(t *testing.T) {
 
 	r := httptest.NewRequest("GET", "http://localhost/", nil)
 	env := NewRequestEnv(r, nil)
-	results := engine.EvaluateRequest(env)
+	results := engine.EvaluateRequest(&env)
 
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result (disabled skipped), got %d", len(results))
@@ -711,13 +711,13 @@ func TestMetrics_Tracking(t *testing.T) {
 	// Evaluate twice with POST (matches, blocks)
 	r := httptest.NewRequest("POST", "http://localhost/", nil)
 	env := NewRequestEnv(r, nil)
-	engine.EvaluateRequest(env)
-	engine.EvaluateRequest(env)
+	engine.EvaluateRequest(&env)
+	engine.EvaluateRequest(&env)
 
 	// Evaluate once with GET (no match)
 	r = httptest.NewRequest("GET", "http://localhost/", nil)
 	env = NewRequestEnv(r, nil)
-	engine.EvaluateRequest(env)
+	engine.EvaluateRequest(&env)
 
 	snap := engine.GetMetrics()
 	if snap.Evaluated != 3 {

@@ -3,6 +3,7 @@ package ai
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -92,7 +93,7 @@ func (rl *AIRateLimiter) Middleware() middleware.Middleware {
 				if retryAfter < 1 {
 					retryAfter = 1
 				}
-				w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
+				w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 				writeError(w, http.StatusTooManyRequests, "token_rate_limit", "token budget exceeded (per-minute)", "")
 				return
 			}
@@ -103,7 +104,7 @@ func (rl *AIRateLimiter) Middleware() middleware.Middleware {
 				if retryAfter < 1 {
 					retryAfter = 1
 				}
-				w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
+				w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 				writeError(w, http.StatusTooManyRequests, "token_rate_limit", "token budget exceeded (per-day)", "")
 				return
 			}

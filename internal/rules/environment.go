@@ -2,11 +2,159 @@ package rules
 
 import (
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/wudi/runway/internal/middleware/geo"
 	"github.com/wudi/runway/variables"
 )
+
+var requestEnvPool = sync.Pool{
+	New: func() any {
+		return &RequestEnv{
+			HTTP: HTTPEnv{
+				Request: HTTPRequestEnv{
+					URI: URIEnv{
+						Args: make(map[string]string, 8),
+					},
+					Headers: make(map[string]string, 16),
+					Cookies: make(map[string]string, 4),
+				},
+				Response: HTTPResponseEnv{
+					Headers: make(map[string]string, 8),
+				},
+			},
+			Route: RouteEnv{
+				Params: make(map[string]string, 4),
+			},
+			Auth: AuthEnv{
+				Claims: make(map[string]any, 4),
+			},
+		}
+	},
+}
+
+// AcquireRequestEnv returns a pooled RequestEnv populated from the request.
+func AcquireRequestEnv(r *http.Request, varCtx *variables.Context) *RequestEnv {
+	env := requestEnvPool.Get().(*RequestEnv)
+	populateRequestEnv(env, r, varCtx)
+	return env
+}
+
+// AcquireResponseEnv returns a pooled RequestEnv populated with both request and response data.
+func AcquireResponseEnv(r *http.Request, varCtx *variables.Context, statusCode int, respHeaders http.Header) *RequestEnv {
+	env := requestEnvPool.Get().(*RequestEnv)
+	populateRequestEnv(env, r, varCtx)
+
+	// Populate response fields
+	rh := env.HTTP.Response.Headers
+	for k := range respHeaders {
+		rh[k] = respHeaders.Get(k)
+	}
+
+	var responseTimeMs float64
+	if varCtx != nil && !varCtx.StartTime.IsZero() {
+		responseTimeMs = float64(time.Since(varCtx.StartTime).Milliseconds())
+	}
+
+	env.HTTP.Response.Code = statusCode
+	env.HTTP.Response.ResponseTime = responseTimeMs
+
+	return env
+}
+
+// ReleaseRequestEnv returns env to the pool. Caller must not use env after this call.
+func ReleaseRequestEnv(env *RequestEnv) {
+	if env == nil {
+		return
+	}
+	// Clear maps (keeps backing arrays)
+	clear(env.HTTP.Request.Headers)
+	clear(env.HTTP.Request.URI.Args)
+	clear(env.HTTP.Request.Cookies)
+	clear(env.HTTP.Response.Headers)
+	clear(env.Route.Params)
+	clear(env.Auth.Claims)
+	requestEnvPool.Put(env)
+}
+
+// populateRequestEnv fills env from the request. Maps are reused from the pool.
+func populateRequestEnv(env *RequestEnv, r *http.Request, varCtx *variables.Context) {
+	// Reuse existing maps
+	headers := env.HTTP.Request.Headers
+	for k := range r.Header {
+		headers[k] = r.Header.Get(k)
+	}
+
+	args := env.HTTP.Request.URI.Args
+	for k, v := range r.URL.Query() {
+		if len(v) > 0 {
+			args[k] = v[0]
+		}
+	}
+
+	cookies := env.HTTP.Request.Cookies
+	for _, c := range r.Cookies() {
+		cookies[c.Name] = c.Value
+	}
+
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+
+	env.HTTP.Request.Method = r.Method
+	env.HTTP.Request.URI.Path = r.URL.Path
+	env.HTTP.Request.URI.Query = r.URL.RawQuery
+	env.HTTP.Request.URI.Full = r.RequestURI
+	env.HTTP.Request.Host = r.Host
+	env.HTTP.Request.Scheme = scheme
+	env.HTTP.Request.BodySize = r.ContentLength
+
+	env.IP.Src = variables.ExtractClientIP(r)
+
+	// Geo
+	if result := geo.GeoResultFromContext(r.Context()); result != nil {
+		env.Geo = GeoEnv{
+			Country:     result.CountryCode,
+			CountryName: result.CountryName,
+			City:        result.City,
+		}
+	} else {
+		env.Geo = GeoEnv{}
+	}
+
+	// Auth
+	var clientID, authType string
+	if varCtx != nil && varCtx.Identity != nil {
+		clientID = varCtx.Identity.ClientID
+		authType = varCtx.Identity.AuthType
+		// Copy claims into the pooled map
+		claims := env.Auth.Claims
+		for k, v := range varCtx.Identity.Claims {
+			claims[k] = v
+		}
+		env.Auth.Claims = claims
+	}
+	env.Auth.ClientID = clientID
+	env.Auth.Type = authType
+
+	// Route
+	var routeID string
+	if varCtx != nil {
+		routeID = varCtx.RouteID
+		params := env.Route.Params
+		for k, v := range varCtx.PathParams {
+			params[k] = v
+		}
+		env.Route.Params = params
+	}
+	env.Route.ID = routeID
+
+	// Clear response fields (may be set from prior pool usage)
+	env.HTTP.Response.Code = 0
+	env.HTTP.Response.ResponseTime = 0
+}
 
 // GeoEnv provides geolocation fields populated by the geo middleware.
 type GeoEnv struct {

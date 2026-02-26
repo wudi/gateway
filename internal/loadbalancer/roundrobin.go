@@ -45,9 +45,12 @@ func (rr *RoundRobin) Next() *Backend {
 // WeightedRoundRobin implements weighted round-robin load balancing
 type WeightedRoundRobin struct {
 	baseBalancer
-	current int
-	gcd     int
-	maxWeight int
+	current        int
+	gcd            int
+	maxWeight      int
+	healthyGCD      int          // cached GCD of healthy backends
+	healthyMaxW     int          // cached max weight of healthy backends
+	healthySnap     []*Backend   // last-seen healthy slice (compared by header)
 }
 
 // NewWeightedRoundRobin creates a new weighted round-robin balancer
@@ -107,23 +110,30 @@ func (wrr *WeightedRoundRobin) Next() *Backend {
 		return nil
 	}
 
-	// Recalculate weights for healthy backends
-	maxWeight := 0
-	gcdWeight := healthy[0].Weight
-	for _, b := range healthy {
-		if b.Weight > maxWeight {
-			maxWeight = b.Weight
+	// Recompute GCD/max only when the healthy set changes.
+	// Compare slice header (pointer + length) to detect changes cheaply.
+	if len(healthy) != len(wrr.healthySnap) ||
+		(len(healthy) > 0 && &healthy[0] != &wrr.healthySnap[0]) {
+		wrr.healthyGCD = healthy[0].Weight
+		wrr.healthyMaxW = healthy[0].Weight
+		for _, b := range healthy[1:] {
+			wrr.healthyGCD = gcd(wrr.healthyGCD, b.Weight)
+			if b.Weight > wrr.healthyMaxW {
+				wrr.healthyMaxW = b.Weight
+			}
 		}
-		gcdWeight = gcd(gcdWeight, b.Weight)
+		wrr.healthySnap = healthy
+		wrr.current = -1
+		wrr.maxWeight = wrr.healthyMaxW
 	}
 
 	// Standard weighted round-robin algorithm
 	for {
 		wrr.current = (wrr.current + 1) % len(healthy)
 		if wrr.current == 0 {
-			wrr.maxWeight = wrr.maxWeight - gcdWeight
+			wrr.maxWeight = wrr.maxWeight - wrr.healthyGCD
 			if wrr.maxWeight <= 0 {
-				wrr.maxWeight = maxWeight
+				wrr.maxWeight = wrr.healthyMaxW
 			}
 		}
 		if healthy[wrr.current].Weight >= wrr.maxWeight {
@@ -138,5 +148,6 @@ func (wrr *WeightedRoundRobin) UpdateBackends(backends []*Backend) {
 	wrr.mu.Lock()
 	wrr.calculateGCD()
 	wrr.current = -1
+	wrr.healthySnap = nil // force recompute on next call
 	wrr.mu.Unlock()
 }

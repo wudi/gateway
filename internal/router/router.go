@@ -46,8 +46,9 @@ type Route struct {
 	GRPC           config.GRPCConfig
 	MatchCfg       config.MatchConfig
 	Rewrite          config.RewriteConfig
-	FollowRedirects  config.FollowRedirectsConfig
-	Echo             bool
+	FollowRedirects    config.FollowRedirectsConfig
+	Echo               bool
+	PrefixSegmentCount int // pre-computed segment count for zero-alloc strip-prefix
 
 	rewriteRegex *regexp.Regexp // compiled regex for rewrite (nil if no regex rewrite)
 	matcher      *CompiledMatcher
@@ -417,6 +418,11 @@ func (rt *Router) AddRoute(routeCfg config.RouteConfig) error {
 		}
 	}
 
+	// Pre-compute prefix segment count for zero-alloc strip-prefix
+	if routeCfg.StripPrefix && routeCfg.PathPrefix {
+		route.PrefixSegmentCount = countSegments(routeCfg.Path)
+	}
+
 	// Create compiled matcher for domain/header/query/method
 	route.matcher = NewCompiledMatcher(routeCfg.Match, routeCfg.Methods)
 
@@ -625,6 +631,22 @@ func (rt *Router) SetNotFoundHandler(h http.Handler) {
 // NotFoundHandler returns the not found handler
 func (rt *Router) NotFoundHandler() http.Handler {
 	return rt.notFound
+}
+
+// countSegments counts non-empty segments in a URL path without allocating.
+func countSegments(path string) int {
+	n := 0
+	for i := 0; i < len(path); i++ {
+		if path[i] == '/' {
+			continue
+		}
+		n++
+		// Skip to the next slash
+		for i < len(path) && path[i] != '/' {
+			i++
+		}
+	}
+	return n
 }
 
 // splitPath splits a URL path into non-empty segments.

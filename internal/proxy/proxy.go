@@ -313,7 +313,12 @@ func (p *Proxy) createProxyRequest(ctx context.Context, r *http.Request, target 
 		rewritten := route.RewritePath(r.URL.Path)
 		targetURL.Path = singleJoiningSlash(target.Path, rewritten)
 	} else if route.StripPrefix && route.PathPrefix {
-		suffix := stripPrefix(route.Path, r.URL.Path)
+		n := route.PrefixSegmentCount
+		if n == 0 {
+			// Fallback for routes not created via Router.AddRoute
+			n = countPathSegments(route.Path)
+		}
+		suffix := stripPrefixFast(n, r.URL.Path)
 		targetURL.Path = singleJoiningSlash(target.Path, suffix)
 	} else {
 		targetURL.Path = singleJoiningSlash(target.Path, r.URL.Path)
@@ -472,6 +477,50 @@ func singleJoiningSlash(a, b string) string {
 		return a + "/" + b
 	}
 	return a + b
+}
+
+// countPathSegments counts non-empty segments in a URL path without allocating.
+func countPathSegments(path string) int {
+	n := 0
+	for i := 0; i < len(path); i++ {
+		if path[i] == '/' {
+			continue
+		}
+		n++
+		for i < len(path) && path[i] != '/' {
+			i++
+		}
+	}
+	return n
+}
+
+// stripPrefixFast removes segmentCount leading path segments from path.
+// Zero allocations — returns a sub-slice of the input string.
+func stripPrefixFast(segmentCount int, path string) string {
+	if segmentCount == 0 {
+		return path
+	}
+	i := 0
+	n := len(path)
+	skipped := 0
+	for i < n && skipped < segmentCount {
+		// skip leading slashes
+		for i < n && path[i] == '/' {
+			i++
+		}
+		if i >= n {
+			break
+		}
+		skipped++
+		// skip segment body
+		for i < n && path[i] != '/' {
+			i++
+		}
+	}
+	if i >= n {
+		return "/"
+	}
+	return path[i:] // starts with '/'
 }
 
 // stripPrefix removes the route path prefix from the request path
