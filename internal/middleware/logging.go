@@ -172,6 +172,9 @@ func LoggingWithConfig(cfg LoggingConfig) Middleware {
 				logging.Info("HTTP request", extra...)
 			} else {
 				// Use format string with variable interpolation
+				if format == "" {
+					format = DefaultLoggingConfig.Format
+				}
 				logLine := resolver.Resolve(format, varCtx)
 				logging.Info(logLine)
 			}

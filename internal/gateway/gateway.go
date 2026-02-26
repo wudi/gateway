@@ -2722,7 +2722,7 @@ func (g *Gateway) Handler() http.Handler {
 		{"logging", func() middleware.Middleware {
 			return middleware.LoggingWithConfig(middleware.LoggingConfig{
 				Format: g.config.Logging.Format,
-				JSON:   g.config.Logging.Level == "json",
+				JSON:   true,
 			})
 		}},
 	}
