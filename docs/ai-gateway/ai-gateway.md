@@ -1,6 +1,6 @@
-# AI Runway
+# AI Gateway
 
-The AI Runway provides a unified proxy for Large Language Model (LLM) APIs. It accepts OpenAI-compatible chat completion requests and translates them to/from four providers: **OpenAI**, **Anthropic**, **Azure OpenAI**, and **Google Gemini**.
+The AI Gateway provides a unified proxy for Large Language Model (LLM) APIs. It accepts OpenAI-compatible chat completion requests and translates them to/from four providers: **OpenAI**, **Anthropic**, **Azure OpenAI**, and **Google Gemini**.
 
 ## Features
 
@@ -42,26 +42,26 @@ curl -X POST http://localhost:8080/v1/chat/completions \
 
 ### `ai` (per-route)
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `enabled` | bool | `false` | Enable AI runway for this route |
+| Field | Type | Default | Description                                        |
+|-------|------|---------|----------------------------------------------------|
+| `enabled` | bool | `false` | Enable AI gateway for this route                   |
 | `provider` | string | required | `openai`, `anthropic`, `azure_openai`, or `gemini` |
-| `model` | string | — | Default model name |
-| `model_mapping` | map[string]string | — | Map client model names to provider models |
-| `api_key` | string | required | Provider API key (supports `${ENV_VAR}`) |
-| `base_url` | string | provider default | Override provider base URL |
-| `api_version` | string | — | Azure: required API version |
-| `deployment_id` | string | — | Azure: required deployment ID |
-| `project_id` | string | — | Gemini: GCP project ID |
-| `region` | string | — | Gemini: GCP region |
-| `org_id` | string | — | OpenAI: organization ID |
-| `timeout` | duration | `60s` | Per-request timeout |
-| `max_tokens` | int | — | Cap on max_tokens (overrides client if larger) |
-| `temperature` | float | — | Override temperature (nil = use client value) |
-| `stream_default` | bool | `false` | Stream by default if client omits |
-| `pass_headers` | []string | — | Forward these headers from client to provider |
-| `idle_timeout` | duration | `30s` | SSE idle timeout per event |
-| `max_body_size` | int64 | `10485760` | Max request body size (10MB) |
+| `model` | string | — | Default model name                                 |
+| `model_mapping` | map[string]string | — | Map client model names to provider models          |
+| `api_key` | string | required | Provider API key (supports `${ENV_VAR}`)           |
+| `base_url` | string | provider default | Override provider base URL                         |
+| `api_version` | string | — | Azure: required API version                        |
+| `deployment_id` | string | — | Azure: required deployment ID                      |
+| `project_id` | string | — | Gemini: GCP project ID                             |
+| `region` | string | — | Gemini: GCP region                                 |
+| `org_id` | string | — | OpenAI: organization ID                            |
+| `timeout` | duration | `60s` | Per-request timeout                                |
+| `max_tokens` | int | — | Cap on max_tokens (overrides client if larger)     |
+| `temperature` | float | — | Override temperature (nil = use client value)      |
+| `stream_default` | bool | `false` | Stream by default if client omits                  |
+| `pass_headers` | []string | — | Forward these headers from client to provider      |
+| `idle_timeout` | duration | `30s` | SSE idle timeout per event                         |
+| `max_body_size` | int64 | `10485760` | Max request body size (10MB)                       |
 
 ### `ai.prompt_guard`
 

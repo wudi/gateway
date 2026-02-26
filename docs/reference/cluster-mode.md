@@ -3,7 +3,7 @@ title: "Cluster Mode"
 sidebar_position: 6
 ---
 
-Cluster mode separates the runway into a **control plane** (CP) that owns the configuration and one or more **data planes** (DP) that proxy traffic. The CP pushes config to every DP over a bidirectional gRPC stream secured with mutual TLS. Each DP caches the last good config to disk so it can restart independently if the CP is temporarily unreachable.
+Cluster mode separates the gateway into a **control plane** (CP) that owns the configuration and one or more **data planes** (DP) that proxy traffic. The CP pushes config to every DP over a bidirectional gRPC stream secured with mutual TLS. Each DP caches the last good config to disk so it can restart independently if the CP is temporarily unreachable.
 
 ---
 
@@ -11,7 +11,7 @@ Cluster mode separates the runway into a **control plane** (CP) that owns the co
 
 | Mode | `cluster.role` | Description |
 |------|---------------|-------------|
-| Standalone | `standalone` (default) | Single-process runway. Config loaded from local YAML file. No cluster coordination. |
+| Standalone | `standalone` (default) | Single-process gateway. Config loaded from local YAML file. No cluster coordination. |
 | Control Plane | `control_plane` | Runs a gRPC server that pushes config to connected DPs. Also serves traffic if listeners are configured. |
 | Data Plane | `data_plane` | Receives config from the CP. Does not read a local config file for routes/middleware. `POST /reload` returns 403. |
 

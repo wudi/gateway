@@ -3,7 +3,7 @@ title: "Transport & Connection Pooling"
 sidebar_position: 10
 ---
 
-The runway maintains a pool of HTTP transports for proxying requests to backends. Transport settings control connection pooling, timeouts, TLS, and HTTP/2 behavior. These can be tuned globally and per-upstream.
+The gateway maintains a pool of HTTP transports for proxying requests to backends. Transport settings control connection pooling, timeouts, TLS, and HTTP/2 behavior. These can be tuned globally and per-upstream.
 
 ## Configuration
 
@@ -167,7 +167,7 @@ upstreams:
 
 ## DNS Resolver
 
-The runway supports custom DNS resolution for backend addresses, configured separately from transport:
+The gateway supports custom DNS resolution for backend addresses, configured separately from transport:
 
 ```yaml
 dns_resolver:

@@ -157,7 +157,7 @@ curl http://localhost:8081/retry-budget-pools
 
 - When a pool's budget is exhausted, retries for all participating routes are suppressed. The `min_retries` guarantee applies to the pool as a whole, not per-route.
 - Pool counters use a sliding window with the same implementation as inline retry budgets. Requests and retries that fall outside the window are automatically expired.
-- Pool state is in-memory and not shared across runway instances. In a multi-instance deployment, each instance maintains its own pool counters.
+- Pool state is in-memory and not shared across gateway instances. In a multi-instance deployment, each instance maintains its own pool counters.
 - If a route references a `budget_pool` but has `max_retries: 0`, the pool still counts that route's requests toward the denominator but no retries will be generated.
 
 See [Resilience](resilience.md) for inline retry budgets and hedging.

@@ -3,12 +3,12 @@ title: "Replay Prevention"
 sidebar_position: 8
 ---
 
-The runway provides nonce-based replay prevention to protect against request replay attacks. Clients include a unique `X-Nonce` header (configurable) with each request, and the runway rejects any request carrying a previously-seen nonce within a configurable TTL window.
+The gateway provides nonce-based replay prevention to protect against request replay attacks. Clients include a unique `X-Nonce` header (configurable) with each request, and the gateway rejects any request carrying a previously-seen nonce within a configurable TTL window.
 
 ## How It Works
 
 1. Client sends a request with a unique nonce value in the `X-Nonce` header
-2. Runway checks if this nonce has been seen before within the TTL window
+2. Gateway checks if this nonce has been seen before within the TTL window
 3. If new: request proceeds, nonce is stored
 4. If duplicate: request is rejected with `409 Conflict`
 5. If missing and `required: true`: request is rejected with `400 Bad Request`
@@ -73,11 +73,11 @@ You can also use `query_param` alone by leaving `header` at its default — the 
 
 ### Local (default)
 
-Nonces are stored in-memory per runway instance. Fast and zero-dependency, but nonces seen by one instance are not visible to others. Suitable for single-instance deployments or when clients are sticky to a runway instance.
+Nonces are stored in-memory per gateway instance. Fast and zero-dependency, but nonces seen by one instance are not visible to others. Suitable for single-instance deployments or when clients are sticky to a gateway instance.
 
 ### Distributed
 
-Nonces are stored in Redis using atomic `SET NX PX` operations. All runway instances share the same nonce store, preventing replays across instances.
+Nonces are stored in Redis using atomic `SET NX PX` operations. All gateway instances share the same nonce store, preventing replays across instances.
 
 ```yaml
 redis:
@@ -91,7 +91,7 @@ nonce:
 
 Redis key pattern: `gw:nonce:{routeID}:{nonceKey}`
 
-On Redis errors, the runway **fails open** (allows the request and logs a warning) to avoid blocking traffic due to Redis outages.
+On Redis errors, the gateway **fails open** (allows the request and logs a warning) to avoid blocking traffic due to Redis outages.
 
 ## Scope
 

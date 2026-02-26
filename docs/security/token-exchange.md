@@ -3,15 +3,15 @@ title: "Token Exchange (RFC 8693)"
 sidebar_position: 5
 ---
 
-The runway implements OAuth2/OIDC Token Exchange (RFC 8693) to act as a Security Token Service (STS) intermediary. This accepts external identity provider tokens and issues internal service tokens, enabling zero-trust architectures where backends only trust runway-issued tokens.
+The gateway implements OAuth2/OIDC Token Exchange (RFC 8693) to act as a Security Token Service (STS) intermediary. This accepts external identity provider tokens and issues internal service tokens, enabling zero-trust architectures where backends only trust gateway-issued tokens.
 
 ## Overview
 
 1. Client authenticates with an external IdP and receives a token
-2. Client sends request to runway with `Authorization: Bearer <external-token>`
-3. Runway validates the external token (via JWKS or introspection)
-4. Runway mints a new internal JWT with configurable claims
-5. Backend receives the runway-issued token
+2. Client sends request to gateway with `Authorization: Bearer <external-token>`
+3. Gateway validates the external token (via JWKS or introspection)
+4. Gateway mints a new internal JWT with configurable claims
+5. Backend receives the gateway-issued token
 
 ## Configuration
 
@@ -96,7 +96,7 @@ Step 6.07 in the middleware chain — after auth validation (6) and token revoca
 
 - The incoming token is validated by the auth middleware first
 - Token revocation checks the original token
-- Claims propagation operates on the runway-issued token
+- Claims propagation operates on the gateway-issued token
 
 ## Admin Endpoint
 

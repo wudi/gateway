@@ -9,7 +9,7 @@ The blue-green deployment controller provides first-class support for binary all
 
 1. Configure a route with `traffic_split` containing two groups (e.g., "blue" and "green")
 2. Enable `blue_green` and designate one group as the initial `active_group`
-3. The runway routes 100% of traffic to the active group
+3. The gateway routes 100% of traffic to the active group
 4. To deploy a new version, trigger a promotion via the admin API
 5. During promotion, the controller enters an observation window where it monitors error rate
 6. If the error rate exceeds the threshold during observation, the controller automatically rolls back
@@ -299,7 +299,7 @@ curl -X POST http://localhost:8081/blue-green/api/rollback
 ## Notes
 
 - Weight changes are applied atomically to the `WeightedBalancer` instance. In-flight requests to the previous group complete normally; only new requests are affected by the switch.
-- The observation window starts from the moment of promotion. If the runway restarts during a promotion, the state resets to `inactive` with the currently configured weights.
+- The observation window starts from the moment of promotion. If the gateway restarts during a promotion, the state resets to `inactive` with the currently configured weights.
 - Error rate is calculated as the ratio of 5xx responses to total responses from the newly promoted group during the observation window.
 - Blue-green works with any load balancing algorithm configured on the traffic split groups (round-robin, least connections, etc.).
 - For progressive traffic shifting with multiple weight steps, see [Canary Deployments](canary-deployments.md).

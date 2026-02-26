@@ -3,7 +3,7 @@ title: "Schema Evolution Validation"
 sidebar_position: 8
 ---
 
-The runway can detect breaking changes in OpenAPI specs during config reloads. When a spec changes, the schema evolution checker compares the new version against the previously stored version and reports (or blocks) incompatible changes.
+The gateway can detect breaking changes in OpenAPI specs during config reloads. When a spec changes, the schema evolution checker compares the new version against the previously stored version and reports (or blocks) incompatible changes.
 
 ## Configuration
 
@@ -31,7 +31,7 @@ openapi:
 
 ### Startup
 
-On first startup, the runway stores the initial version of each OpenAPI spec. No comparison is performed on the first load since there is no previous version to compare against.
+On first startup, the gateway stores the initial version of each OpenAPI spec. No comparison is performed on the first load since there is no previous version to compare against.
 
 ### Reload
 

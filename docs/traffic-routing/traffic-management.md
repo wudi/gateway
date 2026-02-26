@@ -98,7 +98,7 @@ sticky:
 
 ## Canary Deployments
 
-The runway supports automated canary deployments that progressively shift traffic to a canary group while monitoring error rate and p99 latency. If health thresholds are breached, traffic is automatically rolled back.
+The gateway supports automated canary deployments that progressively shift traffic to a canary group while monitoring error rate and p99 latency. If health thresholds are breached, traffic is automatically rolled back.
 
 ```yaml
 routes:

@@ -27,7 +27,7 @@ audit_log:
   webhook_url: "https://audit.example.com/events"
   headers:
     Authorization: "Bearer audit-token"
-    X-Source: "api-runway"
+    X-Source: "api-gateway"
   sample_rate: 1.0
   include_body: false
   max_body_size: 65536          # 64KB

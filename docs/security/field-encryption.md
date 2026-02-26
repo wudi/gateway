@@ -3,7 +3,7 @@ title: "Payload Field-Level Encryption"
 sidebar_position: 15
 ---
 
-The field encryption middleware provides AES-GCM-256 encryption and decryption of specific JSON fields in request and response bodies. This allows sensitive data to be encrypted at the runway layer before reaching backends, and decrypted on the way back to the client, without requiring application-level encryption logic.
+The field encryption middleware provides AES-GCM-256 encryption and decryption of specific JSON fields in request and response bodies. This allows sensitive data to be encrypted at the gateway layer before reaching backends, and decrypted on the way back to the client, without requiring application-level encryption logic.
 
 ## How It Works
 

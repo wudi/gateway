@@ -3,7 +3,7 @@ title: "Static File Serving"
 sidebar_position: 15
 ---
 
-Serve static files directly from the runway for specific routes. The static file handler replaces the reverse proxy as the innermost handler — requests never reach a backend.
+Serve static files directly from the gateway for specific routes. The static file handler replaces the reverse proxy as the innermost handler — requests never reach a backend.
 
 ## Configuration
 
@@ -22,7 +22,7 @@ routes:
 
 ## How It Works
 
-When `static.enabled` is true for a route, the runway serves files from the specified `root` directory using Go's built-in `http.FileServer`. The static handler replaces the proxy as the innermost handler in the middleware chain — all upstream middleware (auth, rate limiting, WAF, etc.) still applies.
+When `static.enabled` is true for a route, the gateway serves files from the specified `root` directory using Go's built-in `http.FileServer`. The static handler replaces the proxy as the innermost handler in the middleware chain — all upstream middleware (auth, rate limiting, WAF, etc.) still applies.
 
 ### Path Resolution
 

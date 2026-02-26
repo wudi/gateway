@@ -3,7 +3,7 @@ title: "HTTP/3 (QUIC) Support"
 sidebar_position: 8
 ---
 
-The runway supports HTTP/3 over QUIC for both inbound client connections and outbound upstream connections. HTTP/3 provides lower latency connection establishment, improved multiplexing without head-of-line blocking, and built-in connection migration.
+The gateway supports HTTP/3 over QUIC for both inbound client connections and outbound upstream connections. HTTP/3 provides lower latency connection establishment, improved multiplexing without head-of-line blocking, and built-in connection migration.
 
 ## Inbound HTTP/3
 
@@ -31,7 +31,7 @@ listeners:
 
 ### Alt-Svc Advertisement
 
-When HTTP/3 is enabled, the runway automatically injects an `Alt-Svc` response header on all HTTP/1.x and HTTP/2 responses:
+When HTTP/3 is enabled, the gateway automatically injects an `Alt-Svc` response header on all HTTP/1.x and HTTP/2 responses:
 
 ```
 Alt-Svc: h3=":443"; ma=2592000

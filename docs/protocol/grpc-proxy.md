@@ -3,7 +3,7 @@ title: "Enhanced gRPC Proxy"
 sidebar_position: 5
 ---
 
-The runway provides gRPC-aware proxying with deadline propagation, metadata transforms, message size limits, authority override, and gRPC health checking. When a route has `grpc.enabled: true`, the runway sets HTTP/2 protocol headers and applies gRPC-specific processing.
+The gateway provides gRPC-aware proxying with deadline propagation, metadata transforms, message size limits, authority override, and gRPC health checking. When a route has `grpc.enabled: true`, the gateway sets HTTP/2 protocol headers and applies gRPC-specific processing.
 
 ## Configuration
 
@@ -51,7 +51,7 @@ routes:
 
 ## Deadline Propagation
 
-When `deadline_propagation: true`, the runway:
+When `deadline_propagation: true`, the gateway:
 
 1. Reads the `grpc-timeout` header from the incoming request (format: `5S`, `500m`, `100u`, etc.)
 2. Creates a context deadline from the timeout value
@@ -124,7 +124,7 @@ Returns per-route gRPC proxy statistics:
 
 ## gRPC Reflection Proxy
 
-The runway can forward gRPC server reflection requests, allowing clients like `grpcurl` and Postman to discover services through the runway. When multiple backends are configured, the runway aggregates service lists from all of them.
+The gateway can forward gRPC server reflection requests, allowing clients like `grpcurl` and Postman to discover services through the gateway. When multiple backends are configured, the gateway aggregates service lists from all of them.
 
 ### Configuration
 
@@ -151,8 +151,8 @@ routes:
 
 ### How It Works
 
-1. **Service List Aggregation**: When a `ListServices` reflection request arrives, the runway queries all backends and returns the combined service list.
-2. **Symbol Routing**: For `FileContainingSymbol` requests, the runway routes to the backend that owns the requested symbol based on the cached service→backend mapping.
+1. **Service List Aggregation**: When a `ListServices` reflection request arrives, the gateway queries all backends and returns the combined service list.
+2. **Symbol Routing**: For `FileContainingSymbol` requests, the gateway routes to the backend that owns the requested symbol based on the cached service→backend mapping.
 3. **File Lookup**: For `FileByFilename` requests, backends are tried sequentially until one returns the requested file descriptor.
 
 ### Admin API
@@ -186,7 +186,7 @@ Returns per-route reflection proxy statistics:
 ### Usage with grpcurl
 
 ```bash
-# List all services through the runway
+# List all services through the gateway
 grpcurl -plaintext localhost:8080 list
 
 # Describe a service

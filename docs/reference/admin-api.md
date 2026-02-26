@@ -21,7 +21,7 @@ admin:
 
 ### GET `/health` (alias: `/healthz`)
 
-Returns runway health status with dependency checks.
+Returns gateway health status with dependency checks.
 
 ```bash
 curl http://localhost:8081/health
@@ -96,7 +96,7 @@ All feature endpoints return JSON with per-route status and metrics.
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /stats` | Overall runway statistics (route/backend/listener counts) |
+| `GET /stats` | Overall gateway statistics (route/backend/listener counts) |
 | `GET /listeners` | Active listeners with protocol, address, HTTP/3 status, and `acme` boolean indicating ACME certificate management |
 | `GET /certificates` | Per-listener TLS certificate status (mode `acme` or `manual`, domains, expiry, issuer) |
 | `GET /routes` | All routes with matchers (path, methods, domains, headers, query). Echo routes include `"echo": true`. |
@@ -1956,7 +1956,7 @@ curl http://localhost:8081/catalog
 **Response:**
 ```json
 {
-  "title": "API Runway",
+  "title": "API Gateway",
   "stats": {
     "total_routes": 3,
     "total_specs": 1,
@@ -2482,11 +2482,11 @@ See [Configuration Reference](configuration-reference.md#admin) for all fields.
 
 ---
 
-## AI Runway
+## AI Gateway
 
 ### `GET /admin/ai`
 
-Returns per-route AI runway statistics.
+Returns per-route AI gateway statistics.
 
 **Response:**
 
@@ -2508,7 +2508,7 @@ Returns per-route AI runway statistics.
 
 Compute average latency as `latency_sum_ms / total_requests`.
 
-See [AI Runway](../ai-runway/ai-runway.md) for full documentation.
+See [AI Gateway](../ai-gateway/ai-gateway.md) for full documentation.
 
 ---
 
@@ -2558,7 +2558,7 @@ curl http://localhost:8081/api/v1/config
 
 #### POST `/api/v1/config`
 
-Push a new config. The CP validates it, applies it locally, and pushes it to all connected DPs. The request body must be valid runway YAML. Maximum body size is 10MB.
+Push a new config. The CP validates it, applies it locally, and pushes it to all connected DPs. The request body must be valid gateway YAML. Maximum body size is 10MB.
 
 ```bash
 curl -X POST http://localhost:8081/api/v1/config \
@@ -2626,7 +2626,7 @@ When `connected` is `false`, the DP is running from its cached config. When `has
 
 #### POST `/reload`
 
-Returns `403 Forbidden` when the runway is running as a data plane. Config changes must go through the control plane.
+Returns `403 Forbidden` when the gateway is running as a data plane. Config changes must go through the control plane.
 
 ```bash
 curl -X POST http://localhost:8081/reload

@@ -3,7 +3,7 @@ title: "Idempotency Key Support"
 sidebar_position: 7
 ---
 
-Idempotency key support prevents duplicate processing of mutation requests (POST, PUT, PATCH). Clients include an `Idempotency-Key` header; the runway stores the full response and replays it on duplicate keys, ensuring that retried or duplicated requests never result in double-processing.
+Idempotency key support prevents duplicate processing of mutation requests (POST, PUT, PATCH). Clients include an `Idempotency-Key` header; the gateway stores the full response and replays it on duplicate keys, ensuring that retried or duplicated requests never result in double-processing.
 
 This pattern is widely used in financial APIs (Stripe, PayPal) for payments, orders, and any operation that must be processed exactly once.
 

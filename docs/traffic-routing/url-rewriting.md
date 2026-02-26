@@ -89,7 +89,7 @@ routes:
 | `/legacy/anything` | `https://other-host:8443/api/v2?key=abc` |
 | `/legacy` | `https://other-host:8443/api/v2?key=abc` |
 
-The `url` field replaces the scheme, host, port, path, and query of the proxied request. The original request path and query string are discarded. This is useful for routing to a completely different endpoint while preserving all runway middleware (auth, rate limiting, etc.).
+The `url` field replaces the scheme, host, port, path, and query of the proxied request. The original request path and query string are discarded. This is useful for routing to a completely different endpoint while preserving all gateway middleware (auth, rate limiting, etc.).
 
 The `url` field can be combined with `host` (the `url` takes precedence for host), but combining it with `prefix` or `regex` is unnecessary since `url` overrides the entire target.
 

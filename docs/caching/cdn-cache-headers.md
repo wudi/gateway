@@ -62,7 +62,7 @@ Per-route config takes precedence over global when enabled.
 
 ## Override Behavior
 
-By default (`override: true`), the runway replaces any Cache-Control header set by the backend. Set `override: false` to only inject headers when the backend doesn't provide its own:
+By default (`override: true`), the gateway replaces any Cache-Control header set by the backend. Set `override: false` to only inject headers when the backend doesn't provide its own:
 
 ```yaml
 cdn_cache_headers:

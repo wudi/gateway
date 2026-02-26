@@ -3,7 +3,7 @@ title: "HTTP CONNECT Tunneling"
 sidebar_position: 9
 ---
 
-The CONNECT middleware enables the runway to act as an HTTP CONNECT proxy, establishing TCP tunnels to allowed destinations. This is useful for proxying TLS connections, database traffic, or other TCP-based protocols through the runway.
+The CONNECT middleware enables the gateway to act as an HTTP CONNECT proxy, establishing TCP tunnels to allowed destinations. This is useful for proxying TLS connections, database traffic, or other TCP-based protocols through the gateway.
 
 ## Configuration
 
@@ -54,7 +54,7 @@ If a client requests a CONNECT to a host or port not in the allow lists, the req
 1. The client sends an HTTP CONNECT request with the target `host:port`.
 2. The middleware validates the host and port against the allow lists.
 3. A TCP connection is established to the target within `connect_timeout`.
-4. The runway responds with `200 Connection Established`.
+4. The gateway responds with `200 Connection Established`.
 5. Data is bidirectionally copied between client and target.
 6. The tunnel closes when either side disconnects or `idle_timeout` is reached.
 

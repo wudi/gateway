@@ -3,7 +3,7 @@ title: "Canary Deployments"
 sidebar_position: 3
 ---
 
-Canary deployments progressively shift traffic from stable backends to a new (canary) version, automatically rolling back if health thresholds are breached. The runway's canary controller manages a state machine that evaluates error rate and p99 latency at each step, advancing or rolling back based on configurable thresholds.
+Canary deployments progressively shift traffic from stable backends to a new (canary) version, automatically rolling back if health thresholds are breached. The gateway's canary controller manages a state machine that evaluates error rate and p99 latency at each step, advancing or rolling back based on configurable thresholds.
 
 ## How It Works
 

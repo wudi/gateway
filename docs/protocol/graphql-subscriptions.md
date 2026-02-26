@@ -3,7 +3,7 @@ title: "GraphQL Subscriptions"
 sidebar_position: 4
 ---
 
-The GraphQL subscription middleware enables WebSocket-based GraphQL subscriptions through the runway. It detects and handles the GraphQL-over-WebSocket protocols, managing connection lifecycle and enforcing connection limits.
+The GraphQL subscription middleware enables WebSocket-based GraphQL subscriptions through the gateway. It detects and handles the GraphQL-over-WebSocket protocols, managing connection lifecycle and enforcing connection limits.
 
 ## Configuration
 
@@ -47,7 +47,7 @@ When `max_connections` is set, the middleware limits concurrent WebSocket subscr
 
 ## Integration
 
-GraphQL subscriptions work with the existing WebSocket proxy layer. The subscription middleware handles protocol detection and connection management, then delegates the actual WebSocket proxying to the runway's WebSocket handler.
+GraphQL subscriptions work with the existing WebSocket proxy layer. The subscription middleware handles protocol detection and connection management, then delegates the actual WebSocket proxying to the gateway's WebSocket handler.
 
 ## Admin Endpoint
 

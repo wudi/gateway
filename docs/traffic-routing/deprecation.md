@@ -3,7 +3,7 @@ title: "API Deprecation Lifecycle"
 sidebar_position: 7
 ---
 
-The runway supports RFC 8594 API deprecation headers, allowing you to signal to consumers that an API is deprecated and will be sunset on a specific date. After the sunset date, the runway can optionally block requests entirely.
+The gateway supports RFC 8594 API deprecation headers, allowing you to signal to consumers that an API is deprecated and will be sunset on a specific date. After the sunset date, the gateway can optionally block requests entirely.
 
 ## Configuration
 
@@ -34,7 +34,7 @@ Global deprecation (applies to all routes):
 ```yaml
 deprecation:
   enabled: true
-  message: "This runway is being deprecated"
+  message: "This gateway is being deprecated"
   sunset_date: "2025-12-31T00:00:00Z"
 ```
 
@@ -48,7 +48,7 @@ The middleware always injects:
 
 ## Sunset Blocking
 
-When `response_after_sunset` is configured and the current time is past `sunset_date`, the runway blocks the request and returns the configured response. The default status is 410 (Gone).
+When `response_after_sunset` is configured and the current time is past `sunset_date`, the gateway blocks the request and returns the configured response. The default status is 410 (Gone).
 
 Deprecation headers are still included on the blocked response.
 

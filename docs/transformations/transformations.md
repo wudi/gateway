@@ -3,7 +3,7 @@ title: "Transformations"
 sidebar_position: 1
 ---
 
-The runway can modify requests and responses as they pass through the proxy. Transformations include header manipulation, body modification, variable substitution, path rewriting, request validation, request decompression, and response compression.
+The gateway can modify requests and responses as they pass through the proxy. Transformations include header manipulation, body modification, variable substitution, path rewriting, request validation, request decompression, and response compression.
 
 ## Header Transforms
 
@@ -129,7 +129,7 @@ transform:
 
 Template data:
 - `.body` — the parsed JSON body (as a Go interface{})
-- `.vars` — a map of runway variables (`request_id`, `route_id`, `request_method`, `request_path`, `host`, `time_unix`, `time_iso8601`, `remote_addr`)
+- `.vars` — a map of gateway variables (`request_id`, `route_id`, `request_method`, `request_path`, `host`, `time_unix`, `time_iso8601`, `remote_addr`)
 
 The `json` template function marshals a value to JSON. Template output must be valid JSON.
 
@@ -257,7 +257,7 @@ Invalid requests receive `400 Bad Request` with validation error details.
 
 ## Request Decompression
 
-The runway can automatically decompress incoming request bodies that use `Content-Encoding`. This ensures that downstream middleware (validation, body transforms, WAF, backend signing) and backends receive uncompressed payloads.
+The gateway can automatically decompress incoming request bodies that use `Content-Encoding`. This ensures that downstream middleware (validation, body transforms, WAF, backend signing) and backends receive uncompressed payloads.
 
 Supported algorithms: **gzip**, **deflate**, **Brotli** (`br`), and **Zstd**.
 
@@ -280,20 +280,20 @@ routes:
       max_decompressed_size: 104857600  # 100MB for this route
 ```
 
-When a request has a `Content-Encoding` header matching a configured algorithm, the runway:
+When a request has a `Content-Encoding` header matching a configured algorithm, the gateway:
 
 1. Wraps the request body with the appropriate decompressor
 2. Removes the `Content-Encoding` header (body is now uncompressed)
 3. Removes the `Content-Length` header (decompressed size is unknown upfront)
 4. Enforces `max_decompressed_size` to prevent zip bomb attacks
 
-If decompression fails (corrupt data, unsupported encoding), the runway returns `400 Bad Request`.
+If decompression fails (corrupt data, unsupported encoding), the gateway returns `400 Bad Request`.
 
 Per-algorithm metrics (request count, decompressed count, errors) are available via the `/decompression` admin endpoint.
 
 ## Response Compression
 
-The runway supports three compression algorithms: **Brotli** (`br`), **Zstd**, and **gzip**. The best algorithm is selected via RFC 7231 `Accept-Encoding` negotiation with quality factor parsing.
+The gateway supports three compression algorithms: **Brotli** (`br`), **Zstd**, and **gzip**. The best algorithm is selected via RFC 7231 `Accept-Encoding` negotiation with quality factor parsing.
 
 Server preference order when quality factors tie: `br` > `zstd` > `gzip`.
 

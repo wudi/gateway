@@ -79,7 +79,7 @@ When no override is active, the `override` field is absent or empty.
 
 ## Notes
 
-- Overrides are runtime-only and do not persist across runway restarts or config reloads.
+- Overrides are runtime-only and do not persist across gateway restarts or config reloads.
 - No configuration changes are needed to use these endpoints -- they work on any route with `circuit_breaker.enabled: true`.
 - Overrides work with both `local` and `distributed` circuit breaker modes.
 

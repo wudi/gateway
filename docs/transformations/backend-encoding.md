@@ -3,7 +3,7 @@ title: "Backend Response Encoding"
 sidebar_position: 9
 ---
 
-Auto-decode XML or YAML backend responses to JSON. This enables seamless integration with non-JSON backends — the backend returns XML/YAML, the runway converts to JSON, and all downstream middleware (transforms, content negotiation, etc.) operate on JSON.
+Auto-decode XML or YAML backend responses to JSON. This enables seamless integration with non-JSON backends — the backend returns XML/YAML, the gateway converts to JSON, and all downstream middleware (transforms, content negotiation, etc.) operate on JSON.
 
 ## Configuration
 

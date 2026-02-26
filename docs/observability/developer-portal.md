@@ -3,7 +3,7 @@ title: "Developer Portal / API Catalog"
 sidebar_position: 7
 ---
 
-The runway can serve a browsable API catalog from the admin port. It aggregates all configured routes and their OpenAPI specs into a JSON API and an embedded HTML UI powered by Redoc.
+The gateway can serve a browsable API catalog from the admin port. It aggregates all configured routes and their OpenAPI specs into a JSON API and an embedded HTML UI powered by Redoc.
 
 ## Configuration
 
@@ -11,17 +11,17 @@ The runway can serve a browsable API catalog from the admin port. It aggregates 
 admin:
   catalog:
     enabled: true
-    title: "My API Runway"
+    title: "My API Gateway"
     description: "Internal API catalog"
 ```
 
 ## Config Fields
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `enabled` | bool | `false` | Enable the API catalog on the admin port |
-| `title` | string | `"API Runway"` | Title displayed in the catalog UI |
-| `description` | string | `""` | Description displayed in the catalog UI |
+| Field | Type | Default         | Description |
+|-------|------|-----------------|-------------|
+| `enabled` | bool | `false`         | Enable the API catalog on the admin port |
+| `title` | string | `"API Gateway"` | Title displayed in the catalog UI |
+| `description` | string | `""`            | Description displayed in the catalog UI |
 
 ## How It Works
 
@@ -48,7 +48,7 @@ curl http://localhost:8081/catalog
 **Response:**
 ```json
 {
-  "title": "My API Runway",
+  "title": "My API Gateway",
   "description": "Internal API catalog",
   "stats": {
     "total_routes": 3,
@@ -181,7 +181,7 @@ Tags are appended in the order listed above. A route with multiple features enab
 
 - The `spec_id` is derived from the spec file path by replacing non-alphanumeric characters with dashes (e.g., `specs/users.yaml` becomes `specs-users-yaml`).
 - The `graphql` field is `true` when either `graphql.enabled` or `graphql_federation.enabled` is set on the route.
-- The catalog is rebuilt from scratch on every request. There is no caching layer — this keeps it consistent with the current runway state after reloads.
+- The catalog is rebuilt from scratch on every request. There is no caching layer — this keeps it consistent with the current gateway state after reloads.
 - The `backends` field is an integer count, not a list of URLs.
 
 ## See Also

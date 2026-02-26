@@ -3,7 +3,7 @@ title: "Resilience"
 sidebar_position: 1
 ---
 
-The runway provides retry policies, retry budgets, request hedging, circuit breakers, timeouts, and maintenance mode to protect against backend failures and cascading overload.
+The gateway provides retry policies, retry budgets, request hedging, circuit breakers, timeouts, and maintenance mode to protect against backend failures and cascading overload.
 
 ## Retry Policy
 
@@ -85,7 +85,7 @@ The circuit breaker operates after the cache check — a cache hit never touches
 
 ### Distributed Circuit Breaker
 
-By default, circuit breaker state is local to each runway instance. For multi-instance deployments, use `mode: distributed` to share state via Redis:
+By default, circuit breaker state is local to each gateway instance. For multi-instance deployments, use `mode: distributed` to share state via Redis:
 
 ```yaml
 redis:
@@ -105,7 +105,7 @@ routes:
       mode: distributed
 ```
 
-In distributed mode, all runway instances share failure counts and state transitions through Redis using Lua scripts for atomicity. If Redis becomes unreachable, the circuit breaker fails open (allows requests) to avoid cascading failures.
+In distributed mode, all gateway instances share failure counts and state transitions through Redis using Lua scripts for atomicity. If Redis becomes unreachable, the circuit breaker fails open (allows requests) to avoid cascading failures.
 
 Redis key prefix: `gw:cb:{routeID}:`
 
@@ -153,7 +153,7 @@ routes:
 
 ### Interactions with Retries
 
-When both `timeout_policy.backend` and `retry_policy` are configured, each retry attempt is individually subject to the backend timeout, while the overall request timeout caps the total time across all attempts. For example, with `request: 30s`, `backend: 5s`, and `max_retries: 3`, the runway allows up to 4 attempts (1 original + 3 retries) of 5s each, all within the 30s request deadline.
+When both `timeout_policy.backend` and `retry_policy` are configured, each retry attempt is individually subject to the backend timeout, while the overall request timeout caps the total time across all attempts. For example, with `request: 30s`, `backend: 5s`, and `max_retries: 3`, the gateway allows up to 4 attempts (1 original + 3 retries) of 5s each, all within the 30s request deadline.
 
 ### Validation
 

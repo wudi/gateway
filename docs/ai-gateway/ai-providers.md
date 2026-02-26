@@ -1,6 +1,6 @@
 # AI Provider Reference
 
-Details on how the AI runway translates between the unified OpenAI-compatible format and each provider's native API.
+Details on how the AI gateway translates between the unified OpenAI-compatible format and each provider's native API.
 
 ## OpenAI
 

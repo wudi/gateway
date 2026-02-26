@@ -13,7 +13,7 @@ Runway provides enterprise-grade traffic management, security, resilience, and o
 - **Resilience** — Retries with budgets, hedging, circuit breakers, adaptive concurrency, outlier detection, load shedding, backpressure, SLO enforcement
 - **Traffic control** — Rate limiting, spike arrest, quotas, throttling, bandwidth limits, priority queues, consumer groups, multi-tenancy, canary/blue-green/A/B
 - **Observability** — Prometheus metrics, OpenTelemetry tracing, structured logging (zap), event webhooks, audit logging, developer portal
-- **AI Runway** — Native proxy for OpenAI, Anthropic, Azure OpenAI, and Gemini with prompt guard, token rate limiting, and response decoration
+- **AI Gateway** — Native proxy for OpenAI, Anthropic, Azure OpenAI, and Gemini with prompt guard, token rate limiting, and response decoration
 - **Kubernetes native** — Ingress Controller supporting both Ingress v1 and Gateway API, plus hybrid CP/DP cluster mode with mTLS gRPC config streaming
 - **Zero-downtime ops** — Hot config reload via SIGHUP or admin API, graceful shutdown with connection draining, schema evolution validation
 - **Extensible** — Public Go module API for custom middleware, Lua scripting, WASM plugins, OPA policies
@@ -229,7 +229,7 @@ routes:
 | **AMQP/RabbitMQ** | HTTP-to-AMQP message queue bridging |
 | **Pub/Sub** | HTTP-to-pub/sub (GCP, AWS SNS/SQS, NATS, Kafka, Azure) via Go CDK |
 | **FastCGI** | PHP-FPM and FastCGI backend proxying |
-| **AI Runway** | Native proxy for OpenAI, Anthropic, Azure OpenAI, Gemini with prompt guard and token rate limiting |
+| **AI Gateway** | Native proxy for OpenAI, Anthropic, Azure OpenAI, Gemini with prompt guard and token rate limiting |
 
 ### Caching & Performance
 
@@ -344,7 +344,7 @@ routes:
               │                      │                      │
      ┌────────▼──────┐    ┌─────────▼────────┐   ┌────────▼───────┐
      │  HTTP Proxy   │    │  WebSocket / SSE  │   │ gRPC / Thrift  │
-     │  + Retries    │    │     Proxy         │   │  / AI Runway  │
+     │  + Retries    │    │     Proxy         │   │  / AI Gateway  │
      │  + Hedging    │    │                   │   │                │
      └────────┬──────┘    └─────────┬────────┘   └────────┬───────┘
               │                     │                      │
@@ -545,9 +545,9 @@ Full documentation is available in the [docs/](docs/) directory:
 - [AWS Lambda](docs/protocol/lambda.md) — HTTP-to-Lambda invocation
 - [FastCGI](docs/protocol/fastcgi.md) — PHP-FPM and FastCGI backend proxying
 
-### AI Runway
-- [AI Runway](docs/ai-runway/ai-runway.md) — AI model proxy with prompt guard, token rate limiting, response decoration
-- [AI Providers](docs/ai-runway/ai-providers.md) — OpenAI, Anthropic, Azure OpenAI, Gemini provider configuration
+### AI Gateway
+- [AI Gateway](docs/ai-gateway/ai-gateway.md) — AI model proxy with prompt guard, token rate limiting, response decoration
+- [AI Providers](docs/ai-gateway/ai-providers.md) — OpenAI, Anthropic, Azure OpenAI, Gemini provider configuration
 
 ### Resilience
 - [Resilience](docs/resilience/resilience.md) — Retries, budget, hedging, circuit breakers, timeouts

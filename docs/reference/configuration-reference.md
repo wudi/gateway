@@ -2724,7 +2724,7 @@ load_shedding:
 
 **Validation:** `cpu_threshold` must be 0-100. `memory_threshold` must be 0-100. `goroutine_limit` must be >= 0. `sample_interval` and `cooldown_duration` must be >= 0. `retry_after` must be > 0.
 
-Load shedding runs in the global handler chain after RequestID and before the service rate limit. When any threshold is exceeded, the runway returns `503 Service Unavailable` with a `Retry-After` header.
+Load shedding runs in the global handler chain after RequestID and before the service rate limit. When any threshold is exceeded, the gateway returns `503 Service Unavailable` with a `Retry-After` header.
 
 See [Load Shedding](../resilience/load-shedding.md) for details.
 
@@ -3137,7 +3137,7 @@ See [Extensibility](extensibility.md) for the full plugin API.
 
 ---
 
-## AI Runway
+## AI Gateway
 
 ```yaml
 routes:
@@ -3145,7 +3145,7 @@ routes:
     path: /v1/chat/completions
     methods: [POST]
     ai:
-      enabled: bool              # enable AI runway (default false)
+      enabled: bool              # enable AI gateway (default false)
       provider: string           # required: "openai", "anthropic", "azure_openai", "gemini"
       model: string              # default model name
       model_mapping:             # map client model names to provider models
@@ -3187,7 +3187,7 @@ routes:
 
 AI routes are mutually exclusive with backends, echo, static, fastcgi, sequential, aggregate, lambda, amqp, pubsub, mock_response, and passthrough.
 
-See [AI Runway](../ai-runway/ai-runway.md) for full documentation.
+See [AI Gateway](../ai-gateway/ai-gateway.md) for full documentation.
 
 ---
 

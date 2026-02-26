@@ -3,7 +3,7 @@ title: "Service-Level Rate Limiting"
 sidebar_position: 2
 ---
 
-Service-level rate limiting enforces a global throughput cap across the entire runway, regardless of route. It protects the runway process from being overwhelmed by total request volume.
+Service-level rate limiting enforces a global throughput cap across the entire gateway, regardless of route. It protects the gateway process from being overwhelmed by total request volume.
 
 ## How It Works
 
@@ -51,7 +51,7 @@ Returns:
 
 ## Example
 
-Limit the runway to 5000 requests/second with bursts up to 8000:
+Limit the gateway to 5000 requests/second with bursts up to 8000:
 
 ```yaml
 service_rate_limit:

@@ -3,7 +3,7 @@ title: "Data Manipulation"
 sidebar_position: 2
 ---
 
-The runway provides several features for transforming, querying, and manipulating request and response data at the route level. These features operate on JSON bodies and HTTP headers/cookies/query parameters.
+The gateway provides several features for transforming, querying, and manipulating request and response data at the route level. These features operate on JSON bodies and HTTP headers/cookies/query parameters.
 
 ## JMESPath Query Language
 
@@ -300,7 +300,7 @@ routes:
 **`pass_status`** -- Replace the body with a JSON envelope containing the status code:
 
 ```json
-{"error": "runway error", "status": 502}
+{"error": "gateway error", "status": 502}
 ```
 
 The original HTTP status code is preserved.
@@ -437,9 +437,9 @@ The `resp` global is available in response scripts:
 | `resp:body()` | Get the response body as a string |
 | `resp:set_body(string)` | Replace the response body |
 
-### Runway Context (`ctx`)
+### Gateway Context (`ctx`)
 
-The `ctx` global provides access to runway context in both request and response scripts:
+The `ctx` global provides access to gateway context in both request and response scripts:
 
 | Method | Description |
 |--------|-------------|

@@ -3,13 +3,13 @@ title: "Security"
 sidebar_position: 1
 ---
 
-The runway provides trusted proxy handling, IP filtering, geo filtering, CORS handling, a web application firewall (WAF), request body size limits, replay prevention, CSRF protection, backend request signing, security response headers, and custom DNS resolution for defense-in-depth security.
+The gateway provides trusted proxy handling, IP filtering, geo filtering, CORS handling, a web application firewall (WAF), request body size limits, replay prevention, CSRF protection, backend request signing, security response headers, and custom DNS resolution for defense-in-depth security.
 
 ## Trusted Proxies
 
-When the runway runs behind a load balancer, CDN, or reverse proxy, the real client IP is in the `X-Forwarded-For` or `X-Real-IP` headers — not in the TCP connection address. Without trusted proxy configuration, any client can spoof these headers and bypass IP-based security features (rate limiting, IP filtering, geo filtering).
+When the gateway runs behind a load balancer, CDN, or reverse proxy, the real client IP is in the `X-Forwarded-For` or `X-Real-IP` headers — not in the TCP connection address. Without trusted proxy configuration, any client can spoof these headers and bypass IP-based security features (rate limiting, IP filtering, geo filtering).
 
-Configure `trusted_proxies` to tell the runway which upstream proxies to trust. The runway walks the `X-Forwarded-For` chain from right to left, skipping trusted proxy IPs, and uses the first untrusted IP as the real client IP.
+Configure `trusted_proxies` to tell the gateway which upstream proxies to trust. The gateway walks the `X-Forwarded-For` chain from right to left, skipping trusted proxy IPs, and uses the first untrusted IP as the real client IP.
 
 ```yaml
 trusted_proxies:
@@ -26,8 +26,8 @@ trusted_proxies:
 
 ### How It Works
 
-1. **Check RemoteAddr** — If the direct TCP connection source does not match any trusted CIDR, the runway uses `RemoteAddr` as the client IP (ignoring all headers). This prevents spoofing from untrusted sources.
-2. **Walk XFF chain** — If `RemoteAddr` is trusted, the runway reads the configured headers (default: `X-Forwarded-For`, then `X-Real-IP`) and walks the `X-Forwarded-For` chain from right to left, skipping IPs that match trusted CIDRs.
+1. **Check RemoteAddr** — If the direct TCP connection source does not match any trusted CIDR, the gateway uses `RemoteAddr` as the client IP (ignoring all headers). This prevents spoofing from untrusted sources.
+2. **Walk XFF chain** — If `RemoteAddr` is trusted, the gateway reads the configured headers (default: `X-Forwarded-For`, then `X-Real-IP`) and walks the `X-Forwarded-For` chain from right to left, skipping IPs that match trusted CIDRs.
 3. **Return first untrusted IP** — The first IP in the chain that does NOT match a trusted CIDR is the real client IP.
 
 ### Security Impact
@@ -42,7 +42,7 @@ All IP-based features automatically use the extracted real IP:
 
 ### Without Trusted Proxies
 
-When `trusted_proxies` is not configured, the runway uses legacy behavior: it trusts the first entry in `X-Forwarded-For` unconditionally. This is acceptable when the runway is the internet-facing edge (no upstream proxies), but is **insecure** when behind a load balancer because clients can spoof the header.
+When `trusted_proxies` is not configured, the gateway uses legacy behavior: it trusts the first entry in `X-Forwarded-For` unconditionally. This is acceptable when the gateway is the internet-facing edge (no upstream proxies), but is **insecure** when behind a load balancer because clients can spoof the header.
 
 ### Validation
 
@@ -233,7 +233,7 @@ All backend connections use the custom resolver when configured.
 
 ## Replay Prevention
 
-Prevent request replay attacks using nonce-based deduplication. Clients include a unique value in the `X-Nonce` header (configurable), and the runway rejects duplicate nonces within a TTL window.
+Prevent request replay attacks using nonce-based deduplication. Clients include a unique value in the `X-Nonce` header (configurable), and the gateway rejects duplicate nonces within a TTL window.
 
 ```yaml
 nonce:
@@ -299,7 +299,7 @@ Optional Origin/Referer validation and shadow mode for gradual rollout. See [CSR
 
 ## Upstream mTLS (Client Certificates)
 
-The runway can present client certificates when connecting to backends that require mutual TLS authentication. This is common for internal microservices, payment APIs, and partner integrations.
+The gateway can present client certificates when connecting to backends that require mutual TLS authentication. This is common for internal microservices, payment APIs, and partner integrations.
 
 Configure client certificates globally or per-upstream via the `transport` block:
 
@@ -375,7 +375,7 @@ See [Client mTLS](client-mtls.md) for full configuration reference and admin end
 
 ## Backend Request Signing
 
-The runway can sign every outgoing request so backends can verify that requests actually came through the runway and weren't tampered with. This prevents "backend bypass" attacks where clients send requests directly to backend services. Both HMAC and RSA algorithms are supported.
+The gateway can sign every outgoing request so backends can verify that requests actually came through the gateway and weren't tampered with. This prevents "backend bypass" attacks where clients send requests directly to backend services. Both HMAC and RSA algorithms are supported.
 
 ### How It Works
 

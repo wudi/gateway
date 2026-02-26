@@ -3,7 +3,7 @@ title: "Load Balancing"
 sidebar_position: 1
 ---
 
-The runway distributes traffic across backends using configurable algorithms. Each route can specify its own load balancing strategy. All algorithms respect backend health — unhealthy backends are skipped.
+The gateway distributes traffic across backends using configurable algorithms. Each route can specify its own load balancing strategy. All algorithms respect backend health — unhealthy backends are skipped.
 
 ## Algorithms
 
@@ -75,7 +75,7 @@ routes:
 
 ## Health Checking
 
-The runway performs active health checks against each backend at its `/health` path. Unhealthy backends are automatically removed from rotation and re-added when they recover.
+The gateway performs active health checks against each backend at its `/health` path. Unhealthy backends are automatically removed from rotation and re-added when they recover.
 
 ## Constraints
 

@@ -3,7 +3,7 @@ title: "Caching"
 sidebar_position: 1
 ---
 
-The runway provides per-route response caching with two storage backends: in-memory LRU (default) and Redis for distributed multi-instance deployments. Cached responses bypass the backend entirely, reducing latency and load.
+The gateway provides per-route response caching with two storage backends: in-memory LRU (default) and Redis for distributed multi-instance deployments. Cached responses bypass the backend entirely, reducing latency and load.
 
 ## Response Caching
 
@@ -56,7 +56,7 @@ Only `query` operations are cached — `mutation` and `subscription` operations 
 
 ## Conditional Caching (ETags / 304 Not Modified)
 
-When `conditional: true` is set on a cache-enabled route, the runway supports HTTP conditional requests. This allows clients that already have a cached copy to validate it with lightweight `304 Not Modified` responses instead of re-downloading the full body.
+When `conditional: true` is set on a cache-enabled route, the gateway supports HTTP conditional requests. This allows clients that already have a cached copy to validate it with lightweight `304 Not Modified` responses instead of re-downloading the full body.
 
 ```yaml
 routes:
@@ -73,11 +73,11 @@ routes:
 
 ### How It Works
 
-1. When a response is cached, the runway generates an `ETag` (SHA-256 hash of the body) and records a `Last-Modified` timestamp. If the backend already provides these headers, the backend values are used instead.
-2. On a cache HIT, the runway checks the request for conditional headers:
+1. When a response is cached, the gateway generates an `ETag` (SHA-256 hash of the body) and records a `Last-Modified` timestamp. If the backend already provides these headers, the backend values are used instead.
+2. On a cache HIT, the gateway checks the request for conditional headers:
    - `If-None-Match` — compared against the cached `ETag` (supports `*` and comma-separated lists)
    - `If-Modified-Since` — compared against the cached `Last-Modified` timestamp
-3. If the client's cached version is still fresh, the runway returns `304 Not Modified` with no body.
+3. If the client's cached version is still fresh, the gateway returns `304 Not Modified` with no body.
 4. If the content has changed (or no conditional headers are present), the full `200` response is returned as usual.
 
 `If-None-Match` takes precedence over `If-Modified-Since` per RFC 7232.
@@ -100,7 +100,7 @@ On cache HITs with `conditional: true`, the following headers are always include
 
 ## Request Coalescing (Singleflight)
 
-When many clients request the same uncached resource simultaneously (cache stampede / thundering herd), the runway can deduplicate these requests using request coalescing. When N identical in-flight requests arrive concurrently, only **one** goes to the backend. The other N-1 wait and share the same response.
+When many clients request the same uncached resource simultaneously (cache stampede / thundering herd), the gateway can deduplicate these requests using request coalescing. When N identical in-flight requests arrive concurrently, only **one** goes to the backend. The other N-1 wait and share the same response.
 
 Enable coalescing on a route:
 
@@ -160,7 +160,7 @@ For GraphQL routes, add `POST` to the coalesce methods:
 
 ## Distributed Caching (Redis)
 
-In multi-instance deployments, each runway instance maintains its own in-memory cache by default, leading to duplicate backend requests and inconsistent cache state. Enable distributed caching to share cached responses across all instances via Redis:
+In multi-instance deployments, each gateway instance maintains its own in-memory cache by default, leading to duplicate backend requests and inconsistent cache state. Enable distributed caching to share cached responses across all instances via Redis:
 
 ```yaml
 redis:
@@ -184,7 +184,7 @@ routes:
 ### How It Works
 
 - **`mode: "local"`** (default): In-memory LRU cache per instance. Fast, no external dependency, but not shared.
-- **`mode: "distributed"`**: Redis-backed cache shared across all runway instances. Requires `redis.address` to be configured.
+- **`mode: "distributed"`**: Redis-backed cache shared across all gateway instances. Requires `redis.address` to be configured.
 
 Redis keys use the prefix `gw:cache:{routeID}:` followed by the cache key hash. TTL is enforced by Redis key expiration.
 
@@ -199,12 +199,12 @@ The `GET /cache` endpoint shows per-route statistics. For distributed mode, `siz
 ### Notes
 
 - `max_size` is ignored for distributed mode (Redis manages memory via TTL expiration).
-- the runway reuses the shared Redis client configured under `redis:` (same as distributed rate limiting).
+- the gateway reuses the shared Redis client configured under `redis:` (same as distributed rate limiting).
 - Responses are serialized using `encoding/gob`.
 
 ## Stale-While-Revalidate
 
-When `stale_while_revalidate` is set, the runway serves stale cached responses immediately while refreshing the entry in the background. This eliminates latency spikes when cache entries expire, because clients always get an instant response.
+When `stale_while_revalidate` is set, the gateway serves stale cached responses immediately while refreshing the entry in the background. This eliminates latency spikes when cache entries expire, because clients always get an instant response.
 
 ```yaml
 routes:
@@ -222,7 +222,7 @@ routes:
 ### How It Works
 
 1. During the `ttl` window, the entry is **fresh** and served normally with `X-Cache: HIT`.
-2. After `ttl` expires but within `ttl + stale_while_revalidate`, the entry is **stale**. The runway:
+2. After `ttl` expires but within `ttl + stale_while_revalidate`, the entry is **stale**. The gateway:
    - Serves the stale entry immediately with `X-Cache: STALE`
    - Launches a background goroutine to fetch a fresh response from the backend
    - Stores the fresh response for subsequent requests
@@ -231,7 +231,7 @@ routes:
 
 ## Stale-If-Error
 
-When `stale_if_error` is set, the runway falls back to a stale cached response if the backend returns a 5xx error. This improves availability by shielding clients from backend failures.
+When `stale_if_error` is set, the gateway falls back to a stale cached response if the backend returns a 5xx error. This improves availability by shielding clients from backend failures.
 
 ```yaml
 routes:
@@ -306,7 +306,7 @@ See [Configuration Reference](../reference/configuration-reference.md#routes) fo
 
 ## Cache Invalidation API
 
-The runway provides an admin API endpoint for programmatic cache purging. This allows you to invalidate cached responses without waiting for TTL expiration — useful when backend data changes and stale responses must be evicted immediately.
+The gateway provides an admin API endpoint for programmatic cache purging. This allows you to invalidate cached responses without waiting for TTL expiration — useful when backend data changes and stale responses must be evicted immediately.
 
 ### POST `/cache/purge`
 

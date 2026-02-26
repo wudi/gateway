@@ -101,7 +101,7 @@ This requires `tracing.enabled: true` in the global config (validated at config 
 When `w3c_baggage: true`, tag values are assembled into a standards-compliant W3C `baggage` header using the OTEL baggage API. The middleware:
 
 1. Reads any existing upstream baggage from the request context (preserving entries from upstream services)
-2. Sets each tag value as a baggage member using `baggage.SetMember()` (runway keys override upstream if they conflict)
+2. Sets each tag value as a baggage member using `baggage.SetMember()` (gateway keys override upstream if they conflict)
 3. Stores the updated baggage in the Go context via `baggage.ContextWithBaggage()`
 4. The OTEL propagator serializes this into the `baggage` HTTP header during proxy injection (when `propagate_trace: true`)
 
@@ -169,7 +169,7 @@ tracing:
   enabled: true
   exporter: "otlp"
   endpoint: "otel-collector:4317"
-  service_name: "my-runway"
+  service_name: "my-gateway"
 
 routes:
   - id: "traced-api"

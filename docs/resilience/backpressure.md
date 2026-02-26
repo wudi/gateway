@@ -3,11 +3,11 @@ title: "Backend Backpressure"
 sidebar_position: 5
 ---
 
-Backend backpressure detection allows the runway to automatically detect when backends are overloaded and temporarily stop sending them traffic. When a backend responds with an overload status code (e.g., `429 Too Many Requests` or `503 Service Unavailable`), the runway parses the `Retry-After` header and marks the backend as temporarily unhealthy, giving it time to recover.
+Backend backpressure detection allows the gateway to automatically detect when backends are overloaded and temporarily stop sending them traffic. When a backend responds with an overload status code (e.g., `429 Too Many Requests` or `503 Service Unavailable`), the gateway parses the `Retry-After` header and marks the backend as temporarily unhealthy, giving it time to recover.
 
 ## Overview
 
-Without backpressure handling, the runway continues routing traffic to overloaded backends, which prolongs the overload condition and can lead to cascading failures. Backend backpressure closes this loop by:
+Without backpressure handling, the gateway continues routing traffic to overloaded backends, which prolongs the overload condition and can lead to cascading failures. Backend backpressure closes this loop by:
 
 1. Detecting overload via configurable HTTP status codes
 2. Parsing `Retry-After` headers from backend responses to determine the backoff duration
@@ -48,9 +48,9 @@ routes:
 
 ## How It Works
 
-1. The runway proxies a request to a backend.
+1. The gateway proxies a request to a backend.
 2. If the backend responds with a status code in `status_codes` (e.g., `429` or `503`):
-   - the runway checks for a `Retry-After` header on the response.
+   - the gateway checks for a `Retry-After` header on the response.
    - If `Retry-After` is present and contains a number of seconds (e.g., `Retry-After: 30`), the backend is marked unhealthy for that duration, clamped to `max_retry_after`.
    - If `Retry-After` is present as an HTTP-date, it is converted to a duration from now, clamped to `max_retry_after`.
    - If `Retry-After` is absent, the backend is marked unhealthy for `default_delay`.

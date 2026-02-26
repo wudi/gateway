@@ -3,11 +3,11 @@ title: "gRPC-Web Proxy"
 sidebar_position: 6
 ---
 
-The runway can proxy gRPC-Web requests from browser clients to native gRPC backends. Unlike `http_to_grpc` (which converts JSON to protobuf), gRPC-Web proxy passes protobuf bytes through unchanged — it only transforms the framing layer.
+The gateway can proxy gRPC-Web requests from browser clients to native gRPC backends. Unlike `http_to_grpc` (which converts JSON to protobuf), gRPC-Web proxy passes protobuf bytes through unchanged — it only transforms the framing layer.
 
 ## What is gRPC-Web?
 
-gRPC-Web is a protocol that allows browser-based JavaScript clients to call gRPC services. Browsers cannot use native gRPC (which requires HTTP/2 trailers), so gRPC-Web encodes trailers in the response body using a length-prefixed framing format. The runway handles this translation transparently.
+gRPC-Web is a protocol that allows browser-based JavaScript clients to call gRPC services. Browsers cannot use native gRPC (which requires HTTP/2 trailers), so gRPC-Web encodes trailers in the response body using a length-prefixed framing format. The gateway handles this translation transparently.
 
 ## Configuration
 
@@ -94,11 +94,11 @@ No additional configuration is needed. Server streaming uses the same route conf
 
 ## Text Mode (Base64)
 
-When `text_mode: true` (the default), the runway accepts `application/grpc-web-text` requests where the body is base64-encoded. Each response frame is independently base64-encoded, allowing progressive decoding by the client. Set `text_mode: false` to reject text-mode requests.
+When `text_mode: true` (the default), the gateway accepts `application/grpc-web-text` requests where the body is base64-encoded. Each response frame is independently base64-encoded, allowing progressive decoding by the client. Set `text_mode: false` to reject text-mode requests.
 
 ## CORS
 
-Browser gRPC-Web clients send cross-origin requests. Configure CORS on the route using the runway's built-in CORS middleware — the translator does not handle CORS itself.
+Browser gRPC-Web clients send cross-origin requests. Configure CORS on the route using the gateway's built-in CORS middleware — the translator does not handle CORS itself.
 
 ```yaml
 cors:

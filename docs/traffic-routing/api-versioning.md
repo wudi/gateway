@@ -3,7 +3,7 @@ title: "API Versioning"
 sidebar_position: 6
 ---
 
-The runway supports automatic API versioning, allowing a single route to serve multiple API versions by routing to version-specific backend groups.
+The gateway supports automatic API versioning, allowing a single route to serve multiple API versions by routing to version-specific backend groups.
 
 ## Overview
 

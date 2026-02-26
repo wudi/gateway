@@ -3,11 +3,11 @@ title: "Event Webhooks"
 sidebar_position: 2
 ---
 
-The runway can push real-time notifications to external systems when significant events occur: circuit breakers tripping, backends going unhealthy, canary rollbacks, or config reload failures.
+The gateway can push real-time notifications to external systems when significant events occur: circuit breakers tripping, backends going unhealthy, canary rollbacks, or config reload failures.
 
 ## Overview
 
-Webhooks are **runway-wide** (not per-route). A background worker pool asynchronously delivers HMAC-SHA256 signed HTTP POST requests to configured endpoints. Failed deliveries are retried with exponential backoff.
+Webhooks are **gateway-wide** (not per-route). A background worker pool asynchronously delivers HMAC-SHA256 signed HTTP POST requests to configured endpoints. Failed deliveries are retried with exponential backoff.
 
 ## Configuration
 
@@ -97,7 +97,7 @@ Custom headers from the endpoint config are also included.
 
 ## HMAC Signing
 
-When a `secret` is configured on an endpoint, the runway computes an HMAC-SHA256 signature over the raw JSON body using the secret as the key. The signature is sent in the `X-Webhook-Signature` header as `sha256=<hex>`.
+When a `secret` is configured on an endpoint, the gateway computes an HMAC-SHA256 signature over the raw JSON body using the secret as the key. The signature is sent in the `X-Webhook-Signature` header as `sha256=<hex>`.
 
 To verify:
 1. Read the raw request body
@@ -115,7 +115,7 @@ The `X-Webhook-Timestamp` header provides replay protection.
 
 ## Non-Blocking Delivery
 
-`Emit()` is non-blocking. If the queue is full, the event is dropped and the `total_dropped` metric incremented. The runway is never blocked by webhook delivery.
+`Emit()` is non-blocking. If the queue is full, the event is dropped and the `total_dropped` metric incremented. The gateway is never blocked by webhook delivery.
 
 ## Admin API
 

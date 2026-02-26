@@ -3,7 +3,7 @@ title: "SLI/SLO Enforcement"
 sidebar_position: 7
 ---
 
-The runway can track Service Level Indicators (SLIs) per route and enforce Service Level Objectives (SLOs) by monitoring error budgets in a sliding window. When the error budget is exhausted, configurable actions are triggered: logging warnings, adding budget headers, or shedding load.
+The gateway can track Service Level Indicators (SLIs) per route and enforce Service Level Objectives (SLOs) by monitoring error budgets in a sliding window. When the error budget is exhausted, configurable actions are triggered: logging warnings, adding budget headers, or shedding load.
 
 ## Configuration
 

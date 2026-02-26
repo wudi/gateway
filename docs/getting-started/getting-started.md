@@ -132,7 +132,7 @@ Unset variables are kept as-is in the config (e.g., `${MISSING_VAR}` remains lit
 
 ## Default Settings
 
-When not specified, the runway applies these defaults:
+When not specified, the gateway applies these defaults:
 
 - **Listener timeouts**: 30s read, 30s write, 60s idle
 - **Registry**: `memory` type

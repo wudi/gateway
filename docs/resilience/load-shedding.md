@@ -3,13 +3,13 @@ title: "Load Shedding"
 sidebar_position: 6
 ---
 
-Load shedding protects the runway from resource exhaustion by monitoring system metrics (CPU, memory, goroutine count) and temporarily rejecting new requests when thresholds are exceeded. This prevents cascading failures when the runway is under extreme load.
+Load shedding protects the gateway from resource exhaustion by monitoring system metrics (CPU, memory, goroutine count) and temporarily rejecting new requests when thresholds are exceeded. This prevents cascading failures when the gateway is under extreme load.
 
 ## Overview
 
-Unlike rate limiting (which caps request throughput) or circuit breaking (which protects individual backends), load shedding operates at the system level. It monitors the actual resource consumption of the runway process and sheds load before the system becomes unresponsive.
+Unlike rate limiting (which caps request throughput) or circuit breaking (which protects individual backends), load shedding operates at the system level. It monitors the actual resource consumption of the gateway process and sheds load before the system becomes unresponsive.
 
-When load shedding activates, the runway returns `503 Service Unavailable` with a `Retry-After` header, signaling clients to back off temporarily.
+When load shedding activates, the gateway returns `503 Service Unavailable` with a `Retry-After` header, signaling clients to back off temporarily.
 
 ## Configuration
 
@@ -48,7 +48,7 @@ Recovery → RealIP → HTTPS Redirect → Allowed Hosts → RequestID → Load 
 
 This position ensures that:
 - Every rejected request has a request ID for traceability.
-- Load shedding runs before any per-route logic, protecting the runway as a whole.
+- Load shedding runs before any per-route logic, protecting the gateway as a whole.
 - Service rate limiting is not consumed by requests that would be shed anyway.
 
 ## Behavior
@@ -88,7 +88,7 @@ curl http://localhost:8081/load-shedding
 | Field | Description |
 |-------|-------------|
 | `enabled` | Whether load shedding is configured and enabled |
-| `shedding` | Whether the runway is currently shedding load |
+| `shedding` | Whether the gateway is currently shedding load |
 | `rejected` | Total number of requests rejected since startup |
 | `allowed` | Total number of requests allowed since startup |
 | `cpu_percent` | Most recent CPU usage sample |
@@ -151,7 +151,7 @@ load_shedding:
 
 | Feature | Scope | Purpose |
 |---------|-------|---------|
-| **Load shedding** | Global (system-level) | Protect the runway process from resource exhaustion |
+| **Load shedding** | Global (system-level) | Protect the gateway process from resource exhaustion |
 | **Service rate limit** | Global (request throughput) | Cap total request rate across all routes |
 | **Rate limiting** | Per-route / per-client | Cap request rate per client or route |
 | **Circuit breaker** | Per-route / per-backend | Protect individual backends from overload |

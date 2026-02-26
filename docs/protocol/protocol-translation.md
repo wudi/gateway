@@ -3,7 +3,7 @@ title: "Protocol Translation"
 sidebar_position: 1
 ---
 
-The runway can translate between protocols, enabling HTTP clients to communicate with gRPC and Thrift backends. It also provides native WebSocket proxying.
+The gateway can translate between protocols, enabling HTTP clients to communicate with gRPC and Thrift backends. It also provides native WebSocket proxying.
 
 ## HTTP-to-gRPC Translation
 
@@ -117,7 +117,7 @@ With this configuration, requests to `/thrift/GetUser` with a JSON body `{"id": 
 
 ### IDL-Free Mode (Inline Schema)
 
-Instead of distributing `.thrift` IDL files, you can define method schemas directly in the YAML config. The runway builds the same internal schema structures, so the behavior is identical to the IDL-based approach.
+Instead of distributing `.thrift` IDL files, you can define method schemas directly in the YAML config. The gateway builds the same internal schema structures, so the behavior is identical to the IDL-based approach.
 
 ```yaml
 routes:
@@ -281,7 +281,7 @@ protocol:
 
 ### Oneway Methods
 
-Thrift `oneway` methods (fire-and-forget) are supported. The runway sends the call but does not wait for a response, immediately returning `{}` with HTTP 200 to the client.
+Thrift `oneway` methods (fire-and-forget) are supported. The gateway sends the call but does not wait for a response, immediately returning `{}` with HTTP 200 to the client.
 
 ### Type Mapping
 
@@ -316,7 +316,7 @@ Note: `grpc.enabled` and `protocol.type` are mutually exclusive.
 
 ## WebSocket Proxying
 
-The runway transparently proxies WebSocket connections. When a client sends an HTTP Upgrade request, the runway hijacks the connection and establishes a bidirectional tunnel to the backend.
+The gateway transparently proxies WebSocket connections. When a client sends an HTTP Upgrade request, the gateway hijacks the connection and establishes a bidirectional tunnel to the backend.
 
 ```yaml
 routes:
@@ -361,7 +361,7 @@ routes:
       allowed_headers: ["Content-Type", "X-Grpc-Web"]
 ```
 
-Browser clients send requests with content type `application/grpc-web+proto` (binary) or `application/grpc-web-text+proto` (base64 text mode). Both unary and server-streaming RPCs are supported — the client signals streaming with `?streaming=server` or `X-Grpc-Web-Streaming: server`. CORS is handled by the runway's CORS middleware, not the translator.
+Browser clients send requests with content type `application/grpc-web+proto` (binary) or `application/grpc-web-text+proto` (base64 text mode). Both unary and server-streaming RPCs are supported — the client signals streaming with `?streaming=server` or `X-Grpc-Web-Streaming: server`. CORS is handled by the gateway's CORS middleware, not the translator.
 
 See [gRPC-Web Proxy](grpc-web.md) for full documentation.
 
@@ -440,7 +440,7 @@ routes:
 
 ### How It Works
 
-1. The runway receives a gRPC request (Content-Type: `application/grpc`)
+1. The gateway receives a gRPC request (Content-Type: `application/grpc`)
 2. The gRPC path (`/users.UserService/GetUser`) is matched against configured mappings
 3. The gRPC wire-format body (5-byte header + protobuf/JSON payload) is decoded
 4. If descriptor files are loaded, the protobuf message is properly unmarshaled to JSON via `protojson`

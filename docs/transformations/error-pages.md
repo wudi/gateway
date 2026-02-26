@@ -92,17 +92,17 @@ If the negotiated format has no template for the matched page, the best availabl
 
 All templates (HTML, JSON, XML) are Go `text/template` templates with access to these variables:
 
-| Variable | Description |
-|----------|-------------|
-| `{{.StatusCode}}` | HTTP status code (e.g., 404) |
+| Variable | Description                          |
+|----------|--------------------------------------|
+| `{{.StatusCode}}` | HTTP status code (e.g., 404)         |
 | `{{.StatusText}}` | HTTP status text (e.g., "Not Found") |
-| `{{.ErrorMessage}}` | Error message if available |
-| `{{.RequestID}}` | X-Request-ID value |
-| `{{.RequestMethod}}` | HTTP method (GET, POST, etc.) |
-| `{{.RequestPath}}` | Request URL path |
-| `{{.Host}}` | Request Host header |
-| `{{.Timestamp}}` | Current time in RFC3339 format |
-| `{{.RouteID}}` | Runway route ID |
+| `{{.ErrorMessage}}` | Error message if available           |
+| `{{.RequestID}}` | X-Request-ID value                   |
+| `{{.RequestMethod}}` | HTTP method (GET, POST, etc.)        |
+| `{{.RequestPath}}` | Request URL path                     |
+| `{{.Host}}` | Request Host header                  |
+| `{{.Timestamp}}` | Current time in RFC3339 format       |
+| `{{.RouteID}}` | Gateway route ID                     |
 
 ### Example: JSON Error Template
 

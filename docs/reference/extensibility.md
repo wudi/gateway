@@ -1,6 +1,6 @@
 # Extensibility (Custom Plugins & Middleware)
 
-The runway can be imported as a Go library to build custom binaries with custom features and middleware.
+The gateway can be imported as a Go library to build custom binaries with custom features and middleware.
 
 ## Public Packages
 

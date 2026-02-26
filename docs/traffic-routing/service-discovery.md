@@ -3,7 +3,7 @@ title: "Service Discovery"
 sidebar_position: 9
 ---
 
-The runway can discover backend addresses dynamically from a service registry instead of hardcoding URLs. When a route uses service discovery, the runway watches for changes and updates its backend list automatically.
+The gateway can discover backend addresses dynamically from a service registry instead of hardcoding URLs. When a route uses service discovery, the gateway watches for changes and updates its backend list automatically.
 
 Configure the registry type globally, then reference services by name in route definitions.
 
@@ -104,7 +104,7 @@ registry:
 
 The provider queries `_<service>._<protocol>.<domain>` SRV records and resolves each target hostname to an IP address. SRV priority and weight are stored in service metadata (`srv_priority`, `srv_weight`, `srv_target`). Results are sorted by priority ascending (lower = preferred per RFC 2782), then weight descending.
 
-DNS SRV is a read-only registry — `Register` and `Deregister` are no-ops. Health is always reported as `passing` since the runway's own health checker probes backends separately. Tags are not supported (DNS SRV has no tag concept); `DiscoverWithTags` returns all instances.
+DNS SRV is a read-only registry — `Register` and `Deregister` are no-ops. Health is always reported as `passing` since the gateway's own health checker probes backends separately. Tags are not supported (DNS SRV has no tag concept); `DiscoverWithTags` returns all instances.
 
 Common domain patterns:
 
@@ -128,7 +128,7 @@ routes:
       tags: ["production"]
 ```
 
-The runway watches the registry for changes and updates the backend list without requiring a config reload. If a service instance becomes unhealthy, it is removed from the load balancer rotation.
+The gateway watches the registry for changes and updates the backend list without requiring a config reload. If a service instance becomes unhealthy, it is removed from the load balancer rotation.
 
 ## Key Config Fields
 

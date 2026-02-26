@@ -5,9 +5,9 @@ sidebar_position: 2
 
 ## Listeners
 
-Listeners define network endpoints where the runway accepts connections. Each listener has a unique ID, bind address, and protocol.
+Listeners define network endpoints where the gateway accepts connections. Each listener has a unique ID, bind address, and protocol.
 
-The runway supports three protocols:
+The gateway supports three protocols:
 - **HTTP** — standard HTTP/HTTPS reverse proxy with the full middleware chain
 - **TCP** — Layer 4 TCP proxy with optional SNI-based routing and PROXY protocol
 - **UDP** — Layer 4 UDP proxy with session tracking
@@ -216,7 +216,7 @@ Health check config merges in three levels: global defaults → upstream-level o
 
 ## Echo Routes
 
-An echo route has no backend. The runway itself acts as the origin and returns the incoming request details as JSON. This is useful for debugging, testing middleware chains, and verifying runway behavior without spinning up a separate service.
+An echo route has no backend. The gateway itself acts as the origin and returns the incoming request details as JSON. This is useful for debugging, testing middleware chains, and verifying gateway behavior without spinning up a separate service.
 
 ```yaml
 routes:

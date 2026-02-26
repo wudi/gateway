@@ -3,7 +3,7 @@ title: "Authentication"
 sidebar_position: 2
 ---
 
-The runway supports multiple authentication methods that can be combined per route. Authentication is configured globally (provider settings) and per route (which methods are required).
+The gateway supports multiple authentication methods that can be combined per route. Authentication is configured globally (provider settings) and per route (which methods are required).
 
 ## API Key Authentication
 
@@ -29,7 +29,7 @@ API keys can be managed at runtime via the [Admin API](../reference/admin-api.md
 
 ### API Key Management
 
-The runway provides built-in API key lifecycle management: generation, rotation (with grace periods), revocation, and per-key rate limits. This eliminates the need for an external key management service.
+The gateway provides built-in API key lifecycle management: generation, rotation (with grace periods), revocation, and per-key rate limits. This eliminates the need for an external key management service.
 
 ```yaml
 authentication:
@@ -82,7 +82,7 @@ JWT claims are accessible as variables (`$jwt_claim_sub`, `$jwt_claim_role`) and
 
 ### JWKS Auto-Refresh
 
-When `jwks_url` is set, the runway fetches and caches the JSON Web Key Set, automatically refreshing it on the configured interval. This supports key rotation without runway restarts.
+When `jwks_url` is set, the gateway fetches and caches the JSON Web Key Set, automatically refreshing it on the configured interval. This supports key rotation without gateway restarts.
 
 ## OAuth 2.0 / OIDC
 
@@ -139,7 +139,7 @@ hash, _ := bcrypt.GenerateFromPassword([]byte("mypassword"), bcrypt.DefaultCost)
 
 ### Timing-Safe Authentication
 
-When an unknown username is submitted, the runway still runs a bcrypt comparison against a dummy hash. This prevents timing-based user enumeration attacks.
+When an unknown username is submitted, the gateway still runs a bcrypt comparison against a dummy hash. This prevents timing-based user enumeration attacks.
 
 ### Per-Route Usage
 
@@ -158,7 +158,7 @@ routes:
 
 ## LDAP Authentication
 
-Validates requests using HTTP Basic Authentication against an LDAP or Active Directory server. The runway uses a bind-search-bind flow: it binds as a service account, searches for the user, then binds as the found user to verify the password.
+Validates requests using HTTP Basic Authentication against an LDAP or Active Directory server. The gateway uses a bind-search-bind flow: it binds as a service account, searches for the user, then binds as the found user to verify the password.
 
 ```yaml
 authentication:
@@ -187,7 +187,7 @@ authentication:
 
 ### Bind-Search-Bind Flow
 
-1. The runway binds to LDAP as the service account (`bind_dn` / `bind_password`)
+1. The gateway binds to LDAP as the service account (`bind_dn` / `bind_password`)
 2. It searches for the user using the `user_search_filter` with `{{username}}` replaced by the login name (LDAP-escaped)
 3. If found, it binds as the user's DN with the provided password to verify credentials
 4. If `group_search_base` is set, it re-binds as the service account and searches for group membership
@@ -216,7 +216,7 @@ authentication:
 
 ### Group Membership
 
-When `group_search_base` is set, the runway searches for groups the user belongs to. The `group_search_filter` supports `{{dn}}` (user's DN) and `{{username}}` placeholders. The `group_attribute` (default `cn`) is extracted from each group entry and included as `roles` in the identity claims.
+When `group_search_base` is set, the gateway searches for groups the user belongs to. The `group_search_filter` supports `{{dn}}` (user's DN) and `{{username}}` placeholders. The `group_attribute` (default `cn`) is extracted from each group entry and included as `roles` in the identity claims.
 
 ### Connection Pool & Caching
 
@@ -255,7 +255,7 @@ routes:
 
 ## External Auth (ExtAuth)
 
-Delegates authentication decisions to an external HTTP or gRPC service. This is the "ForwardAuth" / "ext_authz" pattern used by Traefik, Envoy, and NGINX. The runway sends request metadata to the external service and acts on its allow/deny response.
+Delegates authentication decisions to an external HTTP or gRPC service. This is the "ForwardAuth" / "ext_authz" pattern used by Traefik, Envoy, and NGINX. The gateway sends request metadata to the external service and acts on its allow/deny response.
 
 ### HTTP Mode
 
@@ -281,7 +281,7 @@ routes:
       cache_ttl: 30s
 ```
 
-The runway sends a POST request to the auth URL with a JSON body containing the request method, path, and selected headers. A `200` response means allow; any other status means deny, and the status code and body are returned to the client.
+The gateway sends a POST request to the auth URL with a JSON body containing the request method, path, and selected headers. A `200` response means allow; any other status means deny, and the status code and body are returned to the client.
 
 ### gRPC Mode
 
@@ -295,7 +295,7 @@ The runway sends a POST request to the auth URL with a JSON body containing the 
         ca_file: "/certs/ca.pem"
 ```
 
-The runway invokes `/extauth.AuthService/Check` using a JSON codec. The request and response are JSON-encoded `CheckRequest`/`CheckResponse` structs.
+The gateway invokes `/extauth.AuthService/Check` using a JSON codec. The request and response are JSON-encoded `CheckRequest`/`CheckResponse` structs.
 
 ### Header Injection
 
@@ -368,7 +368,7 @@ routes:
       required: false               # no authentication needed
 ```
 
-When `required: true` and no valid credential is provided, the runway returns `401 Unauthorized`.
+When `required: true` and no valid credential is provided, the gateway returns `401 Unauthorized`.
 
 ## Claims Propagation
 
@@ -390,7 +390,7 @@ routes:
         user.role: "X-User-Role"     # dot notation for nested claims
 ```
 
-Each entry maps a JWT claim name to a request header name. The runway reads claims from the authenticated identity (populated by the auth middleware) and sets the corresponding headers before forwarding to the backend.
+Each entry maps a JWT claim name to a request header name. The gateway reads claims from the authenticated identity (populated by the auth middleware) and sets the corresponding headers before forwarding to the backend.
 
 - **Dot notation**: `user.role` extracts `claims["user"]["role"]` from nested claim objects
 - **Non-string values**: Automatically converted via `fmt.Sprintf("%v", val)`
@@ -412,7 +412,7 @@ token_revocation:
 
 ### How It Works
 
-1. After authentication, the runway extracts the Bearer token from the `Authorization` header
+1. After authentication, the gateway extracts the Bearer token from the `Authorization` header
 2. If the token has a `jti` claim, that value is used as the revocation key
 3. If no `jti`, the SHA256 hash of the full token is used (first 32 hex chars)
 4. The key is checked against the revocation store — if found, the request is rejected with `401 Unauthorized`
@@ -446,7 +446,7 @@ curl http://localhost:8081/token-revocation
 
 ### Distributed Mode
 
-With `mode: distributed`, the revocation store uses Redis (requires `redis.address` in config). This ensures revocations are shared across runway instances. Redis keys are prefixed with `gw:revoked:` and use TTL-based expiration. The store fails open on Redis errors (allows the request through).
+With `mode: distributed`, the revocation store uses Redis (requires `redis.address` in config). This ensures revocations are shared across gateway instances. Redis keys are prefixed with `gw:revoked:` and use TTL-based expiration. The store fails open on Redis errors (allows the request through).
 
 ## Key Config Fields
 
@@ -479,7 +479,7 @@ See [Configuration Reference](../reference/configuration-reference.md#authentica
 
 ## Backend Auth (OAuth2 Client Credentials)
 
-The runway can act as an OAuth2 client, fetching access tokens from an identity server using the `client_credentials` grant and injecting them as `Authorization: Bearer <token>` headers into backend requests.
+The gateway can act as an OAuth2 client, fetching access tokens from an identity server using the `client_credentials` grant and injecting them as `Authorization: Bearer <token>` headers into backend requests.
 
 Tokens are cached in memory and auto-refreshed 10 seconds before expiry. If a token refresh fails, the request proceeds without an Authorization header (logged as a warning).
 
@@ -512,14 +512,14 @@ The middleware is positioned at step 16.25 in the chain — after request transf
 
 ## Token Exchange (RFC 8693)
 
-The runway can act as a Security Token Service (STS) intermediary, accepting external IdP tokens and issuing internal service tokens. This enables zero-trust architectures where backends only trust runway-issued tokens.
+The gateway can act as a Security Token Service (STS) intermediary, accepting external IdP tokens and issuing internal service tokens. This enables zero-trust architectures where backends only trust gateway-issued tokens.
 
 ### How It Works
 
 1. Client sends a request with `Authorization: Bearer <external-token>`
-2. Runway validates the external token (JWT via JWKS, or introspection)
-3. Runway mints a new internal JWT with mapped claims
-4. Backend receives the runway-issued token in the `Authorization` header
+2. Gateway validates the external token (JWT via JWKS, or introspection)
+3. Gateway mints a new internal JWT with mapped claims
+4. Backend receives the gateway-issued token in the `Authorization` header
 
 ### Configuration
 
@@ -570,13 +570,13 @@ The middleware is positioned at step 6.07 in the chain — after auth (6) and to
 
 ## SAML 2.0 SSO
 
-The runway can act as a SAML 2.0 Service Provider (SP), enabling browser-based Single Sign-On with enterprise identity providers (Okta, Azure AD, ADFS, OneLogin, etc.). It also supports stateless token validation via SAML assertions passed in an HTTP header.
+The gateway can act as a SAML 2.0 Service Provider (SP), enabling browser-based Single Sign-On with enterprise identity providers (Okta, Azure AD, ADFS, OneLogin, etc.). It also supports stateless token validation via SAML assertions passed in an HTTP header.
 
 ### Authentication Modes
 
-**Browser SSO (SP-initiated):** The user visits a protected route, gets redirected to the IdP login page, authenticates, and is redirected back to the runway's ACS endpoint. The runway validates the SAML response, creates a signed session cookie, and redirects the user to the original URL.
+**Browser SSO (SP-initiated):** The user visits a protected route, gets redirected to the IdP login page, authenticates, and is redirected back to the gateway's ACS endpoint. The gateway validates the SAML response, creates a signed session cookie, and redirects the user to the original URL.
 
-**Header-based token validation:** For API clients, a Base64-encoded SAML assertion can be passed in the `X-SAML-Assertion` header (configurable). The runway validates the assertion's XML structure, time conditions, and checks for replay before granting access.
+**Header-based token validation:** For API clients, a Base64-encoded SAML assertion can be passed in the `X-SAML-Assertion` header (configurable). The gateway validates the assertion's XML structure, time conditions, and checks for replay before granting access.
 
 ### SAML Endpoints
 
@@ -637,7 +637,7 @@ routes:
       - url: http://dashboard-service:8080
 ```
 
-You can combine SAML with other methods. The runway tries each method in order and uses the first that succeeds:
+You can combine SAML with other methods. The gateway tries each method in order and uses the first that succeeds:
 
 ```yaml
     auth:
@@ -649,11 +649,11 @@ You can combine SAML with other methods. The runway tries each method in order a
 
 **SP-initiated:** A GET to `/saml/slo` clears the session cookie and redirects the user to the IdP's SLO endpoint.
 
-**IdP-initiated:** The IdP sends a LogoutRequest to `/saml/slo`. The runway clears the session and responds with a LogoutResponse.
+**IdP-initiated:** The IdP sends a LogoutRequest to `/saml/slo`. The gateway clears the session and responds with a LogoutResponse.
 
 ### IdP Setup
 
-1. Start the runway with SAML enabled
+1. Start the gateway with SAML enabled
 2. Access `GET /saml/metadata` to download the SP metadata XML
 3. Register the SP in your IdP using this metadata (or manually configure ACS URL and Entity ID)
 4. Configure the IdP to release required attribute statements (at minimum: `uid` or whichever attribute maps to `client_id`)
@@ -665,11 +665,11 @@ You can combine SAML with other methods. The runway tries each method in order a
 - **Relay state** is HMAC-signed to prevent CSRF/tampering on the return URL
 - **`return_to`** parameter on `/saml/login` is validated as a relative path only — absolute URLs are rejected
 - **Assertion replay protection**: Each assertion ID is tracked in a bounded TTL cache; reuse is rejected
-- **IdP metadata auto-refresh**: When using `idp_metadata_url`, the runway periodically re-fetches metadata (default 24h) to handle IdP certificate rotation
+- **IdP metadata auto-refresh**: When using `idp_metadata_url`, the gateway periodically re-fetches metadata (default 24h) to handle IdP certificate rotation
 
 ### Troubleshooting
 
-- **Clock skew errors**: The runway allows up to 180 seconds of clock skew (matching Shibboleth defaults). Ensure your server's clock is synchronized via NTP.
+- **Clock skew errors**: The gateway allows up to 180 seconds of clock skew (matching Shibboleth defaults). Ensure your server's clock is synchronized via NTP.
 - **Certificate mismatch**: Verify that the IdP metadata contains the certificate the IdP is currently using to sign assertions. Use `metadata_refresh_interval` to auto-update.
 - **Relay state invalid**: If users land on `/` after login instead of their original page, check that the session `signing_key` hasn't changed between the login redirect and the ACS callback.
 - **"SAML assertion already consumed"**: This indicates a replay attempt or the user refreshed the ACS POST page. The assertion ID cache prevents reuse.
