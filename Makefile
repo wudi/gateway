@@ -7,7 +7,7 @@
 	compare-bench compare-bench-quick compare-bench-full compare-down
 
 # Build variables
-BINARY_NAME=gateway
+BINARY_NAME=runway
 BUILD_DIR=build
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -35,7 +35,7 @@ all: deps build
 build:
 	@echo "Building $(BINARY_NAME)..."
 	@mkdir -p $(BUILD_DIR)
-	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/gateway
+	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/runway
 
 # Build for multiple platforms
 build-all: build-linux build-darwin build-windows
@@ -43,23 +43,23 @@ build-all: build-linux build-darwin build-windows
 build-linux:
 	@echo "Building for Linux..."
 	@mkdir -p $(BUILD_DIR)
-	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 ./cmd/gateway
+	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 ./cmd/runway
 
 build-darwin:
 	@echo "Building for macOS..."
 	@mkdir -p $(BUILD_DIR)
-	GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 ./cmd/gateway
-	GOOS=darwin GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 ./cmd/gateway
+	GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 ./cmd/runway
+	GOOS=darwin GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 ./cmd/runway
 
 build-windows:
 	@echo "Building for Windows..."
 	@mkdir -p $(BUILD_DIR)
-	GOOS=windows GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe ./cmd/gateway
+	GOOS=windows GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe ./cmd/runway
 
-# Run the gateway
+# Run the runway
 run: build
-	@echo "Starting gateway..."
-	./$(BUILD_DIR)/$(BINARY_NAME) -config configs/gateway.yaml
+	@echo "Starting runway..."
+	./$(BUILD_DIR)/$(BINARY_NAME) -config configs/runway.yaml
 
 # Run with hot reload (requires air: go install github.com/cosmtrek/air@latest)
 dev:
@@ -114,7 +114,7 @@ lint:
 
 # Validate configuration
 validate:
-	./$(BUILD_DIR)/$(BINARY_NAME) -config configs/gateway.yaml -validate
+	./$(BUILD_DIR)/$(BINARY_NAME) -config configs/runway.yaml -validate
 
 # Clean build artifacts
 clean:
@@ -247,7 +247,7 @@ perf-profile:
 COMPARE_COMPOSE=docker compose -f perf/compare/docker-compose.compare.yaml
 
 compare-bench:
-	@echo "Running comparison benchmark: simple proxy, all gateways, 60s..."
+	@echo "Running comparison benchmark: simple proxy, all proxies, 60s..."
 	GATEWAYS="gw kong krakend traefik tyk" SCENARIOS="simple" DURATION=60 \
 		perf/compare/scripts/run-bench.sh
 
@@ -257,7 +257,7 @@ compare-bench-quick:
 		perf/compare/scripts/run-bench.sh
 
 compare-bench-full:
-	@echo "Running full comparison: all scenarios, all gateways, 60s..."
+	@echo "Running full comparison: all scenarios, all proxies, 60s..."
 	GATEWAYS="gw kong krakend traefik tyk" SCENARIOS="simple auth ratelimit" DURATION=60 \
 		perf/compare/scripts/run-bench.sh
 
@@ -275,7 +275,7 @@ help:
 	@echo "  all              - Install deps and build"
 	@echo "  build            - Build the binary"
 	@echo "  build-all        - Build for all platforms"
-	@echo "  run              - Build and run the gateway"
+	@echo "  run              - Build and run the runway"
 	@echo "  dev              - Run with hot reload (requires air)"
 	@echo "  test             - Run tests"
 	@echo "  test-coverage    - Run tests with coverage report"
@@ -291,7 +291,7 @@ help:
 	@echo "  docker-buildx-local - Build with buildx and load locally"
 	@echo "  docker-push      - Push image to registry"
 	@echo "  docker-run       - Run Docker container"
-	@echo "  compose-up       - Start gateway + backends"
+	@echo "  compose-up       - Start runway + backends"
 	@echo "  compose-down     - Stop all services (all profiles)"
 	@echo "  compose-logs     - Follow compose logs"
 	@echo "  compose-up-redis - Start with Redis"
@@ -304,12 +304,12 @@ help:
 	@echo "  bench            - Run Go benchmarks"
 	@echo "  bench-save       - Run benchmarks and save results"
 	@echo "  bench-compare    - Compare last two benchmark runs (requires benchstat)"
-	@echo "  perf-stack-up    - Start perf stack (gateway + Prometheus + Grafana)"
+	@echo "  perf-stack-up    - Start perf stack (runway + Prometheus + Grafana)"
 	@echo "  perf-stack-down  - Stop perf stack"
 	@echo "  perf-smoke       - Run k6 smoke test"
 	@echo "  perf-load        - Run k6 load test"
 	@echo "  perf-stress      - Run k6 stress test"
-	@echo "  perf-profile     - Capture pprof profiles from running gateway"
+	@echo "  perf-profile     - Capture pprof profiles from running runway"
 	@echo ""
 	@echo "  help             - Show this help"
 	@echo ""

@@ -5,8 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/middleware/tenant"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/middleware/tenant"
 )
 
 func TestTenantAwareBalancer_DefaultWhenNoTenant(t *testing.T) {

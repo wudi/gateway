@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/wudi/gateway/internal/middleware/geo"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/internal/middleware/geo"
+	"github.com/wudi/runway/variables"
 )
 
 // GeoEnv provides geolocation fields populated by the geo middleware.

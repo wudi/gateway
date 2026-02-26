@@ -6,10 +6,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/logging"
-	"github.com/wudi/gateway/internal/middleware"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/logging"
+	"github.com/wudi/runway/internal/middleware"
 	"go.uber.org/zap"
 )
 

@@ -12,8 +12,8 @@ import (
 	"gocloud.dev/pubsub"
 	_ "gocloud.dev/pubsub/mempubsub" // in-memory for testing
 
-	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/config"
 )
 
 // Handler handles Pub/Sub publish/subscribe operations as HTTP backend.

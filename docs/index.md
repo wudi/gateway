@@ -1,10 +1,10 @@
 ---
-title: "API Gateway User Manual"
+title: "API Runway User Manual"
 sidebar_position: 0
 slug: /
 ---
 
-A high-performance, feature-rich API gateway supporting HTTP, TCP, and UDP proxying with extensive middleware capabilities.
+A high-performance, feature-rich API runway supporting HTTP, TCP, and UDP proxying with extensive middleware capabilities.
 
 ## Table of Contents
 

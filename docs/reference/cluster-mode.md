@@ -3,7 +3,7 @@ title: "Cluster Mode"
 sidebar_position: 6
 ---
 
-Cluster mode separates the gateway into a **control plane** (CP) that owns the configuration and one or more **data planes** (DP) that proxy traffic. The CP pushes config to every DP over a bidirectional gRPC stream secured with mutual TLS. Each DP caches the last good config to disk so it can restart independently if the CP is temporarily unreachable.
+Cluster mode separates the runway into a **control plane** (CP) that owns the configuration and one or more **data planes** (DP) that proxy traffic. The CP pushes config to every DP over a bidirectional gRPC stream secured with mutual TLS. Each DP caches the last good config to disk so it can restart independently if the CP is temporarily unreachable.
 
 ---
 
@@ -11,7 +11,7 @@ Cluster mode separates the gateway into a **control plane** (CP) that owns the c
 
 | Mode | `cluster.role` | Description |
 |------|---------------|-------------|
-| Standalone | `standalone` (default) | Single-process gateway. Config loaded from local YAML file. No cluster coordination. |
+| Standalone | `standalone` (default) | Single-process runway. Config loaded from local YAML file. No cluster coordination. |
 | Control Plane | `control_plane` | Runs a gRPC server that pushes config to connected DPs. Also serves traffic if listeners are configured. |
 | Data Plane | `data_plane` | Receives config from the CP. Does not read a local config file for routes/middleware. `POST /reload` returns 403. |
 
@@ -49,9 +49,9 @@ cluster:
     address: ":9443"
     tls:
       enabled: true
-      cert_file: /etc/gateway/certs/cp.crt
-      key_file: /etc/gateway/certs/cp.key
-      client_ca_file: /etc/gateway/certs/ca.crt
+      cert_file: /etc/runway/certs/cp.crt
+      key_file: /etc/runway/certs/cp.key
+      client_ca_file: /etc/runway/certs/ca.crt
 
 listeners:
   - id: http
@@ -81,10 +81,10 @@ cluster:
     address: "cp.example.com:9443"
     tls:
       enabled: true
-      cert_file: /etc/gateway/certs/dp.crt
-      key_file: /etc/gateway/certs/dp.key
-      ca_file: /etc/gateway/certs/ca.crt
-    cache_dir: /var/lib/gateway/cluster
+      cert_file: /etc/runway/certs/dp.crt
+      key_file: /etc/runway/certs/dp.key
+      ca_file: /etc/runway/certs/ca.crt
+    cache_dir: /var/lib/runway/cluster
     retry_interval: 5s
     heartbeat_interval: 10s
     node_id: ""
@@ -109,7 +109,7 @@ cluster:
   role: standalone
 ```
 
-Omitting the `cluster` block entirely or setting `role: standalone` runs the gateway in single-process mode with no cluster coordination.
+Omitting the `cluster` block entirely or setting `role: standalone` runs the runway in single-process mode with no cluster coordination.
 
 ---
 
@@ -175,7 +175,7 @@ curl http://cp:8081/cluster/nodes
     "last_heartbeat": "2026-02-25T10:30:05Z",
     "status": "connected",
     "node_status": {
-      "gateway_version": "1.4.0",
+      "runway_version": "1.4.0",
       "last_reload_error": "",
       "last_successful_version": 3
     }
@@ -189,7 +189,7 @@ curl http://cp:8081/cluster/nodes
     "last_heartbeat": "2026-02-25T10:30:03Z",
     "status": "connected",
     "node_status": {
-      "gateway_version": "1.4.0",
+      "runway_version": "1.4.0",
       "last_reload_error": "",
       "last_successful_version": 3
     }
@@ -222,7 +222,7 @@ The `source` field indicates how the config was last updated: `"file"` (config r
 ```bash
 curl -X POST http://cp:8081/api/v1/config \
   -H "Content-Type: application/yaml" \
-  --data-binary @gateway.yaml
+  --data-binary @runway.yaml
 ```
 
 The CP validates the config, applies it locally, and pushes it to all connected DPs. Returns the reload result:
@@ -265,7 +265,7 @@ The cached config is validated before use. If validation fails (e.g., after a bi
 
 The node ID is also persisted to `cache_dir/node_id` so the DP keeps the same identity across restarts.
 
-**Default cache directory:** `/var/lib/gateway/cluster`
+**Default cache directory:** `/var/lib/runway/cluster`
 
 ---
 

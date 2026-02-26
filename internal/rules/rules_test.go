@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/middleware/geo"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/middleware/geo"
+	"github.com/wudi/runway/variables"
 )
 
 // --- Environment tests ---

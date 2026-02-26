@@ -7,9 +7,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/loadbalancer"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/loadbalancer"
+	"github.com/wudi/runway/variables"
 )
 
 // ejectionInfo tracks current ejection state for a backend.

@@ -15,8 +15,8 @@ echo "Test type: $TEST_TYPE"
 echo "Results:   $RESULTS_DIR"
 echo ""
 
-# Step 1: Build gateway
-echo ">>> Building gateway Docker image..."
+# Step 1: Build runway
+echo ">>> Building runway Docker image..."
 (cd "$PROJECT_DIR" && make docker-build)
 
 # Step 2: Start infrastructure
@@ -25,7 +25,7 @@ docker compose -f "$COMPOSE_FILE" --profile monitoring up -d
 echo ">>> Waiting for services to be healthy..."
 sleep 10
 
-# Wait for gateway health
+# Wait for runway health
 for i in $(seq 1 30); do
     if curl -sf http://localhost:8081/health > /dev/null 2>&1; then
         echo ">>> Gateway is healthy"
@@ -33,7 +33,7 @@ for i in $(seq 1 30); do
     fi
     if [ "$i" -eq 30 ]; then
         echo "ERROR: Gateway did not become healthy within 30s"
-        docker compose -f "$COMPOSE_FILE" --profile monitoring logs gateway
+        docker compose -f "$COMPOSE_FILE" --profile monitoring logs runway
         exit 1
     fi
     sleep 1
@@ -58,6 +58,6 @@ echo ">>> Capturing post-test profiles..."
 echo ""
 echo "=== Test Complete ==="
 echo "Results saved to: $RESULTS_DIR"
-echo "Grafana dashboard: http://localhost:3000/d/gateway-perf"
+echo "Grafana dashboard: http://localhost:3000/d/runway-perf"
 echo ""
 echo "To stop the stack: make perf-stack-down"

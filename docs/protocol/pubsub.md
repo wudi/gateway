@@ -3,7 +3,7 @@ title: "Go CDK Pub/Sub Backend"
 sidebar_position: 12
 ---
 
-The gateway can publish and subscribe to messages using the [Go Cloud Development Kit (Go CDK)](https://gocloud.dev/) Pub/Sub abstraction. This provides a portable interface to multiple message brokers including GCP Pub/Sub, AWS SNS/SQS, Azure Service Bus, NATS, Kafka, and in-memory for testing.
+The runway can publish and subscribe to messages using the [Go Cloud Development Kit (Go CDK)](https://gocloud.dev/) Pub/Sub abstraction. This provides a portable interface to multiple message brokers including GCP Pub/Sub, AWS SNS/SQS, Azure Service Bus, NATS, Kafka, and in-memory for testing.
 
 ## Overview
 

@@ -16,8 +16,8 @@ import (
 	rpb "google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/logging"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/logging"
 )
 
 // ReflectionProxy aggregates gRPC reflection from multiple backends on a route.

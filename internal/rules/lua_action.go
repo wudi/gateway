@@ -6,8 +6,8 @@ import (
 
 	lua "github.com/yuin/gopher-lua"
 
-	"github.com/wudi/gateway/internal/luautil"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/internal/luautil"
+	"github.com/wudi/runway/variables"
 )
 
 // ExecuteLuaRequest runs a pre-compiled Lua script in the request phase.

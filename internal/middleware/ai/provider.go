@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"sync/atomic"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 // Provider translates between the unified chat format and a specific LLM provider.

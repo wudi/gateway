@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/variables"
 )
 
 func makeRequest(claims map[string]interface{}) *http.Request {

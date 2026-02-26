@@ -12,12 +12,12 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/middleware/backendenc"
-	"github.com/wudi/gateway/internal/middleware/transform"
-	"github.com/wudi/gateway/internal/tmplutil"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/middleware/backendenc"
+	"github.com/wudi/runway/internal/middleware/transform"
+	"github.com/wudi/runway/internal/tmplutil"
+	"github.com/wudi/runway/variables"
 )
 
 // compiledBackend holds pre-compiled templates for one aggregate backend.
@@ -293,9 +293,9 @@ func (ah *AggregateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Set completion header
 	if ah.completionHeader {
 		if hasAnyFailure {
-			w.Header().Set("X-Gateway-Completed", "false")
+			w.Header().Set("X-Runway-Completed", "false")
 		} else {
-			w.Header().Set("X-Gateway-Completed", "true")
+			w.Header().Set("X-Runway-Completed", "true")
 		}
 	}
 

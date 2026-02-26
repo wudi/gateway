@@ -12,14 +12,14 @@ services:
     networks:
       - compare-net
 
-  # --- This gateway ---
+  # --- This runway ---
   gw:
     profiles: ["gw"]
     build:
       context: ../..
       dockerfile: Dockerfile
     volumes:
-      - ./configs/gateway-compare.yaml:/app/configs/gateway.yaml:ro
+      - ./configs/runway-compare.yaml:/app/configs/runway.yaml:ro
     ports:
       - "8080:8080"
     depends_on:

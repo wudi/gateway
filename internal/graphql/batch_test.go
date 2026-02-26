@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func sha256Sum(s string) string {

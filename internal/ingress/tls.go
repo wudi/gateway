@@ -6,7 +6,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 // SecretToTLSCertPair extracts TLS PEM data from a Kubernetes Secret

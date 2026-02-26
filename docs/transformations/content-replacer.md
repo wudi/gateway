@@ -55,7 +55,7 @@ Standard Go regex capture groups are supported:
 
 ```yaml
 - pattern: "v(\\d+)\\.api"
-  replacement: "v${1}.gateway"
+  replacement: "v${1}.runway"
 ```
 
 ## Middleware Position

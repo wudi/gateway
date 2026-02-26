@@ -6,13 +6,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/errors"
-	"github.com/wudi/gateway/internal/middleware"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/errors"
+	"github.com/wudi/runway/internal/middleware"
 	"golang.org/x/time/rate"
 )
 
-// ServiceLimiter enforces a global gateway-wide throughput cap.
+// ServiceLimiter enforces a global runway-wide throughput cap.
 type ServiceLimiter struct {
 	limiter  *rate.Limiter
 	allowed  atomic.Int64

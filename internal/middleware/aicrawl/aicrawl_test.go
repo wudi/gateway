@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func TestDetectBuiltinCrawlers(t *testing.T) {

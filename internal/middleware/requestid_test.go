@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/variables"
 )
 
 func TestRequestID(t *testing.T) {

@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"runtime/debug"
 
-	"github.com/wudi/gateway/internal/errors"
-	"github.com/wudi/gateway/internal/logging"
+	"github.com/wudi/runway/internal/errors"
+	"github.com/wudi/runway/internal/logging"
 	"go.uber.org/zap"
 )
 
@@ -54,14 +54,14 @@ func RecoveryWithConfig(cfg RecoveryConfig) Middleware {
 					}
 
 					// Return 500 error
-					gatewayErr := errors.ErrInternalServer.WithDetails(fmt.Sprintf("panic: %v", err))
+					runwayErr := errors.ErrInternalServer.WithDetails(fmt.Sprintf("panic: %v", err))
 
 					// Try to get request ID from header
 					if reqID := w.Header().Get("X-Request-ID"); reqID != "" {
-						gatewayErr = gatewayErr.WithRequestID(reqID)
+						runwayErr = runwayErr.WithRequestID(reqID)
 					}
 
-					gatewayErr.WriteJSON(w)
+					runwayErr.WriteJSON(w)
 				}
 			}()
 

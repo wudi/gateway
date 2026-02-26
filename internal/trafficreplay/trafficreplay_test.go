@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func TestRecorder_BasicRecording(t *testing.T) {

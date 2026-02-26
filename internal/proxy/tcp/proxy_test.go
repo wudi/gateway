@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func TestTCPProxyAddRoute(t *testing.T) {

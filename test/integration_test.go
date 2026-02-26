@@ -16,19 +16,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/gateway"
-	"github.com/wudi/gateway/internal/registry"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/runway"
+	"github.com/wudi/runway/internal/registry"
 )
 
 // --- Helpers ---
 
-// newTestGateway creates a gateway and test server from config, with cleanup.
-func newTestGateway(t *testing.T, cfg *config.Config) (*gateway.Gateway, *httptest.Server) {
+// newTestRunway creates a runway and test server from config, with cleanup.
+func newTestRunway(t *testing.T, cfg *config.Config) (*runway.Runway, *httptest.Server) {
 	t.Helper()
-	gw, err := gateway.New(cfg)
+	gw, err := runway.New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create gateway: %v", err)
+		t.Fatalf("Failed to create runway: %v", err)
 	}
 	t.Cleanup(func() { gw.Close() })
 
@@ -49,7 +49,7 @@ func baseConfig() *config.Config {
 
 // --- Existing Tests ---
 
-// TestIntegration runs integration tests against a running gateway
+// TestIntegration runs integration tests against a running runway
 func TestIntegration(t *testing.T) {
 	// Create a mock backend
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -64,7 +64,7 @@ func TestIntegration(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	// Create gateway config
+	// Create runway config
 	cfg := &config.Config{
 		Registry: config.RegistryConfig{
 			Type: "memory",
@@ -100,7 +100,7 @@ func TestIntegration(t *testing.T) {
 						Headers: config.HeaderTransform{
 							Add: map[string]string{
 								"X-Request-ID": "$request_id",
-								"X-Gateway":    "test",
+								"X-Runway":    "test",
 							},
 						},
 					},
@@ -124,10 +124,10 @@ func TestIntegration(t *testing.T) {
 		},
 	}
 
-	// Create gateway
-	gw, err := gateway.New(cfg)
+	// Create runway
+	gw, err := runway.New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create gateway: %v", err)
+		t.Fatalf("Failed to create runway: %v", err)
 	}
 	defer gw.Close()
 
@@ -210,9 +210,9 @@ func TestIntegration(t *testing.T) {
 
 		headers := response["headers"].(map[string]interface{})
 
-		// Check that gateway added headers
-		if headers["X-Gateway"] == nil {
-			t.Error("Expected X-Gateway header to be added")
+		// Check that runway added headers
+		if headers["X-Runway"] == nil {
+			t.Error("Expected X-Runway header to be added")
 		}
 		if headers["X-Request-Id"] == nil {
 			t.Error("Expected X-Request-Id header to be added")
@@ -273,7 +273,7 @@ func TestRegistryIntegration(t *testing.T) {
 	}))
 	defer backend2.Close()
 
-	// Create gateway with memory registry
+	// Create runway with memory registry
 	cfg := &config.Config{
 		Registry: config.RegistryConfig{
 			Type: "memory",
@@ -293,9 +293,9 @@ func TestRegistryIntegration(t *testing.T) {
 		},
 	}
 
-	gw, err := gateway.New(cfg)
+	gw, err := runway.New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create gateway: %v", err)
+		t.Fatalf("Failed to create runway: %v", err)
 	}
 	defer gw.Close()
 
@@ -347,9 +347,9 @@ func TestRateLimitIntegration(t *testing.T) {
 		},
 	}
 
-	gw, err := gateway.New(cfg)
+	gw, err := runway.New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create gateway: %v", err)
+		t.Fatalf("Failed to create runway: %v", err)
 	}
 	defer gw.Close()
 
@@ -440,7 +440,7 @@ func TestCircuitBreakerWithRetry(t *testing.T) {
 		},
 	}
 
-	gw, ts := newTestGateway(t, cfg)
+	gw, ts := newTestRunway(t, cfg)
 
 	// Backend is failing. Each request should retry 2 times (3 total attempts).
 	// CB threshold is 3, so after 3 failed *requests* (not attempts) it opens.
@@ -527,7 +527,7 @@ func TestCachingWithCompression(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// First request: cache MISS, should be compressed
 	req, _ := http.NewRequest("GET", ts.URL+"/cached/data", nil)
@@ -631,7 +631,7 @@ func TestAuthRateLimitCORS(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// 1. OPTIONS preflight should return CORS headers without auth
 	req, _ := http.NewRequest("OPTIONS", ts.URL+"/secure/test", nil)
@@ -723,7 +723,7 @@ func TestIPFilterBeforeAuth(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// Request with valid API key should still be rejected by IP filter (403)
 	req, _ := http.NewRequest("GET", ts.URL+"/filtered/test", nil)
@@ -779,7 +779,7 @@ func TestValidationThenBodyTransform(t *testing.T) {
 				Request: config.RequestTransform{
 					Body: config.BodyTransformConfig{
 						AddFields: map[string]string{
-							"source": "gateway",
+							"source": "runway",
 						},
 					},
 				},
@@ -787,7 +787,7 @@ func TestValidationThenBodyTransform(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// 1. Invalid body (missing required "name") should get 400
 	req, _ := http.NewRequest("POST", ts.URL+"/validated/test", strings.NewReader(`{"email":"test@example.com"}`))
@@ -816,8 +816,8 @@ func TestValidationThenBodyTransform(t *testing.T) {
 	}
 
 	if receivedBody != nil {
-		if receivedBody["source"] != "gateway" {
-			t.Errorf("Expected source=gateway in body, got %v", receivedBody["source"])
+		if receivedBody["source"] != "runway" {
+			t.Errorf("Expected source=runway in body, got %v", receivedBody["source"])
 		}
 		if receivedBody["name"] != "John" {
 			t.Errorf("Expected name=John in body, got %v", receivedBody["name"])
@@ -862,7 +862,7 @@ func TestTrafficMirroring(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	resp, err := http.Get(ts.URL + "/mirror/test")
 	if err != nil {
@@ -927,7 +927,7 @@ func TestWebSocketBypassesCacheAndCB(t *testing.T) {
 		},
 	}
 
-	gw, ts := newTestGateway(t, cfg)
+	gw, ts := newTestRunway(t, cfg)
 
 	// Non-upgrade request should work normally with cache and CB
 	resp, err := http.Get(ts.URL + "/ws/test")
@@ -1020,7 +1020,7 @@ func TestMetricsWithCircuitBreaker(t *testing.T) {
 		},
 	}
 
-	gw, ts := newTestGateway(t, cfg)
+	gw, ts := newTestRunway(t, cfg)
 
 	// 2 failures to open CB
 	for i := 0; i < 2; i++ {
@@ -1075,11 +1075,11 @@ func TestFullPipeline(t *testing.T) {
 		json.Unmarshal(body, &receivedBody)
 
 		// Check that request transform headers arrived
-		gwHeader := r.Header.Get("X-Gateway")
+		gwHeader := r.Header.Get("X-Runway")
 
 		// Return large JSON for compression
 		resp := map[string]interface{}{
-			"gateway_header": gwHeader,
+			"runway_header": gwHeader,
 			"received":       receivedBody,
 		}
 		for i := 0; i < 30; i++ {
@@ -1132,19 +1132,19 @@ func TestFullPipeline(t *testing.T) {
 				Request: config.RequestTransform{
 					Headers: config.HeaderTransform{
 						Add: map[string]string{
-							"X-Gateway": "full-pipeline",
+							"X-Runway": "full-pipeline",
 						},
 					},
 					Body: config.BodyTransformConfig{
 						AddFields: map[string]string{
-							"injected": "by-gateway",
+							"injected": "by-runway",
 						},
 					},
 				},
 				Response: config.ResponseTransform{
 					Headers: config.HeaderTransform{
 						Add: map[string]string{
-							"X-Processed-By": "test-gateway",
+							"X-Processed-By": "test-runway",
 						},
 					},
 					Body: config.BodyTransformConfig{
@@ -1157,7 +1157,7 @@ func TestFullPipeline(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// POST with auth, request body, accept gzip
 	body := `{"name":"test","action":"create"}`
@@ -1180,8 +1180,8 @@ func TestFullPipeline(t *testing.T) {
 
 	// Verify request body transform reached backend
 	if receivedBody != nil {
-		if receivedBody["injected"] != "by-gateway" {
-			t.Errorf("Expected injected=by-gateway, got %v", receivedBody["injected"])
+		if receivedBody["injected"] != "by-runway" {
+			t.Errorf("Expected injected=by-runway, got %v", receivedBody["injected"])
 		}
 	}
 
@@ -1248,7 +1248,7 @@ func TestAdminAPIRetryMetrics(t *testing.T) {
 		},
 	}
 
-	gw, ts := newTestGateway(t, cfg)
+	gw, ts := newTestRunway(t, cfg)
 
 	// Make a request: first attempt 503, retry succeeds with 200
 	resp, err := http.Get(ts.URL + "/retry/test")
@@ -1328,7 +1328,7 @@ func TestDomainRouting(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// Request with Host: a.example.com should hit backend A
 	req, _ := http.NewRequest("GET", ts.URL+"/api/data", nil)
@@ -1405,7 +1405,7 @@ func TestWildcardDomainRouting(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// Any subdomain of internal.example.com should match
 	for _, host := range []string{"svc1.internal.example.com", "svc2.internal.example.com"} {
@@ -1500,7 +1500,7 @@ func TestHeaderBasedRouting(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// Request with X-API-Version: v2 should hit v2 backend
 	req, _ := http.NewRequest("GET", ts.URL+"/api/data", nil)
@@ -1587,7 +1587,7 @@ func TestQueryBasedRouting(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// Request with ?format=json should hit JSON backend
 	resp, err := http.Get(ts.URL + "/data/items?format=json")
@@ -1661,7 +1661,7 @@ func TestCombinedDomainHeaderQueryRouting(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// Request matching all criteria should hit specific backend
 	req, _ := http.NewRequest("GET", ts.URL+"/api/test?format=json", nil)
@@ -1737,7 +1737,7 @@ func TestRegexHeaderRouting(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// Mobile user agent should hit mobile backend
 	req, _ := http.NewRequest("GET", ts.URL+"/api/data", nil)
@@ -1805,7 +1805,7 @@ func TestGlobalRequestRuleBlock(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// GET should pass through
 	resp, err := http.Get(ts.URL + "/api/data")
@@ -1873,7 +1873,7 @@ func TestPerRouteRequestRule(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// POST to /strict without JSON Content-Type → blocked
 	req, _ := http.NewRequest("POST", ts.URL+"/strict/data", strings.NewReader("plain text"))
@@ -1946,7 +1946,7 @@ func TestRequestRuleSetHeaders(t *testing.T) {
 				Action:     "set_headers",
 				Headers: config.HeaderTransform{
 					Set: map[string]string{
-						"X-Gateway-Source": "rules-engine",
+						"X-Runway-Source": "rules-engine",
 					},
 				},
 			},
@@ -1961,7 +1961,7 @@ func TestRequestRuleSetHeaders(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	resp, err := http.Get(ts.URL + "/api/test")
 	if err != nil {
@@ -1974,8 +1974,8 @@ func TestRequestRuleSetHeaders(t *testing.T) {
 	}
 
 	// Verify the request rule added the header before reaching the backend
-	if receivedHeaders.Get("X-Gateway-Source") != "rules-engine" {
-		t.Errorf("Expected X-Gateway-Source header on backend request, got %q", receivedHeaders.Get("X-Gateway-Source"))
+	if receivedHeaders.Get("X-Runway-Source") != "rules-engine" {
+		t.Errorf("Expected X-Runway-Source header on backend request, got %q", receivedHeaders.Get("X-Runway-Source"))
 	}
 }
 
@@ -2016,7 +2016,7 @@ func TestResponseRuleSetHeaders(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	resp, err := http.Get(ts.URL + "/api/test")
 	if err != nil {
@@ -2090,7 +2090,7 @@ func TestGlobalAndPerRouteRulesCombined(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	resp, err := http.Get(ts.URL + "/api/test")
 	if err != nil {
@@ -2143,7 +2143,7 @@ func TestRuleRedirectAction(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// Disable redirect following
 	client := &http.Client{
@@ -2224,13 +2224,13 @@ func TestRulesAdminEndpoint(t *testing.T) {
 		},
 	}
 
-	srv, err := gateway.NewServer(cfg, "")
+	srv, err := runway.NewServer(cfg, "")
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
-	t.Cleanup(func() { srv.Gateway().Close() })
+	t.Cleanup(func() { srv.Runway().Close() })
 
-	gw := srv.Gateway()
+	gw := srv.Runway()
 
 	// Verify global rules
 	globalEngine := gw.GetGlobalRules()
@@ -2292,7 +2292,7 @@ func TestAdminAPIRouteMatchInfo(t *testing.T) {
 		},
 	}
 
-	gw, _ := newTestGateway(t, cfg)
+	gw, _ := newTestRunway(t, cfg)
 
 	// Check route info from the router
 	routes := gw.GetRouter().GetRoutes()
@@ -2350,7 +2350,7 @@ func TestUpstreamSharedPoolIntegration(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// Both routes should work via the shared upstream
 	for _, path := range []string{"/users", "/orders"} {

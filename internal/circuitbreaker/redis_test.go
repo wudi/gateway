@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func redisAvailable(t *testing.T) *redis.Client {

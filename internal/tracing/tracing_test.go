@@ -6,13 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func TestTracerMiddleware(t *testing.T) {
 	tracer, err := New(config.TracingConfig{
 		Enabled:     true,
-		ServiceName: "test-gateway",
+		ServiceName: "test-runway",
 		SampleRate:  1.0,
 		Insecure:    true,
 	})

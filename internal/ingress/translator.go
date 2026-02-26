@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
-// Translator converts the Kubernetes resource store into a gateway Config.
+// Translator converts the Kubernetes resource store into a runway Config.
 type Translator struct {
 	store             *Store
 	baseConfig        *config.Config // global settings from --base-config

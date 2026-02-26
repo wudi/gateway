@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/wudi/gateway/internal/middleware/auth"
+	"github.com/wudi/runway/internal/middleware/auth"
 )
 
 // ValidatedToken is the result of validating a subject token.

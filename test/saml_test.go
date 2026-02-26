@@ -27,8 +27,8 @@ import (
 
 	"golang.org/x/net/html"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/gateway"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/runway"
 )
 
 // dockerCmd returns the command prefix for running docker (with sudo if needed).
@@ -66,10 +66,10 @@ func TestSAMLIntegration(t *testing.T) {
 	}))
 	t.Cleanup(func() { backend.Close() })
 
-	// 2. Pre-allocate gateway listener to know its port
+	// 2. Pre-allocate runway listener to know its port
 	gwListener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("failed to allocate gateway listener: %v", err)
+		t.Fatalf("failed to allocate runway listener: %v", err)
 	}
 	gwBaseURL := fmt.Sprintf("http://127.0.0.1:%d", gwListener.Addr().(*net.TCPAddr).Port)
 
@@ -85,7 +85,7 @@ func TestSAMLIntegration(t *testing.T) {
 	// 5. Fetch IdP metadata and save to file
 	idpMetadataFile := fetchIdPMetadata(t, idpBaseURL)
 
-	// 6. Create gateway config
+	// 6. Create runway config
 	cfg := baseConfig()
 	cfg.Authentication = config.AuthenticationConfig{
 		SAML: config.SAMLConfig{
@@ -118,14 +118,14 @@ func TestSAMLIntegration(t *testing.T) {
 	}}
 	cfg.Admin = config.AdminConfig{Enabled: true, Port: 0}
 
-	// 7. Create gateway
-	gw, err := gateway.New(cfg)
+	// 7. Create runway
+	gw, err := runway.New(cfg)
 	if err != nil {
-		t.Fatalf("failed to create gateway: %v", err)
+		t.Fatalf("failed to create runway: %v", err)
 	}
 	t.Cleanup(func() { gw.Close() })
 
-	// 8. Start gateway on pre-allocated listener
+	// 8. Start runway on pre-allocated listener
 	ts := &httptest.Server{
 		Listener: gwListener,
 		Config:   &http.Server{Handler: gw.Handler()},
@@ -133,7 +133,7 @@ func TestSAMLIntegration(t *testing.T) {
 	ts.Start()
 	t.Cleanup(func() { ts.Close() })
 
-	t.Logf("Gateway: %s, IdP: %s", gwBaseURL, idpBaseURL)
+	t.Logf("Runway: %s, IdP: %s", gwBaseURL, idpBaseURL)
 
 	t.Run("SPMetadata", func(t *testing.T) {
 		resp, err := http.Get(gwBaseURL + "/saml/metadata")
@@ -219,13 +219,13 @@ func TestSAMLIntegration(t *testing.T) {
 		// Verify we got the session cookie
 		var sessionCookie *http.Cookie
 		for _, c := range cookies {
-			if c.Name == "gateway_saml" {
+			if c.Name == "runway_saml" {
 				sessionCookie = c
 				break
 			}
 		}
 		if sessionCookie == nil {
-			t.Fatal("expected gateway_saml cookie after SSO")
+			t.Fatal("expected runway_saml cookie after SSO")
 		}
 
 		// Use the cookie to access the protected resource
@@ -247,13 +247,13 @@ func TestSAMLIntegration(t *testing.T) {
 		cookies := performSAMLLogin(t, gwBaseURL, idpBaseURL, "user1", "password")
 		var sessionCookie *http.Cookie
 		for _, c := range cookies {
-			if c.Name == "gateway_saml" {
+			if c.Name == "runway_saml" {
 				sessionCookie = c
 				break
 			}
 		}
 		if sessionCookie == nil {
-			t.Fatal("expected gateway_saml cookie")
+			t.Fatal("expected runway_saml cookie")
 		}
 
 		for i := 0; i < 3; i++ {
@@ -274,13 +274,13 @@ func TestSAMLIntegration(t *testing.T) {
 		cookies := performSAMLLogin(t, gwBaseURL, idpBaseURL, "user1", "password")
 		var sessionCookie *http.Cookie
 		for _, c := range cookies {
-			if c.Name == "gateway_saml" {
+			if c.Name == "runway_saml" {
 				sessionCookie = c
 				break
 			}
 		}
 		if sessionCookie == nil {
-			t.Fatal("expected gateway_saml cookie")
+			t.Fatal("expected runway_saml cookie")
 		}
 
 		// Call SLO endpoint with the session cookie (don't follow redirect)
@@ -299,7 +299,7 @@ func TestSAMLIntegration(t *testing.T) {
 
 		// Check that the session cookie is cleared
 		for _, c := range resp.Cookies() {
-			if c.Name == "gateway_saml" {
+			if c.Name == "runway_saml" {
 				if c.MaxAge > 0 {
 					t.Error("expected cookie MaxAge <= 0 after SLO")
 				}
@@ -503,7 +503,7 @@ func fetchIdPMetadata(t *testing.T, idpBaseURL string) string {
 }
 
 // performSAMLLogin simulates a browser performing the full SAML SSO flow.
-// It returns the cookies set by the gateway ACS handler.
+// It returns the cookies set by the runway ACS handler.
 func performSAMLLogin(t *testing.T, gwBaseURL, idpBaseURL, username, password string) []*http.Cookie {
 	t.Helper()
 
@@ -583,7 +583,7 @@ func performSAMLLogin(t *testing.T, gwBaseURL, idpBaseURL, username, password st
 		t.Fatalf("no SAMLResponse found in IdP response. Response body:\n%s", string(loginSubmitBody))
 	}
 
-	// Step 6: POST the SAMLResponse to the gateway ACS endpoint
+	// Step 6: POST the SAMLResponse to the runway ACS endpoint
 	acsData := url.Values{}
 	acsData.Set("SAMLResponse", samlResponse)
 	if relayState != "" {

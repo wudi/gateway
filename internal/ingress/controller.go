@@ -15,7 +15,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 var scheme = runtime.NewScheme()
@@ -25,14 +25,14 @@ func init() {
 	utilruntime.Must(gatewayv1.Install(scheme))
 }
 
-// ReloadFunc is called to apply a new config to the gateway.
+// ReloadFunc is called to apply a new config to the runway.
 type ReloadFunc func(cfg *config.Config)
 
 // ControllerConfig holds configuration for the ingress controller.
 type ControllerConfig struct {
-	// IngressClass filters Ingress resources (default "gateway").
+	// IngressClass filters Ingress resources (default "runway").
 	IngressClass string
-	// ControllerName filters GatewayClasses (default "apigw.dev/ingress-controller").
+	// ControllerName filters GatewayClasses (default "runway.wudi.io/ingress-controller").
 	ControllerName string
 	// WatchNamespaces limits the namespaces watched (empty = all).
 	WatchNamespaces []string
@@ -80,10 +80,10 @@ type Controller struct {
 // NewController creates and configures a new ingress controller.
 func NewController(cfg ControllerConfig) (*Controller, error) {
 	if cfg.IngressClass == "" {
-		cfg.IngressClass = "gateway"
+		cfg.IngressClass = "runway"
 	}
 	if cfg.ControllerName == "" {
-		cfg.ControllerName = "apigw.dev/ingress-controller"
+		cfg.ControllerName = "runway.wudi.io/ingress-controller"
 	}
 	if cfg.DebounceDelay == 0 {
 		cfg.DebounceDelay = 100 * time.Millisecond
@@ -103,9 +103,9 @@ func NewController(cfg ControllerConfig) (*Controller, error) {
 		Metrics: metricsserver.Options{
 			BindAddress: cfg.MetricsAddr,
 		},
-		HealthProbeBindAddress:  "", // disabled; use gateway's /health and /ready
+		HealthProbeBindAddress:  "", // disabled; use runway's /health and /ready
 		LeaderElection:          true,
-		LeaderElectionID:        "apigw-ingress-controller",
+		LeaderElectionID:        "runway-ingress-controller",
 		LeaderElectionNamespace: cfg.LeaderElectionNamespace,
 		Logger:                  zap.New(),
 	}

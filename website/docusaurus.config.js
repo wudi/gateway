@@ -4,8 +4,8 @@ import {themes as prismThemes} from 'prism-react-renderer';
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'Gateway',
-  tagline: 'A high-performance API gateway and reverse proxy',
+  title: 'Runway',
+  tagline: 'A high-performance API runway and reverse proxy',
   favicon: 'img/favicon.ico',
 
   future: {
@@ -13,10 +13,10 @@ const config = {
   },
 
   url: 'https://wudi.github.io',
-  baseUrl: '/gateway/',
+  baseUrl: '/runway/',
 
   organizationName: 'wudi',
-  projectName: 'gateway',
+  projectName: 'runway',
 
   onBrokenLinks: 'throw',
 
@@ -41,7 +41,7 @@ const config = {
           path: '../docs',
           sidebarPath: './sidebars.js',
           routeBasePath: 'docs',
-          editUrl: 'https://github.com/wudi/gateway/edit/master/',
+          editUrl: 'https://github.com/wudi/runway/edit/master/',
         },
         blog: false,
         theme: {
@@ -58,7 +58,7 @@ const config = {
         respectPrefersColorScheme: true,
       },
       navbar: {
-        title: 'Gateway',
+        title: 'Runway',
         items: [
           {
             type: 'docSidebar',
@@ -67,7 +67,7 @@ const config = {
             label: 'Docs',
           },
           {
-            href: 'https://github.com/wudi/gateway',
+            href: 'https://github.com/wudi/runway',
             label: 'GitHub',
             position: 'right',
           },
@@ -94,12 +94,12 @@ const config = {
             items: [
               {
                 label: 'GitHub',
-                href: 'https://github.com/wudi/gateway',
+                href: 'https://github.com/wudi/runway',
               },
             ],
           },
         ],
-        copyright: `Copyright \u00a9 ${new Date().getFullYear()} Gateway. Built with Docusaurus.`,
+        copyright: `Copyright \u00a9 ${new Date().getFullYear()} Runway. Built with Docusaurus.`,
       },
       prism: {
         theme: prismThemes.github,

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 // Dispatcher manages webhook event delivery to configured endpoints.

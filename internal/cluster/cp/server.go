@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wudi/gateway/internal/cluster/clusterpb"
+	"github.com/wudi/runway/internal/cluster/clusterpb"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -52,7 +52,7 @@ type Server struct {
 
 	grpcServer *grpc.Server
 	address    string
-	version    string // gateway binary version for DP compatibility check
+	version    string // runway binary version for DP compatibility check
 	logger     *zap.Logger
 
 	heartbeatInterval time.Duration // expected DP heartbeat interval for stale detection

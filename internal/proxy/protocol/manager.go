@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/loadbalancer"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/loadbalancer"
 )
 
 // translatorRoute holds per-route translator state.

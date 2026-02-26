@@ -5,7 +5,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func TestDefaultBlockedRanges(t *testing.T) {

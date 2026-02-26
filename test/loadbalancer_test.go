@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/gateway"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/runway"
 )
 
 func TestLeastConnIntegration(t *testing.T) {
@@ -59,7 +59,7 @@ func TestLeastConnIntegration(t *testing.T) {
 		},
 	}}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// Send concurrent requests — least_conn should favour the fast backend
 	var wg sync.WaitGroup
@@ -132,7 +132,7 @@ func TestConsistentHashIntegration(t *testing.T) {
 		},
 	}}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// Same key should always go to the same backend
 	for i := 0; i < 10; i++ {
@@ -217,7 +217,7 @@ func TestLeastResponseTimeIntegration(t *testing.T) {
 		},
 	}}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// Sequential requests — after EWMA converges, fast backend is preferred
 	for i := 0; i < 20; i++ {
@@ -282,7 +282,7 @@ func TestLoadBalancerAdminEndpoint(t *testing.T) {
 		},
 	}
 
-	server, err := gateway.NewServer(cfg, "")
+	server, err := runway.NewServer(cfg, "")
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -360,7 +360,7 @@ admin:
   port: 18211
 `, backend.URL)
 
-	tmpFile := t.TempDir() + "/gateway.yaml"
+	tmpFile := t.TempDir() + "/runway.yaml"
 	if err := os.WriteFile(tmpFile, []byte(cfgYAML), 0644); err != nil {
 		t.Fatalf("Failed to write config: %v", err)
 	}
@@ -371,7 +371,7 @@ admin:
 		t.Fatalf("Failed to load config: %v", err)
 	}
 
-	server, err := gateway.NewServer(cfg, tmpFile)
+	server, err := runway.NewServer(cfg, tmpFile)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -496,7 +496,7 @@ admin:
   port: 18221
 `, backend.URL, backend.URL)
 
-	tmpFile := t.TempDir() + "/gateway.yaml"
+	tmpFile := t.TempDir() + "/runway.yaml"
 	if err := os.WriteFile(tmpFile, []byte(cfgYAML), 0644); err != nil {
 		t.Fatalf("Failed to write config: %v", err)
 	}
@@ -507,7 +507,7 @@ admin:
 		t.Fatalf("Failed to load config: %v", err)
 	}
 
-	server, err := gateway.NewServer(cfg, tmpFile)
+	server, err := runway.NewServer(cfg, tmpFile)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -606,7 +606,7 @@ admin:
   port: 18231
 `, backend.URL)
 
-	tmpFile := t.TempDir() + "/gateway.yaml"
+	tmpFile := t.TempDir() + "/runway.yaml"
 	if err := os.WriteFile(tmpFile, []byte(cfgYAML), 0644); err != nil {
 		t.Fatalf("Failed to write config: %v", err)
 	}
@@ -617,7 +617,7 @@ admin:
 		t.Fatalf("Failed to load config: %v", err)
 	}
 
-	server, err := gateway.NewServer(cfg, tmpFile)
+	server, err := runway.NewServer(cfg, tmpFile)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -685,7 +685,7 @@ func TestReloadNoConfigPath(t *testing.T) {
 		Backends: []config.BackendConfig{{URL: backend.URL}},
 	}}
 
-	server, err := gateway.NewServer(cfg, "")
+	server, err := runway.NewServer(cfg, "")
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}

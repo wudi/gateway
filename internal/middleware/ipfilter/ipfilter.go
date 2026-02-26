@@ -4,10 +4,10 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/errors"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/errors"
+	"github.com/wudi/runway/variables"
 )
 
 // Filter checks client IPs against allow/deny lists

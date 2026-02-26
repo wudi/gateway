@@ -8,8 +8,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/sony/gobreaker/v2"
-	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/config"
 )
 
 // BreakerInterface is implemented by both local and distributed circuit breakers.

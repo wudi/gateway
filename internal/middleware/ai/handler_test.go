@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func TestAIHandler_NonStreaming(t *testing.T) {

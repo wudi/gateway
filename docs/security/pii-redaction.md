@@ -3,7 +3,7 @@ title: "PII Redaction Middleware"
 sidebar_position: 16
 ---
 
-The PII redaction middleware detects and masks personally identifiable information (PII) in request and response bodies. It uses a combination of built-in patterns and custom regex rules to identify sensitive data and replace it with redacted placeholders, preventing accidental PII leakage through the gateway.
+The PII redaction middleware detects and masks personally identifiable information (PII) in request and response bodies. It uses a combination of built-in patterns and custom regex rules to identify sensitive data and replace it with redacted placeholders, preventing accidental PII leakage through the runway.
 
 ## How It Works
 

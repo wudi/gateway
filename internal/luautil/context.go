@@ -5,11 +5,11 @@ import (
 
 	lua "github.com/yuin/gopher-lua"
 
-	"github.com/wudi/gateway/internal/middleware/geo"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/internal/middleware/geo"
+	"github.com/wudi/runway/variables"
 )
 
-// NewContextUserData creates a Lua userdata for gateway context access.
+// NewContextUserData creates a Lua userdata for runway context access.
 func NewContextUserData(L *lua.LState, r *http.Request, varCtx *variables.Context) *lua.LUserData {
 	ud := L.NewUserData()
 	ud.Value = &ctxData{r: r, varCtx: varCtx}

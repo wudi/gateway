@@ -141,7 +141,7 @@ rules:
 | `delay` | Pause request processing for `delay` duration |
 | `set_var` | Set custom variables on the request context |
 | `cache_bypass` | Mark the request to skip cache lookup |
-| `lua` | Execute inline Lua script with full gateway context |
+| `lua` | Execute inline Lua script with full runway context |
 
 ### Response-Phase Actions
 
@@ -213,7 +213,7 @@ rules:
       body: '{"error": "service unavailable"}'
 ```
 
-**Lua** — run inline Lua with full gateway context:
+**Lua** — run inline Lua with full runway context:
 
 ```yaml
 rules:
@@ -234,11 +234,11 @@ rules:
       lua_script: |
         local body = resp:body()
         local data = json.decode(body)
-        data.gateway_processed = true
+        data.runway_processed = true
         resp:set_body(json.encode(data))
 ```
 
-The `lua` action provides access to `req`/`resp` objects, a `ctx` object for gateway context (route ID, auth claims, geo data, custom variables), and utility modules (`json`, `base64`, `url`, `re`, `log`). See the [Lua Scripting](#lua-scripting-in-rules) section below for full API details.
+The `lua` action provides access to `req`/`resp` objects, a `ctx` object for runway context (route ID, auth claims, geo data, custom variables), and utility modules (`json`, `base64`, `url`, `re`, `log`). See the [Lua Scripting](#lua-scripting-in-rules) section below for full API details.
 
 ## Per-Route Rules
 
@@ -297,7 +297,7 @@ See [Configuration Reference](configuration-reference.md#rules-global) for all f
 
 ## Lua Scripting in Rules {#lua-scripting-in-rules}
 
-The `lua` rule action executes inline Lua scripts with access to the full gateway context. Scripts are pre-compiled at config load time and run in pooled VMs.
+The `lua` rule action executes inline Lua scripts with access to the full runway context. Scripts are pre-compiled at config load time and run in pooled VMs.
 
 ### Available Globals
 

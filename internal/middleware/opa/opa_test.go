@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/variables"
 )
 
 // withVarContext attaches a variables.Context to the request so

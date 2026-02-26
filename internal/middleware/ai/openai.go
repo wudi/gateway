@@ -8,7 +8,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 const defaultOpenAIBaseURL = "https://api.openai.com"

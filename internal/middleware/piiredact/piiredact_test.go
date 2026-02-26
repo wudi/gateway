@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func TestRedact_Email(t *testing.T) {

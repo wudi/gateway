@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/wudi/gateway/internal/logging"
+	"github.com/wudi/runway/internal/logging"
 	"go.uber.org/zap"
 )
 

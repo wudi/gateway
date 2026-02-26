@@ -3,7 +3,7 @@ package tracing
 import (
 	"net/http"
 
-	"github.com/wudi/gateway/internal/middleware"
+	"github.com/wudi/runway/internal/middleware"
 	"go.opentelemetry.io/otel/trace"
 )
 

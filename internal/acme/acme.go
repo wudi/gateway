@@ -13,7 +13,7 @@ import (
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 // CertInfo holds metadata about the current TLS certificate.
@@ -46,7 +46,7 @@ func New(cfg config.ACMEConfig) (*Manager, error) {
 
 	cacheDir := cfg.CacheDir
 	if cacheDir == "" {
-		cacheDir = "/var/lib/gateway/acme"
+		cacheDir = "/var/lib/runway/acme"
 	}
 
 	directoryURL := cfg.DirectoryURL

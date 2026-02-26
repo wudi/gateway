@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/wudi/gateway/internal/byroute"
+	"github.com/wudi/runway/internal/byroute"
 )
 
 // StaticFileHandler serves static files from a directory.

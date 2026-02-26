@@ -21,8 +21,8 @@ import (
 
 	"github.com/crewjam/saml"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/variables"
 )
 
 // testSAMLFixture holds temp files for test SAML setup.
@@ -151,8 +151,8 @@ func TestSAMLAuth_Defaults(t *testing.T) {
 	if a.pathPrefix != "/saml/" {
 		t.Errorf("expected pathPrefix /saml/, got %s", a.pathPrefix)
 	}
-	if a.cookieName != "gateway_saml" {
-		t.Errorf("expected cookieName gateway_saml, got %s", a.cookieName)
+	if a.cookieName != "runway_saml" {
+		t.Errorf("expected cookieName runway_saml, got %s", a.cookieName)
 	}
 	if a.cookieMaxAge != 8*time.Hour {
 		t.Errorf("expected cookieMaxAge 8h, got %v", a.cookieMaxAge)

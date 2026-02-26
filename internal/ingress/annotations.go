@@ -5,8 +5,8 @@ import (
 	"time"
 )
 
-// Annotation prefix for gateway-specific annotations.
-const annotationPrefix = "apigw.dev/"
+// Annotation prefix for runway-specific annotations.
+const annotationPrefix = "runway.wudi.io/"
 
 // Annotation keys.
 const (

@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/tidwall/gjson"
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 // testKeyBase64 is a valid 32-byte AES-256 key.

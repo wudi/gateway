@@ -5,7 +5,7 @@ import (
 
 	networkingv1 "k8s.io/api/networking/v1"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 const (
@@ -203,7 +203,7 @@ func resolveIngressPort(port networkingv1.ServiceBackendPort) int32 {
 	return 80
 }
 
-// applyAnnotations applies gateway-specific annotations to a RouteConfig.
+// applyAnnotations applies runway-specific annotations to a RouteConfig.
 func (t *Translator) applyAnnotations(rc *config.RouteConfig, ann *AnnotationParser) {
 	if ann.Has(AnnRateLimit) {
 		rc.RateLimit.Enabled = true

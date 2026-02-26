@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/errors"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/errors"
+	"github.com/wudi/runway/variables"
 )
 
 // OAuthAuth provides OAuth 2.0 / OIDC token introspection

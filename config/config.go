@@ -26,7 +26,7 @@ type UpstreamConfig struct {
 	Transport      TransportConfig      `yaml:"transport"`
 }
 
-// Config represents the complete gateway configuration
+// Config represents the complete runway configuration
 type Config struct {
 	Listeners      []ListenerConfig              `yaml:"listeners"`
 	Registry       RegistryConfig                `yaml:"registry"`
@@ -79,7 +79,7 @@ type Config struct {
 	AuditLog               AuditLogConfig               `yaml:"audit_log"`                 // Global audit logging defaults
 	Wasm                   WasmConfig                   `yaml:"wasm"`                      // WASM plugin runtime settings
 	Tenants                TenantsConfig                `yaml:"tenants"`                   // Multi-tenancy configuration
-	CompletionHeader       bool                         `yaml:"completion_header"`         // Add X-Gateway-Completed header to aggregate/sequential responses
+	CompletionHeader       bool                         `yaml:"completion_header"`         // Add X-Runway-Completed header to aggregate/sequential responses
 	Deprecation            DeprecationConfig            `yaml:"deprecation"`               // Global API deprecation lifecycle (RFC 8594)
 	ConsumerGroups         ConsumerGroupsConfig         `yaml:"consumer_groups"`           // Consumer group definitions
 	Baggage                BaggageConfig                `yaml:"baggage"`                   // Global baggage propagation defaults
@@ -232,7 +232,7 @@ type ACMEConfig struct {
 	Domains       []string `yaml:"domains"`
 	Email         string   `yaml:"email"`
 	DirectoryURL  string   `yaml:"directory_url"`  // ACME directory (default: Let's Encrypt production)
-	CacheDir      string   `yaml:"cache_dir"`      // Certificate cache directory (default: /var/lib/gateway/acme)
+	CacheDir      string   `yaml:"cache_dir"`      // Certificate cache directory (default: /var/lib/runway/acme)
 	ChallengeType string   `yaml:"challenge_type"` // "tls-alpn-01" (default) or "http-01"
 	HTTPAddress   string   `yaml:"http_address"`   // HTTP-01 challenge bind address (default ":80")
 }
@@ -254,7 +254,7 @@ type ControlPlaneConfig struct {
 type DataPlaneConfig struct {
 	Address           string        `yaml:"address"`            // CP gRPC address e.g. "cp:9443"
 	TLS               TLSConfig     `yaml:"tls"`                // client mTLS certs
-	CacheDir          string        `yaml:"cache_dir"`          // disk cache for static stability (default "/var/lib/gateway/cluster")
+	CacheDir          string        `yaml:"cache_dir"`          // disk cache for static stability (default "/var/lib/runway/cluster")
 	RetryInterval     time.Duration `yaml:"retry_interval"`     // reconnection base interval (default 5s)
 	HeartbeatInterval time.Duration `yaml:"heartbeat_interval"` // heartbeat send interval (default 10s)
 	NodeID            string        `yaml:"node_id"`            // auto-generated UUID if empty
@@ -417,7 +417,7 @@ type LDAPTLSConfig struct {
 
 // SAMLSessionConfig defines session cookie settings for SAML SSO.
 type SAMLSessionConfig struct {
-	CookieName string        `yaml:"cookie_name"` // default "gateway_saml"
+	CookieName string        `yaml:"cookie_name"` // default "runway_saml"
 	MaxAge     time.Duration `yaml:"max_age"`     // default 8h
 	SigningKey  string       `yaml:"signing_key" redact:"true"` // HMAC key for session JWT (>= 32 bytes); supports ${ENV_VAR}
 	Domain     string        `yaml:"domain"`
@@ -557,7 +557,7 @@ type RouteConfig struct {
 	PubSub               PubSubConfig                `yaml:"pubsub"`                // Pub/Sub backend (Go CDK)
 	Tenant               RouteTenantConfig              `yaml:"tenant"`                 // Per-route tenant restrictions
 	TenantBackends       map[string][]BackendConfig    `yaml:"tenant_backends,omitempty"` // Per-tenant dedicated backends
-	CompletionHeader     bool                          `yaml:"completion_header"`      // Add X-Gateway-Completed header
+	CompletionHeader     bool                          `yaml:"completion_header"`      // Add X-Runway-Completed header
 	SessionAffinity      SessionAffinityConfig          `yaml:"session_affinity"`       // Cookie-based backend pinning
 	TrafficReplay        TrafficReplayConfig            `yaml:"traffic_replay"`         // Record and replay traffic
 	TokenExchange        TokenExchangeConfig            `yaml:"token_exchange"`         // OAuth2/OIDC token exchange (RFC 8693)
@@ -569,7 +569,7 @@ type RouteConfig struct {
 	OPA                  OPAConfig                      `yaml:"opa"`                    // Per-route OPA policy engine
 	RequestCost          RequestCostConfig              `yaml:"request_cost"`           // Per-route request cost tracking
 	Connect              ConnectConfig                  `yaml:"connect"`                // HTTP CONNECT tunneling
-	AI                   AIConfig                       `yaml:"ai"`                     // AI gateway (LLM proxy)
+	AI                   AIConfig                       `yaml:"ai"`                     // AI runway (LLM proxy)
 	Extensions           map[string]yaml.RawMessage     `yaml:"extensions,omitempty"`   // Plugin extension config (raw YAML, decoded by plugins)
 }
 
@@ -1006,7 +1006,7 @@ type ConnectConfig struct {
 	MaxTunnels     int           `yaml:"max_tunnels"`
 }
 
-// AIConfig configures the AI gateway for a route.
+// AIConfig configures the AI runway for a route.
 type AIConfig struct {
 	Enabled       bool              `yaml:"enabled"`
 	Provider      string            `yaml:"provider"`        // "openai", "anthropic", "azure_openai", "gemini"
@@ -1646,7 +1646,7 @@ type GRPCHealthConfig struct {
 // CatalogConfig defines developer portal / API catalog settings.
 type CatalogConfig struct {
 	Enabled     bool      `yaml:"enabled"`
-	Title       string    `yaml:"title"`       // Portal title (default "API Gateway")
+	Title       string    `yaml:"title"`       // Portal title (default "API Runway")
 	Description string    `yaml:"description"` // Portal description
 }
 
@@ -1909,7 +1909,7 @@ type BackendSigningConfig struct {
 	KeyID          string   `yaml:"key_id"`                    // key identifier for rotation
 	SignedHeaders  []string `yaml:"signed_headers"`            // headers to include in signature
 	IncludeBody    *bool    `yaml:"include_body"`              // default true (*bool for merge semantics)
-	HeaderPrefix   string   `yaml:"header_prefix"`             // default "X-Gateway-"
+	HeaderPrefix   string   `yaml:"header_prefix"`             // default "X-Runway-"
 	PrivateKey     string   `yaml:"private_key" redact:"true"` // PEM-encoded RSA private key (for RSA algos)
 	PrivateKeyFile string   `yaml:"private_key_file"`          // path to PEM-encoded RSA private key file
 }
@@ -1933,7 +1933,7 @@ type InboundSigningConfig struct {
 	KeyID         string        `yaml:"key_id"`               // expected key identifier
 	SignedHeaders []string      `yaml:"signed_headers"`  // headers to include in verification
 	IncludeBody   *bool         `yaml:"include_body"`    // default true
-	HeaderPrefix  string        `yaml:"header_prefix"`   // default "X-Gateway-"
+	HeaderPrefix  string        `yaml:"header_prefix"`   // default "X-Runway-"
 	MaxAge        time.Duration `yaml:"max_age"`         // max age of timestamp (default 5m)
 	ShadowMode    bool          `yaml:"shadow_mode"`     // log but don't reject
 	PublicKey     string        `yaml:"public_key"`      // PEM-encoded RSA public key (for RSA algos)
@@ -2011,7 +2011,7 @@ type TransportConfig struct {
 	EnableHTTP3           *bool         `yaml:"enable_http3"` // connect via QUIC to upstream
 }
 
-// ServiceRateLimitConfig defines global gateway-wide throughput cap.
+// ServiceRateLimitConfig defines global runway-wide throughput cap.
 type ServiceRateLimitConfig struct {
 	Enabled bool          `yaml:"enabled"`
 	Rate    int           `yaml:"rate"`   // requests per period

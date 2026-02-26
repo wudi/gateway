@@ -5,8 +5,8 @@ import (
 	"encoding/hex"
 	"net/http"
 
-	"github.com/wudi/gateway/internal/middleware"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/internal/middleware"
+	"github.com/wudi/runway/variables"
 )
 
 // Middleware returns a middleware that extracts client certificate info

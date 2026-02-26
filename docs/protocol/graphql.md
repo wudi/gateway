@@ -3,7 +3,7 @@ title: "GraphQL Protection"
 sidebar_position: 2
 ---
 
-The gateway can analyze GraphQL queries in transit to enforce depth limits, complexity limits, introspection control, and per-operation-type rate limits. This protects GraphQL backends from abusive or excessively expensive queries.
+The runway can analyze GraphQL queries in transit to enforce depth limits, complexity limits, introspection control, and per-operation-type rate limits. This protects GraphQL backends from abusive or excessively expensive queries.
 
 ## Enabling GraphQL Analysis
 
@@ -91,11 +91,11 @@ graphql:
 
 ### How it works
 
-1. **First request (register):** Client sends both the query and its SHA-256 hash in the `extensions` field. The gateway verifies the hash matches, stores it in the LRU cache, and forwards the request.
+1. **First request (register):** Client sends both the query and its SHA-256 hash in the `extensions` field. The runway verifies the hash matches, stores it in the LRU cache, and forwards the request.
 
-2. **Subsequent requests (lookup):** Client sends only the hash (no query). The gateway looks up the hash in the cache, substitutes the full query, and forwards it to the backend.
+2. **Subsequent requests (lookup):** Client sends only the hash (no query). The runway looks up the hash in the cache, substitutes the full query, and forwards it to the backend.
 
-3. **Cache miss:** If the hash is not found, the gateway returns a `PersistedQueryNotFound` error (HTTP 200, per Apollo protocol). The client should retry with the full query + hash.
+3. **Cache miss:** If the hash is not found, the runway returns a `PersistedQueryNotFound` error (HTTP 200, per Apollo protocol). The client should retry with the full query + hash.
 
 ### Request format
 
@@ -112,12 +112,12 @@ graphql:
 
 ### Security
 
-- The gateway verifies that the SHA-256 hash matches the query text before storing, preventing cache poisoning.
+- the runway verifies that the SHA-256 hash matches the query text before storing, preventing cache poisoning.
 - The LRU cache evicts least recently used queries when full.
 
 ## Query Batching
 
-GraphQL clients (Apollo, Relay, urql) can batch multiple operations into a single HTTP request by sending a JSON array instead of a single object. The gateway detects batched requests and validates each query individually.
+GraphQL clients (Apollo, Relay, urql) can batch multiple operations into a single HTTP request by sending a JSON array instead of a single object. The runway detects batched requests and validates each query individually.
 
 ```yaml
 graphql:
@@ -130,7 +130,7 @@ graphql:
 
 ### Batch detection
 
-A request body starting with `[` is treated as a batch. Each element must be a standard GraphQL request object (`{query, variables, operationName, extensions}`). If batching is not enabled and an array is received, the gateway returns a 400 error.
+A request body starting with `[` is treated as a batch. Each element must be a standard GraphQL request object (`{query, variables, operationName, extensions}`). If batching is not enabled and an array is received, the runway returns a 400 error.
 
 ### Per-query validation
 
@@ -140,9 +140,9 @@ APQ (Automatic Persisted Queries) resolution also works per-query within a batch
 
 ### Execution modes
 
-**Pass-through mode** (`mode: "pass_through"`, default): The gateway validates all queries, resolves any APQ hashes, then forwards the entire JSON array to the backend. Use this when the backend natively supports batch requests.
+**Pass-through mode** (`mode: "pass_through"`, default): The runway validates all queries, resolves any APQ hashes, then forwards the entire JSON array to the backend. Use this when the backend natively supports batch requests.
 
-**Split mode** (`mode: "split"`): The gateway fans out each query as an individual HTTP request through the full downstream middleware chain (cache, circuit breaker, etc.), then merges the responses into a JSON array. Use this when the backend only handles single queries, or when you want each query to benefit from per-query caching and circuit breaking.
+**Split mode** (`mode: "split"`): The runway fans out each query as an individual HTTP request through the full downstream middleware chain (cache, circuit breaker, etc.), then merges the responses into a JSON array. Use this when the backend only handles single queries, or when you want each query to benefit from per-query caching and circuit breaking.
 
 ### Empty batches
 

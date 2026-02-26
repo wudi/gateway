@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/quic-go/quic-go/http3"
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func TestNewTransportDefault(t *testing.T) {

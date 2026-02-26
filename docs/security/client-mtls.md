@@ -24,8 +24,8 @@ listeners:
     address: ":8443"
     protocol: http
     tls:
-      cert_file: /etc/gateway/server.crt
-      key_file: /etc/gateway/server.key
+      cert_file: /etc/runway/server.crt
+      key_file: /etc/runway/server.key
       client_auth: "request"       # ask for certs, don't verify at TLS level
       client_ca_file: ""           # no listener-level CA verification
 ```
@@ -45,10 +45,10 @@ routes:
     client_mtls:
       enabled: true
       client_auth: "verify"              # default: verify cert against CA pool
-      client_ca_file: /etc/gateway/payment-ca.pem
+      client_ca_file: /etc/runway/payment-ca.pem
       # client_cas:                      # multiple CA files
-      #   - /etc/gateway/ca1.pem
-      #   - /etc/gateway/ca2.pem
+      #   - /etc/runway/ca1.pem
+      #   - /etc/runway/ca2.pem
       # allow_expired: false             # skip expiry check (testing only)
 
   - id: internal
@@ -57,7 +57,7 @@ routes:
       - url: https://internal.svc:443
     client_mtls:
       enabled: true
-      client_ca_file: /etc/gateway/internal-ca.pem
+      client_ca_file: /etc/runway/internal-ca.pem
 
   - id: public
     path: /public
@@ -72,7 +72,7 @@ routes:
 client_mtls:
   enabled: true
   client_auth: "verify"
-  client_ca_file: /etc/gateway/default-ca.pem
+  client_ca_file: /etc/runway/default-ca.pem
 ```
 
 When set globally, all routes inherit the client mTLS configuration. Per-route settings override global settings.

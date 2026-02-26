@@ -6,7 +6,7 @@ import (
 
 	athrift "github.com/apache/thrift/lib/go/thrift"
 	"github.com/cloudwego/thriftgo/parser"
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 // testInlineConfig returns a ThriftTranslateConfig with inline schema that

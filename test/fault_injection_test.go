@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func TestFaultInjectionAbort(t *testing.T) {
@@ -40,7 +40,7 @@ func TestFaultInjectionAbort(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	resp, err := http.Get(ts.URL + "/abort")
 	if err != nil {
@@ -79,7 +79,7 @@ func TestFaultInjectionDelay(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	start := time.Now()
 	resp, err := http.Get(ts.URL + "/delay")
@@ -126,7 +126,7 @@ func TestFaultInjectionNoEffect(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	resp, err := http.Get(ts.URL + "/none")
 	if err != nil {
@@ -165,7 +165,7 @@ func TestFaultInjectionGlobalMerge(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	resp, err := http.Get(ts.URL + "/global")
 	if err != nil {
@@ -204,7 +204,7 @@ func TestFaultInjectionAdminStats(t *testing.T) {
 		},
 	}
 
-	gw, ts := newTestGateway(t, cfg)
+	gw, ts := newTestRunway(t, cfg)
 
 	// Make a request to trigger the fault injector
 	resp, _ := http.Get(ts.URL + "/stats")

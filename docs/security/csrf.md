@@ -3,14 +3,14 @@ title: "CSRF Protection"
 sidebar_position: 6
 ---
 
-The gateway provides stateless CSRF (Cross-Site Request Forgery) protection using the double-submit cookie pattern with HMAC-signed tokens, plus optional Origin/Referer validation for defense in depth.
+The runway provides stateless CSRF (Cross-Site Request Forgery) protection using the double-submit cookie pattern with HMAC-signed tokens, plus optional Origin/Referer validation for defense in depth.
 
 ## How It Works
 
-1. **Safe methods** (GET, HEAD, OPTIONS, TRACE by default): The gateway sets a `_csrf` cookie containing an HMAC-signed, timestamped token.
-2. **State-changing methods** (POST, PUT, DELETE, PATCH): The client must send the token value in both the cookie and a request header (`X-CSRF-Token`). The gateway verifies that:
+1. **Safe methods** (GET, HEAD, OPTIONS, TRACE by default): The runway sets a `_csrf` cookie containing an HMAC-signed, timestamped token.
+2. **State-changing methods** (POST, PUT, DELETE, PATCH): The client must send the token value in both the cookie and a request header (`X-CSRF-Token`). The runway verifies that:
    - Both cookie and header are present and match
-   - The token has a valid HMAC signature (proving it was issued by the gateway)
+   - The token has a valid HMAC signature (proving it was issued by the runway)
    - The token has not expired (based on `token_ttl`)
 3. **Origin validation** (optional): If `allowed_origins` or `allowed_origin_patterns` are configured, the `Origin` header (or `Referer` fallback) must match.
 
@@ -63,8 +63,8 @@ Per-route config is merged with the global `csrf:` block. Per-route non-zero fie
 
 ## Token Lifecycle
 
-1. Client sends `GET /page` to the gateway
-2. Gateway sets `Set-Cookie: _csrf=<token>; Path=/; SameSite=Lax; Secure`
+1. Client sends `GET /page` to the runway
+2. Runway sets `Set-Cookie: _csrf=<token>; Path=/; SameSite=Lax; Secure`
 3. Client-side JavaScript reads the cookie and includes it in subsequent requests:
    ```javascript
    const token = document.cookie.match(/(?:^|;\s*)_csrf=([^;]*)/)?.[1];
@@ -78,11 +78,11 @@ Per-route config is merged with the global `csrf:` block. Per-route non-zero fie
      body: JSON.stringify(data)
    });
    ```
-4. Gateway validates: cookie == header, valid HMAC, not expired
+4. Runway validates: cookie == header, valid HMAC, not expired
 
 ## Origin Validation
 
-When `allowed_origins` or `allowed_origin_patterns` are configured, the gateway checks the `Origin` header on state-changing requests. If `Origin` is absent, it falls back to the `Referer` header's scheme+host. If neither is present, the request is rejected.
+When `allowed_origins` or `allowed_origin_patterns` are configured, the runway checks the `Origin` header on state-changing requests. If `Origin` is absent, it falls back to the `Referer` header's scheme+host. If neither is present, the request is rejected.
 
 This provides defense in depth — even if an attacker manages to obtain a valid token, the origin check prevents cross-site submission.
 
@@ -169,5 +169,5 @@ curl http://localhost:8081/csrf
 - Set `cookie_secure: true` in production to prevent cookie transmission over HTTP.
 - Set `cookie_samesite: "lax"` (default) or `"strict"` to prevent most cross-site cookie sending.
 - Keep `cookie_http_only: false` so client-side JavaScript can read the cookie value and send it as a header. The HMAC signature prevents forgery even if the cookie is readable.
-- The token's HMAC proves it was issued by the gateway. An attacker cannot forge tokens without the secret.
+- The token's HMAC proves it was issued by the runway. An attacker cannot forge tokens without the secret.
 - Origin validation provides an additional layer — even with a stolen token, the browser will send the real origin.

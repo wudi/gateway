@@ -1,18 +1,18 @@
 services:
   # Gateway built from project root
-  gateway:
+  runway:
     build:
       context: ..
       args:
         VERSION: ${VERSION:-dev}
         BUILD_TIME: ${BUILD_TIME:-}
-    image: ghcr.io/wudi/gateway:${VERSION:-dev}
+    image: ghcr.io/wudi/runway:${VERSION:-dev}
     ports:
       - "8080:8080"
       - "8081:8081"
       - "8082:8082"
     volumes:
-      - ./configs/gateway-perf.yaml:/app/configs/gateway.yaml:ro
+      - ./configs/runway-perf.yaml:/app/configs/runway.yaml:ro
     depends_on:
       perf-backend1:
         condition: service_healthy

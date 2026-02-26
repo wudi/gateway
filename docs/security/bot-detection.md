@@ -3,7 +3,7 @@ title: "Bot Detection"
 sidebar_position: 9
 ---
 
-The gateway provides regex-based User-Agent blocking to reject requests from known bots, scrapers, and crawlers.
+The runway provides regex-based User-Agent blocking to reject requests from known bots, scrapers, and crawlers.
 
 ## Configuration
 

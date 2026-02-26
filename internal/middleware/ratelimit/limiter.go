@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wudi/gateway/internal/errors"
-	"github.com/wudi/gateway/internal/middleware"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/internal/errors"
+	"github.com/wudi/runway/internal/middleware"
+	"github.com/wudi/runway/variables"
 )
 
 // TokenBucket implements token bucket rate limiting

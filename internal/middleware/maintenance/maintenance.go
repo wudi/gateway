@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/config"
 )
 
 // CompiledMaintenance holds pre-compiled maintenance mode state for a route.

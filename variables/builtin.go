@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wudi/gateway/internal/middleware/realip"
+	"github.com/wudi/runway/internal/middleware/realip"
 )
 
 // BuiltinVariables provides all built-in variable implementations

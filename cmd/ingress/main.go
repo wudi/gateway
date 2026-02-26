@@ -10,17 +10,17 @@ import (
 	"syscall"
 	"time"
 
-	gw "github.com/wudi/gateway/gateway"
-	"github.com/wudi/gateway/internal/ingress"
-	"github.com/wudi/gateway/internal/logging"
+	gw "github.com/wudi/runway/runway"
+	"github.com/wudi/runway/internal/ingress"
+	"github.com/wudi/runway/internal/logging"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
 	// Protocol translators (auto-register)
-	_ "github.com/wudi/gateway/internal/proxy/protocol/grpc"
-	_ "github.com/wudi/gateway/internal/proxy/protocol/grpcweb"
-	_ "github.com/wudi/gateway/internal/proxy/protocol/rest"
-	_ "github.com/wudi/gateway/internal/proxy/protocol/thrift"
+	_ "github.com/wudi/runway/internal/proxy/protocol/grpc"
+	_ "github.com/wudi/runway/internal/proxy/protocol/grpcweb"
+	_ "github.com/wudi/runway/internal/proxy/protocol/rest"
+	_ "github.com/wudi/runway/internal/proxy/protocol/thrift"
 )
 
 var (
@@ -31,11 +31,11 @@ var (
 func main() {
 	// Flags
 	showVersion := flag.Bool("version", false, "Show version information")
-	ingressClass := flag.String("ingress-class", "gateway", "IngressClass name to watch")
-	controllerName := flag.String("controller-name", "apigw.dev/ingress-controller", "Controller name for GatewayClass")
+	ingressClass := flag.String("ingress-class", "runway", "IngressClass name to watch")
+	controllerName := flag.String("controller-name", "runway.wudi.io/ingress-controller", "Controller name for GatewayClass")
 	watchNamespaces := flag.String("watch-namespaces", "", "Comma-separated namespaces to watch (empty = all)")
 	watchWithoutClass := flag.Bool("watch-ingress-without-class", false, "Claim Ingress resources without an ingress class")
-	publishService := flag.String("publish-service", "", "Service namespace/name for status IP (e.g. gateway-system/gateway)")
+	publishService := flag.String("publish-service", "", "Service namespace/name for status IP (e.g. runway-system/runway)")
 	publishAddress := flag.String("publish-status-address", "", "Explicit IP/hostname for Ingress status")
 	httpPort := flag.Int("http-port", 8080, "HTTP listener port")
 	httpsPort := flag.Int("https-port", 8443, "HTTPS listener port")
@@ -49,7 +49,7 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Printf("Gateway Ingress Controller %s (built %s)\n", version, buildTime)
+		fmt.Printf("Runway Ingress Controller %s (built %s)\n", version, buildTime)
 		os.Exit(0)
 	}
 
@@ -65,7 +65,7 @@ func main() {
 	}
 	logging.SetGlobal(logger)
 
-	logging.Info("Starting Gateway Ingress Controller",
+	logging.Info("Starting Runway Ingress Controller",
 		zap.String("version", version),
 		zap.String("ingress-class", *ingressClass),
 		zap.String("controller-name", *controllerName),
@@ -81,15 +81,15 @@ func main() {
 		}
 	}
 
-	// Build a minimal gateway config for initial startup
+	// Build a minimal runway config for initial startup
 	startupCfg := buildStartupConfig(baseCfg, *httpPort, *adminPort)
 
-	// Build the gateway server
+	// Build the runway server
 	server, err := gw.New(startupCfg).
 		WithDefaults().
 		Build()
 	if err != nil {
-		logging.Error("Failed to create gateway server", zap.Error(err))
+		logging.Error("Failed to create runway server", zap.Error(err))
 		os.Exit(1)
 	}
 
@@ -140,19 +140,19 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 
-	// Run both the gateway server and the controller-runtime manager
+	// Run both the runway server and the controller-runtime manager
 	g, gctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		logging.Info("Starting gateway server",
+		logging.Info("Starting runway server",
 			zap.Int("http-port", *httpPort),
 			zap.Int("admin-port", *adminPort),
 		)
 		if err := server.Start(); err != nil {
-			return fmt.Errorf("gateway server: %w", err)
+			return fmt.Errorf("runway server: %w", err)
 		}
 		<-gctx.Done()
-		logging.Info("Shutting down gateway server")
+		logging.Info("Shutting down runway server")
 		return server.Shutdown(30 * time.Second)
 	})
 
@@ -166,10 +166,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	logging.Info("Gateway Ingress Controller stopped")
+	logging.Info("Runway Ingress Controller stopped")
 }
 
-// buildStartupConfig creates a minimal config for initial gateway startup
+// buildStartupConfig creates a minimal config for initial runway startup
 // before any K8s resources are discovered.
 func buildStartupConfig(baseCfg *gw.Config, httpPort, adminPort int) *gw.Config {
 	if baseCfg != nil {

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 // HedgingExecutor sends speculative duplicate requests to reduce tail latency.

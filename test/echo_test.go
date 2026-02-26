@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func TestEchoRouteIntegration(t *testing.T) {
@@ -22,7 +22,7 @@ func TestEchoRouteIntegration(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	t.Run("GET echo", func(t *testing.T) {
 		resp, err := http.Get(ts.URL + "/echo?key=value")

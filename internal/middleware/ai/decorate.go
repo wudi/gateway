@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/middleware"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // PromptDecorator prepends/appends messages to chat requests.

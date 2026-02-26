@@ -3,13 +3,13 @@ title: "Security"
 sidebar_position: 1
 ---
 
-The gateway provides trusted proxy handling, IP filtering, geo filtering, CORS handling, a web application firewall (WAF), request body size limits, replay prevention, CSRF protection, backend request signing, security response headers, and custom DNS resolution for defense-in-depth security.
+The runway provides trusted proxy handling, IP filtering, geo filtering, CORS handling, a web application firewall (WAF), request body size limits, replay prevention, CSRF protection, backend request signing, security response headers, and custom DNS resolution for defense-in-depth security.
 
 ## Trusted Proxies
 
-When the gateway runs behind a load balancer, CDN, or reverse proxy, the real client IP is in the `X-Forwarded-For` or `X-Real-IP` headers — not in the TCP connection address. Without trusted proxy configuration, any client can spoof these headers and bypass IP-based security features (rate limiting, IP filtering, geo filtering).
+When the runway runs behind a load balancer, CDN, or reverse proxy, the real client IP is in the `X-Forwarded-For` or `X-Real-IP` headers — not in the TCP connection address. Without trusted proxy configuration, any client can spoof these headers and bypass IP-based security features (rate limiting, IP filtering, geo filtering).
 
-Configure `trusted_proxies` to tell the gateway which upstream proxies to trust. The gateway walks the `X-Forwarded-For` chain from right to left, skipping trusted proxy IPs, and uses the first untrusted IP as the real client IP.
+Configure `trusted_proxies` to tell the runway which upstream proxies to trust. The runway walks the `X-Forwarded-For` chain from right to left, skipping trusted proxy IPs, and uses the first untrusted IP as the real client IP.
 
 ```yaml
 trusted_proxies:
@@ -26,8 +26,8 @@ trusted_proxies:
 
 ### How It Works
 
-1. **Check RemoteAddr** — If the direct TCP connection source does not match any trusted CIDR, the gateway uses `RemoteAddr` as the client IP (ignoring all headers). This prevents spoofing from untrusted sources.
-2. **Walk XFF chain** — If `RemoteAddr` is trusted, the gateway reads the configured headers (default: `X-Forwarded-For`, then `X-Real-IP`) and walks the `X-Forwarded-For` chain from right to left, skipping IPs that match trusted CIDRs.
+1. **Check RemoteAddr** — If the direct TCP connection source does not match any trusted CIDR, the runway uses `RemoteAddr` as the client IP (ignoring all headers). This prevents spoofing from untrusted sources.
+2. **Walk XFF chain** — If `RemoteAddr` is trusted, the runway reads the configured headers (default: `X-Forwarded-For`, then `X-Real-IP`) and walks the `X-Forwarded-For` chain from right to left, skipping IPs that match trusted CIDRs.
 3. **Return first untrusted IP** — The first IP in the chain that does NOT match a trusted CIDR is the real client IP.
 
 ### Security Impact
@@ -42,7 +42,7 @@ All IP-based features automatically use the extracted real IP:
 
 ### Without Trusted Proxies
 
-When `trusted_proxies` is not configured, the gateway uses legacy behavior: it trusts the first entry in `X-Forwarded-For` unconditionally. This is acceptable when the gateway is the internet-facing edge (no upstream proxies), but is **insecure** when behind a load balancer because clients can spoof the header.
+When `trusted_proxies` is not configured, the runway uses legacy behavior: it trusts the first entry in `X-Forwarded-For` unconditionally. This is acceptable when the runway is the internet-facing edge (no upstream proxies), but is **insecure** when behind a load balancer because clients can spoof the header.
 
 ### Validation
 
@@ -87,7 +87,7 @@ Block or allow requests based on the client's geographic location using MaxMind 
 # Global geo config
 geo:
   enabled: true
-  database: "/etc/gateway/GeoLite2-City.mmdb"
+  database: "/etc/runway/GeoLite2-City.mmdb"
   inject_headers: true       # inject X-Geo-Country / X-Geo-City
   deny_countries:
     - "CN"
@@ -126,7 +126,7 @@ Use `shadow_mode: true` to log geo decisions without rejecting traffic — usefu
 ```yaml
 geo:
   enabled: true
-  database: "/etc/gateway/GeoLite2-City.mmdb"
+  database: "/etc/runway/GeoLite2-City.mmdb"
   deny_countries: ["CN"]
   shadow_mode: true
 ```
@@ -181,7 +181,7 @@ waf:
   sql_injection: true     # built-in SQLi protection
   xss: true               # built-in XSS protection
   rule_files:
-    - "/etc/gateway/waf/custom-rules.conf"
+    - "/etc/runway/waf/custom-rules.conf"
   inline_rules:
     - 'SecRule REQUEST_URI "@contains /admin" "id:1001,phase:1,deny,status:403"'
 
@@ -233,7 +233,7 @@ All backend connections use the custom resolver when configured.
 
 ## Replay Prevention
 
-Prevent request replay attacks using nonce-based deduplication. Clients include a unique value in the `X-Nonce` header (configurable), and the gateway rejects duplicate nonces within a TTL window.
+Prevent request replay attacks using nonce-based deduplication. Clients include a unique value in the `X-Nonce` header (configurable), and the runway rejects duplicate nonces within a TTL window.
 
 ```yaml
 nonce:
@@ -299,16 +299,16 @@ Optional Origin/Referer validation and shadow mode for gradual rollout. See [CSR
 
 ## Upstream mTLS (Client Certificates)
 
-The gateway can present client certificates when connecting to backends that require mutual TLS authentication. This is common for internal microservices, payment APIs, and partner integrations.
+The runway can present client certificates when connecting to backends that require mutual TLS authentication. This is common for internal microservices, payment APIs, and partner integrations.
 
 Configure client certificates globally or per-upstream via the `transport` block:
 
 ```yaml
 # Global — all upstreams present this client cert
 transport:
-  ca_file: /etc/gateway/internal-ca.pem
-  cert_file: /etc/gateway/client.crt
-  key_file: /etc/gateway/client.key
+  ca_file: /etc/runway/internal-ca.pem
+  cert_file: /etc/runway/client.crt
+  key_file: /etc/runway/client.key
 
 # Per-upstream — specific cert for a single upstream
 upstreams:
@@ -316,9 +316,9 @@ upstreams:
     backends:
       - url: https://payments.internal:443
     transport:
-      cert_file: /etc/gateway/payment-client.crt
-      key_file: /etc/gateway/payment-client.key
-      ca_file: /etc/gateway/payment-ca.pem
+      cert_file: /etc/runway/payment-client.crt
+      key_file: /etc/runway/payment-client.key
+      ca_file: /etc/runway/payment-ca.pem
 ```
 
 Both `cert_file` and `key_file` must be specified together. Per-upstream settings override global settings. See [Transport](../resilience/transport.md) for details.
@@ -337,8 +337,8 @@ listeners:
     address: ":8443"
     protocol: http
     tls:
-      cert_file: /etc/gateway/server.crt
-      key_file: /etc/gateway/server.key
+      cert_file: /etc/runway/server.crt
+      key_file: /etc/runway/server.key
       client_auth: "request"
 ```
 
@@ -352,7 +352,7 @@ routes:
       - url: https://payments.internal:443
     client_mtls:
       enabled: true
-      client_ca_file: /etc/gateway/payment-ca.pem
+      client_ca_file: /etc/runway/payment-ca.pem
 
   - id: internal
     path: /internal
@@ -361,8 +361,8 @@ routes:
     client_mtls:
       enabled: true
       client_cas:
-        - /etc/gateway/internal-ca1.pem
-        - /etc/gateway/internal-ca2.pem
+        - /etc/runway/internal-ca1.pem
+        - /etc/runway/internal-ca2.pem
 ```
 
 Routes without `client_mtls` remain accessible without a client certificate.
@@ -375,11 +375,11 @@ See [Client mTLS](client-mtls.md) for full configuration reference and admin end
 
 ## Backend Request Signing
 
-The gateway can sign every outgoing request so backends can verify that requests actually came through the gateway and weren't tampered with. This prevents "backend bypass" attacks where clients send requests directly to backend services. Both HMAC and RSA algorithms are supported.
+The runway can sign every outgoing request so backends can verify that requests actually came through the runway and weren't tampered with. This prevents "backend bypass" attacks where clients send requests directly to backend services. Both HMAC and RSA algorithms are supported.
 
 ### How It Works
 
-1. The gateway reads the request body (for POST/PUT/PATCH/DELETE) and computes its SHA-256 hash
+1. The runway reads the request body (for POST/PUT/PATCH/DELETE) and computes its SHA-256 hash
 2. A signing string is built from the method, path+query, timestamp, body hash, and any configured signed headers
 3. An HMAC is computed over the signing string using the configured algorithm and shared secret
 4. Four headers are injected into the outgoing request
@@ -401,12 +401,12 @@ host:api.example.com
 
 | Header | Example | Description |
 |--------|---------|-------------|
-| `X-Gateway-Signature` | `hmac-sha256=a1b2c3...` | Signature hex digest with algorithm prefix |
-| `X-Gateway-Timestamp` | `1707654321` | Unix seconds when signature was created |
-| `X-Gateway-Key-ID` | `gateway-key-1` | Key identifier for rotation |
-| `X-Gateway-Signed-Headers` | `content-type;host` | Semicolon-separated list of signed headers |
+| `X-Runway-Signature` | `hmac-sha256=a1b2c3...` | Signature hex digest with algorithm prefix |
+| `X-Runway-Timestamp` | `1707654321` | Unix seconds when signature was created |
+| `X-Runway-Key-ID` | `runway-key-1` | Key identifier for rotation |
+| `X-Runway-Signed-Headers` | `content-type;host` | Semicolon-separated list of signed headers |
 
-The header prefix is configurable via `header_prefix` (default `X-Gateway-`).
+The header prefix is configurable via `header_prefix` (default `X-Runway-`).
 
 ### Configuration
 
@@ -416,19 +416,19 @@ backend_signing:
   enabled: true
   algorithm: "hmac-sha256"       # hmac-sha256, hmac-sha512, rsa-sha256, rsa-sha512, rsa-pss-sha256
   secret: "base64-encoded-secret-at-least-32-bytes"
-  key_id: "gateway-key-1"
+  key_id: "runway-key-1"
   signed_headers:                # optional: headers to include
     - "Content-Type"
     - "Host"
   include_body: true             # default true
-  header_prefix: "X-Gateway-"   # default "X-Gateway-"
+  header_prefix: "X-Runway-"   # default "X-Runway-"
 
 # RSA signing (asymmetric — backends verify with public key)
 backend_signing:
   enabled: true
   algorithm: "rsa-sha256"
-  private_key_file: /etc/gateway/signing-key.pem  # or inline via private_key:
-  key_id: "gateway-rsa-1"
+  private_key_file: /etc/runway/signing-key.pem  # or inline via private_key:
+  key_id: "runway-rsa-1"
 
 # Per-route override
 routes:
@@ -444,15 +444,15 @@ routes:
 
 ### Key Rotation
 
-Use `key_id` to support key rotation. Deploy the new key to backends first, then update the gateway config. Backends should accept signatures from any known key ID during the transition period.
+Use `key_id` to support key rotation. Deploy the new key to backends first, then update the runway config. Backends should accept signatures from any known key ID during the transition period.
 
 ### Backend Verification Pseudocode
 
 ```python
 def verify_request(request, secrets):
-    key_id = request.headers["X-Gateway-Key-ID"]
+    key_id = request.headers["X-Runway-Key-ID"]
     secret = secrets[key_id]
-    timestamp = request.headers["X-Gateway-Timestamp"]
+    timestamp = request.headers["X-Runway-Timestamp"]
 
     # Reject stale signatures (e.g., > 5 minutes)
     if abs(time.now() - int(timestamp)) > 300:
@@ -462,13 +462,13 @@ def verify_request(request, secrets):
     body_hash = sha256(request.body).hex()
     signing_str = f"{request.method}\n{request.path_and_query}\n{timestamp}\n{body_hash}"
 
-    signed_headers = request.headers["X-Gateway-Signed-Headers"]
+    signed_headers = request.headers["X-Runway-Signed-Headers"]
     if signed_headers:
         for header in signed_headers.split(";"):
             signing_str += f"\n{header.lower()}:{request.headers[header]}"
 
     # Verify HMAC
-    algo, sig = request.headers["X-Gateway-Signature"].split("=", 1)
+    algo, sig = request.headers["X-Runway-Signature"].split("=", 1)
     expected = hmac(secret, signing_str, algorithm=algo).hex()
     return constant_time_compare(sig, expected)
 ```
@@ -547,7 +547,7 @@ The middleware checks both `r.TLS` and the `X-Forwarded-Proto` header, so it wor
 
 Admin endpoint: `GET /https-redirect` returns redirect statistics.
 
-**Note:** HTTPS redirect is part of the global handler chain, which is not rebuilt on config reload. Changes to `https_redirect` require a gateway restart.
+**Note:** HTTPS redirect is part of the global handler chain, which is not rebuilt on config reload. Changes to `https_redirect` require a runway restart.
 
 ## Allowed Hosts
 
@@ -588,7 +588,7 @@ inbound_signing:
 inbound_signing:
   enabled: true
   algorithm: rsa-sha256
-  public_key_file: /etc/gateway/client-public.pem  # or inline via public_key:
+  public_key_file: /etc/runway/client-public.pem  # or inline via public_key:
   max_age: 5m
 ```
 

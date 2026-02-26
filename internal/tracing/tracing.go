@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/middleware"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/middleware"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -38,7 +38,7 @@ func New(cfg config.TracingConfig) (*Tracer, error) {
 
 	serviceName := cfg.ServiceName
 	if serviceName == "" {
-		serviceName = "api-gateway"
+		serviceName = "api-runway"
 	}
 	sampleRate := cfg.SampleRate
 	if sampleRate <= 0 {
@@ -87,7 +87,7 @@ func New(cfg config.TracingConfig) (*Tracer, error) {
 	)
 	otel.SetTextMapPropagator(t.propagator)
 
-	t.tracer = t.provider.Tracer("gateway")
+	t.tracer = t.provider.Tracer("runway")
 
 	return t, nil
 }

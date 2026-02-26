@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func TestNewDiffConfig(t *testing.T) {

@@ -26,7 +26,7 @@ Given a backend response:
 {"status": "ok", "data": {"users": [{"id": 1}, {"id": 2}]}}
 ```
 
-The gateway returns:
+The runway returns:
 ```json
 [{"id": 1}, {"id": 2}]
 ```

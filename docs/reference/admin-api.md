@@ -21,7 +21,7 @@ admin:
 
 ### GET `/health` (alias: `/healthz`)
 
-Returns gateway health status with dependency checks.
+Returns runway health status with dependency checks.
 
 ```bash
 curl http://localhost:8081/health
@@ -96,7 +96,7 @@ All feature endpoints return JSON with per-route status and metrics.
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /stats` | Overall gateway statistics (route/backend/listener counts) |
+| `GET /stats` | Overall runway statistics (route/backend/listener counts) |
 | `GET /listeners` | Active listeners with protocol, address, HTTP/3 status, and `acme` boolean indicating ACME certificate management |
 | `GET /certificates` | Per-listener TLS certificate status (mode `acme` or `manual`, domains, expiry, issuer) |
 | `GET /routes` | All routes with matchers (path, methods, domains, headers, query). Echo routes include `"echo": true`. |
@@ -656,8 +656,8 @@ curl http://localhost:8081/signing
   "payments": {
     "route_id": "payments",
     "algorithm": "hmac-sha256",
-    "key_id": "gateway-key-1",
-    "header_prefix": "X-Gateway-",
+    "key_id": "runway-key-1",
+    "header_prefix": "X-Runway-",
     "include_body": true,
     "total_requests": 5000,
     "signed": 5000,
@@ -1475,7 +1475,7 @@ Returns per-route inbound signature verification status.
     "route_id": "api-route",
     "algorithm": "hmac-sha256",
     "key_id": "key-1",
-    "header_prefix": "X-Gateway-",
+    "header_prefix": "X-Runway-",
     "include_body": true,
     "max_age": "5m0s",
     "shadow_mode": false,
@@ -1956,7 +1956,7 @@ curl http://localhost:8081/catalog
 **Response:**
 ```json
 {
-  "title": "API Gateway",
+  "title": "API Runway",
   "stats": {
     "total_routes": 3,
     "total_specs": 1,
@@ -2482,11 +2482,11 @@ See [Configuration Reference](configuration-reference.md#admin) for all fields.
 
 ---
 
-## AI Gateway
+## AI Runway
 
 ### `GET /admin/ai`
 
-Returns per-route AI gateway statistics.
+Returns per-route AI runway statistics.
 
 **Response:**
 
@@ -2508,7 +2508,7 @@ Returns per-route AI gateway statistics.
 
 Compute average latency as `latency_sum_ms / total_requests`.
 
-See [AI Gateway](../ai-gateway/ai-gateway.md) for full documentation.
+See [AI Runway](../ai-runway/ai-runway.md) for full documentation.
 
 ---
 
@@ -2538,7 +2538,7 @@ curl http://localhost:8081/cluster/nodes
     "last_heartbeat": "2026-02-25T10:30:05Z",
     "status": "connected",
     "node_status": {
-      "gateway_version": "1.4.0",
+      "runway_version": "1.4.0",
       "last_reload_error": "",
       "last_successful_version": 3
     }
@@ -2558,12 +2558,12 @@ curl http://localhost:8081/api/v1/config
 
 #### POST `/api/v1/config`
 
-Push a new config. The CP validates it, applies it locally, and pushes it to all connected DPs. The request body must be valid gateway YAML. Maximum body size is 10MB.
+Push a new config. The CP validates it, applies it locally, and pushes it to all connected DPs. The request body must be valid runway YAML. Maximum body size is 10MB.
 
 ```bash
 curl -X POST http://localhost:8081/api/v1/config \
   -H "Content-Type: application/yaml" \
-  --data-binary @gateway.yaml
+  --data-binary @runway.yaml
 ```
 
 **Response (200 OK):**
@@ -2626,7 +2626,7 @@ When `connected` is `false`, the DP is running from its cached config. When `has
 
 #### POST `/reload`
 
-Returns `403 Forbidden` when the gateway is running as a data plane. Config changes must go through the control plane.
+Returns `403 Forbidden` when the runway is running as a data plane. Config changes must go through the control plane.
 
 ```bash
 curl -X POST http://localhost:8081/reload

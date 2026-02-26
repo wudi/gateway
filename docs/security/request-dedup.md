@@ -26,7 +26,7 @@ routes:
 
 ### Distributed Mode
 
-Use `mode: distributed` with Redis to share dedup state across gateway instances:
+Use `mode: distributed` with Redis to share dedup state across runway instances:
 
 ```yaml
 redis:

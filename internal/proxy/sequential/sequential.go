@@ -12,11 +12,11 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/middleware/backendenc"
-	"github.com/wudi/gateway/internal/tmplutil"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/middleware/backendenc"
+	"github.com/wudi/runway/internal/tmplutil"
+	"github.com/wudi/runway/variables"
 )
 
 // StepContext is the template context available to each step's templates.
@@ -261,7 +261,7 @@ func (sh *SequentialHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if sh.completionHeader {
-				w.Header().Set("X-Gateway-Completed", "true")
+				w.Header().Set("X-Runway-Completed", "true")
 			}
 			w.WriteHeader(resp.StatusCode)
 			w.Write(respBody)

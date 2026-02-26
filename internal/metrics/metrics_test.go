@@ -89,14 +89,14 @@ func TestWritePrometheus(t *testing.T) {
 
 	body := w.Body.String()
 
-	if !strings.Contains(body, "gateway_requests_total") {
-		t.Error("missing gateway_requests_total")
+	if !strings.Contains(body, "runway_requests_total") {
+		t.Error("missing runway_requests_total")
 	}
-	if !strings.Contains(body, "gateway_cache_hits_total") {
-		t.Error("missing gateway_cache_hits_total")
+	if !strings.Contains(body, "runway_cache_hits_total") {
+		t.Error("missing runway_cache_hits_total")
 	}
-	if !strings.Contains(body, "gateway_circuit_breaker_state") {
-		t.Error("missing gateway_circuit_breaker_state")
+	if !strings.Contains(body, "runway_circuit_breaker_state") {
+		t.Error("missing runway_circuit_breaker_state")
 	}
 
 	ct := w.Header().Get("Content-Type")
@@ -116,8 +116,8 @@ func TestCollectorActiveRequests(t *testing.T) {
 	w := httptest.NewRecorder()
 	c.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/metrics", nil))
 	body := w.Body.String()
-	if !strings.Contains(body, "gateway_active_requests") {
-		t.Error("missing gateway_active_requests")
+	if !strings.Contains(body, "runway_active_requests") {
+		t.Error("missing runway_active_requests")
 	}
 }
 
@@ -130,7 +130,7 @@ func TestCollectorRateLimitRejects(t *testing.T) {
 	w := httptest.NewRecorder()
 	c.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/metrics", nil))
 	body := w.Body.String()
-	if !strings.Contains(body, "gateway_rate_limit_rejects_total") {
-		t.Error("missing gateway_rate_limit_rejects_total")
+	if !strings.Contains(body, "runway_rate_limit_rejects_total") {
+		t.Error("missing runway_rate_limit_rejects_total")
 	}
 }

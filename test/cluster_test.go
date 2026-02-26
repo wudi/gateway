@@ -20,8 +20,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/gateway"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/runway"
 )
 
 // TestClusterCPDPLifecycle verifies that a CP can push config to a DP.
@@ -135,7 +135,7 @@ func TestClusterAdminEndpoints(t *testing.T) {
 		Backends: []config.BackendConfig{{URL: "http://localhost:19999"}},
 	}}
 
-	srv, err := gateway.NewServer(cfg, "")
+	srv, err := runway.NewServer(cfg, "")
 	if err != nil {
 		t.Fatalf("NewServer failed: %v", err)
 	}

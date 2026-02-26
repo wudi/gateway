@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func TestImmediatePass(t *testing.T) {

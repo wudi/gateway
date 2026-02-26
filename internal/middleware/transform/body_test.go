@@ -9,14 +9,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/variables"
 )
 
 func TestCompiledBodyTransform_SetFields(t *testing.T) {
 	cfg := config.BodyTransformConfig{
 		SetFields: map[string]string{
-			"metadata.source":    "gateway",
+			"metadata.source":    "runway",
 			"metadata.timestamp": "$time_unix",
 		},
 	}
@@ -41,8 +41,8 @@ func TestCompiledBodyTransform_SetFields(t *testing.T) {
 	if !ok {
 		t.Fatal("expected metadata to be an object")
 	}
-	if meta["source"] != "gateway" {
-		t.Errorf("expected metadata.source=gateway, got %v", meta["source"])
+	if meta["source"] != "runway" {
+		t.Errorf("expected metadata.source=runway, got %v", meta["source"])
 	}
 	if meta["timestamp"] == nil || meta["timestamp"] == "" {
 		t.Error("expected metadata.timestamp to be resolved")
@@ -159,7 +159,7 @@ func TestCompiledBodyTransform_ProcessingOrder(t *testing.T) {
 	// Test that deny is applied before set, and set before add, etc.
 	cfg := config.BodyTransformConfig{
 		DenyFields:   []string{"secret"},
-		SetFields:    map[string]string{"meta.source": "gateway"},
+		SetFields:    map[string]string{"meta.source": "runway"},
 		AddFields:    map[string]string{"added": "yes"},
 		RemoveFields: []string{"remove_me"},
 		RenameFields: map[string]string{"old": "new"},
@@ -200,8 +200,8 @@ func TestCompiledBodyTransform_ProcessingOrder(t *testing.T) {
 	if !ok {
 		t.Fatal("expected meta to be an object")
 	}
-	if meta["source"] != "gateway" {
-		t.Errorf("expected meta.source=gateway, got %v", meta["source"])
+	if meta["source"] != "runway" {
+		t.Errorf("expected meta.source=runway, got %v", meta["source"])
 	}
 }
 
@@ -317,7 +317,7 @@ func TestCompiledBodyTransform_InferType(t *testing.T) {
 
 func TestCompiledBodyTransform_TransformRequest(t *testing.T) {
 	cfg := config.BodyTransformConfig{
-		SetFields:    map[string]string{"meta.source": "gateway"},
+		SetFields:    map[string]string{"meta.source": "runway"},
 		RemoveFields: []string{"debug"},
 	}
 
@@ -353,8 +353,8 @@ func TestCompiledBodyTransform_TransformRequest(t *testing.T) {
 	if !ok {
 		t.Fatal("expected meta to be an object")
 	}
-	if meta["source"] != "gateway" {
-		t.Errorf("expected meta.source=gateway, got %v", meta["source"])
+	if meta["source"] != "runway" {
+		t.Errorf("expected meta.source=runway, got %v", meta["source"])
 	}
 }
 
@@ -387,7 +387,7 @@ func TestCompiledBodyTransform_TransformRequest_NonJSON(t *testing.T) {
 func TestCompiledBodyTransform_ResponseMiddleware(t *testing.T) {
 	cfg := config.BodyTransformConfig{
 		DenyFields: []string{"secret"},
-		SetFields:  map[string]string{"meta.served_by": "gateway"},
+		SetFields:  map[string]string{"meta.served_by": "runway"},
 	}
 
 	ct, err := NewCompiledBodyTransform(cfg)
@@ -427,8 +427,8 @@ func TestCompiledBodyTransform_ResponseMiddleware(t *testing.T) {
 	if !ok {
 		t.Fatal("expected meta to be an object")
 	}
-	if meta["served_by"] != "gateway" {
-		t.Errorf("expected meta.served_by=gateway, got %v", meta["served_by"])
+	if meta["served_by"] != "runway" {
+		t.Errorf("expected meta.served_by=runway, got %v", meta["served_by"])
 	}
 }
 

@@ -1,10 +1,10 @@
 # Kubernetes Ingress Controller
 
-The gateway can run as a Kubernetes Ingress Controller, translating standard Kubernetes `Ingress` and Gateway API `HTTPRoute` resources into gateway configuration. This enables declarative route management using native Kubernetes resources.
+The runway can run as a Kubernetes Ingress Controller, translating standard Kubernetes `Ingress` and Gateway API `HTTPRoute` resources into runway configuration. This enables declarative route management using native Kubernetes resources.
 
 ## Architecture
 
-The ingress controller runs as an embedded binary that includes both the K8s controller and the gateway data plane in a single process. It watches Kubernetes resources, builds a `config.Config`, and uses `Server.ReloadWithConfig()` for zero-downtime updates.
+The ingress controller runs as an embedded binary that includes both the K8s controller and the runway data plane in a single process. It watches Kubernetes resources, builds a `config.Config`, and uses `Server.ReloadWithConfig()` for zero-downtime updates.
 
 ```
 K8s API Server
@@ -25,8 +25,8 @@ K8s API Server
 ### Helm
 
 ```bash
-helm install gateway ./deploy/kubernetes/helm/gateway \
-  --namespace gateway-system \
+helm install runway ./deploy/kubernetes/helm/runway \
+  --namespace runway-system \
   --create-namespace
 ```
 
@@ -46,10 +46,10 @@ kind: Ingress
 metadata:
   name: my-app
   annotations:
-    apigw.dev/timeout: "30s"
-    apigw.dev/retry-max: "3"
+    runway.wudi.io/timeout: "30s"
+    runway.wudi.io/retry-max: "3"
 spec:
-  ingressClassName: gateway
+  ingressClassName: runway
   rules:
     - host: app.example.com
       http:
@@ -76,12 +76,12 @@ spec:
 
 ### IngressClass
 
-The controller creates an `IngressClass` named `gateway` during Helm installation. Set `spec.ingressClassName: gateway` on your Ingress resources to route them through this controller.
+The controller creates an `IngressClass` named `runway` during Helm installation. Set `spec.ingressClassName: runway` on your Ingress resources to route them through this controller.
 
 To claim Ingress resources without an explicit class:
 
 ```bash
-helm install gateway ./deploy/kubernetes/helm/gateway \
+helm install runway ./deploy/kubernetes/helm/runway \
   --set controller.watchIngressWithoutClass=true
 ```
 
@@ -95,9 +95,9 @@ The controller supports the Gateway API Core conformance profile (GatewayClass, 
 apiVersion: gateway.networking.k8s.io/v1
 kind: GatewayClass
 metadata:
-  name: gateway
+  name: runway
 spec:
-  controllerName: apigw.dev/ingress-controller
+  controllerName: runway.wudi.io/ingress-controller
 ```
 
 ### Gateway
@@ -107,9 +107,9 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: main
-  namespace: gateway-system
+  namespace: runway-system
 spec:
-  gatewayClassName: gateway
+  gatewayClassName: runway
   listeners:
     - name: http
       port: 8080
@@ -133,7 +133,7 @@ metadata:
 spec:
   parentRefs:
     - name: main
-      namespace: gateway-system
+      namespace: runway-system
   hostnames:
     - api.example.com
   rules:
@@ -155,26 +155,26 @@ spec:
 
 ## Annotations Reference
 
-All annotations use the `apigw.dev/` prefix.
+All annotations use the `runway.wudi.io/` prefix.
 
 | Annotation | Type | Default | Description |
 |---|---|---|---|
-| `apigw.dev/rate-limit` | int | - | Requests per period |
-| `apigw.dev/timeout` | duration | - | Request timeout |
-| `apigw.dev/retry-max` | int | - | Maximum retry attempts |
-| `apigw.dev/cors-enabled` | bool | false | Enable CORS |
-| `apigw.dev/circuit-breaker` | bool | false | Enable circuit breaker |
-| `apigw.dev/auth-required` | bool | false | Require authentication |
-| `apigw.dev/cache-enabled` | bool | false | Enable response caching |
-| `apigw.dev/load-balancer` | string | round_robin | Load balancer algorithm |
-| `apigw.dev/strip-prefix` | bool | false | Strip matched prefix |
-| `apigw.dev/upstream-mode` | string | endpointslice | Backend resolution mode |
+| `runway.wudi.io/rate-limit` | int | - | Requests per period |
+| `runway.wudi.io/timeout` | duration | - | Request timeout |
+| `runway.wudi.io/retry-max` | int | - | Maximum retry attempts |
+| `runway.wudi.io/cors-enabled` | bool | false | Enable CORS |
+| `runway.wudi.io/circuit-breaker` | bool | false | Enable circuit breaker |
+| `runway.wudi.io/auth-required` | bool | false | Require authentication |
+| `runway.wudi.io/cache-enabled` | bool | false | Enable response caching |
+| `runway.wudi.io/load-balancer` | string | round_robin | Load balancer algorithm |
+| `runway.wudi.io/strip-prefix` | bool | false | Strip matched prefix |
+| `runway.wudi.io/upstream-mode` | string | endpointslice | Backend resolution mode |
 
 ## Backend Resolution
 
 ### EndpointSlice Mode (Default)
 
-By default, the controller resolves backends using EndpointSlice resources. Each ready endpoint address becomes a direct backend, bypassing kube-proxy. This enables the gateway's load balancer features (least_conn, consistent_hash, etc.).
+By default, the controller resolves backends using EndpointSlice resources. Each ready endpoint address becomes a direct backend, bypassing kube-proxy. This enables the runway's load balancer features (least_conn, consistent_hash, etc.).
 
 ### ClusterIP Mode
 
@@ -182,7 +182,7 @@ For cases where pod-IP routing is undesirable, set the annotation:
 
 ```yaml
 annotations:
-  apigw.dev/upstream-mode: clusterip
+  runway.wudi.io/upstream-mode: clusterip
 ```
 
 This resolves to the Service ClusterIP instead of individual pod IPs.
@@ -204,7 +204,7 @@ Multiple certificates with different SNI hostnames are supported. The listener u
 For settings that cannot be expressed through Kubernetes resources (authentication providers, Redis configuration, tracing, etc.), use a base config file:
 
 ```bash
-helm install gateway ./deploy/kubernetes/helm/gateway \
+helm install runway ./deploy/kubernetes/helm/runway \
   --set-file controller.baseConfig=base-config.yaml
 ```
 
@@ -245,8 +245,8 @@ The Helm chart creates a ClusterRole with the minimum permissions needed:
 
 | Flag | Default | Description |
 |---|---|---|
-| `--ingress-class` | gateway | IngressClass name to watch |
-| `--controller-name` | apigw.dev/ingress-controller | GatewayClass controller name |
+| `--ingress-class` | runway | IngressClass name to watch |
+| `--controller-name` | runway.wudi.io/ingress-controller | GatewayClass controller name |
 | `--watch-namespaces` | (all) | Comma-separated namespaces |
 | `--watch-ingress-without-class` | false | Claim unclassed Ingress resources |
 | `--publish-service` | - | Service for status IP (ns/name) |

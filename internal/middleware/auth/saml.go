@@ -25,9 +25,9 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	dsig "github.com/russellhaering/goxmldsig"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/errors"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/errors"
+	"github.com/wudi/runway/variables"
 )
 
 // SAMLStats holds SAML authentication statistics.
@@ -137,7 +137,7 @@ func NewSAMLAuth(cfg config.SAMLConfig) (*SAMLAuth, error) {
 	}
 	cookieName := cfg.Session.CookieName
 	if cookieName == "" {
-		cookieName = "gateway_saml"
+		cookieName = "runway_saml"
 	}
 	cookieMaxAge := cfg.Session.MaxAge
 	if cookieMaxAge == 0 {

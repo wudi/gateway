@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Benchmark a single gateway for a single scenario.
+# Benchmark a single proxy for a single scenario.
 # Usage: bench-one.sh <gateway> <scenario> <results_dir> <duration> <warmup> <concurrency> <qps>
 
 GATEWAY="$1"

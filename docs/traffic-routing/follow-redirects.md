@@ -3,7 +3,7 @@ title: "Follow Redirects"
 sidebar_position: 12
 ---
 
-By default the gateway's reverse proxy uses `transport.RoundTrip()` which does **not** follow backend `3xx` redirects. Enabling follow redirects makes the gateway transparently chase `Location` headers before returning the final response to the client.
+By default the runway's reverse proxy uses `transport.RoundTrip()` which does **not** follow backend `3xx` redirects. Enabling follow redirects makes the runway transparently chase `Location` headers before returning the final response to the client.
 
 ## How It Works
 

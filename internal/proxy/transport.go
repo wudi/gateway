@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/quic-go/quic-go/http3"
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/middleware/ssrf"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/middleware/ssrf"
 )
 
 // TransportConfig configures the HTTP transport

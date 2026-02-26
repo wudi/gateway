@@ -89,7 +89,7 @@ func TestExchange_JWT_Success(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	issuer, err := NewTokenIssuer("RS256", issuingPEM, "", "", "https://gateway.example.com", []string{"internal"}, 15*time.Minute)
+	issuer, err := NewTokenIssuer("RS256", issuingPEM, "", "", "https://runway.example.com", []string{"internal"}, 15*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,8 +124,8 @@ func TestExchange_JWT_Success(t *testing.T) {
 	}
 
 	claims := parsed.Claims.(jwt.MapClaims)
-	if claims["iss"] != "https://gateway.example.com" {
-		t.Errorf("expected gateway issuer, got %v", claims["iss"])
+	if claims["iss"] != "https://runway.example.com" {
+		t.Errorf("expected runway issuer, got %v", claims["iss"])
 	}
 	if claims["sub"] != "user-123" {
 		t.Errorf("expected sub user-123, got %v", claims["sub"])
@@ -359,7 +359,7 @@ func TestMiddleware_ReplacesToken(t *testing.T) {
 	// The received token should be different from the subject token
 	receivedToken := strings.TrimPrefix(receivedAuth, "Bearer ")
 	if receivedToken == subjectToken {
-		t.Error("expected gateway-issued token, not original subject token")
+		t.Error("expected runway-issued token, not original subject token")
 	}
 }
 
@@ -406,7 +406,7 @@ func TestIntrospectionValidator(t *testing.T) {
 	}))
 	defer server.Close()
 
-	v := NewIntrospectionValidator(server.URL, "gateway", "secret")
+	v := NewIntrospectionValidator(server.URL, "runway", "secret")
 
 	// Valid token
 	result, err := v.Validate("valid-token", "access_token")
@@ -792,7 +792,7 @@ func TestIntrospectionValidator_Error500(t *testing.T) {
 	}))
 	defer server.Close()
 
-	v := NewIntrospectionValidator(server.URL, "gateway", "secret")
+	v := NewIntrospectionValidator(server.URL, "runway", "secret")
 	_, err := v.Validate("some-token", "access_token")
 	if err == nil {
 		t.Error("expected error for 500 response")
@@ -808,7 +808,7 @@ func TestIntrospectionValidator_MalformedJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	v := NewIntrospectionValidator(server.URL, "gateway", "secret")
+	v := NewIntrospectionValidator(server.URL, "runway", "secret")
 	_, err := v.Validate("some-token", "access_token")
 	if err == nil {
 		t.Error("expected error for malformed JSON")

@@ -95,7 +95,7 @@ func (h *Handler) handleSpecUI(w http.ResponseWriter, r *http.Request) {
 		SpecID: specID,
 	}
 	if data.Title == "" {
-		data.Title = "API Gateway"
+		data.Title = "API Runway"
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

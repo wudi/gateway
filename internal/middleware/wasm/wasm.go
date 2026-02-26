@@ -14,10 +14,10 @@ import (
 	"github.com/tetratelabs/wazero/api"
 	"go.uber.org/zap"
 
-	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/logging"
-	"github.com/wudi/gateway/internal/middleware"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/logging"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // WasmPlugin represents a single compiled WASM plugin with an instance pool.

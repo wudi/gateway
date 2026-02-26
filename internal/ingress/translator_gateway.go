@@ -7,7 +7,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 // translateGatewayAPI converts Gateway API resources (Gateway, HTTPRoute) into routes and listeners.

@@ -1,0 +1,2435 @@
+package runway
+
+import (
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/json"
+	"fmt"
+	"io"
+	"math/big"
+	"net/http"
+	"net/http/pprof"
+	"os"
+	"os/signal"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
+	"time"
+
+	"github.com/cespare/xxhash/v2"
+	"github.com/goccy/go-yaml"
+	"github.com/wudi/runway/internal/catalog"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/cluster"
+	"github.com/wudi/runway/internal/cluster/cp"
+	"github.com/wudi/runway/internal/cluster/dp"
+	"github.com/wudi/runway/internal/grpchealth"
+	gatewayerrors "github.com/wudi/runway/internal/errors"
+	"github.com/wudi/runway/internal/listener"
+	"github.com/wudi/runway/internal/logging"
+	"github.com/wudi/runway/internal/middleware/auth"
+	"github.com/wudi/runway/internal/middleware/ipblocklist"
+	"github.com/wudi/runway/internal/proxy/tcp"
+	"github.com/wudi/runway/internal/proxy/udp"
+	"github.com/wudi/runway/internal/trafficreplay"
+	"go.uber.org/zap"
+)
+
+// Server wraps the gateway with HTTP server functionality
+type Server struct {
+	gateway       *Runway
+	manager       *listener.Manager
+	adminServer   *http.Server
+	config        *config.Config
+	configPath    string
+	tcpProxy      *tcp.Proxy
+	udpProxy      *udp.Proxy
+	startTime     time.Time
+	reloadHistory []ReloadResult
+	reloadMu      sync.Mutex // serializes concurrent ReloadWithConfig calls
+	grpcHealthServer *grpchealth.Server
+	draining         atomic.Bool
+	drainStart       atomic.Int64 // unix nano timestamp when drain started
+	cpServer         *cp.Server   // control plane gRPC server (CP mode only)
+	dpClient         *dp.Client   // data plane gRPC client (DP mode only)
+	dpCancel         context.CancelFunc
+}
+
+// NewServer creates a new gateway server.
+// configPath is the path to the YAML config file (used for reload).
+// opts carries external customizations from the public gateway builder.
+func NewServer(cfg *config.Config, configPath string, opts ...ExternalOptions) (*Server, error) {
+	var ext ExternalOptions
+	if len(opts) > 0 {
+		ext = opts[0]
+	}
+	gw, err := NewWithOptions(cfg, ext)
+	if err != nil {
+		return nil, err
+	}
+
+	s := &Server{
+		gateway:    gw,
+		manager:    listener.NewManager(),
+		config:     cfg,
+		configPath: configPath,
+		startTime:  time.Now(),
+	}
+
+	// Initialize TCP/UDP proxies if needed
+	if err := s.initL4Proxies(); err != nil {
+		return nil, fmt.Errorf("failed to initialize L4 proxies: %w", err)
+	}
+
+	// Initialize listeners
+	if err := s.initListeners(); err != nil {
+		return nil, fmt.Errorf("failed to initialize listeners: %w", err)
+	}
+
+	// Configure admin server if enabled
+	if cfg.Admin.Enabled {
+		s.adminServer = &http.Server{
+			Addr:         fmt.Sprintf(":%d", cfg.Admin.Port),
+			Handler:      s.adminHandler(),
+			ReadTimeout:  10 * time.Second,
+			WriteTimeout: 10 * time.Second,
+		}
+	}
+
+	// Configure gRPC health server if enabled
+	if cfg.Admin.GRPCHealth.Enabled {
+		addr := cfg.Admin.GRPCHealth.Address
+		if addr == "" {
+			addr = ":9090"
+		}
+		s.grpcHealthServer = grpchealth.NewServer(addr, func() bool {
+			return true // healthy if gateway is running
+		})
+	}
+
+	// Configure cluster mode (CP/DP)
+	if err := s.initCluster(); err != nil {
+		return nil, fmt.Errorf("cluster init: %w", err)
+	}
+
+	return s, nil
+}
+
+// Version is the gateway binary version, used for CP/DP version compatibility checks.
+var Version = "dev"
+
+// initCluster initializes cluster mode (CP server or DP client).
+func (s *Server) initCluster() error {
+	role := s.config.Cluster.Role
+	if role == "" || role == "standalone" {
+		return nil
+	}
+
+	logger := logging.Global().With(zap.String("cluster.role", role))
+
+	switch role {
+	case "control_plane":
+		tlsCfg, err := cluster.BuildCPTLSConfig(s.config.Cluster.ControlPlane)
+		if err != nil {
+			return fmt.Errorf("build CP TLS: %w", err)
+		}
+		s.cpServer = cp.NewServer(
+			s.config.Cluster.ControlPlane.Address,
+			tlsCfg,
+			Version,
+			logger,
+		)
+		// Seed initial config
+		s.pushCurrentConfig("init")
+
+	case "data_plane":
+		tlsCfg, err := cluster.BuildDPTLSConfig(s.config.Cluster.DataPlane)
+		if err != nil {
+			return fmt.Errorf("build DP TLS: %w", err)
+		}
+		dpCfg := s.config.Cluster.DataPlane
+		hostname, _ := os.Hostname()
+		s.dpClient = dp.NewClient(dp.ClientConfig{
+			Address:           dpCfg.Address,
+			NodeID:            dpCfg.NodeID,
+			Version:           Version,
+			Hostname:          hostname,
+			TLSConfig:         tlsCfg,
+			CacheDir:          dpCfg.CacheDir,
+			RetryInterval:     dpCfg.RetryInterval,
+			HeartbeatInterval: dpCfg.HeartbeatInterval,
+			DPCluster:         s.config.Cluster,
+			ReloadFn: func(cfg *config.Config) dp.ReloadResult {
+				r := s.ReloadWithConfig(cfg)
+				return dp.ReloadResult{
+					Success:   r.Success,
+					Timestamp: r.Timestamp,
+					Error:     r.Error,
+				}
+			},
+			Logger: logger,
+		})
+	}
+
+	return nil
+}
+
+// pushCurrentConfig serializes the current config (stripping the Cluster block)
+// and pushes it to connected data planes via the CP server.
+func (s *Server) pushCurrentConfig(source string) {
+	if s.cpServer == nil {
+		return
+	}
+	stripped := *s.config
+	stripped.Cluster = config.ClusterConfig{}
+	yamlBytes, err := yaml.Marshal(&stripped)
+	if err != nil {
+		logging.Error("Failed to marshal config for cluster push", zap.Error(err))
+		return
+	}
+	s.cpServer.PushConfig(cp.ConfigEnvelope{
+		YAML:      yamlBytes,
+		Hash:      xxhash.Sum64(yamlBytes),
+		Timestamp: time.Now(),
+		Source:    source,
+		Config:    s.config,
+	})
+}
+
+// initL4Proxies initializes TCP and UDP proxies if routes are configured
+func (s *Server) initL4Proxies() error {
+	if len(s.config.TCPRoutes) > 0 {
+		s.tcpProxy = tcp.NewProxy(tcp.Config{})
+		for _, routeCfg := range s.config.TCPRoutes {
+			if err := s.tcpProxy.AddRoute(routeCfg); err != nil {
+				return fmt.Errorf("failed to add TCP route %s: %w", routeCfg.ID, err)
+			}
+		}
+		logging.Info("Initialized TCP proxy", zap.Int("routes", len(s.config.TCPRoutes)))
+	}
+
+	if len(s.config.UDPRoutes) > 0 {
+		s.udpProxy = udp.NewProxy(udp.Config{})
+		for _, routeCfg := range s.config.UDPRoutes {
+			if err := s.udpProxy.AddRoute(routeCfg); err != nil {
+				return fmt.Errorf("failed to add UDP route %s: %w", routeCfg.ID, err)
+			}
+		}
+		logging.Info("Initialized UDP proxy", zap.Int("routes", len(s.config.UDPRoutes)))
+	}
+
+	return nil
+}
+
+// initListeners initializes all listeners from configuration
+func (s *Server) initListeners() error {
+	cfg := s.config
+
+	// Create listeners from config
+	for _, listenerCfg := range cfg.Listeners {
+		var l listener.Listener
+		var err error
+
+		switch listenerCfg.Protocol {
+		case config.ProtocolHTTP:
+			l, err = s.makeHTTPListener(listenerCfg)
+
+		case config.ProtocolTCP:
+			if s.tcpProxy == nil {
+				return fmt.Errorf("TCP proxy not initialized for listener %s", listenerCfg.ID)
+			}
+			l, err = listener.NewTCPListener(listener.TCPListenerConfig{
+				ID:          listenerCfg.ID,
+				Address:     listenerCfg.Address,
+				Proxy:       s.tcpProxy,
+				TLS:         listenerCfg.TLS,
+				SNIRouting:  listenerCfg.TCP.SNIRouting,
+				IdleTimeout: listenerCfg.TCP.IdleTimeout,
+			})
+
+		case config.ProtocolUDP:
+			if s.udpProxy == nil {
+				return fmt.Errorf("UDP proxy not initialized for listener %s", listenerCfg.ID)
+			}
+			l, err = listener.NewUDPListener(listener.UDPListenerConfig{
+				ID:      listenerCfg.ID,
+				Address: listenerCfg.Address,
+				Proxy:   s.udpProxy,
+				UDP:     listenerCfg.UDP,
+			})
+
+		default:
+			return fmt.Errorf("unknown protocol for listener %s: %s", listenerCfg.ID, listenerCfg.Protocol)
+		}
+
+		if err != nil {
+			return fmt.Errorf("failed to create listener %s: %w", listenerCfg.ID, err)
+		}
+
+		if err := s.manager.Add(l); err != nil {
+			return fmt.Errorf("failed to add listener %s: %w", listenerCfg.ID, err)
+		}
+	}
+
+	return nil
+}
+
+// Start starts the gateway servers
+func (s *Server) Start() error {
+	ctx := context.Background()
+	errCh := make(chan error, 2)
+
+	// Start all listeners
+	go func() {
+		if err := s.manager.StartAll(ctx); err != nil {
+			errCh <- fmt.Errorf("listener manager error: %w", err)
+		}
+	}()
+
+	// Start admin server if enabled
+	if s.adminServer != nil {
+		go func() {
+			logging.Info("Starting admin server", zap.Int("port", s.config.Admin.Port))
+			if err := s.adminServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				errCh <- fmt.Errorf("admin server error: %w", err)
+			}
+		}()
+	}
+
+	// Start gRPC health server if enabled
+	if s.grpcHealthServer != nil {
+		go func() {
+			logging.Info("Starting gRPC health server")
+			if err := s.grpcHealthServer.Start(); err != nil {
+				logging.Error("gRPC health server failed", zap.Error(err))
+			}
+		}()
+	}
+
+	// Start cluster components
+	if s.cpServer != nil {
+		go func() {
+			if err := s.cpServer.Start(context.Background()); err != nil {
+				logging.Error("Cluster CP server failed", zap.Error(err))
+			}
+		}()
+	}
+	if s.dpClient != nil {
+		dpCtx, dpCancel := context.WithCancel(context.Background())
+		s.dpCancel = dpCancel
+		go s.dpClient.Run(dpCtx)
+	}
+
+	// Wait for error or continue
+	select {
+	case err := <-errCh:
+		return err
+	case <-time.After(100 * time.Millisecond):
+		// Give servers a moment to start
+	}
+
+	return nil
+}
+
+// Run starts the server and handles graceful shutdown.
+// SIGHUP triggers a config reload; SIGINT/SIGTERM triggers shutdown.
+func (s *Server) Run() error {
+	// Start servers
+	if err := s.Start(); err != nil {
+		return err
+	}
+
+	// Wait for signals
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	for sig := range quit {
+		switch sig {
+		case syscall.SIGHUP:
+			if s.config.Cluster.Role == "data_plane" {
+				logging.Info("SIGHUP ignored in data_plane mode: config changes must come from control plane")
+				continue
+			}
+			result := s.ReloadConfig()
+			if result.Success {
+				logging.Info("Config reloaded successfully",
+					zap.Int("changes", len(result.Changes)),
+				)
+			} else {
+				logging.Error("Config reload failed",
+					zap.String("error", result.Error),
+				)
+			}
+		default:
+			logging.Info("Shutting down gracefully...")
+			timeout := s.config.Shutdown.Timeout
+			if timeout <= 0 {
+				timeout = 30 * time.Second
+			}
+			return s.Shutdown(timeout)
+		}
+	}
+
+	return nil
+}
+
+// Shutdown gracefully shuts down the servers
+func (s *Server) Shutdown(timeout time.Duration) error {
+	// Mark as draining — readiness checks will return 503
+	s.draining.Store(true)
+	s.drainStart.Store(time.Now().UnixNano())
+	logging.Info("Server entering drain mode")
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// Drain delay: wait before stopping listeners so load balancers
+	// (e.g. Kubernetes) can remove this instance from service endpoints.
+	drainDelay := s.config.Shutdown.DrainDelay
+	if drainDelay > 0 {
+		logging.Info("Waiting for drain delay", zap.Duration("delay", drainDelay))
+		select {
+		case <-time.After(drainDelay):
+		case <-ctx.Done():
+			logging.Warn("Drain delay interrupted by shutdown timeout")
+		}
+	}
+
+	// Stop cluster components before admin/listeners
+	if s.cpServer != nil {
+		s.cpServer.Stop()
+	}
+	if s.dpCancel != nil {
+		s.dpCancel()
+	}
+
+	// Shutdown admin server
+	if s.adminServer != nil {
+		if err := s.adminServer.Shutdown(ctx); err != nil {
+			logging.Error("Admin server shutdown error", zap.Error(err))
+		}
+	}
+
+	// Stop gRPC health server
+	if s.grpcHealthServer != nil {
+		s.grpcHealthServer.Stop()
+	}
+
+	// Shutdown all listeners
+	if err := s.manager.StopAll(ctx); err != nil {
+		logging.Error("Listener manager shutdown error", zap.Error(err))
+	}
+
+	// Close L4 proxies
+	if s.tcpProxy != nil {
+		s.tcpProxy.Close()
+	}
+	if s.udpProxy != nil {
+		s.udpProxy.Close()
+	}
+
+	// Close gateway
+	if err := s.gateway.Close(); err != nil {
+		logging.Error("Runway close error", zap.Error(err))
+		return err
+	}
+
+	logging.Info("Server shutdown complete")
+	return nil
+}
+
+// Drain initiates the drain process without shutting down the server.
+// Readiness checks will return 503 once draining is active.
+func (s *Server) Drain() {
+	s.draining.Store(true)
+	s.drainStart.Store(time.Now().UnixNano())
+	logging.Info("Server drain initiated via admin API")
+}
+
+// IsDraining returns whether the server is in drain mode.
+func (s *Server) IsDraining() bool {
+	return s.draining.Load()
+}
+
+// ReloadConfig loads a new config from the config path and performs a hot reload.
+func (s *Server) ReloadConfig() ReloadResult {
+	if s.config.Cluster.Role == "data_plane" {
+		return ReloadResult{
+			Timestamp: time.Now(),
+			Error:     "config changes must come from control plane in data_plane mode",
+		}
+	}
+
+	if s.configPath == "" {
+		return ReloadResult{
+			Timestamp: time.Now(),
+			Error:     "no config path configured",
+		}
+	}
+
+	loader := config.NewLoader()
+	newCfg, err := loader.Load(s.configPath)
+	if err != nil {
+		result := ReloadResult{
+			Timestamp: time.Now(),
+			Error:     fmt.Sprintf("config load failed: %v", err),
+		}
+		s.reloadHistory = appendReloadHistory(s.reloadHistory, result)
+		return result
+	}
+
+	result := s.gateway.Reload(newCfg)
+
+	// Reconcile listeners (new/removed/TLS changes)
+	if result.Success {
+		s.reconcileListeners(newCfg)
+		s.config = newCfg
+		s.pushCurrentConfig("file")
+	}
+
+	s.reloadHistory = appendReloadHistory(s.reloadHistory, result)
+	return result
+}
+
+// ReloadWithConfig performs a hot config reload using the provided Config object
+// instead of loading from a file. This is used by the ingress controller and DP
+// client to push configs. Concurrent calls are serialized by reloadMu.
+func (s *Server) ReloadWithConfig(newCfg *config.Config) ReloadResult {
+	s.reloadMu.Lock()
+	result := s.gateway.Reload(newCfg)
+	if result.Success {
+		s.config = newCfg
+	}
+	s.reloadHistory = appendReloadHistory(s.reloadHistory, result)
+	s.reloadMu.Unlock()
+
+	// Listener reconciliation outside lock — route handlers already swapped,
+	// listener start/stop can block (up to 10s graceful stop timeout).
+	if result.Success {
+		s.reconcileListeners(newCfg)
+		// Push to cluster DPs (no-op if not CP mode or if called by DP itself)
+		if s.config.Cluster.Role == "control_plane" {
+			s.pushCurrentConfig("api")
+		}
+	}
+	return result
+}
+
+// reconcileListeners adjusts listeners after a config reload.
+// It stops removed listeners, starts new ones, and reloads TLS certs on existing ones.
+func (s *Server) reconcileListeners(newCfg *config.Config) {
+	oldIDs := make(map[string]bool)
+	for _, l := range s.config.Listeners {
+		oldIDs[l.ID] = true
+	}
+	newIDs := make(map[string]bool)
+	for _, l := range newCfg.Listeners {
+		newIDs[l.ID] = true
+	}
+
+	// Stop removed listeners
+	for id := range oldIDs {
+		if !newIDs[id] {
+			if l, ok := s.manager.Get(id); ok {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				if err := l.Stop(ctx); err != nil {
+					logging.Error("Failed to stop removed listener", zap.String("id", id), zap.Error(err))
+				}
+				cancel()
+				s.manager.Remove(id)
+				logging.Info("Removed listener", zap.String("id", id))
+			}
+		}
+	}
+
+	// Start new listeners
+	for _, listenerCfg := range newCfg.Listeners {
+		if oldIDs[listenerCfg.ID] {
+			continue // existing listener, skip
+		}
+		if listenerCfg.Protocol != config.ProtocolHTTP {
+			continue // only handle HTTP listeners during reload
+		}
+		l, err := s.makeHTTPListener(listenerCfg)
+		if err != nil {
+			logging.Error("Failed to create new listener", zap.String("id", listenerCfg.ID), zap.Error(err))
+			continue
+		}
+		if err := s.manager.Add(l); err != nil {
+			logging.Error("Failed to add new listener", zap.String("id", listenerCfg.ID), zap.Error(err))
+			continue
+		}
+		if err := l.Start(context.Background()); err != nil {
+			logging.Error("Failed to start new listener", zap.String("id", listenerCfg.ID), zap.Error(err))
+			continue
+		}
+		logging.Info("Started new listener", zap.String("id", listenerCfg.ID), zap.String("address", listenerCfg.Address))
+	}
+}
+
+// appendReloadHistory appends a result and keeps last 50 entries.
+func appendReloadHistory(history []ReloadResult, result ReloadResult) []ReloadResult {
+	history = append(history, result)
+	if len(history) > 50 {
+		history = history[len(history)-50:]
+	}
+	return history
+}
+
+// makeHTTPListener creates an HTTP listener from a listener config.
+func (s *Server) makeHTTPListener(lc config.ListenerConfig) (*listener.HTTPListener, error) {
+	return listener.NewHTTPListener(listener.HTTPListenerConfig{
+		ID:                lc.ID,
+		Address:           lc.Address,
+		Handler:           s.gateway.Handler(),
+		TLS:               lc.TLS,
+		ACME:              lc.TLS.ACME,
+		ReadTimeout:       lc.HTTP.ReadTimeout,
+		WriteTimeout:      lc.HTTP.WriteTimeout,
+		IdleTimeout:       lc.HTTP.IdleTimeout,
+		MaxHeaderBytes:    lc.HTTP.MaxHeaderBytes,
+		ReadHeaderTimeout: lc.HTTP.ReadHeaderTimeout,
+		EnableHTTP3:       lc.HTTP.EnableHTTP3,
+	})
+}
+
+// adminHandler creates the admin API handler
+func (s *Server) adminHandler() http.Handler {
+	mux := http.NewServeMux()
+
+	// Health check endpoint
+	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/healthz", s.handleHealth)
+
+	// Ready check endpoint
+	mux.HandleFunc("/ready", s.handleReady)
+	mux.HandleFunc("/readyz", s.handleReady)
+
+	// Stats endpoint
+	mux.HandleFunc("/stats", s.handleStats)
+
+	// Routes endpoint
+	mux.HandleFunc("/routes", s.handleRoutes)
+
+	// Registry status
+	mux.HandleFunc("/registry", s.handleRegistry)
+
+	// Backends health
+	mux.HandleFunc("/backends", s.handleBackends)
+
+	// Listeners endpoint
+	mux.HandleFunc("/listeners", s.handleListeners)
+
+	// TLS certificate status endpoint
+	mux.HandleFunc("/certificates", s.handleCertificates)
+
+	// Auto-register admin stats endpoints from features
+	for _, f := range s.gateway.features {
+		asp, ok := f.(AdminStatsProvider)
+		if !ok {
+			continue
+		}
+		path := asp.AdminPath()
+		if path == "" {
+			continue
+		}
+		provider := asp // capture for closure
+		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(provider.AdminStats())
+		})
+	}
+
+	// Auto-register admin stats endpoints from external features
+	for _, ef := range s.gateway.externalFeatures {
+		asp, ok := ef.Feature.(ExternalAdminStatsProvider)
+		if !ok {
+			continue
+		}
+		path := asp.AdminPath()
+		if path == "" {
+			continue
+		}
+		provider := asp // capture for closure
+		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(provider.AdminStats())
+		})
+	}
+
+	// Prometheus metrics endpoint
+	metricsPath := "/metrics"
+	if s.config.Admin.Metrics.Path != "" {
+		metricsPath = s.config.Admin.Metrics.Path
+	}
+	if s.config.Admin.Metrics.Enabled {
+		mux.HandleFunc(metricsPath, s.handleMetrics)
+	}
+
+	// Custom admin endpoints (non-boilerplate; simple stats auto-registered via features above)
+	mux.HandleFunc("/rules", s.handleRules)
+	mux.HandleFunc("/traffic-shaping", s.handleTrafficShaping)
+	mux.HandleFunc("/rate-limits", s.handleRateLimits)
+	mux.HandleFunc("/reload", s.handleReload)
+	mux.HandleFunc("/reload/status", jsonStatsHandler(func() any { return s.reloadHistory }))
+	mux.HandleFunc("/load-balancers", jsonStatsHandler(func() any { return s.gateway.GetLoadBalancerInfo() }))
+	mux.HandleFunc("/maintenance/", s.handleMaintenanceAction)
+	mux.HandleFunc("/drain", s.handleDrain)
+	mux.HandleFunc("/transport", s.handleTransport)
+	mux.HandleFunc("/upstreams", s.handleUpstreams)
+	mux.HandleFunc("/mirrors/", s.handleMirrorsAction)
+	mux.HandleFunc("/canary/", s.handleCanaryAction)
+	mux.HandleFunc("/circuit-breakers/", s.handleCircuitBreakerAction)
+	mux.HandleFunc("/blue-green/", s.handleBlueGreenAction)
+	mux.HandleFunc("/ab-tests/", s.handleABTestAction)
+	mux.HandleFunc("/traffic-replay/", s.handleTrafficReplayAction)
+	mux.HandleFunc("/https-redirect", s.handleHTTPSRedirect)
+	mux.HandleFunc("/allowed-hosts", s.handleAllowedHosts)
+	mux.HandleFunc("/token-revocation", s.handleTokenRevocation)
+	mux.HandleFunc("/token-revocation/", s.handleTokenRevocationAction)
+	mux.HandleFunc("/ssrf-protection", jsonStatsHandler(func() any {
+		if s.gateway.ssrfDialer == nil {
+			return map[string]interface{}{"enabled": false}
+		}
+		return s.gateway.ssrfDialer.Stats()
+	}))
+	mux.HandleFunc("/cache/purge", s.handleCachePurge)
+	mux.HandleFunc("/load-shedding", jsonStatsHandler(func() any {
+		if s.gateway.loadShedder == nil {
+			return map[string]interface{}{"enabled": false}
+		}
+		return s.gateway.loadShedder.Stats()
+	}))
+	mux.HandleFunc("/ip-blocklist/refresh", s.handleIPBlocklistRefresh)
+	mux.HandleFunc("/dashboard", s.handleDashboard)
+	mux.HandleFunc("/tenants/", s.handleTenantCRUD)
+	if s.gateway.GetAPIKeyAuth() != nil {
+		mux.HandleFunc("/admin/keys", s.handleAdminKeys)
+		if s.gateway.GetAPIKeyAuth().GetManager() != nil {
+			mux.HandleFunc("/api-keys/generate", s.handleAPIKeyGenerate)
+			mux.HandleFunc("/api-keys/stats", s.handleAPIKeyStats)
+			mux.HandleFunc("/api-keys/", s.handleAPIKeyAction)
+		}
+	}
+	if s.gateway.GetLDAPAuth() != nil {
+		mux.HandleFunc("/ldap/stats", jsonStatsHandler(func() any {
+			return s.gateway.GetLDAPAuth().Stats()
+		}))
+	}
+	if s.gateway.GetSAMLAuth() != nil {
+		mux.HandleFunc("/saml/stats", jsonStatsHandler(func() any {
+			return s.gateway.GetSAMLAuth().Stats()
+		}))
+	}
+
+	// API Catalog (developer portal)
+	if s.config.Admin.Catalog.Enabled {
+		if cb := s.gateway.GetCatalogBuilder(); cb != nil {
+			catalogHandler := catalog.NewHandler(cb)
+			catalogHandler.RegisterRoutes(mux)
+
+		}
+	}
+
+	// Schema evolution
+	if s.gateway.schemaChecker != nil {
+		mux.HandleFunc("/schema-evolution", jsonStatsHandler(func() any { return s.gateway.schemaChecker.GetAllReports() }))
+		mux.HandleFunc("/schema-evolution/", s.handleSchemaEvolution)
+	}
+
+	// Cluster mode admin endpoints
+	s.registerClusterAdminRoutes(mux)
+
+	// pprof endpoints (when enabled)
+	if s.config.Admin.Pprof {
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	}
+
+	return mux
+}
+
+// handleHealth handles health check requests with dependency checks
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	checks := make(map[string]interface{})
+	allHealthy := true
+
+	// Backend health check
+	stats := s.gateway.GetStats()
+	backendsOK := stats.HealthyRoutes > 0 || stats.Routes == 0
+	checks["backends"] = map[string]interface{}{
+		"status":         boolStatus(backendsOK),
+		"total_routes":   stats.Routes,
+		"healthy_routes": stats.HealthyRoutes,
+	}
+	if !backendsOK {
+		allHealthy = false
+	}
+
+	// Redis health check (if configured)
+	if s.gateway.redisClient != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		err := s.gateway.redisClient.Ping(ctx).Err()
+		redisOK := err == nil
+		redisStatus := map[string]interface{}{
+			"status": boolStatus(redisOK),
+		}
+		if err != nil {
+			redisStatus["error"] = err.Error()
+			allHealthy = false
+		}
+		checks["redis"] = redisStatus
+	}
+
+	// Tracer health
+	if s.gateway.tracer != nil {
+		checks["tracing"] = map[string]interface{}{
+			"status": "ok",
+		}
+	}
+
+	// TLS certificate expiry check
+	tlsCertStatus := s.checkTLSCertificates()
+	if tlsCertStatus != nil {
+		checks["tls_certificates"] = tlsCertStatus
+		if tlsCertStatus["status"] != "ok" {
+			allHealthy = false
+		}
+	}
+
+	status := http.StatusOK
+	statusStr := "ok"
+	if !allHealthy {
+		status = http.StatusServiceUnavailable
+		statusStr = "degraded"
+	}
+
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":    statusStr,
+		"timestamp": time.Now().Format(time.RFC3339),
+		"uptime":    time.Since(s.startTime).String(),
+		"checks":    checks,
+	})
+}
+
+// handleReady handles readiness check requests with configurable checks
+func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
+	stats := s.gateway.GetStats()
+	readyCfg := s.config.Admin.Readiness
+
+	w.Header().Set("Content-Type", "application/json")
+
+	ready := true
+	reasons := []string{}
+
+	// Check draining state — draining instances are not ready
+	if s.draining.Load() {
+		ready = false
+		reasons = append(reasons, "server is draining")
+	}
+
+	// DP readiness: must have config from CP or cache
+	if s.dpClient != nil && !s.dpClient.HasConfig() {
+		ready = false
+		reasons = append(reasons, "data plane has no config from control plane")
+	}
+
+	// Check healthy backends threshold
+	minHealthy := readyCfg.MinHealthyBackends
+	if minHealthy <= 0 {
+		minHealthy = 1
+	}
+	if stats.Routes > 0 && stats.HealthyRoutes < minHealthy {
+		ready = false
+		reasons = append(reasons, fmt.Sprintf("need %d healthy routes, have %d", minHealthy, stats.HealthyRoutes))
+	}
+
+	// Check Redis if required
+	if readyCfg.RequireRedis && s.gateway.redisClient != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if err := s.gateway.redisClient.Ping(ctx).Err(); err != nil {
+			ready = false
+			reasons = append(reasons, "redis unavailable: "+err.Error())
+		}
+	}
+
+	response := map[string]interface{}{
+		"routes":         stats.Routes,
+		"healthy_routes": stats.HealthyRoutes,
+		"listeners":      s.manager.Count(),
+	}
+
+	if ready {
+		w.WriteHeader(http.StatusOK)
+		response["status"] = "ready"
+	} else {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		response["status"] = "not_ready"
+		response["reasons"] = reasons
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleStats handles stats requests
+func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	stats := s.gateway.GetStats()
+
+	// Add listener count
+	response := map[string]interface{}{
+		"routes":         stats.Routes,
+		"healthy_routes": stats.HealthyRoutes,
+		"backends":       stats.Backends,
+		"listeners":      s.manager.Count(),
+	}
+
+	// Add TCP/UDP stats if available
+	if s.tcpProxy != nil {
+		response["tcp_routes"] = len(s.config.TCPRoutes)
+	}
+	if s.udpProxy != nil {
+		response["udp_routes"] = len(s.config.UDPRoutes)
+		response["udp_sessions"] = s.udpProxy.SessionCount()
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleRoutes handles routes listing
+func (s *Server) handleRoutes(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	routes := s.gateway.GetRouter().GetRoutes()
+
+	type routeInfo struct {
+		ID         string   `json:"id"`
+		Path       string   `json:"path"`
+		PathPrefix bool     `json:"path_prefix"`
+		Backends   int      `json:"backends"`
+		Methods    []string `json:"methods,omitempty"`
+		Domains    []string `json:"domains,omitempty"`
+		Headers    int      `json:"header_matchers,omitempty"`
+		Query      int      `json:"query_matchers,omitempty"`
+		Echo       bool     `json:"echo,omitempty"`
+	}
+
+	result := make([]routeInfo, 0, len(routes))
+	for _, route := range routes {
+		info := routeInfo{
+			ID:         route.ID,
+			Path:       route.Path,
+			PathPrefix: route.PathPrefix,
+			Backends:   len(route.Backends),
+			Echo:       route.Echo,
+			Domains:    route.MatchCfg.Domains,
+			Headers:    len(route.MatchCfg.Headers),
+			Query:      len(route.MatchCfg.Query),
+		}
+
+		if route.Methods != nil {
+			for method := range route.Methods {
+				info.Methods = append(info.Methods, method)
+			}
+		}
+
+		result = append(result, info)
+	}
+
+	json.NewEncoder(w).Encode(result)
+}
+
+// handleRegistry handles registry status
+func (s *Server) handleRegistry(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"type": s.config.Registry.Type,
+	})
+}
+
+// handleBackends handles backend health status
+func (s *Server) handleBackends(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	checker := s.gateway.GetHealthChecker()
+	results := checker.GetAllStatus()
+
+	type backendCheckConfig struct {
+		Method         string   `json:"method"`
+		Path           string   `json:"path"`
+		Interval       string   `json:"interval"`
+		Timeout        string   `json:"timeout"`
+		HealthyAfter   int      `json:"healthy_after"`
+		UnhealthyAfter int      `json:"unhealthy_after"`
+		ExpectedStatus []string `json:"expected_status"`
+	}
+
+	type backendStatus struct {
+		URL       string             `json:"url"`
+		Status    string             `json:"status"`
+		Latency   string             `json:"latency,omitempty"`
+		LastCheck string             `json:"last_check,omitempty"`
+		Error     string             `json:"error,omitempty"`
+		Config    backendCheckConfig `json:"config"`
+	}
+
+	backends := make([]backendStatus, 0, len(results))
+	for _, result := range results {
+		bs := backendStatus{
+			URL:       result.URL,
+			Status:    string(result.Status),
+			Latency:   result.Latency.String(),
+			LastCheck: result.Timestamp.Format(time.RFC3339),
+		}
+		if result.Error != nil {
+			bs.Error = result.Error.Error()
+		}
+		if bcfg, ok := checker.GetBackendConfig(result.URL); ok {
+			bs.Config.Method = bcfg.Method
+			bs.Config.Path = bcfg.HealthPath
+			bs.Config.Interval = bcfg.Interval.String()
+			bs.Config.Timeout = bcfg.Timeout.String()
+			bs.Config.HealthyAfter = bcfg.HealthyAfter
+			bs.Config.UnhealthyAfter = bcfg.UnhealthyAfter
+			for _, sr := range bcfg.ExpectedStatus {
+				if sr.Lo == sr.Hi {
+					bs.Config.ExpectedStatus = append(bs.Config.ExpectedStatus, fmt.Sprintf("%d", sr.Lo))
+				} else {
+					bs.Config.ExpectedStatus = append(bs.Config.ExpectedStatus, fmt.Sprintf("%d-%d", sr.Lo, sr.Hi))
+				}
+			}
+		}
+		backends = append(backends, bs)
+	}
+
+	json.NewEncoder(w).Encode(backends)
+}
+
+// handleListeners handles listeners listing
+func (s *Server) handleListeners(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	listenerIDs := s.manager.List()
+
+	type listenerInfo struct {
+		ID       string `json:"id"`
+		Protocol string `json:"protocol"`
+		Address  string `json:"address"`
+		HTTP3    bool   `json:"http3,omitempty"`
+		ACME     bool   `json:"acme,omitempty"`
+	}
+
+	result := make([]listenerInfo, 0, len(listenerIDs))
+	for _, id := range listenerIDs {
+		if l, ok := s.manager.Get(id); ok {
+			info := listenerInfo{
+				ID:       l.ID(),
+				Protocol: l.Protocol(),
+				Address:  l.Addr(),
+			}
+			if hl, ok := l.(*listener.HTTPListener); ok {
+				info.HTTP3 = hl.HTTP3Enabled()
+				info.ACME = hl.ACMEManager() != nil
+			}
+			result = append(result, info)
+		}
+	}
+
+	json.NewEncoder(w).Encode(result)
+}
+
+// handleCertificates returns TLS certificate status for all listeners.
+func (s *Server) handleCertificates(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	type certEntry struct {
+		ListenerID string      `json:"listener_id"`
+		Mode       string      `json:"mode"`
+		ACME       interface{} `json:"acme,omitempty"`
+		Manual     interface{} `json:"manual,omitempty"`
+	}
+
+	var result []certEntry
+	for _, id := range s.manager.List() {
+		l, ok := s.manager.Get(id)
+		if !ok {
+			continue
+		}
+		hl, ok := l.(*listener.HTTPListener)
+		if !ok {
+			continue
+		}
+
+		if acmeMgr := hl.ACMEManager(); acmeMgr != nil {
+			info := acmeMgr.CertStatus()
+			result = append(result, certEntry{
+				ListenerID: id,
+				Mode:       "acme",
+				ACME: map[string]interface{}{
+					"domains":    info.Domains,
+					"issuer":     info.Issuer,
+					"not_before": info.NotBefore,
+					"not_after":  info.NotAfter,
+					"days_left":  info.DaysLeft,
+					"serial":     info.Serial,
+				},
+			})
+		} else if cert := hl.CertPtr(); cert != nil {
+			// Manual TLS: parse leaf cert for expiry info
+			entry := certEntry{
+				ListenerID: id,
+				Mode:       "manual",
+			}
+			// Find the config for this listener to get file paths
+			var certFile, keyFile string
+			for _, lc := range s.config.Listeners {
+				if lc.ID == id {
+					certFile = lc.TLS.CertFile
+					keyFile = lc.TLS.KeyFile
+					break
+				}
+			}
+			manualInfo := map[string]interface{}{
+				"cert_file": certFile,
+				"key_file":  keyFile,
+			}
+			if leaf := parseCertLeaf(cert); leaf != nil {
+				manualInfo["not_after"] = leaf.NotAfter
+				manualInfo["days_left"] = int(time.Until(leaf.NotAfter).Hours() / 24)
+				manualInfo["serial"] = formatCertSerial(leaf.SerialNumber)
+			}
+			entry.Manual = manualInfo
+			result = append(result, entry)
+		}
+	}
+
+	json.NewEncoder(w).Encode(result)
+}
+
+// checkTLSCertificates checks all listener TLS certs and returns health status.
+// Returns nil if no TLS listeners exist.
+func (s *Server) checkTLSCertificates() map[string]interface{} {
+	const minDaysLeft = 7
+	hasTLS := false
+	allOK := true
+
+	for _, id := range s.manager.List() {
+		l, ok := s.manager.Get(id)
+		if !ok {
+			continue
+		}
+		hl, ok := l.(*listener.HTTPListener)
+		if !ok {
+			continue
+		}
+
+		if acmeMgr := hl.ACMEManager(); acmeMgr != nil {
+			hasTLS = true
+			info := acmeMgr.CertStatus()
+			if info.DaysLeft >= 0 && info.DaysLeft < minDaysLeft {
+				allOK = false
+			}
+		} else if cert := hl.CertPtr(); cert != nil {
+			hasTLS = true
+			if leaf := parseCertLeaf(cert); leaf != nil {
+				daysLeft := int(time.Until(leaf.NotAfter).Hours() / 24)
+				if daysLeft < minDaysLeft {
+					allOK = false
+				}
+			}
+		}
+	}
+
+	if !hasTLS {
+		return nil
+	}
+
+	status := "ok"
+	if !allOK {
+		status = "degraded"
+	}
+	return map[string]interface{}{
+		"status":           status,
+		"min_days_warning": minDaysLeft,
+	}
+}
+
+// parseCertLeaf parses the leaf certificate from a tls.Certificate.
+func parseCertLeaf(cert *tls.Certificate) *x509.Certificate {
+	if cert == nil || len(cert.Certificate) == 0 {
+		return nil
+	}
+	if cert.Leaf != nil {
+		return cert.Leaf
+	}
+	leaf, err := x509.ParseCertificate(cert.Certificate[0])
+	if err != nil {
+		return nil
+	}
+	return leaf
+}
+
+// formatCertSerial formats a certificate serial number as hex.
+func formatCertSerial(serial *big.Int) string {
+	if serial == nil {
+		return ""
+	}
+	return fmt.Sprintf("%X", serial)
+}
+
+// handleRules handles rules engine status requests
+func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	result := make(map[string]interface{})
+
+	// Global rules
+	if globalEngine := s.gateway.GetGlobalRules(); globalEngine != nil {
+		result["global"] = map[string]interface{}{
+			"request_rules":  globalEngine.RequestRuleInfos(),
+			"response_rules": globalEngine.ResponseRuleInfos(),
+			"metrics":        globalEngine.GetMetrics(),
+		}
+	}
+
+	// Per-route rules
+	routeStats := s.gateway.GetRouteRules().Stats()
+	if len(routeStats) > 0 {
+		result["routes"] = routeStats
+	}
+
+	json.NewEncoder(w).Encode(result)
+}
+
+// handleMetrics handles Prometheus metrics requests (Feature 5)
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	s.gateway.GetMetricsCollector().Handler().ServeHTTP(w, r)
+}
+
+// handleAdminKeys handles API key management requests (Feature 14)
+func (s *Server) handleAdminKeys(w http.ResponseWriter, r *http.Request) {
+	s.gateway.GetAPIKeyAuth().HandleAdminKeys(w, r)
+}
+
+func (s *Server) handleAPIKeyGenerate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	mgr := s.gateway.GetAPIKeyAuth().GetManager()
+	w.Header().Set("Content-Type", "application/json")
+
+	var req struct {
+		ClientID  string              `json:"client_id"`
+		Name      string              `json:"name"`
+		Roles     []string            `json:"roles"`
+		RateLimit *apiKeyRateLimitReq `json:"rate_limit"`
+		TTL       string              `json:"ttl"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid JSON body"})
+		return
+	}
+	if req.ClientID == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "client_id is required"})
+		return
+	}
+
+	var rl *auth.KeyRateLimit
+	if req.RateLimit != nil {
+		rl = &auth.KeyRateLimit{
+			Rate:   req.RateLimit.Rate,
+			Period: req.RateLimit.Period.Duration,
+			Burst:  req.RateLimit.Burst,
+		}
+	}
+
+	var ttl time.Duration
+	if req.TTL != "" {
+		var err error
+		ttl, err = time.ParseDuration(req.TTL)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "invalid TTL duration"})
+			return
+		}
+	}
+
+	rawKey, err := mgr.GenerateKey(req.ClientID, req.Name, req.Roles, rl, ttl)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"key": rawKey})
+}
+
+func (s *Server) handleAPIKeyStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	mgr := s.gateway.GetAPIKeyAuth().GetManager()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(mgr.Stats())
+}
+
+func (s *Server) handleAPIKeyAction(w http.ResponseWriter, r *http.Request) {
+	mgr := s.gateway.GetAPIKeyAuth().GetManager()
+	w.Header().Set("Content-Type", "application/json")
+
+	// Parse: /api-keys/{prefix}/{action}
+	path := strings.TrimPrefix(r.URL.Path, "/api-keys/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) < 2 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "expected /api-keys/{prefix}/{action}"})
+		return
+	}
+	prefix, action := parts[0], parts[1]
+
+	if r.Method == http.MethodDelete && action == "" {
+		action = "delete"
+	}
+
+	switch action {
+	case "rotate":
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			GracePeriod string `json:"grace_period"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		gp := 24 * time.Hour // default grace period
+		if req.GracePeriod != "" {
+			var err error
+			gp, err = time.ParseDuration(req.GracePeriod)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": "invalid grace_period"})
+				return
+			}
+		}
+		newKey, err := mgr.RotateKey(prefix, gp)
+		if err != nil {
+			writeManagerError(w, err)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"key": newKey})
+
+	case "revoke":
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		if err := mgr.RevokeKey(prefix); err != nil {
+			writeManagerError(w, err)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "revoked"})
+
+	case "unrevoke":
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		if err := mgr.UnrevokeKey(prefix); err != nil {
+			writeManagerError(w, err)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "unrevoked"})
+
+	case "delete":
+		if r.Method != http.MethodDelete && r.Method != http.MethodPost {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		if err := mgr.DeleteKey(prefix); err != nil {
+			writeManagerError(w, err)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+
+	default:
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "unknown action: " + action})
+	}
+}
+
+type apiKeyRateLimitReq struct {
+	Rate   int            `json:"rate"`
+	Period durationJSON   `json:"period"`
+	Burst  int            `json:"burst"`
+}
+
+type durationJSON struct {
+	time.Duration
+}
+
+func (d *durationJSON) UnmarshalJSON(b []byte) error {
+	var v string
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	dur, err := time.ParseDuration(v)
+	if err != nil {
+		return err
+	}
+	d.Duration = dur
+	return nil
+}
+
+func writeManagerError(w http.ResponseWriter, err error) {
+	if gErr, ok := err.(*gatewayerrors.RunwayError); ok {
+		gErr.WriteJSON(w)
+		return
+	}
+	w.WriteHeader(http.StatusInternalServerError)
+	json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+}
+
+// handleTrafficShaping handles traffic shaping stats requests
+func (s *Server) handleTrafficShaping(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	result := make(map[string]interface{})
+
+	if throttleStats := s.gateway.GetThrottlers().Stats(); len(throttleStats) > 0 {
+		result["throttle"] = throttleStats
+	}
+	if bwStats := s.gateway.GetBandwidthLimiters().Stats(); len(bwStats) > 0 {
+		result["bandwidth"] = bwStats
+	}
+	if pa := s.gateway.GetPriorityAdmitter(); pa != nil {
+		result["priority"] = pa.Snapshot()
+	}
+	if fiStats := s.gateway.GetFaultInjectors().Stats(); len(fiStats) > 0 {
+		result["fault_injection"] = fiStats
+	}
+	if acStats := s.gateway.GetAdaptiveLimiters().Stats(); len(acStats) > 0 {
+		result["adaptive_concurrency"] = acStats
+	}
+
+	json.NewEncoder(w).Encode(result)
+}
+
+
+// handleRateLimits handles rate limiter status requests
+func (s *Server) handleRateLimits(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	rl := s.gateway.GetRateLimiters()
+	routeIDs := rl.RouteIDs()
+	result := make(map[string]interface{})
+	for _, id := range routeIDs {
+		info := map[string]interface{}{}
+		if dl := rl.GetDistributedLimiter(id); dl != nil {
+			info["mode"] = "distributed"
+			info["algorithm"] = "sliding_window"
+		} else if sw := rl.GetSlidingWindowLimiter(id); sw != nil {
+			info["mode"] = "local"
+			info["algorithm"] = "sliding_window"
+		} else {
+			info["mode"] = "local"
+			info["algorithm"] = "token_bucket"
+		}
+		result[id] = info
+	}
+	json.NewEncoder(w).Encode(result)
+}
+
+// handleDashboard returns aggregated stats from all feature managers
+func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	stats := s.gateway.GetStats()
+	dashboard := map[string]interface{}{
+		"uptime":    time.Since(s.startTime).String(),
+		"timestamp": time.Now().Format(time.RFC3339),
+		"routes": map[string]interface{}{
+			"total":   stats.Routes,
+			"healthy": stats.HealthyRoutes,
+		},
+		"listeners": s.manager.Count(),
+	}
+
+	// Drain status
+	if s.draining.Load() {
+		drainInfo := map[string]interface{}{"draining": true}
+		if ts := s.drainStart.Load(); ts > 0 {
+			startTime := time.Unix(0, ts)
+			drainInfo["drain_start"] = startTime.Format(time.RFC3339)
+			drainInfo["drain_duration"] = time.Since(startTime).String()
+		}
+		dashboard["drain"] = drainInfo
+	}
+
+	// Auto-collect stats from all features with admin endpoints
+	for _, f := range s.gateway.features {
+		if asp, ok := f.(AdminStatsProvider); ok {
+			path := asp.AdminPath()
+			if path == "" {
+				continue
+			}
+			key := strings.TrimPrefix(path, "/")
+			if stats := asp.AdminStats(); stats != nil {
+				dashboard[key] = stats
+			}
+		}
+	}
+	for _, ef := range s.gateway.externalFeatures {
+		if asp, ok := ef.Feature.(ExternalAdminStatsProvider); ok {
+			path := asp.AdminPath()
+			if path == "" {
+				continue
+			}
+			key := strings.TrimPrefix(path, "/")
+			if stats := asp.AdminStats(); stats != nil {
+				dashboard[key] = stats
+			}
+		}
+	}
+
+	// Managers not registered as Features
+	if upstreams := s.gateway.GetUpstreams(); len(upstreams) > 0 {
+		dashboard["upstreams"] = upstreams
+	}
+	if dh := s.gateway.debugHandler; dh != nil {
+		dashboard["debug_endpoint"] = dh.Stats()
+	}
+	dashboard["transport"] = s.gateway.GetTransportPool().DefaultConfig()
+
+	// TCP/UDP stats
+	if s.tcpProxy != nil {
+		dashboard["tcp_routes"] = len(s.config.TCPRoutes)
+	}
+	if s.udpProxy != nil {
+		dashboard["udp_routes"] = len(s.config.UDPRoutes)
+		dashboard["udp_sessions"] = s.udpProxy.SessionCount()
+	}
+
+	json.NewEncoder(w).Encode(dashboard)
+}
+
+// boolStatus returns "ok" or "fail" for a boolean.
+func boolStatus(ok bool) string {
+	if ok {
+		return "ok"
+	}
+	return "fail"
+}
+
+// jsonStatsHandler returns an http.HandlerFunc that encodes fn() as JSON.
+func jsonStatsHandler(fn func() any) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(fn())
+	}
+}
+
+
+// handleReload handles config reload requests (POST only).
+func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.config.Cluster.Role == "data_plane" {
+		http.Error(w, "config changes must go through control plane", http.StatusForbidden)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	result := s.ReloadConfig()
+	json.NewEncoder(w).Encode(result)
+}
+
+// handleMaintenanceAction handles runtime enable/disable of maintenance mode.
+// POST /maintenance/{routeID}/enable or POST /maintenance/{routeID}/disable
+func (s *Server) handleMaintenanceAction(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse /maintenance/{routeID}/{action}
+	path := strings.TrimPrefix(r.URL.Path, "/maintenance/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) != 2 {
+		http.Error(w, `{"error":"expected /maintenance/{route}/{action}"}`, http.StatusBadRequest)
+		return
+	}
+	routeID := parts[0]
+	action := parts[1]
+
+	cm := s.gateway.GetMaintenanceHandlers().GetMaintenance(routeID)
+	if cm == nil {
+		http.Error(w, `{"error":"route not found or maintenance not configured"}`, http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	switch action {
+	case "enable":
+		cm.Enable()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":  "enabled",
+			"route":   routeID,
+		})
+	case "disable":
+		cm.Disable()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":  "disabled",
+			"route":   routeID,
+		})
+	default:
+		http.Error(w, `{"error":"action must be 'enable' or 'disable'"}`, http.StatusBadRequest)
+	}
+}
+
+
+// handleMirrorsAction handles mirror mismatch inspection and clearing.
+// GET /mirrors/{routeID}/mismatches — return mismatch snapshot
+// DELETE /mirrors/{routeID}/mismatches — clear mismatch store
+func (s *Server) handleMirrorsAction(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/mirrors/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) != 2 || parts[1] != "mismatches" {
+		http.Error(w, `{"error":"expected /mirrors/{route}/mismatches"}`, http.StatusBadRequest)
+		return
+	}
+	routeID := parts[0]
+
+	w.Header().Set("Content-Type", "application/json")
+
+	switch r.Method {
+	case http.MethodGet:
+		snap := s.gateway.GetMirrors().GetMismatchSnapshot(routeID)
+		if snap == nil {
+			http.Error(w, `{"error":"route not found or detailed_diff not enabled"}`, http.StatusNotFound)
+			return
+		}
+		json.NewEncoder(w).Encode(snap)
+	case http.MethodDelete:
+		if ok := s.gateway.GetMirrors().ClearMismatches(routeID); !ok {
+			http.Error(w, `{"error":"route not found or detailed_diff not enabled"}`, http.StatusNotFound)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "cleared"})
+	default:
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleHTTPSRedirect handles HTTPS redirect stats requests.
+func (s *Server) handleHTTPSRedirect(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	redir := s.gateway.GetHTTPSRedirect()
+	if redir != nil {
+		json.NewEncoder(w).Encode(redir.Stats())
+	} else {
+		json.NewEncoder(w).Encode(map[string]interface{}{"enabled": false})
+	}
+}
+
+// handleAllowedHosts handles allowed hosts stats requests.
+func (s *Server) handleAllowedHosts(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	ah := s.gateway.GetAllowedHosts()
+	if ah != nil {
+		json.NewEncoder(w).Encode(ah.Stats())
+	} else {
+		json.NewEncoder(w).Encode(map[string]interface{}{"enabled": false})
+	}
+}
+
+
+// handleTokenRevocation handles token revocation stats requests.
+func (s *Server) handleTokenRevocation(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	tc := s.gateway.GetTokenChecker()
+	if tc != nil {
+		json.NewEncoder(w).Encode(tc.Stats())
+	} else {
+		json.NewEncoder(w).Encode(map[string]interface{}{"enabled": false})
+	}
+}
+
+// handleTokenRevocationAction handles revoke/unrevoke API actions.
+func (s *Server) handleTokenRevocationAction(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	tc := s.gateway.GetTokenChecker()
+	if tc == nil {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "token revocation not enabled"})
+		return
+	}
+
+	// Parse action from path: /token-revocation/revoke or /token-revocation/unrevoke
+	path := strings.TrimPrefix(r.URL.Path, "/token-revocation/")
+	action := strings.TrimSuffix(path, "/")
+
+	var body struct {
+		Token string `json:"token"`
+		JTI   string `json:"jti"`
+		TTL   string `json:"ttl"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid JSON body"})
+		return
+	}
+
+	tokenOrJTI := body.Token
+	if tokenOrJTI == "" {
+		tokenOrJTI = body.JTI
+	}
+	if tokenOrJTI == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "token or jti is required"})
+		return
+	}
+
+	switch action {
+	case "revoke":
+		var ttl time.Duration
+		if body.TTL != "" {
+			var err error
+			ttl, err = time.ParseDuration(body.TTL)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": "invalid ttl: " + err.Error()})
+				return
+			}
+		}
+		if err := tc.Revoke(tokenOrJTI, ttl); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "revoked"})
+
+	case "unrevoke":
+		if err := tc.Unrevoke(tokenOrJTI); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "unrevoked"})
+
+	default:
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("unknown action %q (valid: revoke, unrevoke)", action)})
+	}
+}
+
+func (s *Server) handleIPBlocklistRefresh(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+
+	refreshed := 0
+	if s.gateway.globalBlocklist != nil {
+		s.gateway.globalBlocklist.ForceRefresh()
+		refreshed++
+	}
+	s.gateway.ipBlocklists.Range(func(_ string, bl *ipblocklist.Blocklist) bool {
+		bl.ForceRefresh()
+		refreshed++
+		return true
+	})
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":    "ok",
+		"refreshed": refreshed,
+	})
+}
+
+func (s *Server) handleCachePurge(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var req struct {
+		Route       string   `json:"route"`
+		Key         string   `json:"key"`
+		PathPattern string   `json:"path_pattern"`
+		Tags        []string `json:"tags"`
+		All         bool     `json:"all"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid JSON body"})
+		return
+	}
+
+	if req.All {
+		total := s.gateway.caches.PurgeAll()
+		json.NewEncoder(w).Encode(map[string]interface{}{"purged": true, "entries_removed": total})
+		return
+	}
+	if req.Route == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "route is required (or set all: true)"})
+		return
+	}
+	if len(req.Tags) > 0 {
+		count, ok := s.gateway.caches.PurgeByTags(req.Route, req.Tags)
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": "route not found"})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"purged": true, "entries_removed": count})
+		return
+	}
+	if req.PathPattern != "" {
+		count, ok := s.gateway.caches.PurgeByPathPattern(req.Route, req.PathPattern)
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": "route not found"})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"purged": true, "entries_removed": count})
+		return
+	}
+	if req.Key != "" {
+		ok := s.gateway.caches.PurgeRouteKey(req.Route, req.Key)
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": "route not found"})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"purged": true, "entries_removed": 1})
+		return
+	}
+	count, ok := s.gateway.caches.PurgeRoute(req.Route)
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "route not found"})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"purged": true, "entries_removed": count})
+}
+
+func (s *Server) handleDrain(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	switch r.Method {
+	case http.MethodGet:
+		response := map[string]interface{}{
+			"draining": s.draining.Load(),
+		}
+		if ts := s.drainStart.Load(); ts > 0 {
+			startTime := time.Unix(0, ts)
+			response["drain_start"] = startTime.Format(time.RFC3339)
+			response["drain_duration"] = time.Since(startTime).String()
+		}
+		json.NewEncoder(w).Encode(response)
+
+	case http.MethodPost:
+		if s.draining.Load() {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"status":  "already_draining",
+				"message": "server is already in drain mode",
+			})
+			return
+		}
+		s.Drain()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":  "draining",
+			"message": "drain mode activated, readiness checks will return 503",
+		})
+
+	default:
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleUpstreams returns configured upstream pools.
+func (s *Server) handleUpstreams(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	upstreams := s.gateway.GetUpstreams()
+	if upstreams == nil {
+		upstreams = make(map[string]config.UpstreamConfig)
+	}
+	json.NewEncoder(w).Encode(upstreams)
+}
+
+// handleTransport returns transport pool configuration.
+func (s *Server) handleTransport(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	pool := s.gateway.GetTransportPool()
+	result := map[string]interface{}{
+		"default":   pool.DefaultConfig(),
+		"upstreams": make(map[string]interface{}),
+	}
+
+	// Show per-upstream transport overrides from config
+	for name, us := range s.gateway.GetUpstreams() {
+		if us.Transport == (config.TransportConfig{}) {
+			continue
+		}
+		result["upstreams"].(map[string]interface{})[name] = us.Transport
+	}
+
+	json.NewEncoder(w).Encode(result)
+}
+
+// handleCanaryAction handles POST /canary/{route}/{action}.
+func (s *Server) handleCanaryAction(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse /canary/{route}/{action}
+	path := strings.TrimPrefix(r.URL.Path, "/canary/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		http.Error(w, "usage: POST /canary/{route}/{action}", http.StatusBadRequest)
+		return
+	}
+	routeID := parts[0]
+	actionName := parts[1]
+
+	ctrl := s.gateway.GetCanaryControllers().GetController(routeID)
+	if ctrl == nil {
+		http.Error(w, fmt.Sprintf("no canary controller for route %q", routeID), http.StatusNotFound)
+		return
+	}
+
+	var err error
+	switch actionName {
+	case "start":
+		err = ctrl.Start()
+	case "pause":
+		err = ctrl.Pause()
+	case "resume":
+		err = ctrl.Resume()
+	case "promote":
+		err = ctrl.Promote()
+	case "rollback":
+		err = ctrl.Rollback()
+	default:
+		http.Error(w, fmt.Sprintf("unknown action %q (valid: start, pause, resume, promote, rollback)", actionName), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": actionName, "route": routeID})
+}
+
+// handleSchemaEvolution handles GET /schema-evolution/{specID}.
+func (s *Server) handleSchemaEvolution(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	specID := strings.TrimPrefix(r.URL.Path, "/schema-evolution/")
+	if specID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(s.gateway.schemaChecker.GetAllReports())
+		return
+	}
+	report := s.gateway.schemaChecker.GetReport(specID)
+	if report == nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(report)
+}
+
+// handleCircuitBreakerAction handles POST /circuit-breakers/{route}/{action}.
+// Supported actions: open (force open), close (force close), reset (return to auto).
+func (s *Server) handleCircuitBreakerAction(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse /circuit-breakers/{route}/{action}
+	path := strings.TrimPrefix(r.URL.Path, "/circuit-breakers/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		http.Error(w, "usage: POST /circuit-breakers/{route}/{action}", http.StatusBadRequest)
+		return
+	}
+	routeID := parts[0]
+	actionName := parts[1]
+
+	var err error
+	switch actionName {
+	case "open":
+		err = s.gateway.GetCircuitBreakers().ForceOpen(routeID)
+	case "close":
+		err = s.gateway.GetCircuitBreakers().ForceClose(routeID)
+	case "reset":
+		err = s.gateway.GetCircuitBreakers().ResetOverride(routeID)
+	default:
+		http.Error(w, fmt.Sprintf("unknown action %q (valid: open, close, reset)", actionName), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": actionName, "route": routeID})
+}
+
+// handleBlueGreenAction handles POST /blue-green/{route}/{action}.
+func (s *Server) handleBlueGreenAction(w http.ResponseWriter, r *http.Request) {
+	// Parse /blue-green/{route}/{action}
+	path := strings.TrimPrefix(r.URL.Path, "/blue-green/")
+	parts := strings.SplitN(path, "/", 2)
+
+	// GET /blue-green/{route}/status is allowed
+	if r.Method == http.MethodGet && len(parts) == 2 && parts[1] == "status" {
+		routeID := parts[0]
+		ctrl := s.gateway.GetBlueGreenControllers().GetController(routeID)
+		if ctrl == nil {
+			http.Error(w, fmt.Sprintf("no blue-green controller for route %q", routeID), http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(ctrl.Snapshot())
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		http.Error(w, "usage: POST /blue-green/{route}/{promote|rollback} or GET /blue-green/{route}/status", http.StatusBadRequest)
+		return
+	}
+	routeID := parts[0]
+	actionName := parts[1]
+
+	ctrl := s.gateway.GetBlueGreenControllers().GetController(routeID)
+	if ctrl == nil {
+		http.Error(w, fmt.Sprintf("no blue-green controller for route %q", routeID), http.StatusNotFound)
+		return
+	}
+
+	var err error
+	switch actionName {
+	case "promote":
+		err = ctrl.Promote()
+	case "rollback":
+		err = ctrl.Rollback()
+	default:
+		http.Error(w, fmt.Sprintf("unknown action %q (valid: promote, rollback, status)", actionName), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": actionName, "route": routeID})
+}
+
+// handleTrafficReplayAction handles traffic replay admin endpoints.
+func (s *Server) handleTrafficReplayAction(w http.ResponseWriter, r *http.Request) {
+	// Parse /traffic-replay/{route}/{action}
+	path := strings.TrimPrefix(r.URL.Path, "/traffic-replay/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		http.Error(w, "usage: /traffic-replay/{route}/{status|start|stop|replay|cancel|recordings}", http.StatusBadRequest)
+		return
+	}
+	routeID := parts[0]
+	actionName := parts[1]
+
+	rec := s.gateway.GetTrafficReplay().GetRecorder(routeID)
+	if rec == nil {
+		http.Error(w, fmt.Sprintf("no traffic replay recorder for route %q", routeID), http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	switch actionName {
+	case "status":
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		json.NewEncoder(w).Encode(rec.Snapshot())
+
+	case "start":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		rec.StartRecording()
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": "start_recording", "route": routeID})
+
+	case "stop":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		rec.StopRecording()
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": "stop_recording", "route": routeID})
+
+	case "replay":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var cfg struct {
+			Target      string  `json:"target"`
+			Concurrency int     `json:"concurrency"`
+			RatePerSec  float64 `json:"rate_per_sec"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+			http.Error(w, "invalid JSON body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if cfg.Target == "" {
+			http.Error(w, "target is required", http.StatusBadRequest)
+			return
+		}
+		if err := rec.StartReplay(trafficreplay.ReplayConfig{
+			Target:      cfg.Target,
+			Concurrency: cfg.Concurrency,
+			RatePerSec:  cfg.RatePerSec,
+		}); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": "replay_started", "route": routeID})
+
+	case "cancel":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		rec.CancelReplay()
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": "replay_cancelled", "route": routeID})
+
+	case "recordings":
+		if r.Method == http.MethodDelete {
+			rec.ClearRecordings()
+			json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": "recordings_cleared", "route": routeID})
+		} else {
+			http.Error(w, "usage: DELETE /traffic-replay/{route}/recordings", http.StatusMethodNotAllowed)
+		}
+
+	default:
+		http.Error(w, fmt.Sprintf("unknown action %q (valid: status, start, stop, replay, cancel, recordings)", actionName), http.StatusBadRequest)
+	}
+}
+
+// handleABTestAction handles POST /ab-tests/{route}/{action}.
+func (s *Server) handleABTestAction(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse /ab-tests/{route}/{action}
+	path := strings.TrimPrefix(r.URL.Path, "/ab-tests/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		http.Error(w, "usage: POST /ab-tests/{route}/{action}", http.StatusBadRequest)
+		return
+	}
+	routeID := parts[0]
+	actionName := parts[1]
+
+	ab := s.gateway.GetABTests().GetTest(routeID)
+	if ab == nil {
+		http.Error(w, fmt.Sprintf("no A/B test for route %q", routeID), http.StatusNotFound)
+		return
+	}
+
+	switch actionName {
+	case "reset":
+		ab.Reset()
+	default:
+		http.Error(w, fmt.Sprintf("unknown action %q (valid: reset)", actionName), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "action": actionName, "route": routeID})
+}
+
+// Handler returns the root HTTP handler for the gateway.
+func (s *Server) Handler() http.Handler {
+	return s.gateway.Handler()
+}
+
+// Runway returns the underlying gateway
+func (s *Server) Runway() *Runway {
+	return s.gateway
+}
+
+// ListenerManager returns the listener manager
+func (s *Server) ListenerManager() *listener.Manager {
+	return s.manager
+}
+
+// GetTCPProxy returns the TCP proxy
+func (s *Server) GetTCPProxy() *tcp.Proxy {
+	return s.tcpProxy
+}
+
+// GetUDPProxy returns the UDP proxy
+func (s *Server) GetUDPProxy() *udp.Proxy {
+	return s.udpProxy
+}
+
+// handleTenantCRUD handles CRUD operations on /tenants/{id}.
+func (s *Server) handleTenantCRUD(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if s.gateway.tenantManager == nil {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "multi-tenancy not enabled"})
+		return
+	}
+
+	// Extract tenant ID from path: /tenants/{id}
+	parts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/tenants/"), "/", 2)
+	tenantID := parts[0]
+
+	switch r.Method {
+	case http.MethodGet:
+		if tenantID == "" {
+			// List all tenants
+			json.NewEncoder(w).Encode(s.gateway.tenantManager.Stats())
+			return
+		}
+		tc, ok := s.gateway.tenantManager.GetTenant(tenantID)
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": "tenant not found"})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":     tenantID,
+			"config": tc,
+		})
+
+	case http.MethodPost:
+		if tenantID == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "tenant ID required"})
+			return
+		}
+		var tc config.TenantConfig
+		if err := json.NewDecoder(r.Body).Decode(&tc); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		if err := s.gateway.tenantManager.AddTenant(tenantID, tc); err != nil {
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{"status": "created", "id": tenantID})
+
+	case http.MethodPut:
+		if tenantID == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "tenant ID required"})
+			return
+		}
+		var tc config.TenantConfig
+		if err := json.NewDecoder(r.Body).Decode(&tc); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		if err := s.gateway.tenantManager.UpdateTenant(tenantID, tc); err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "updated", "id": tenantID})
+
+	case http.MethodDelete:
+		if tenantID == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "tenant ID required"})
+			return
+		}
+		if err := s.gateway.tenantManager.RemoveTenant(tenantID); err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "id": tenantID})
+
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+// registerClusterAdminRoutes adds admin API endpoints for cluster mode.
+func (s *Server) registerClusterAdminRoutes(mux *http.ServeMux) {
+	role := s.config.Cluster.Role
+	if role == "" || role == "standalone" {
+		return
+	}
+
+	if role == "control_plane" {
+		mux.HandleFunc("/cluster/nodes", s.handleClusterNodes)
+		mux.HandleFunc("/api/v1/config", s.handleCPConfig)
+		mux.HandleFunc("/api/v1/config/hash", s.handleCPConfigHash)
+	}
+
+	if role == "data_plane" {
+		mux.HandleFunc("/cluster/status", s.handleDPStatus)
+	}
+}
+
+// handleClusterNodes returns connected DP fleet status (CP only).
+func (s *Server) handleClusterNodes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.cpServer.ConnectedNodes())
+}
+
+// handleCPConfig handles GET (read) and POST (push) config on the CP.
+func (s *Server) handleCPConfig(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		env := s.cpServer.CurrentConfig()
+		if cfg, ok := env.Config.(*config.Config); ok && cfg != nil {
+			redacted, err := config.RedactConfig(cfg)
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]string{"error": "failed to redact config"})
+				return
+			}
+			out, _ := yaml.Marshal(redacted)
+			w.Header().Set("Content-Type", "application/x-yaml")
+			w.Write(out)
+		} else {
+			// Fallback: return raw YAML (pre-existing envelopes without Config)
+			w.Header().Set("Content-Type", "application/x-yaml")
+			w.Write(env.YAML)
+		}
+
+	case http.MethodPost:
+		w.Header().Set("Content-Type", "application/json")
+		r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB limit
+		configData, err := io.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "failed to read body: " + err.Error()})
+			return
+		}
+		if len(configData) == 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "empty body"})
+			return
+		}
+
+		loader := config.NewLoader()
+		newCfg, err := loader.Parse(configData)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+
+		result := s.ReloadWithConfig(newCfg)
+		if !result.Success {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+		}
+		json.NewEncoder(w).Encode(result)
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleCPConfigHash returns the current config version and hash (CP only).
+func (s *Server) handleCPConfigHash(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	env := s.cpServer.CurrentConfig()
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"version":   env.Version,
+		"hash":      env.Hash,
+		"timestamp": env.Timestamp,
+		"source":    env.Source,
+	})
+}
+
+// handleDPStatus returns data plane cluster status.
+func (s *Server) handleDPStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"role":           "data_plane",
+		"cp_address":     s.config.Cluster.DataPlane.Address,
+		"connected":      s.dpClient.Connected(),
+		"config_version": s.dpClient.ConfigVersion(),
+		"config_hash":    s.dpClient.ConfigHash(),
+		"node_id":        s.dpClient.NodeID(),
+		"has_config":     s.dpClient.HasConfig(),
+	})
+}

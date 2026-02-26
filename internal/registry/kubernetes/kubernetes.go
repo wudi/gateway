@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/registry"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/registry"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
@@ -348,7 +348,7 @@ func (r *Registry) GetServicePort(ctx context.Context, serviceName string, portN
 	}
 
 	// Check for port annotation
-	if portStr, ok := svc.Annotations["gateway.port"]; ok {
+	if portStr, ok := svc.Annotations["runway.port"]; ok {
 		if port, err := strconv.Atoi(portStr); err == nil {
 			return port, nil
 		}

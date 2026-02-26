@@ -27,7 +27,7 @@ audit_log:
   webhook_url: "https://audit.example.com/events"
   headers:
     Authorization: "Bearer audit-token"
-    X-Source: "api-gateway"
+    X-Source: "api-runway"
   sample_rate: 1.0
   include_body: false
   max_body_size: 65536          # 64KB
@@ -249,7 +249,7 @@ routes:
 
 ### High-throughput buffering
 
-For high-traffic gateways, tune buffer and batch settings:
+For high-traffic deployments, tune buffer and batch settings:
 
 ```yaml
 audit_log:

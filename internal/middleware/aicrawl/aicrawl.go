@@ -10,10 +10,10 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/internal/errors"
-	"github.com/wudi/gateway/internal/middleware"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/internal/errors"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // crawlerPolicy holds a resolved policy for a single crawler.

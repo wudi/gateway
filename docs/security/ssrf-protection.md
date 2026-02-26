@@ -3,7 +3,7 @@ title: "SSRF Protection"
 sidebar_position: 10
 ---
 
-Server-Side Request Forgery (SSRF) protection prevents the gateway from making outbound connections to private/internal IP addresses when proxying requests or delivering webhooks. It operates at the transport layer by wrapping the dialer, so all DNS-resolved addresses are validated before any TCP connection is established.
+Server-Side Request Forgery (SSRF) protection prevents the runway from making outbound connections to private/internal IP addresses when proxying requests or delivering webhooks. It operates at the transport layer by wrapping the dialer, so all DNS-resolved addresses are validated before any TCP connection is established.
 
 ## Configuration
 

@@ -31,8 +31,8 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayclient "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/ingress"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/ingress"
 )
 
 // testReport accumulates test results for the final report.
@@ -59,8 +59,8 @@ var report = &testReport{start: time.Now()}
 
 const (
 	testNamespace  = "gw-integration-test"
-	ingressClass   = "gateway-test"
-	controllerName = "apigw.dev/integration-test"
+	ingressClass   = "runway-test"
+	controllerName = "runway.wudi.io/integration-test"
 )
 
 // getKubeClient builds a kubernetes client from the default kubeconfig.
@@ -83,7 +83,7 @@ func getKubeClient(t *testing.T) (*kubernetes.Clientset, *gatewayclient.Clientse
 
 	gwClient, err := gatewayclient.NewForConfig(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create gateway client: %v", err)
+		t.Fatalf("Failed to create runway client: %v", err)
 	}
 
 	return k8s, gwClient
@@ -901,14 +901,14 @@ func TestAnnotationParsing(t *testing.T) {
 			Name:      "annotated",
 			Namespace: testNamespace,
 			Annotations: map[string]string{
-				"apigw.dev/rate-limit":      "100",
-				"apigw.dev/timeout":         "15s",
-				"apigw.dev/retry-max":       "5",
-				"apigw.dev/cors-enabled":    "true",
-				"apigw.dev/circuit-breaker": "true",
-				"apigw.dev/cache-enabled":   "true",
-				"apigw.dev/load-balancer":   "least_conn",
-				"apigw.dev/strip-prefix":    "true",
+				"runway.wudi.io/rate-limit":      "100",
+				"runway.wudi.io/timeout":         "15s",
+				"runway.wudi.io/retry-max":       "5",
+				"runway.wudi.io/cors-enabled":    "true",
+				"runway.wudi.io/circuit-breaker": "true",
+				"runway.wudi.io/cache-enabled":   "true",
+				"runway.wudi.io/load-balancer":   "least_conn",
+				"runway.wudi.io/strip-prefix":    "true",
 			},
 		},
 		Spec: networkingv1.IngressSpec{
@@ -1150,8 +1150,8 @@ func TestEndToEndIngressPipeline(t *testing.T) {
 			Name:      "e2e-ing",
 			Namespace: testNamespace,
 			Annotations: map[string]string{
-				"apigw.dev/timeout":   "30s",
-				"apigw.dev/retry-max": "2",
+				"runway.wudi.io/timeout":   "30s",
+				"runway.wudi.io/retry-max": "2",
 			},
 		},
 		Spec: networkingv1.IngressSpec{
@@ -1407,7 +1407,7 @@ func TestClusterIPMode(t *testing.T) {
 	ing := &networkingv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "clusterip-test", Namespace: testNamespace,
-			Annotations: map[string]string{"apigw.dev/upstream-mode": "clusterip"},
+			Annotations: map[string]string{"runway.wudi.io/upstream-mode": "clusterip"},
 		},
 		Spec: networkingv1.IngressSpec{
 			IngressClassName: &className,

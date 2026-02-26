@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func TestHedgingIntegration(t *testing.T) {
@@ -59,7 +59,7 @@ func TestHedgingIntegration(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	start := time.Now()
 	resp, err := http.Get(ts.URL + "/hedged")
@@ -173,7 +173,7 @@ func TestRetryBudgetIntegration(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// Send several requests — budget should limit total retries
 	for i := 0; i < 10; i++ {

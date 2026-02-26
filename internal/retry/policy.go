@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 // DefaultRetryableStatuses are HTTP status codes that trigger a retry

@@ -54,7 +54,7 @@ listeners:
         domains: [string]          # domain names to obtain certificates for
         email: string              # contact email for the ACME account
         directory_url: string      # ACME directory URL (default: Let's Encrypt production)
-        cache_dir: string          # certificate cache directory (default "/var/lib/gateway/acme")
+        cache_dir: string          # certificate cache directory (default "/var/lib/runway/acme")
         challenge_type: string     # "tls-alpn-01" (default) or "http-01"
         http_address: string       # bind address for HTTP-01 challenge server (default ":80")
     http:
@@ -195,7 +195,7 @@ authentication:
     realm: string                   # default "Restricted"
   saml:
     enabled: bool
-    entity_id: string                           # required; SP entity ID (typically the gateway's base URL)
+    entity_id: string                           # required; SP entity ID (typically the runway's base URL)
     cert_file: string                           # required; path to SP X.509 certificate (PEM)
     key_file: string                            # required; path to SP private key (PEM)
     idp_metadata_url: string                    # IdP metadata URL (mutually exclusive with idp_metadata_file)
@@ -209,7 +209,7 @@ authentication:
     assertion_header: string                    # default "X-SAML-Assertion"
     session:
       signing_key: string                       # required; HMAC key for session JWT (>= 32 bytes); supports ${ENV_VAR}
-      cookie_name: string                       # default "gateway_saml"
+      cookie_name: string                       # default "runway_saml"
       max_age: duration                         # default 8h
       domain: string                            # cookie domain
       secure: bool                              # default true
@@ -1601,7 +1601,7 @@ admin:
     require_redis: bool
   catalog:
     enabled: bool             # default false
-    title: string             # default "API Gateway"
+    title: string             # default "API Runway"
     description: string
   grpc_health:
     enabled: bool             # enable gRPC health check server (default false)
@@ -1791,7 +1791,7 @@ backend_signing:
   key_id: string              # key identifier for rotation (required)
   signed_headers: [string]    # request headers to include in signature
   include_body: bool          # hash request body into signature (default true)
-  header_prefix: string       # prefix for injected headers (default "X-Gateway-")
+  header_prefix: string       # prefix for injected headers (default "X-Runway-")
 ```
 
 Per-route backend signing config is merged with the global `backend_signing:` block. Per-route fields override global fields.
@@ -2584,7 +2584,7 @@ inbound_signing:
   key_id: string           # expected key ID (optional)
   signed_headers: [string] # additional headers included in signature
   include_body: bool       # include body hash in signature (default true)
-  header_prefix: string    # header name prefix (default "X-Gateway-")
+  header_prefix: string    # header name prefix (default "X-Runway-")
   max_age: duration        # max timestamp age (default 5m)
   shadow_mode: bool        # log failures without rejecting (default false)
 ```
@@ -2724,7 +2724,7 @@ load_shedding:
 
 **Validation:** `cpu_threshold` must be 0-100. `memory_threshold` must be 0-100. `goroutine_limit` must be >= 0. `sample_interval` and `cooldown_duration` must be >= 0. `retry_after` must be > 0.
 
-Load shedding runs in the global handler chain after RequestID and before the service rate limit. When any threshold is exceeded, the gateway returns `503 Service Unavailable` with a `Retry-After` header.
+Load shedding runs in the global handler chain after RequestID and before the service rate limit. When any threshold is exceeded, the runway returns `503 Service Unavailable` with a `Retry-After` header.
 
 See [Load Shedding](../resilience/load-shedding.md) for details.
 
@@ -3122,7 +3122,7 @@ Plugin extension configuration. Raw YAML preserved for plugins to decode.
 # Global extensions
 extensions:
   <plugin-name>:
-    <arbitrary-yaml>    # decoded by the plugin, not the gateway
+    <arbitrary-yaml>    # decoded by the plugin, not the runway
 
 # Per-route extensions
 routes:
@@ -3137,7 +3137,7 @@ See [Extensibility](extensibility.md) for the full plugin API.
 
 ---
 
-## AI Gateway
+## AI Runway
 
 ```yaml
 routes:
@@ -3145,7 +3145,7 @@ routes:
     path: /v1/chat/completions
     methods: [POST]
     ai:
-      enabled: bool              # enable AI gateway (default false)
+      enabled: bool              # enable AI runway (default false)
       provider: string           # required: "openai", "anthropic", "azure_openai", "gemini"
       model: string              # default model name
       model_mapping:             # map client model names to provider models
@@ -3187,7 +3187,7 @@ routes:
 
 AI routes are mutually exclusive with backends, echo, static, fastcgi, sequential, aggregate, lambda, amqp, pubsub, mock_response, and passthrough.
 
-See [AI Gateway](../ai-gateway/ai-gateway.md) for full documentation.
+See [AI Runway](../ai-runway/ai-runway.md) for full documentation.
 
 ---
 
@@ -3214,7 +3214,7 @@ cluster:
       cert_file: string           # required, DP client certificate
       key_file: string            # required, DP client private key
       ca_file: string             # required, CA to verify CP server certificate
-    cache_dir: string             # disk cache for static stability (default "/var/lib/gateway/cluster")
+    cache_dir: string             # disk cache for static stability (default "/var/lib/runway/cluster")
     retry_interval: duration      # reconnection base interval (default 5s)
     heartbeat_interval: duration  # heartbeat send interval (default 10s)
     node_id: string               # stable node identifier (auto-generated UUID if empty)

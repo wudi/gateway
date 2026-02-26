@@ -25,7 +25,7 @@ routes:
 
 ## HTTPS with TLS Termination
 
-Terminate TLS at the gateway and proxy to plain HTTP backends:
+Terminate TLS at the runway and proxy to plain HTTP backends:
 
 ```yaml
 listeners:
@@ -341,7 +341,7 @@ routes:
       per_ip: true
 ```
 
-Clients query `/graphql` and the gateway splits cross-backend queries, fans out to the owning sources, and merges the responses. See [GraphQL Federation](../protocol/graphql-federation.md) for details.
+Clients query `/graphql` and the runway splits cross-backend queries, fans out to the owning sources, and merges the responses. See [GraphQL Federation](../protocol/graphql-federation.md) for details.
 
 ## Production-Ready with Observability
 
@@ -496,7 +496,7 @@ tracing:
   enabled: true
   exporter: "otlp"
   endpoint: "otel-collector:4317"
-  service_name: "api-gateway"
+  service_name: "api-runway"
   sample_rate: 0.1
   insecure: true
 

@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 var testSecret = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("A"), 32))
@@ -70,7 +70,7 @@ func TestVerify_ValidSignature(t *testing.T) {
 
 	secret, _ := base64.StdEncoding.DecodeString(testSecret)
 	r := httptest.NewRequest(http.MethodGet, "/api/test", nil)
-	signRequest(r, secret, "X-Gateway-", false)
+	signRequest(r, secret, "X-Runway-", false)
 
 	if err := v.Verify(r); err != nil {
 		t.Errorf("expected nil error, got: %v", err)
@@ -95,7 +95,7 @@ func TestVerify_ValidSignatureWithBody(t *testing.T) {
 	secret, _ := base64.StdEncoding.DecodeString(testSecret)
 	body := `{"hello":"world"}`
 	r := httptest.NewRequest(http.MethodPost, "/api/test", strings.NewReader(body))
-	signRequest(r, secret, "X-Gateway-", true)
+	signRequest(r, secret, "X-Runway-", true)
 
 	if err := v.Verify(r); err != nil {
 		t.Errorf("expected nil error, got: %v", err)
@@ -135,8 +135,8 @@ func TestVerify_ExpiredTimestamp(t *testing.T) {
 
 	v, _ := New("test-route", cfg)
 	r := httptest.NewRequest(http.MethodGet, "/api/test", nil)
-	r.Header.Set("X-Gateway-Timestamp", strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10))
-	r.Header.Set("X-Gateway-Signature", "hmac-sha256=deadbeef")
+	r.Header.Set("X-Runway-Timestamp", strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10))
+	r.Header.Set("X-Runway-Signature", "hmac-sha256=deadbeef")
 
 	err := v.Verify(r)
 	if err == nil || !strings.Contains(err.Error(), "expired") {
@@ -155,8 +155,8 @@ func TestVerify_SignatureMismatch(t *testing.T) {
 
 	v, _ := New("test-route", cfg)
 	r := httptest.NewRequest(http.MethodGet, "/api/test", nil)
-	r.Header.Set("X-Gateway-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
-	r.Header.Set("X-Gateway-Signature", "hmac-sha256="+strings.Repeat("ab", 32))
+	r.Header.Set("X-Runway-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
+	r.Header.Set("X-Runway-Signature", "hmac-sha256="+strings.Repeat("ab", 32))
 
 	err := v.Verify(r)
 	if err == nil || !strings.Contains(err.Error(), "mismatch") {
@@ -174,8 +174,8 @@ func TestVerify_KeyIDMismatch(t *testing.T) {
 	v, _ := New("test-route", cfg)
 	secret, _ := base64.StdEncoding.DecodeString(testSecret)
 	r := httptest.NewRequest(http.MethodGet, "/api/test", nil)
-	signRequest(r, secret, "X-Gateway-", false)
-	r.Header.Set("X-Gateway-Key-ID", "wrong-key")
+	signRequest(r, secret, "X-Runway-", false)
+	r.Header.Set("X-Runway-Key-ID", "wrong-key")
 
 	err := v.Verify(r)
 	if err == nil || !strings.Contains(err.Error(), "key ID mismatch") {
@@ -378,7 +378,7 @@ func TestVerify_RSA_SHA256_ValidSignature(t *testing.T) {
 	}
 
 	r := httptest.NewRequest(http.MethodGet, "/api/test", nil)
-	rsaSignRequest(t, r, privKey, "X-Gateway-", false)
+	rsaSignRequest(t, r, privKey, "X-Runway-", false)
 
 	if err := v.Verify(r); err != nil {
 		t.Errorf("expected nil error, got: %v", err)
@@ -404,7 +404,7 @@ func TestVerify_RSA_SHA256_WithBody(t *testing.T) {
 
 	body := `{"hello":"world"}`
 	r := httptest.NewRequest(http.MethodPost, "/api/test", strings.NewReader(body))
-	rsaSignRequest(t, r, privKey, "X-Gateway-", true)
+	rsaSignRequest(t, r, privKey, "X-Runway-", true)
 
 	if err := v.Verify(r); err != nil {
 		t.Errorf("expected nil error, got: %v", err)
@@ -433,7 +433,7 @@ func TestVerify_RSA_WrongKey(t *testing.T) {
 	}
 
 	r := httptest.NewRequest(http.MethodGet, "/api/test", nil)
-	rsaSignRequest(t, r, privKey, "X-Gateway-", false)
+	rsaSignRequest(t, r, privKey, "X-Runway-", false)
 
 	err = v.Verify(r)
 	if err == nil {
@@ -468,7 +468,7 @@ func TestVerify_RSA_PSS_SHA256(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodGet, "/api/test", nil)
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	r.Header.Set("X-Gateway-Timestamp", ts)
+	r.Header.Set("X-Runway-Timestamp", ts)
 
 	emptyHash := sha256.Sum256(nil)
 	signingStr := "GET\n/api/test\n" + ts + "\n" + hex.EncodeToString(emptyHash[:])
@@ -481,7 +481,7 @@ func TestVerify_RSA_PSS_SHA256(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.Header.Set("X-Gateway-Signature", "rsa-pss-sha256="+hex.EncodeToString(sigBytes))
+	r.Header.Set("X-Runway-Signature", "rsa-pss-sha256="+hex.EncodeToString(sigBytes))
 
 	if err := v.Verify(r); err != nil {
 		t.Errorf("expected nil error, got: %v", err)
@@ -536,7 +536,7 @@ func TestVerifyConcurrentRequests(t *testing.T) {
 	for i := 0; i < n; i++ {
 		go func() {
 			r := httptest.NewRequest(http.MethodGet, "/api/test", nil)
-			signRequest(r, secret, "X-Gateway-", false)
+			signRequest(r, secret, "X-Runway-", false)
 			errs <- v.Verify(r)
 		}()
 	}
@@ -572,7 +572,7 @@ func TestVerify_RSA_ConcurrentRequests(t *testing.T) {
 	for i := 0; i < n; i++ {
 		go func() {
 			r := httptest.NewRequest(http.MethodGet, "/api/test", nil)
-			rsaSignRequest(t, r, privKey, "X-Gateway-", false)
+			rsaSignRequest(t, r, privKey, "X-Runway-", false)
 			errs <- v.Verify(r)
 		}()
 	}
@@ -598,7 +598,7 @@ func TestVerify_TimestampAtBoundary(t *testing.T) {
 	// Timestamp exactly at maxAge - 1 second (should pass)
 	r := httptest.NewRequest(http.MethodGet, "/api/test", nil)
 	ts := time.Now().Add(-(maxAge - time.Second))
-	r.Header.Set("X-Gateway-Timestamp", strconv.FormatInt(ts.Unix(), 10))
+	r.Header.Set("X-Runway-Timestamp", strconv.FormatInt(ts.Unix(), 10))
 
 	// Sign with correct timestamp
 	var bodyHash string
@@ -612,7 +612,7 @@ func TestVerify_TimestampAtBoundary(t *testing.T) {
 	mac := hmac.New(sha256.New, secret)
 	mac.Write([]byte(sb.String()))
 	sig := hex.EncodeToString(mac.Sum(nil))
-	r.Header.Set("X-Gateway-Signature", "hmac-sha256="+sig)
+	r.Header.Set("X-Runway-Signature", "hmac-sha256="+sig)
 
 	if err := v.Verify(r); err != nil {
 		t.Errorf("timestamp within maxAge should pass: %v", err)
@@ -632,13 +632,13 @@ func TestVerify_TimestampInFuture(t *testing.T) {
 	// Timestamp 2 seconds in the future (within maxAge, should pass)
 	r := httptest.NewRequest(http.MethodGet, "/api/test", nil)
 	futureTs := time.Now().Add(2 * time.Second)
-	r.Header.Set("X-Gateway-Timestamp", strconv.FormatInt(futureTs.Unix(), 10))
+	r.Header.Set("X-Runway-Timestamp", strconv.FormatInt(futureTs.Unix(), 10))
 
 	emptyHash := sha256.Sum256(nil)
 	signingStr := "GET\n/api/test\n" + strconv.FormatInt(futureTs.Unix(), 10) + "\n" + hex.EncodeToString(emptyHash[:])
 	mac := hmac.New(sha256.New, secret)
 	mac.Write([]byte(signingStr))
-	r.Header.Set("X-Gateway-Signature", "hmac-sha256="+hex.EncodeToString(mac.Sum(nil)))
+	r.Header.Set("X-Runway-Signature", "hmac-sha256="+hex.EncodeToString(mac.Sum(nil)))
 
 	if err := v.Verify(r); err != nil {
 		t.Errorf("near-future timestamp should pass (within maxAge window): %v", err)
@@ -654,8 +654,8 @@ func TestVerify_TimestampFarFuture(t *testing.T) {
 	v, _ := New("test-far-future", cfg)
 
 	r := httptest.NewRequest(http.MethodGet, "/api/test", nil)
-	r.Header.Set("X-Gateway-Timestamp", strconv.FormatInt(time.Now().Add(10*time.Minute).Unix(), 10))
-	r.Header.Set("X-Gateway-Signature", "hmac-sha256="+strings.Repeat("ab", 32))
+	r.Header.Set("X-Runway-Timestamp", strconv.FormatInt(time.Now().Add(10*time.Minute).Unix(), 10))
+	r.Header.Set("X-Runway-Signature", "hmac-sha256="+strings.Repeat("ab", 32))
 
 	err := v.Verify(r)
 	if err == nil {
@@ -674,8 +674,8 @@ func TestVerify_NonNumericTimestamp(t *testing.T) {
 	v, _ := New("test-nan", cfg)
 
 	r := httptest.NewRequest(http.MethodGet, "/api/test", nil)
-	r.Header.Set("X-Gateway-Timestamp", "not-a-number")
-	r.Header.Set("X-Gateway-Signature", "hmac-sha256=deadbeef")
+	r.Header.Set("X-Runway-Timestamp", "not-a-number")
+	r.Header.Set("X-Runway-Signature", "hmac-sha256=deadbeef")
 
 	err := v.Verify(r)
 	if err == nil {
@@ -694,7 +694,7 @@ func TestVerify_MissingSignature(t *testing.T) {
 	v, _ := New("test-no-sig", cfg)
 
 	r := httptest.NewRequest(http.MethodGet, "/api/test", nil)
-	r.Header.Set("X-Gateway-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
+	r.Header.Set("X-Runway-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
 
 	err := v.Verify(r)
 	if err == nil {
@@ -713,8 +713,8 @@ func TestVerify_SignatureInvalidHex(t *testing.T) {
 	v, _ := New("test-bad-hex", cfg)
 
 	r := httptest.NewRequest(http.MethodGet, "/api/test", nil)
-	r.Header.Set("X-Gateway-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
-	r.Header.Set("X-Gateway-Signature", "hmac-sha256=ZZZZ-not-hex")
+	r.Header.Set("X-Runway-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
+	r.Header.Set("X-Runway-Signature", "hmac-sha256=ZZZZ-not-hex")
 
 	err := v.Verify(r)
 	if err == nil {
@@ -736,7 +736,7 @@ func TestVerify_AlgorithmMismatch(t *testing.T) {
 	secret, _ := base64.StdEncoding.DecodeString(testSecret)
 	r := httptest.NewRequest(http.MethodGet, "/api/test", nil)
 	// Sign with sha256 but verifier expects sha512
-	signRequest(r, secret, "X-Gateway-", false)
+	signRequest(r, secret, "X-Runway-", false)
 
 	err := v.Verify(r)
 	if err == nil {
@@ -756,8 +756,8 @@ func TestVerify_SignatureWithoutEquals(t *testing.T) {
 	v, _ := New("test-no-equals", cfg)
 
 	r := httptest.NewRequest(http.MethodGet, "/api/test", nil)
-	r.Header.Set("X-Gateway-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
-	r.Header.Set("X-Gateway-Signature", "noseparatorhere")
+	r.Header.Set("X-Runway-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
+	r.Header.Set("X-Runway-Signature", "noseparatorhere")
 
 	err := v.Verify(r)
 	if err == nil {
@@ -780,7 +780,7 @@ func TestVerify_IncludeBodyFalse(t *testing.T) {
 	// Sign without body hash
 	secret, _ := base64.StdEncoding.DecodeString(testSecret)
 	r := httptest.NewRequest(http.MethodPost, "/api/test", strings.NewReader("some body"))
-	signRequest(r, secret, "X-Gateway-", false) // false = no body in signature
+	signRequest(r, secret, "X-Runway-", false) // false = no body in signature
 
 	if err := v.Verify(r); err != nil {
 		t.Errorf("expected success with includeBody=false: %v", err)
@@ -845,7 +845,7 @@ func TestMiddleware_ValidRequest(t *testing.T) {
 	handler := v.Middleware()(next)
 
 	r := httptest.NewRequest(http.MethodGet, "/api/test", nil)
-	signRequest(r, secret, "X-Gateway-", false)
+	signRequest(r, secret, "X-Runway-", false)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, r)
 
@@ -877,7 +877,7 @@ func TestVerify_RSA_SHA512(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodGet, "/api/test", nil)
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	r.Header.Set("X-Gateway-Timestamp", ts)
+	r.Header.Set("X-Runway-Timestamp", ts)
 
 	emptyHash := sha256.Sum256(nil)
 	signingStr := "GET\n/api/test\n" + ts + "\n" + hex.EncodeToString(emptyHash[:])
@@ -890,7 +890,7 @@ func TestVerify_RSA_SHA512(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.Header.Set("X-Gateway-Signature", "rsa-sha512="+hex.EncodeToString(sigBytes))
+	r.Header.Set("X-Runway-Signature", "rsa-sha512="+hex.EncodeToString(sigBytes))
 
 	if err := v.Verify(r); err != nil {
 		t.Errorf("RSA-SHA512 verification failed: %v", err)
@@ -955,7 +955,7 @@ func TestVerify_BodyPreservedAfterVerification(t *testing.T) {
 	secret, _ := base64.StdEncoding.DecodeString(testSecret)
 	body := strings.Repeat("x", 10000)
 	r := httptest.NewRequest(http.MethodPost, "/api/test", strings.NewReader(body))
-	signRequest(r, secret, "X-Gateway-", true)
+	signRequest(r, secret, "X-Runway-", true)
 
 	if err := v.Verify(r); err != nil {
 		t.Fatal(err)
@@ -985,7 +985,7 @@ func TestVerify_SignedHeadersIncluded(t *testing.T) {
 	r.Host = "api.example.com"
 
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	r.Header.Set("X-Gateway-Timestamp", ts)
+	r.Header.Set("X-Runway-Timestamp", ts)
 
 	bodyData, _ := io.ReadAll(r.Body)
 	r.Body = io.NopCloser(bytes.NewReader(bodyData))
@@ -998,7 +998,7 @@ func TestVerify_SignedHeadersIncluded(t *testing.T) {
 	mac := hmac.New(sha256.New, secret)
 	mac.Write([]byte(signingStr))
 	sig := hex.EncodeToString(mac.Sum(nil))
-	r.Header.Set("X-Gateway-Signature", "hmac-sha256="+sig)
+	r.Header.Set("X-Runway-Signature", "hmac-sha256="+sig)
 
 	if err := v.Verify(r); err != nil {
 		t.Errorf("expected valid with signed headers: %v", err)
@@ -1018,13 +1018,13 @@ func TestVerify_DefaultMaxAge(t *testing.T) {
 	secret, _ := base64.StdEncoding.DecodeString(testSecret)
 	r := httptest.NewRequest(http.MethodGet, "/api/test", nil)
 	ts := strconv.FormatInt(time.Now().Add(-3*time.Minute).Unix(), 10)
-	r.Header.Set("X-Gateway-Timestamp", ts)
+	r.Header.Set("X-Runway-Timestamp", ts)
 
 	emptyHash := sha256.Sum256(nil)
 	signingStr := "GET\n/api/test\n" + ts + "\n" + hex.EncodeToString(emptyHash[:])
 	mac := hmac.New(sha256.New, secret)
 	mac.Write([]byte(signingStr))
-	r.Header.Set("X-Gateway-Signature", "hmac-sha256="+hex.EncodeToString(mac.Sum(nil)))
+	r.Header.Set("X-Runway-Signature", "hmac-sha256="+hex.EncodeToString(mac.Sum(nil)))
 
 	if err := v.Verify(r); err != nil {
 		t.Errorf("3 minute old timestamp should pass with default 5m maxAge: %v", err)

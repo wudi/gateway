@@ -8,10 +8,10 @@ import (
 	"strconv"
 	"sync/atomic"
 
-	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/middleware"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/middleware"
+	"github.com/wudi/runway/variables"
 )
 
 // ErrorHandler reformats error responses based on a configured mode.
@@ -61,7 +61,7 @@ func (h *ErrorHandler) Middleware() middleware.Middleware {
 			switch h.mode {
 			case "pass_status":
 				body = mustMarshal(map[string]interface{}{
-					"error":  "gateway error",
+					"error":  "runway error",
 					"status": bw.statusCode,
 				})
 			case "detailed":

@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/logging"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/logging"
+	"github.com/wudi/runway/variables"
 	"go.uber.org/zap"
 )
 

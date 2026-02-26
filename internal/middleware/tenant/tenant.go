@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/middleware"
-	"github.com/wudi/gateway/internal/middleware/quota"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/middleware"
+	"github.com/wudi/runway/internal/middleware/quota"
+	"github.com/wudi/runway/variables"
 	"golang.org/x/time/rate"
 )
 

@@ -12,8 +12,8 @@ import (
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
-	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/config"
 )
 
 // defaultMaxDecompressedSize is the default zip bomb protection limit (50 MB).

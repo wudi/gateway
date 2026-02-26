@@ -10,10 +10,10 @@ import (
 	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/errors"
-	"github.com/wudi/gateway/internal/middleware"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/errors"
+	"github.com/wudi/runway/internal/middleware"
+	"github.com/wudi/runway/variables"
 )
 
 // JWTAuth provides JWT authentication
@@ -200,9 +200,9 @@ func (a *JWTAuth) Middleware(required bool) middleware.Middleware {
 
 			if err != nil {
 				if required {
-					gatewayErr := err.(*errors.GatewayError)
+					runwayErr := err.(*errors.RunwayError)
 					w.Header().Set("WWW-Authenticate", `Bearer realm="api"`)
-					gatewayErr.WriteJSON(w)
+					runwayErr.WriteJSON(w)
 					return
 				}
 				// Not required, continue without identity

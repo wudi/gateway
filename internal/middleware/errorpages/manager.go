@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/config"
 )
 
 // ErrorPagesByRoute manages per-route compiled error pages.

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 // CompiledTimeout holds pre-compiled timeout configuration for a route.

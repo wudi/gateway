@@ -3,7 +3,7 @@ title: "Transport & Connection Pooling"
 sidebar_position: 10
 ---
 
-The gateway maintains a pool of HTTP transports for proxying requests to backends. Transport settings control connection pooling, timeouts, TLS, and HTTP/2 behavior. These can be tuned globally and per-upstream.
+The runway maintains a pool of HTTP transports for proxying requests to backends. Transport settings control connection pooling, timeouts, TLS, and HTTP/2 behavior. These can be tuned globally and per-upstream.
 
 ## Configuration
 
@@ -106,7 +106,7 @@ For backends using internal CA-signed certificates:
 
 ```yaml
 transport:
-  ca_file: /etc/gateway/internal-ca.pem
+  ca_file: /etc/runway/internal-ca.pem
 ```
 
 ### Upstream mTLS (Client Certificates)
@@ -115,9 +115,9 @@ For backends that require mutual TLS authentication, provide a client certificat
 
 ```yaml
 transport:
-  ca_file: /etc/gateway/internal-ca.pem
-  cert_file: /etc/gateway/client.crt
-  key_file: /etc/gateway/client.key
+  ca_file: /etc/runway/internal-ca.pem
+  cert_file: /etc/runway/client.crt
+  key_file: /etc/runway/client.key
 ```
 
 Per-upstream client certificates allow different backends to use different identities:
@@ -128,9 +128,9 @@ upstreams:
     backends:
       - url: https://payments.internal:443
     transport:
-      cert_file: /etc/gateway/payment-client.crt
-      key_file: /etc/gateway/payment-client.key
-      ca_file: /etc/gateway/payment-ca.pem
+      cert_file: /etc/runway/payment-client.crt
+      key_file: /etc/runway/payment-client.key
+      ca_file: /etc/runway/payment-ca.pem
 ```
 
 Both `cert_file` and `key_file` must be specified together. If only one is set, validation will reject the config.
@@ -167,7 +167,7 @@ upstreams:
 
 ## DNS Resolver
 
-The gateway supports custom DNS resolution for backend addresses, configured separately from transport:
+The runway supports custom DNS resolution for backend addresses, configured separately from transport:
 
 ```yaml
 dns_resolver:

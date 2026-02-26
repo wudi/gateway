@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/middleware"
-	"github.com/wudi/gateway/internal/middleware/ratelimit"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/middleware"
+	"github.com/wudi/runway/internal/middleware/ratelimit"
 )
 
 // quotaEntry tracks usage within a billing window.

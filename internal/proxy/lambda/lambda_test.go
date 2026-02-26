@@ -3,7 +3,7 @@ package lambda
 import (
 	"testing"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func TestLambdaHandlerValidation(t *testing.T) {

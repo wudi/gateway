@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/loadbalancer"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/loadbalancer"
 )
 
 // Hub manages a single upstream SSE connection and broadcasts events to connected clients.

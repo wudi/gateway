@@ -29,7 +29,7 @@ func statusCodeString(code int) string {
 	return strconv.Itoa(code)
 }
 
-// Collector tracks gateway metrics using prometheus/client_golang
+// Collector tracks runway metrics using prometheus/client_golang
 type Collector struct {
 	registry *prometheus.Registry
 
@@ -52,44 +52,44 @@ func NewCollector() *Collector {
 	c := &Collector{
 		registry: reg,
 		requestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "gateway_requests_total",
+			Name: "runway_requests_total",
 			Help: "Total number of requests",
 		}, []string{"route", "method", "status"}),
 		requestDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "gateway_request_duration_seconds",
+			Name:    "runway_request_duration_seconds",
 			Help:    "Request duration in seconds",
 			Buckets: DefaultBuckets,
 		}, []string{"route"}),
 		cacheHitsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "gateway_cache_hits_total",
+			Name: "runway_cache_hits_total",
 			Help: "Total cache hits",
 		}, []string{"route"}),
 		cacheMissesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "gateway_cache_misses_total",
+			Name: "runway_cache_misses_total",
 			Help: "Total cache misses",
 		}, []string{"route"}),
 		retryTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "gateway_retry_total",
+			Name: "runway_retry_total",
 			Help: "Total retry attempts",
 		}, []string{"route"}),
 		cbState: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "gateway_circuit_breaker_state",
+			Name: "runway_circuit_breaker_state",
 			Help: "Circuit breaker state (0=closed, 1=open, 2=half_open)",
 		}, []string{"route"}),
 		backendHealth: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "gateway_backend_health",
+			Name: "runway_backend_health",
 			Help: "Backend health (0=unhealthy, 1=healthy)",
 		}, []string{"route", "backend"}),
 		activeRequests: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "gateway_active_requests",
+			Name: "runway_active_requests",
 			Help: "Number of currently active requests",
 		}, []string{"route"}),
 		rateLimitRejects: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "gateway_rate_limit_rejects_total",
+			Name: "runway_rate_limit_rejects_total",
 			Help: "Total rate limit rejections",
 		}, []string{"route"}),
 		cacheNotModifiedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "gateway_cache_not_modified_total",
+			Name: "runway_cache_not_modified_total",
 			Help: "Total 304 Not Modified responses from conditional cache hits",
 		}, []string{"route"}),
 	}
@@ -210,10 +210,10 @@ func (c *Collector) Snapshot() *MetricsSnapshot {
 			}
 
 			switch fam.GetName() {
-			case "gateway_requests_total":
+			case "runway_requests_total":
 				key := labels["route"] + "|" + labels["method"] + "|" + labels["status"]
 				snap.RequestsTotal[key] = int64(m.GetCounter().GetValue())
-			case "gateway_request_duration_seconds":
+			case "runway_request_duration_seconds":
 				h := m.GetHistogram()
 				hs := &HistogramSnapshot{
 					Count:   int64(h.GetSampleCount()),
@@ -224,15 +224,15 @@ func (c *Collector) Snapshot() *MetricsSnapshot {
 					hs.Buckets[b.GetUpperBound()] = int64(b.GetCumulativeCount())
 				}
 				snap.RequestDurations[labels["route"]] = hs
-			case "gateway_cache_hits_total":
+			case "runway_cache_hits_total":
 				snap.CacheHits[labels["route"]] = int64(m.GetCounter().GetValue())
-			case "gateway_cache_misses_total":
+			case "runway_cache_misses_total":
 				snap.CacheMisses[labels["route"]] = int64(m.GetCounter().GetValue())
-			case "gateway_retry_total":
+			case "runway_retry_total":
 				snap.RetryTotal[labels["route"]] = int64(m.GetCounter().GetValue())
-			case "gateway_circuit_breaker_state":
+			case "runway_circuit_breaker_state":
 				snap.CircuitBreakerState[labels["route"]] = int(m.GetGauge().GetValue())
-			case "gateway_backend_health":
+			case "runway_backend_health":
 				key := labels["route"] + "|" + labels["backend"]
 				snap.BackendHealth[key] = int(m.GetGauge().GetValue())
 			}

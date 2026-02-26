@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/variables"
 )
 
 func TestDefaultMode_Passthrough(t *testing.T) {
@@ -53,7 +53,7 @@ func TestPassStatusMode_ErrorStatus(t *testing.T) {
 	h := New(config.ErrorHandlingConfig{Mode: "pass_status"})
 	handler := h.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(502)
-		w.Write([]byte("bad gateway from backend"))
+		w.Write([]byte("bad runway from backend"))
 	}))
 
 	w := httptest.NewRecorder()
@@ -68,8 +68,8 @@ func TestPassStatusMode_ErrorStatus(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("failed to parse JSON body: %v", err)
 	}
-	if body["error"] != "gateway error" {
-		t.Errorf("expected error='gateway error', got %v", body["error"])
+	if body["error"] != "runway error" {
+		t.Errorf("expected error='runway error', got %v", body["error"])
 	}
 	if body["status"].(float64) != 502 {
 		t.Errorf("expected status=502, got %v", body["status"])

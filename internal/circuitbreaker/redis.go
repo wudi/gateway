@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 // Lua script: atomically check state and decide whether to allow a request.

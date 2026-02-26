@@ -3,9 +3,9 @@ package outlier
 import (
 	"sync"
 
-	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/loadbalancer"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/loadbalancer"
 )
 
 // DetectorByRoute manages per-route outlier detectors.

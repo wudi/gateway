@@ -1,6 +1,6 @@
 # Secrets Management
 
-The gateway supports referencing secrets stored in environment variables or files instead of embedding them as plaintext in YAML configuration. This prevents credentials from appearing in version control, config backups, and admin API responses.
+The runway supports referencing secrets stored in environment variables or files instead of embedding them as plaintext in YAML configuration. This prevents credentials from appearing in version control, config backups, and admin API responses.
 
 ## Secret Reference Syntax
 
@@ -18,7 +18,7 @@ Use `${scheme:reference}` in any string config field to reference a secret:
 | Feature | `${VAR}` (legacy) | `${env:VAR}` (strict) |
 |---------|--------------------|-----------------------|
 | When expanded | Before YAML parsing (text substitution) | After YAML parsing (struct-level) |
-| Missing variable | Silent passthrough (value becomes literal `${VAR}`) | **Startup error** — gateway refuses to start |
+| Missing variable | Silent passthrough (value becomes literal `${VAR}`) | **Startup error** — runway refuses to start |
 | Multi-line values | May break YAML (`:`, `#`, newlines are YAML-significant) | Safe — resolved after YAML is parsed |
 
 Use `${env:VAR}` for secrets that **must** be present. Use `${VAR}` only for optional non-sensitive values where silent passthrough is acceptable.
@@ -52,7 +52,7 @@ redis:
 
 # PEM keys work correctly (multi-line content)
 backend_signing:
-  private_key: "${file:/etc/gateway/signing-key.pem}"
+  private_key: "${file:/etc/runway/signing-key.pem}"
 ```
 
 ### Path Restrictions
@@ -81,7 +81,7 @@ Secret resolution is **strict**:
 - Unknown scheme (e.g., `${vault:...}`) → startup error
 - File outside allowed prefixes → startup error
 
-The gateway will not start with unresolved secrets. This prevents running with missing credentials.
+The runway will not start with unresolved secrets. This prevents running with missing credentials.
 
 ## Admin API Redaction
 
@@ -107,7 +107,7 @@ type SecretProvider interface {
 }
 ```
 
-Custom providers can be registered via the gateway builder API:
+Custom providers can be registered via the runway builder API:
 
 ```go
 reg := config.NewSecretRegistry()
@@ -123,6 +123,6 @@ gw.New(cfg).
 
 ## Security Notes
 
-- Resolved secrets exist in process memory for the lifetime of the gateway. This is inherent to any application that uses secrets at runtime.
-- File-based secrets are read once at startup (and on config reload). The gateway does not watch secret files for changes.
+- Resolved secrets exist in process memory for the lifetime of the runway. This is inherent to any application that uses secrets at runtime.
+- File-based secrets are read once at startup (and on config reload). The runway does not watch secret files for changes.
 - The `${env:...}` and `${file:...}` providers are stateless and do not cache values.

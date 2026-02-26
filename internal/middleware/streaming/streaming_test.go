@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 // spyFlusher is an http.ResponseWriter that records Flush() calls.

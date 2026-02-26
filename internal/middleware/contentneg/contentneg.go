@@ -12,9 +12,9 @@ import (
 	"sync/atomic"
 
 	"github.com/goccy/go-yaml"
-	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/middleware"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // Negotiator handles content negotiation for a route.

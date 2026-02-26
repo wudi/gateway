@@ -3,7 +3,7 @@ title: "Observability"
 sidebar_position: 1
 ---
 
-The gateway provides structured logging, Prometheus metrics, and OpenTelemetry distributed tracing for production monitoring.
+The runway provides structured logging, Prometheus metrics, and OpenTelemetry distributed tracing for production monitoring.
 
 ## Structured Logging
 
@@ -35,7 +35,7 @@ All [variables](../transformations/transformations.md#variables) are available i
 
 ### Log Rotation
 
-When `output` is a file path, the gateway automatically rotates log files using [lumberjack](https://github.com/natefinch/lumberjack). Rotation is configured under `logging.rotation`:
+When `output` is a file path, the runway automatically rotates log files using [lumberjack](https://github.com/natefinch/lumberjack). Rotation is configured under `logging.rotation`:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -67,12 +67,12 @@ Scrape metrics at `http://localhost:8081/metrics`:
 curl http://localhost:8081/metrics
 
 # Filter for specific metric families
-curl -s http://localhost:8081/metrics | grep gateway_request
+curl -s http://localhost:8081/metrics | grep runway_request
 ```
 
 ### Collected Metrics
 
-The gateway exports metrics for:
+The runway exports metrics for:
 - Request counts and latencies (per route)
 - Backend health and response times
 - Circuit breaker state transitions
@@ -91,7 +91,7 @@ tracing:
   enabled: true
   exporter: "otlp"
   endpoint: "otel-collector:4317"
-  service_name: "api-gateway"
+  service_name: "api-runway"
   sample_rate: 0.1          # sample 10% of requests
   insecure: true             # use insecure gRPC (for local collectors)
   headers:                   # extra headers for OTLP exporter
@@ -100,7 +100,7 @@ tracing:
 
 ### Trace Propagation
 
-The gateway propagates trace context using W3C Trace Context headers (`traceparent`, `tracestate`). Incoming trace headers are forwarded to backends, and new spans are created for each request through the gateway.
+The runway propagates trace context using W3C Trace Context headers (`traceparent`, `tracestate`). Incoming trace headers are forwarded to backends, and new spans are created for each request through the runway.
 
 ### Verifying Tracing
 
@@ -112,10 +112,10 @@ curl http://localhost:8081/tracing
 
 ### Request ID
 
-Every request gets a unique `X-Request-ID` header. If the client provides one, it is preserved. Otherwise, the gateway generates a new UUID. The request ID is available as `$request_id` in log format strings, header transforms, and rule expressions.
+Every request gets a unique `X-Request-ID` header. If the client provides one, it is preserved. Otherwise, the runway generates a new UUID. The request ID is available as `$request_id` in log format strings, header transforms, and rule expressions.
 
 ```bash
-# The gateway returns X-Request-ID in responses
+# The runway returns X-Request-ID in responses
 curl -v http://localhost:8080/api/test 2>&1 | grep X-Request-ID
 
 # Send a custom request ID

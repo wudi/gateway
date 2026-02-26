@@ -13,8 +13,8 @@ import (
 	"github.com/goccy/go-yaml"
 	"github.com/mmcdole/gofeed"
 
-	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/config"
 )
 
 // Encoder decodes backend responses from a non-JSON format to JSON.

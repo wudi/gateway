@@ -110,7 +110,7 @@ func (u *StatusUpdater) UpdateHTTPRouteStatus(ctx context.Context, hr *gatewayv1
 
 	patch := client.MergeFrom(hr.DeepCopy())
 
-	controllerName := gatewayv1.GatewayController("apigw.dev/ingress-controller")
+	controllerName := gatewayv1.GatewayController("runway.wudi.io/ingress-controller")
 
 	// Find or create RouteParentStatus for this parent
 	found := false

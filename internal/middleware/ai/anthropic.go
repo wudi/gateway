@@ -8,7 +8,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 const defaultAnthropicBaseURL = "https://api.anthropic.com"

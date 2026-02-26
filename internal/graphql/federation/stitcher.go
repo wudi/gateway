@@ -11,8 +11,8 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/logging"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/logging"
 )
 
 // Stitcher holds a merged GraphQL schema and routes queries to the correct backends.

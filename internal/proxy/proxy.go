@@ -14,14 +14,14 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/errors"
-	"github.com/wudi/gateway/internal/health"
-	"github.com/wudi/gateway/internal/loadbalancer"
-	"github.com/wudi/gateway/internal/middleware/transform"
-	"github.com/wudi/gateway/internal/retry"
-	"github.com/wudi/gateway/internal/router"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/errors"
+	"github.com/wudi/runway/internal/health"
+	"github.com/wudi/runway/internal/loadbalancer"
+	"github.com/wudi/runway/internal/middleware/transform"
+	"github.com/wudi/runway/internal/retry"
+	"github.com/wudi/runway/internal/router"
+	"github.com/wudi/runway/variables"
 )
 
 // Proxy handles proxying requests to backends

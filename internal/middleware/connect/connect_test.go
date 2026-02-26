@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func TestNonConnectPassesThrough(t *testing.T) {

@@ -8,14 +8,14 @@ sidebar_position: 1
 Build from source (requires Go 1.25+):
 
 ```bash
-go build -o gateway ./cmd/gateway/
+go build -o runway ./cmd/runway/
 ```
 
 Set version and build time at compile:
 
 ```bash
 go build -ldflags "-X main.version=1.0.0 -X main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  -o gateway ./cmd/gateway/
+  -o runway ./cmd/runway/
 ```
 
 ## Docker
@@ -27,7 +27,7 @@ make docker-build
 make docker-run
 ```
 
-Start the full stack (gateway + mock backends) with Compose:
+Start the full stack (runway + mock backends) with Compose:
 
 ```bash
 make compose-up
@@ -62,7 +62,7 @@ make compose-down
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-config` | `configs/gateway.yaml` | Path to configuration file |
+| `-config` | `configs/runway.yaml` | Path to configuration file |
 | `-version` | — | Print version and build time, then exit |
 | `-validate` | — | Validate configuration file and exit (non-zero on error) |
 
@@ -84,10 +84,10 @@ routes:
       - url: "http://localhost:9000"
 ```
 
-Start the gateway:
+Start the runway:
 
 ```bash
-./gateway -config my-config.yaml
+./runway -config my-config.yaml
 ```
 
 ## Validating Configuration
@@ -95,7 +95,7 @@ Start the gateway:
 Check your config for errors without starting the server:
 
 ```bash
-./gateway -validate -config my-config.yaml
+./runway -validate -config my-config.yaml
 # Prints "Configuration is valid" and exits 0, or prints error and exits 1
 ```
 
@@ -109,7 +109,7 @@ Check your config for errors without starting the server:
 Reload example:
 
 ```bash
-kill -HUP $(pidof gateway)
+kill -HUP $(pidof runway)
 ```
 
 See [Admin API](../reference/admin-api.md) for HTTP-based reload via `POST /reload`.
@@ -132,7 +132,7 @@ Unset variables are kept as-is in the config (e.g., `${MISSING_VAR}` remains lit
 
 ## Default Settings
 
-When not specified, the gateway applies these defaults:
+When not specified, the runway applies these defaults:
 
 - **Listener timeouts**: 30s read, 30s write, 60s idle
 - **Registry**: `memory` type

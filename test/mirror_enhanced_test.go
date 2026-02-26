@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func TestMirrorConditionsIntegration(t *testing.T) {
@@ -55,7 +55,7 @@ func TestMirrorConditionsIntegration(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// GET request should NOT be mirrored
 	resp, err := http.Get(ts.URL + "/api/users")
@@ -121,7 +121,7 @@ func TestMirrorCompareIntegration(t *testing.T) {
 		},
 	}
 
-	gw, ts := newTestGateway(t, cfg)
+	gw, ts := newTestRunway(t, cfg)
 
 	// Send request — should return primary response
 	resp, err := http.Get(ts.URL + "/compare")
@@ -194,7 +194,7 @@ func TestMirrorMetricsIntegration(t *testing.T) {
 		},
 	}
 
-	gw, ts := newTestGateway(t, cfg)
+	gw, ts := newTestRunway(t, cfg)
 
 	// Send 5 requests
 	for i := 0; i < 5; i++ {
@@ -257,7 +257,7 @@ func TestMirrorConditionsPathRegexIntegration(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// /api/v1 should NOT be mirrored
 	resp, _ := http.Get(ts.URL + "/api/v1/users")

@@ -42,7 +42,7 @@ type CompiledOpenAPI struct {
 	metrics          *OpenAPIMetrics
 }
 
-// noopAuthFunc skips authentication validation (gateway handles auth separately).
+// noopAuthFunc skips authentication validation (runway handles auth separately).
 func noopAuthFunc(ctx context.Context, input *openapi3filter.AuthenticationInput) error {
 	return nil
 }

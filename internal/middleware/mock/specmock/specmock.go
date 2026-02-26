@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 
 	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/wudi/gateway/internal/middleware"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // SpecMocker serves mock responses derived from an OpenAPI spec.

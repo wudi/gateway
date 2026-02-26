@@ -9,7 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func ptr[T any](v T) *T { return &v }
@@ -18,7 +18,7 @@ func TestTranslateIngress(t *testing.T) {
 	store := NewStore()
 
 	pathPrefix := networkingv1.PathTypePrefix
-	className := "gateway"
+	className := "runway"
 	store.SetIngress(&networkingv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-ing",
@@ -79,8 +79,8 @@ func TestTranslateIngress(t *testing.T) {
 	})
 
 	tr := NewTranslator(store, nil, TranslatorConfig{
-		IngressClass:   "gateway",
-		ControllerName: "apigw.dev/ingress-controller",
+		IngressClass:   "runway",
+		ControllerName: "runway.wudi.io/ingress-controller",
 	})
 
 	cfg, warnings := tr.Translate()
@@ -142,8 +142,8 @@ func TestTranslateIngressClassFilter(t *testing.T) {
 	})
 
 	tr := NewTranslator(store, nil, TranslatorConfig{
-		IngressClass:   "gateway",
-		ControllerName: "apigw.dev/ingress-controller",
+		IngressClass:   "runway",
+		ControllerName: "runway.wudi.io/ingress-controller",
 	})
 
 	cfg, _ := tr.Translate()
@@ -179,8 +179,8 @@ func TestTranslateIngressWithoutClass(t *testing.T) {
 
 	// Without flag: should be ignored
 	tr1 := NewTranslator(store, nil, TranslatorConfig{
-		IngressClass:      "gateway",
-		ControllerName:    "apigw.dev/ingress-controller",
+		IngressClass:      "runway",
+		ControllerName:    "runway.wudi.io/ingress-controller",
 		WatchWithoutClass: false,
 	})
 	cfg1, _ := tr1.Translate()
@@ -190,8 +190,8 @@ func TestTranslateIngressWithoutClass(t *testing.T) {
 
 	// With flag: should be included
 	tr2 := NewTranslator(store, nil, TranslatorConfig{
-		IngressClass:      "gateway",
-		ControllerName:    "apigw.dev/ingress-controller",
+		IngressClass:      "runway",
+		ControllerName:    "runway.wudi.io/ingress-controller",
 		WatchWithoutClass: true,
 	})
 	cfg2, _ := tr2.Translate()
@@ -203,7 +203,7 @@ func TestTranslateIngressWithoutClass(t *testing.T) {
 func TestTranslateIngressTLS(t *testing.T) {
 	store := NewStore()
 
-	className := "gateway"
+	className := "runway"
 	store.SetIngress(&networkingv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{Name: "tls-ing", Namespace: "default"},
 		Spec: networkingv1.IngressSpec{
@@ -243,8 +243,8 @@ func TestTranslateIngressTLS(t *testing.T) {
 	})
 
 	tr := NewTranslator(store, nil, TranslatorConfig{
-		IngressClass:   "gateway",
-		ControllerName: "apigw.dev/ingress-controller",
+		IngressClass:   "runway",
+		ControllerName: "runway.wudi.io/ingress-controller",
 	})
 
 	cfg, warnings := tr.Translate()
@@ -273,16 +273,16 @@ func TestTranslateIngressTLS(t *testing.T) {
 func TestTranslateHTTPRoute(t *testing.T) {
 	store := NewStore()
 
-	controllerName := gatewayv1.GatewayController("apigw.dev/ingress-controller")
+	controllerName := gatewayv1.GatewayController("runway.wudi.io/ingress-controller")
 	store.SetGatewayClass(&gatewayv1.GatewayClass{
-		ObjectMeta: metav1.ObjectMeta{Name: "gateway"},
+		ObjectMeta: metav1.ObjectMeta{Name: "runway"},
 		Spec:       gatewayv1.GatewayClassSpec{ControllerName: controllerName},
 	})
 
 	store.SetGateway(&gatewayv1.Gateway{
 		ObjectMeta: metav1.ObjectMeta{Name: "main-gw", Namespace: "default"},
 		Spec: gatewayv1.GatewaySpec{
-			GatewayClassName: "gateway",
+			GatewayClassName: "runway",
 			Listeners: []gatewayv1.Listener{
 				{
 					Name:     "http",
@@ -351,8 +351,8 @@ func TestTranslateHTTPRoute(t *testing.T) {
 	})
 
 	tr := NewTranslator(store, nil, TranslatorConfig{
-		IngressClass:   "gateway",
-		ControllerName: "apigw.dev/ingress-controller",
+		IngressClass:   "runway",
+		ControllerName: "runway.wudi.io/ingress-controller",
 	})
 
 	cfg, warnings := tr.Translate()
@@ -393,7 +393,7 @@ func TestTranslateBaseConfigMerge(t *testing.T) {
 		},
 	}
 
-	className := "gateway"
+	className := "runway"
 	store.SetIngress(&networkingv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{Name: "k8s-ing", Namespace: "default"},
 		Spec: networkingv1.IngressSpec{
@@ -418,8 +418,8 @@ func TestTranslateBaseConfigMerge(t *testing.T) {
 	})
 
 	tr := NewTranslator(store, baseCfg, TranslatorConfig{
-		IngressClass:   "gateway",
-		ControllerName: "apigw.dev/ingress-controller",
+		IngressClass:   "runway",
+		ControllerName: "runway.wudi.io/ingress-controller",
 	})
 
 	cfg, _ := tr.Translate()
@@ -444,7 +444,7 @@ func TestTranslateBaseConfigMerge(t *testing.T) {
 func TestTranslateClusterIPMode(t *testing.T) {
 	store := NewStore()
 
-	className := "gateway"
+	className := "runway"
 	store.SetIngress(&networkingv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "clusterip-ing",
@@ -475,8 +475,8 @@ func TestTranslateClusterIPMode(t *testing.T) {
 	})
 
 	tr := NewTranslator(store, nil, TranslatorConfig{
-		IngressClass:   "gateway",
-		ControllerName: "apigw.dev/ingress-controller",
+		IngressClass:   "runway",
+		ControllerName: "runway.wudi.io/ingress-controller",
 	})
 
 	cfg, _ := tr.Translate()

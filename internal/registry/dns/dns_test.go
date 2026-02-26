@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/registry"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/registry"
 )
 
 // mockResolver implements the resolver interface for testing.

@@ -3,19 +3,19 @@ title: "ACME / Let's Encrypt"
 sidebar_position: 19
 ---
 
-Automatic certificate management via the ACME protocol. The gateway can obtain and renew TLS certificates from Let's Encrypt (or any ACME-compatible CA) without manual intervention.
+Automatic certificate management via the ACME protocol. The runway can obtain and renew TLS certificates from Let's Encrypt (or any ACME-compatible CA) without manual intervention.
 
 ## How It Works
 
-The [ACME protocol](https://datatracker.ietf.org/doc/html/rfc8555) automates domain validation and certificate issuance. The gateway acts as an ACME client: it proves control of the configured domains to the CA, receives a signed certificate, and automatically renews it before expiry. Certificates and account keys are cached on disk so restarts do not trigger re-issuance.
+The [ACME protocol](https://datatracker.ietf.org/doc/html/rfc8555) automates domain validation and certificate issuance. The runway acts as an ACME client: it proves control of the configured domains to the CA, receives a signed certificate, and automatically renews it before expiry. Certificates and account keys are cached on disk so restarts do not trigger re-issuance.
 
 ## Challenge Types
 
-ACME requires the CA to verify that you control the domain. The gateway supports two challenge types:
+ACME requires the CA to verify that you control the domain. The runway supports two challenge types:
 
 ### TLS-ALPN-01 (default)
 
-The CA connects to port 443 and performs a TLS handshake with a special ALPN protocol identifier. The gateway responds with a self-signed validation certificate that proves domain control.
+The CA connects to port 443 and performs a TLS handshake with a special ALPN protocol identifier. The runway responds with a self-signed validation certificate that proves domain control.
 
 - **No port 80 required** -- validation happens over the same TLS listener.
 - Best for deployments where only port 443 is exposed.
@@ -23,7 +23,7 @@ The CA connects to port 443 and performs a TLS handshake with a special ALPN pro
 
 ### HTTP-01
 
-The CA makes an HTTP request to `http://<domain>/.well-known/acme-challenge/<token>`. The gateway starts a temporary HTTP server to respond.
+The CA makes an HTTP request to `http://<domain>/.well-known/acme-challenge/<token>`. The runway starts a temporary HTTP server to respond.
 
 - Requires **port 80** to be available and reachable from the internet.
 - Useful when port 443 is behind a load balancer that terminates TLS, or when the listener runs on a non-standard port.
@@ -49,7 +49,7 @@ listeners:
         email: "admin@example.com"
 ```
 
-This uses the default TLS-ALPN-01 challenge. The gateway handles validation on the same TLS port.
+This uses the default TLS-ALPN-01 challenge. The runway handles validation on the same TLS port.
 
 ### HTTP-01 Challenge
 
@@ -69,7 +69,7 @@ listeners:
         http_address: ":80"
 ```
 
-The gateway starts a temporary HTTP listener on `http_address` (default `:80`) to serve ACME challenge responses.
+The runway starts a temporary HTTP listener on `http_address` (default `:80`) to serve ACME challenge responses.
 
 ### ACME with HTTP/3
 
@@ -120,7 +120,7 @@ The staging CA issues certificates signed by a test root that browsers do not tr
 | `domains` | [string] | -- | Domain names to obtain certificates for (required when enabled) |
 | `email` | string | -- | Contact email for the ACME account (required when enabled) |
 | `directory_url` | string | Let's Encrypt production | ACME directory URL; override for staging or alternative CAs |
-| `cache_dir` | string | `/var/lib/gateway/acme` | Directory to store certificates and account keys |
+| `cache_dir` | string | `/var/lib/runway/acme` | Directory to store certificates and account keys |
 | `challenge_type` | string | `tls-alpn-01` | Challenge type: `tls-alpn-01` or `http-01` |
 | `http_address` | string | `:80` | Bind address for the HTTP-01 challenge server (only used when `challenge_type` is `http-01`) |
 
@@ -132,20 +132,20 @@ The `cache_dir` stores:
 - Issued certificates and their private keys
 - Renewal metadata
 
-The gateway process must have **read and write** permissions on this directory. On first run, the directory is created automatically if it does not exist.
+The runway process must have **read and write** permissions on this directory. On first run, the directory is created automatically if it does not exist.
 
 ```bash
 # Recommended permissions
-mkdir -p /var/lib/gateway/acme
-chmod 700 /var/lib/gateway/acme
-chown gateway:gateway /var/lib/gateway/acme
+mkdir -p /var/lib/runway/acme
+chmod 700 /var/lib/runway/acme
+chown runway:runway /var/lib/runway/acme
 ```
 
 In container deployments, mount a persistent volume at the cache directory so certificates survive container restarts:
 
 ```yaml
 volumes:
-  - acme-data:/var/lib/gateway/acme
+  - acme-data:/var/lib/runway/acme
 ```
 
 ## Monitoring
@@ -229,6 +229,6 @@ tls:
 
 ## Renewal
 
-Certificates are automatically renewed before expiry. The ACME client library handles renewal scheduling internally. No configuration is needed -- the gateway checks certificate validity on startup and periodically, and renews when the certificate approaches expiry (typically at the two-thirds mark of its lifetime).
+Certificates are automatically renewed before expiry. The ACME client library handles renewal scheduling internally. No configuration is needed -- the runway checks certificate validity on startup and periodically, and renews when the certificate approaches expiry (typically at the two-thirds mark of its lifetime).
 
-If renewal fails, the gateway continues serving the existing certificate and retries renewal. The `/health` endpoint's `tls_certificates` check transitions to `"degraded"` when a certificate has 7 or fewer days remaining, providing an early warning to investigate renewal failures.
+If renewal fails, the runway continues serving the existing certificate and retries renewal. The `/health` endpoint's `tls_certificates` check transitions to `"degraded"` when a certificate has 7 or fewer days remaining, providing an early warning to investigate renewal failures.

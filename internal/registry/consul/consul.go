@@ -7,8 +7,8 @@ import (
 	"time"
 
 	consulapi "github.com/hashicorp/consul/api"
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/registry"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/registry"
 )
 
 // Registry implements service registry using Consul

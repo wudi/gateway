@@ -3,7 +3,7 @@ title: "Server-Sent Events (SSE) Proxy"
 sidebar_position: 10
 ---
 
-The gateway provides SSE-aware proxying with per-event flushing, heartbeat injection, and connection management. When a backend responds with `Content-Type: text/event-stream`, the SSE middleware takes over response writing to ensure proper streaming behavior.
+The runway provides SSE-aware proxying with per-event flushing, heartbeat injection, and connection management. When a backend responds with `Content-Type: text/event-stream`, the SSE middleware takes over response writing to ensure proper streaming behavior.
 
 ## Configuration
 

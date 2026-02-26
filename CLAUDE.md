@@ -2,18 +2,18 @@
 
 ## Build & Test
 
-- Build: `go build -o ./build/gateway ./cmd/gateway/`
+- Build: `go build -o ./build/runway ./cmd/runway/`
 - Test all: `go test ./...`
 - Test specific package: `go test ./internal/retry/ -v`
 - Integration tests (tagged): `go test -tags integration ./test/`
 
 ## Project Structure
 
-- `cmd/gateway/` — entry point
+- `cmd/runway/` — entry point
 - `internal/config/` — YAML config structs and loader with validation
 - `internal/router/` — path-based HTTP routing
 - `internal/proxy/` — HTTP reverse proxy with retry support
-- `internal/gateway/` — main orchestration: serveHTTP flow, middleware chain, admin API
+- `internal/runway/` — main orchestration: serveHTTP flow, middleware chain, admin API
 - `internal/retry/` — retry policy with exponential backoff
 - `internal/circuitbreaker/` — circuit breaker via sony/gobreaker v2 TwoStepCircuitBreaker
 - `internal/cache/` — LRU in-memory cache with per-route handlers
@@ -38,7 +38,7 @@ Implement using open-source libraries whenever possible; minimize reinventing th
 
 ### No backward compatibility shims
 
-This project is pre-release. Do not add backward-compatibility fallbacks, legacy aliases, deprecated fields, or migration code. When a design is superseded, remove the old code entirely. For example, `ServerConfig` was removed in favor of `Listeners` — there is no `Server` field, no "if no listeners, fall back to server config" code path, and no `GATEWAY_PORT` env var. If a config shape changes, update all call sites and tests to use the new shape directly.
+This project is pre-release. Do not add backward-compatibility fallbacks, legacy aliases, deprecated fields, or migration code. When a design is superseded, remove the old code entirely. For example, `ServerConfig` was removed in favor of `Listeners` — there is no `Server` field, no "if no listeners, fall back to server config" code path, and no `RUNWAY_PORT` env var. If a config shape changes, update all call sites and tests to use the new shape directly.
 
 ## Architecture Rules
 
@@ -48,7 +48,7 @@ This project is pre-release. Do not add backward-compatibility fallbacks, legacy
 
 ### Metrics must be reachable from admin API getters
 
-If a feature tracks metrics (retry counts, cache hits, circuit breaker state), verify the admin API getter actually returns those metrics. Don't create a separate metrics map in `Gateway` and forget to populate it. Instead, pull metrics from the objects that own them (e.g., `RouteProxy.GetRetryMetrics()` reads from the stored `retry.Policy.Metrics`).
+If a feature tracks metrics (retry counts, cache hits, circuit breaker state), verify the admin API getter actually returns those metrics. Don't create a separate metrics map in `Runway` and forget to populate it. Instead, pull metrics from the objects that own them (e.g., `RouteProxy.GetRetryMetrics()` reads from the stored `retry.Policy.Metrics`).
 
 ### ResponseWriter wrapping is conditional
 
@@ -76,7 +76,7 @@ The rules engine (`internal/rules/`) compiles expressions at startup via `expr.C
 
 ## serveHTTP Flow
 
-The request handling order in `gateway.go:serveHTTP()` is:
+The request handling order in `runway.go:serveHTTP()` is:
 
 1. Route matching
 1.1. IP filter

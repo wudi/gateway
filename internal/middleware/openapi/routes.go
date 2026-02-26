@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 // pathParamRegex matches OpenAPI path parameters like {user_id}.
@@ -33,7 +33,7 @@ func GenerateRoutes(specCfg config.OpenAPISpecConfig) ([]config.RouteConfig, err
 		for method, op := range pathItem.Operations() {
 			routeID := generateRouteID(method, path, op.OperationID)
 
-			// Build the full gateway path
+			// Build the full runway path
 			gwPath := specCfg.RoutePrefix + convertOpenAPIPath(path)
 
 			valReqPtr := &validateReq
@@ -76,7 +76,7 @@ func generateRouteID(method, path, operationID string) string {
 	return fmt.Sprintf("openapi-%s-%s", strings.ToLower(method), sanitized)
 }
 
-// convertOpenAPIPath converts OpenAPI path params {id} to gateway path params :id.
+// convertOpenAPIPath converts OpenAPI path params {id} to runway path params :id.
 func convertOpenAPIPath(path string) string {
 	return pathParamRegex.ReplaceAllString(path, ":$1")
 }

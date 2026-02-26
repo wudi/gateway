@@ -3,7 +3,7 @@ title: "GraphQL Federation (Schema Stitching)"
 sidebar_position: 3
 ---
 
-The gateway can merge multiple backend GraphQL schemas into a unified schema, routing queries to the backend that owns each root field. This provides a single GraphQL endpoint for clients while keeping backend services independent.
+The runway can merge multiple backend GraphQL schemas into a unified schema, routing queries to the backend that owns each root field. This provides a single GraphQL endpoint for clients while keeping backend services independent.
 
 ## Configuration
 
@@ -32,13 +32,13 @@ routes:
 
 ## How It Works
 
-1. **Schema Introspection**: At startup, the gateway sends an introspection query to each backend source and retrieves its schema.
+1. **Schema Introspection**: At startup, the runway sends an introspection query to each backend source and retrieves its schema.
 
 2. **Schema Merging**: Root Query, Mutation, and Subscription fields from all sources are merged into a single schema. Each root field is tracked by its owning source. Non-root types use first-seen-wins for conflicts.
 
-3. **Query Splitting**: When a client query arrives, the gateway parses it and groups top-level fields by their owning source. If all fields belong to one source, the original query is forwarded as-is.
+3. **Query Splitting**: When a client query arrives, the runway parses it and groups top-level fields by their owning source. If all fields belong to one source, the original query is forwarded as-is.
 
-4. **Fan-out Execution**: For cross-backend queries, the gateway builds per-source sub-queries and executes them concurrently.
+4. **Fan-out Execution**: For cross-backend queries, the runway builds per-source sub-queries and executes them concurrently.
 
 5. **Response Merging**: Data and errors from all backends are merged into a single GraphQL response.
 
@@ -74,7 +74,7 @@ A client can query both in a single request:
 }
 ```
 
-The gateway splits this into two sub-queries, sends `{ users { id name } }` to the users service and `{ orders { id total } }` to the orders service, then merges the responses.
+The runway splits this into two sub-queries, sends `{ users { id name } }` to the users service and `{ orders { id total } }` to the orders service, then merges the responses.
 
 ## Introspection
 
@@ -82,7 +82,7 @@ The merged schema is served for introspection queries. Clients using schema-awar
 
 ## Schema Refresh
 
-Schemas are periodically re-introspected based on `refresh_interval`. This allows the gateway to pick up schema changes from backends without restarts. If a refresh fails, the previously cached schema continues to be used.
+Schemas are periodically re-introspected based on `refresh_interval`. This allows the runway to pick up schema changes from backends without restarts. If a refresh fails, the previously cached schema continues to be used.
 
 ## Conflict Detection
 
@@ -120,7 +120,7 @@ curl -X POST http://localhost:8080/graphql \
 }
 ```
 
-The gateway split this into `{ users { id name } }` sent to the users source and `{ orders { id total } }` sent to the orders source, then merged the two responses.
+The runway split this into `{ users { id name } }` sent to the users source and `{ orders { id total } }` sent to the orders source, then merged the two responses.
 
 ## Admin API
 
@@ -155,7 +155,7 @@ Returns per-route federation statistics:
 ## Error Handling
 
 - **Init failure**: During startup, if fewer than 2 sources are reachable, `Init()` returns an error and the route fails to set up. Unreachable sources are logged as warnings and skipped — only the count of successful sources matters.
-- **Refresh failure**: When a periodic refresh fails (e.g., a source is temporarily down), the gateway logs a warning and continues using the previously merged schema. The stale schema remains in use until a subsequent refresh succeeds.
+- **Refresh failure**: When a periodic refresh fails (e.g., a source is temporarily down), the runway logs a warning and continues using the previously merged schema. The stale schema remains in use until a subsequent refresh succeeds.
 - **Partial source unavailability**: If some sources fail introspection during a refresh but at least 2 succeed, the schema is re-merged from the available sources. Fields from unavailable sources are dropped until they recover.
 - **Query errors**: If a sub-query to a backend fails during fan-out execution, the error is included in the GraphQL `errors` array and the `errors` counter is incremented.
 

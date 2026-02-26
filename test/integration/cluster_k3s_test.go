@@ -44,8 +44,8 @@ func TestClusterK3s(t *testing.T) {
 	// --- Setup ---
 	k8s := getClusterKubeClient(t)
 
-	t.Log("Building gateway image...")
-	runCmd(t, "sudo", "docker", "build", "-t", "gateway-test:latest", ".")
+	t.Log("Building runway image...")
+	runCmd(t, "sudo", "docker", "build", "-t", "runway-test:latest", ".")
 	t.Log("Importing image into k3s containerd...")
 	importImage(t)
 
@@ -99,7 +99,7 @@ admin:
 cluster:
   role: data_plane
   data_plane:
-    address: "gateway-cp.%s.svc.cluster.local:9443"
+    address: "runway-cp.%s.svc.cluster.local:9443"
     cache_dir: /tmp/dp-cache
     retry_interval: 1s
     heartbeat_interval: 2s
@@ -110,27 +110,27 @@ cluster:
       ca_file: /etc/cluster-tls/ca.crt
 `, clusterTestNamespace)
 
-	createConfigMap(t, k8s, "cp-config", map[string]string{"gateway.yaml": cpConfig})
-	createConfigMap(t, k8s, "dp-config", map[string]string{"gateway.yaml": dpConfig})
+	createConfigMap(t, k8s, "cp-config", map[string]string{"runway.yaml": cpConfig})
+	createConfigMap(t, k8s, "dp-config", map[string]string{"runway.yaml": dpConfig})
 
 	deployClusterEchoBackend(t, k8s)
 
-	createGatewayPod(t, k8s, "gateway-cp", "cp-config", "cp-tls", []corev1.ContainerPort{
+	createRunwayPod(t, k8s, "runway-cp", "cp-config", "cp-tls", []corev1.ContainerPort{
 		{Name: "http", ContainerPort: 8080},
 		{Name: "admin", ContainerPort: 8081},
 		{Name: "grpc", ContainerPort: 9443},
 	})
-	createClusterIPService(t, k8s, "gateway-cp", []corev1.ServicePort{
+	createClusterIPService(t, k8s, "runway-cp", []corev1.ServicePort{
 		{Name: "http", Port: 8080, TargetPort: intstr.FromInt32(8080)},
 		{Name: "admin", Port: 8081, TargetPort: intstr.FromInt32(8081)},
 		{Name: "grpc", Port: 9443, TargetPort: intstr.FromInt32(9443)},
 	})
 
-	createGatewayPod(t, k8s, "gateway-dp", "dp-config", "dp-tls", []corev1.ContainerPort{
+	createRunwayPod(t, k8s, "runway-dp", "dp-config", "dp-tls", []corev1.ContainerPort{
 		{Name: "http", ContainerPort: 8080},
 		{Name: "admin", ContainerPort: 8081},
 	})
-	createClusterIPService(t, k8s, "gateway-dp", []corev1.ServicePort{
+	createClusterIPService(t, k8s, "runway-dp", []corev1.ServicePort{
 		{Name: "http", Port: 8080, TargetPort: intstr.FromInt32(8080)},
 		{Name: "admin", Port: 8081, TargetPort: intstr.FromInt32(8081)},
 	})
@@ -139,20 +139,20 @@ cluster:
 	t.Log("Waiting for echo-backend pod...")
 	waitForPodRunning(t, k8s, "echo-backend", 60*time.Second)
 
-	t.Log("Waiting for gateway-cp pod...")
-	waitForPodReady(t, k8s, "gateway-cp", 60*time.Second)
+	t.Log("Waiting for runway-cp pod...")
+	waitForPodReady(t, k8s, "runway-cp", 60*time.Second)
 
-	t.Log("Waiting for gateway-dp pod...")
-	waitForPodReady(t, k8s, "gateway-dp", 60*time.Second)
+	t.Log("Waiting for runway-dp pod...")
+	waitForPodReady(t, k8s, "runway-dp", 60*time.Second)
 
 	// Set up port-forwards
-	cpAdminPort, cpAdminCleanup := portForward(t, "gateway-cp", 8081)
+	cpAdminPort, cpAdminCleanup := portForward(t, "runway-cp", 8081)
 	defer cpAdminCleanup()
 
-	dpAdminPort, dpAdminCleanup := portForward(t, "gateway-dp", 8081)
+	dpAdminPort, dpAdminCleanup := portForward(t, "runway-dp", 8081)
 	defer dpAdminCleanup()
 
-	dpHTTPPort, dpHTTPCleanup := portForward(t, "gateway-dp", 8080)
+	dpHTTPPort, dpHTTPCleanup := portForward(t, "runway-dp", 8080)
 	defer dpHTTPCleanup()
 
 	cpAdminBase := fmt.Sprintf("http://127.0.0.1:%d", cpAdminPort)
@@ -286,7 +286,7 @@ cluster:
 		// Delete the CP pod
 		t.Log("Deleting CP pod to test static stability...")
 		ctx := context.Background()
-		err := k8s.CoreV1().Pods(clusterTestNamespace).Delete(ctx, "gateway-cp", metav1.DeleteOptions{})
+		err := k8s.CoreV1().Pods(clusterTestNamespace).Delete(ctx, "runway-cp", metav1.DeleteOptions{})
 		if err != nil {
 			t.Fatalf("Failed to delete CP pod: %v", err)
 		}
@@ -294,7 +294,7 @@ cluster:
 		// Wait for pod to actually disappear
 		deadline := time.Now().Add(30 * time.Second)
 		for time.Now().Before(deadline) {
-			_, err := k8s.CoreV1().Pods(clusterTestNamespace).Get(ctx, "gateway-cp", metav1.GetOptions{})
+			_, err := k8s.CoreV1().Pods(clusterTestNamespace).Get(ctx, "runway-cp", metav1.GetOptions{})
 			if err != nil {
 				break
 			}
@@ -343,14 +343,14 @@ cluster:
 	t.Run("DP_Reconnects", func(t *testing.T) {
 		// Recreate CP pod
 		t.Log("Recreating CP pod...")
-		createGatewayPod(t, k8s, "gateway-cp", "cp-config", "cp-tls", []corev1.ContainerPort{
+		createRunwayPod(t, k8s, "runway-cp", "cp-config", "cp-tls", []corev1.ContainerPort{
 			{Name: "http", ContainerPort: 8080},
 			{Name: "admin", ContainerPort: 8081},
 			{Name: "grpc", ContainerPort: 9443},
 		})
 
 		t.Log("Waiting for new CP pod to be ready...")
-		waitForPodReady(t, k8s, "gateway-cp", 60*time.Second)
+		waitForPodReady(t, k8s, "runway-cp", 60*time.Second)
 
 		// Poll DP until it reconnects (30s timeout, DP has 1s retry interval)
 		deadline := time.Now().Add(30 * time.Second)
@@ -450,7 +450,7 @@ func findRepoRoot(t *testing.T) string {
 
 func importImage(t *testing.T) {
 	t.Helper()
-	cmd := exec.Command("bash", "-c", "sudo docker save gateway-test:latest | sudo k3s ctr images import -")
+	cmd := exec.Command("bash", "-c", "sudo docker save runway-test:latest | sudo k3s ctr images import -")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("Failed to import image into k3s: %v\n%s", err, out)
@@ -535,7 +535,7 @@ func deployClusterEchoBackend(t *testing.T, k8s *kubernetes.Clientset) {
 	}
 }
 
-func createGatewayPod(t *testing.T, k8s *kubernetes.Clientset, name, configMapName, secretName string, ports []corev1.ContainerPort) {
+func createRunwayPod(t *testing.T, k8s *kubernetes.Clientset, name, configMapName, secretName string, ports []corev1.ContainerPort) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -548,8 +548,8 @@ func createGatewayPod(t *testing.T, k8s *kubernetes.Clientset, name, configMapNa
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
-					Name:            "gateway",
-					Image:           "gateway-test:latest",
+					Name:            "runway",
+					Image:           "runway-test:latest",
 					ImagePullPolicy: corev1.PullNever,
 					Ports:           ports,
 					VolumeMounts: []corev1.VolumeMount{
@@ -777,15 +777,15 @@ func generateClusterK3sCerts(t *testing.T) clusterCerts {
 
 	// CP leaf cert with DNS SANs
 	cpCertPEM, cpKeyPEM := generateLeafCertWithSANs(t, caCert, caKey, "cp", []string{
-		"gateway-cp",
-		"gateway-cp." + clusterTestNamespace + ".svc.cluster.local",
+		"runway-cp",
+		"runway-cp." + clusterTestNamespace + ".svc.cluster.local",
 		"localhost",
 	})
 
 	// DP leaf cert with DNS SANs
 	dpCertPEM, dpKeyPEM := generateLeafCertWithSANs(t, caCert, caKey, "dp", []string{
-		"gateway-dp",
-		"gateway-dp." + clusterTestNamespace + ".svc.cluster.local",
+		"runway-dp",
+		"runway-dp." + clusterTestNamespace + ".svc.cluster.local",
 		"localhost",
 	})
 

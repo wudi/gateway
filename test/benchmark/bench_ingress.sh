@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bench_ingress.sh — Benchmark: Gateway Ingress Controller vs Traefik on k3s
+# bench_ingress.sh — Benchmark: Runway Ingress Controller vs Traefik on k3s
 #
 # Prerequisites:
 #   - k3s running with Traefik enabled (default)
@@ -54,7 +54,7 @@ cleanup() {
         log "Stopped gateway process (PID $GW_PID)"
     fi
     kubectl delete namespace "$NAMESPACE" --ignore-not-found --wait=false 2>/dev/null || true
-    kubectl delete ingressclass gateway --ignore-not-found 2>/dev/null || true
+    kubectl delete ingressclass runway --ignore-not-found 2>/dev/null || true
     if [[ -n "$GW_BINARY" ]] && [[ -f "$GW_BINARY" ]]; then
         rm -f "$GW_BINARY"
     fi
@@ -94,8 +94,8 @@ phase_preflight() {
 
 # ---------- build ----------
 phase_build() {
-    log "Building gateway ingress controller..."
-    GW_BINARY=$(mktemp /tmp/gateway-ingress-XXXXXX)
+    log "Building runway ingress controller..."
+    GW_BINARY=$(mktemp /tmp/runway-ingress-XXXXXX)
     (cd "$REPO_ROOT" && go build -o "$GW_BINARY" ./cmd/ingress/)
     chmod +x "$GW_BINARY"
     ok "Built $GW_BINARY"
@@ -242,7 +242,7 @@ metadata:
   name: bench-gateway
   namespace: $NAMESPACE
 spec:
-  ingressClassName: gateway
+  ingressClassName: runway
   rules:
     - host: $GATEWAY_HOST
       http:
@@ -269,14 +269,14 @@ phase_start_gw() {
         sleep 1
     fi
 
-    log "Creating IngressClass 'gateway'..."
+    log "Creating IngressClass 'runway'..."
     cat <<YAML | kubectl apply -f -
 apiVersion: networking.k8s.io/v1
 kind: IngressClass
 metadata:
-  name: gateway
+  name: runway
 spec:
-  controller: apigw.dev/ingress-controller
+  controller: runway.wudi.io/ingress-controller
 YAML
 
     # Ensure KUBECONFIG is set (k3s stores config at a non-standard path)
@@ -286,9 +286,9 @@ YAML
         fi
     fi
 
-    log "Starting gateway ingress controller on port $GW_HTTP_PORT..."
+    log "Starting runway ingress controller on port $GW_HTTP_PORT..."
     "$GW_BINARY" \
-        --ingress-class=gateway \
+        --ingress-class=runway \
         --http-port="$GW_HTTP_PORT" \
         --admin-port="$GW_ADMIN_PORT" \
         --metrics-port="$GW_METRICS_PORT" \
@@ -622,7 +622,7 @@ phase_report() {
 
 # ---------- main ----------
 main() {
-    echo -e "${BOLD}Gateway vs Traefik Ingress Controller Benchmark${NC}"
+    echo -e "${BOLD}Runway vs Traefik Ingress Controller Benchmark${NC}"
     echo ""
 
     phase_preflight

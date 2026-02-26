@@ -1,6 +1,6 @@
 // +build ignore
 
-// Mock backend server for testing the gateway
+// Mock backend server for testing the runway
 // Run with: go run scripts/mock-backend.go -port 9001
 package main
 

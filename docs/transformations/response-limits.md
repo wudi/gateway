@@ -3,7 +3,7 @@ title: "Response Size Limiting"
 sidebar_position: 12
 ---
 
-Response size limiting protects the gateway from oversized backend responses that could exhaust memory or bandwidth. It enforces a maximum response body size from upstream backends on a per-route or global basis.
+Response size limiting protects the runway from oversized backend responses that could exhaust memory or bandwidth. It enforces a maximum response body size from upstream backends on a per-route or global basis.
 
 ## Configuration
 
@@ -36,8 +36,8 @@ Per-route settings override global settings. Non-zero per-route fields take prec
 
 ### `reject` (default)
 
-- If the backend response includes a `Content-Length` header exceeding `max_size`, the gateway immediately returns **502 Bad Gateway** to the client without forwarding any response body.
-- For streaming/chunked responses (no `Content-Length`), the gateway writes bytes until the limit is reached, then silently discards remaining data.
+- If the backend response includes a `Content-Length` header exceeding `max_size`, the runway immediately returns **502 Bad Gateway** to the client without forwarding any response body.
+- For streaming/chunked responses (no `Content-Length`), the runway writes bytes until the limit is reached, then silently discards remaining data.
 - Sets `X-Response-Limited: true` header when limiting occurs.
 
 ### `truncate`

@@ -6,8 +6,8 @@ import (
 
 	lua "github.com/yuin/gopher-lua"
 
-	"github.com/wudi/gateway/internal/middleware/geo"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/internal/middleware/geo"
+	"github.com/wudi/runway/variables"
 )
 
 func TestContextUserData_RouteID(t *testing.T) {

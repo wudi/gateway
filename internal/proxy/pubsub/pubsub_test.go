@@ -3,7 +3,7 @@ package pubsub
 import (
 	"testing"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func TestPubSubHandlerValidation(t *testing.T) {

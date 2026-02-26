@@ -13,10 +13,10 @@ import (
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/middleware"
-	"github.com/wudi/gateway/internal/tmplutil"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/middleware"
+	"github.com/wudi/runway/internal/tmplutil"
+	"github.com/wudi/runway/variables"
 )
 
 // compiledFlatmapOp is a pre-validated flatmap operation.
@@ -451,7 +451,7 @@ func (ct *CompiledBodyTransform) applyTemplate(body []byte, varCtx *variables.Co
 	return out
 }
 
-// buildVarsMap exposes common gateway variables for template use.
+// buildVarsMap exposes common runway variables for template use.
 func buildVarsMap(varCtx *variables.Context) map[string]string {
 	if varCtx == nil {
 		return map[string]string{}

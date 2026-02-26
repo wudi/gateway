@@ -1,4 +1,4 @@
-module github.com/wudi/gateway
+module github.com/wudi/runway
 
 go 1.25.5
 

@@ -10,7 +10,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func TestExtAuthIntegration_Allow(t *testing.T) {
@@ -49,7 +49,7 @@ func TestExtAuthIntegration_Allow(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	resp, err := http.Get(ts.URL + "/api/users")
 	if err != nil {
@@ -101,7 +101,7 @@ func TestExtAuthIntegration_Deny(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	resp, err := http.Get(ts.URL + "/api/secret")
 	if err != nil {
@@ -149,7 +149,7 @@ func TestExtAuthIntegration_FailOpen(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	resp, err := http.Get(ts.URL + "/api/data")
 	if err != nil {

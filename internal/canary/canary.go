@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/loadbalancer"
-	"github.com/wudi/gateway/internal/logging"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/loadbalancer"
+	"github.com/wudi/runway/internal/logging"
 	"go.uber.org/zap"
 )
 

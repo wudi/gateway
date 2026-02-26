@@ -3,7 +3,7 @@ title: "Rate Limiting & Traffic Shaping"
 sidebar_position: 1
 ---
 
-The gateway provides multiple layers of traffic control: rate limiting (reject excess), throttling (queue excess), bandwidth limiting (byte-rate I/O), priority admission (QoS), and fault injection (chaos testing).
+The runway provides multiple layers of traffic control: rate limiting (reject excess), throttling (queue excess), bandwidth limiting (byte-rate I/O), priority admission (QoS), and fault injection (chaos testing).
 
 ## Rate Limiting
 
@@ -53,7 +53,7 @@ The `algorithm` field accepts `"token_bucket"` (default) or `"sliding_window"`. 
 
 ### Distributed Rate Limiting
 
-Uses Redis sliding window for shared state across multiple gateway instances:
+Uses Redis sliding window for shared state across multiple runway instances:
 
 ```yaml
 redis:
@@ -289,7 +289,7 @@ The `X-RateLimit-Tier` response header indicates which tier was applied.
 
 ## Proxy Rate Limiting (Backend Protection)
 
-Proxy rate limiting protects backends by limiting outbound request rate per route. This is separate from client-side rate limiting — it limits how fast the gateway sends requests to backends, regardless of how many clients are requesting.
+Proxy rate limiting protects backends by limiting outbound request rate per route. This is separate from client-side rate limiting — it limits how fast the runway sends requests to backends, regardless of how many clients are requesting.
 
 ```yaml
 routes:
@@ -305,7 +305,7 @@ routes:
       burst: 50       # token bucket burst capacity
 ```
 
-When the limit is exceeded, the gateway returns `503 Service Unavailable` with a `Retry-After` header. The default period is 1 second if not specified. Burst defaults to `rate` if not set.
+When the limit is exceeded, the runway returns `503 Service Unavailable` with a `Retry-After` header. The default period is 1 second if not specified. Burst defaults to `rate` if not set.
 
 **Admin endpoint:** `GET /proxy-rate-limits` returns allowed/rejected counts per route.
 

@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/wudi/gateway/internal/errors"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/internal/errors"
+	"github.com/wudi/runway/variables"
 	"golang.org/x/time/rate"
 )
 

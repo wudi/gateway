@@ -8,7 +8,7 @@ import (
 
 	lua "github.com/yuin/gopher-lua"
 
-	"github.com/wudi/gateway/internal/logging"
+	"github.com/wudi/runway/internal/logging"
 	"go.uber.org/zap"
 )
 

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func TestAdaptiveConcurrencyReject(t *testing.T) {
@@ -45,7 +45,7 @@ func TestAdaptiveConcurrencyReject(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// Use a gate to synchronize goroutine starts
 	gate := make(chan struct{})
@@ -113,7 +113,7 @@ func TestAdaptiveConcurrencyLimitDecreases(t *testing.T) {
 		},
 	}
 
-	gw, ts := newTestGateway(t, cfg)
+	gw, ts := newTestRunway(t, cfg)
 	limiter := gw.GetAdaptiveLimiters().GetLimiter("adaptive-decrease")
 
 	// Send requests with low latency to establish baseline
@@ -173,7 +173,7 @@ func TestAdaptiveConcurrencyAdminEndpoint(t *testing.T) {
 		},
 	}
 
-	gw, _ := newTestGateway(t, cfg)
+	gw, _ := newTestRunway(t, cfg)
 
 	stats := gw.GetAdaptiveLimiters().Stats()
 	if len(stats) != 1 {

@@ -6,9 +6,9 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/wudi/gateway/internal/loadbalancer"
-	"github.com/wudi/gateway/internal/router"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/internal/loadbalancer"
+	"github.com/wudi/runway/internal/router"
+	"github.com/wudi/runway/variables"
 )
 
 func BenchmarkCreateProxyRequest(b *testing.B) {

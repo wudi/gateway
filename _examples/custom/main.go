@@ -1,4 +1,4 @@
-// This is a compile-time verification that the public gateway API is importable
+// This is a compile-time verification that the public runway API is importable
 // and the builder pattern works. It is NOT meant to be run.
 package main
 
@@ -7,11 +7,11 @@ import (
 	"net/http"
 	"os"
 
-	gw "github.com/wudi/gateway/gateway"
+	gw "github.com/wudi/runway/runway"
 )
 
 func main() {
-	cfg, err := gw.LoadConfig("gateway.yaml")
+	cfg, err := gw.LoadConfig("runway.yaml")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

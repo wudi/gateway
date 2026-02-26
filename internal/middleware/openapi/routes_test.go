@@ -3,7 +3,7 @@ package openapi
 import (
 	"testing"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func TestGenerateRoutes(t *testing.T) {

@@ -12,7 +12,7 @@ import (
 
 	"golang.org/x/crypto/acme/autocert"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func TestNew_Defaults(t *testing.T) {

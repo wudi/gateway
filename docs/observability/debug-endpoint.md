@@ -63,7 +63,7 @@ Fields included:
 GET /__debug/config
 ```
 
-Returns a sanitized view of the gateway configuration:
+Returns a sanitized view of the runway configuration:
 
 ```json
 {

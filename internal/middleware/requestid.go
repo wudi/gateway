@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/variables"
 )
 
 func init() {

@@ -1,9 +1,9 @@
 ---
-title: "Gateway Comparison Benchmarks"
+title: "Runway Comparison Benchmarks"
 sidebar_position: 4
 ---
 
-Compare this gateway's proxy performance against Kong, KrakenD, Traefik, and Tyk using identical backends and load conditions.
+Compare this runway's proxy performance against Kong, KrakenD, Traefik, and Tyk using identical backends and load conditions.
 
 ## Prerequisites
 
@@ -14,10 +14,10 @@ Compare this gateway's proxy performance against Kong, KrakenD, Traefik, and Tyk
 ## Quick Start
 
 ```bash
-# Quick comparison: this gateway vs Kong, 30s
+# Quick comparison: this runway vs Kong, 30s
 make compare-bench-quick
 
-# Full 5-gateway comparison, simple proxy, 60s
+# Full 5-proxy comparison, simple proxy, 60s
 make compare-bench
 
 # All scenarios (simple + auth + ratelimit), all gateways, 60s each
@@ -73,12 +73,12 @@ Results are saved to `perf/compare/results/<timestamp>/` containing:
 
 Each gateway runs one at a time to avoid resource contention. The flow for each gateway:
 
-1. Start the gateway container (with profile isolation)
+1. Start the runway container (with profile isolation)
 2. Wait for health check to pass
 3. Run a short warmup with `hey`
 4. Collect `docker stats` in the background
 5. Run the benchmark with `hey`
-6. Save results and stop the gateway
+6. Save results and stop the runway
 
 All gateways proxy to the same nginx backend returning a static JSON response.
 
@@ -86,7 +86,7 @@ All gateways proxy to the same nginx backend returning a static JSON response.
 
 | Gateway | Image | Notes |
 |---------|-------|-------|
-| This gateway | Built from source | Dockerfile in project root |
+| This runway | Built from source | Dockerfile in project root |
 | Kong | `kong:3.9` | DB-less declarative mode |
 | KrakenD | `devopsfaith/krakend:2.7` | `no-op` encoding (no transform) |
 | Traefik | `traefik:v3.3` | File provider |

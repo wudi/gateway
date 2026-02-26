@@ -4,8 +4,8 @@ import (
 	"sort"
 
 	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/router"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/router"
 )
 
 // CatalogEntry represents a single API route in the catalog.
@@ -52,7 +52,7 @@ type SpecProvider interface {
 	GetSpecDocs() map[string]*openapi3.T
 }
 
-// Builder builds the API catalog from gateway configuration.
+// Builder builds the API catalog from runway configuration.
 type Builder struct {
 	cfg          config.CatalogConfig
 	routeConfigs []config.RouteConfig
@@ -74,7 +74,7 @@ func NewBuilder(cfg config.CatalogConfig, routeConfigs []config.RouteConfig, get
 func (b *Builder) Build() *Catalog {
 	title := b.cfg.Title
 	if title == "" {
-		title = "API Gateway"
+		title = "API Runway"
 	}
 
 	// Build route config lookup

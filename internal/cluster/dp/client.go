@@ -13,8 +13,8 @@ import (
 	"github.com/cespare/xxhash/v2"
 	"github.com/goccy/go-yaml"
 	"github.com/google/uuid"
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/cluster/clusterpb"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/cluster/clusterpb"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -22,7 +22,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// ReloadResult mirrors the gateway ReloadResult for the reloadFn callback.
+// ReloadResult mirrors the runway ReloadResult for the reloadFn callback.
 type ReloadResult struct {
 	Success   bool
 	Timestamp time.Time
@@ -77,7 +77,7 @@ func NewClient(cfg ClientConfig) *Client {
 		cfg.HeartbeatInterval = 10 * time.Second
 	}
 	if cfg.CacheDir == "" {
-		cfg.CacheDir = "/var/lib/gateway/cluster"
+		cfg.CacheDir = "/var/lib/runway/cluster"
 	}
 
 	c := &Client{
@@ -293,7 +293,7 @@ func (c *Client) connectAndStream(ctx context.Context) error {
 						ConfigVersion: c.currentVer.Load(),
 						ConfigHash:    c.currentHash.Load(),
 						Status: &clusterpb.NodeStatus{
-							GatewayVersion: c.version,
+							RunwayVersion: c.version,
 							LastReloadError: reloadErr,
 							LastSuccessfulVersion: c.currentVer.Load(),
 						},

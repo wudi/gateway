@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/gateway"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/runway"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	rpb "google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
@@ -28,7 +28,7 @@ import (
 	"google.golang.org/protobuf/types/dynamicpb"
 
 	// Register the grpc translator
-	_ "github.com/wudi/gateway/internal/proxy/protocol/grpc"
+	_ "github.com/wudi/runway/internal/proxy/protocol/grpc"
 )
 
 // testStreamServer is a simple gRPC server for streaming tests.
@@ -427,7 +427,7 @@ func TestServerStreamingIntegration(t *testing.T) {
 	server := startTestStreamServer(t)
 	defer server.Stop()
 
-	// Create gateway with route to streaming service
+	// Create runway with route to streaming service
 	cfg := &config.Config{
 		Listeners: []config.ListenerConfig{{
 			ID:       "http-stream",
@@ -461,9 +461,9 @@ func TestServerStreamingIntegration(t *testing.T) {
 		},
 	}
 
-	gw, err := gateway.New(cfg)
+	gw, err := runway.New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create gateway: %v", err)
+		t.Fatalf("Failed to create runway: %v", err)
 	}
 	defer gw.Close()
 
@@ -552,9 +552,9 @@ func TestClientStreamingIntegration(t *testing.T) {
 		},
 	}
 
-	gw, err := gateway.New(cfg)
+	gw, err := runway.New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create gateway: %v", err)
+		t.Fatalf("Failed to create runway: %v", err)
 	}
 	defer gw.Close()
 
@@ -639,9 +639,9 @@ func TestBidirectionalStreamingIntegration(t *testing.T) {
 		},
 	}
 
-	gw, err := gateway.New(cfg)
+	gw, err := runway.New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create gateway: %v", err)
+		t.Fatalf("Failed to create runway: %v", err)
 	}
 	defer gw.Close()
 
@@ -727,9 +727,9 @@ func TestUnaryStillWorks(t *testing.T) {
 		},
 	}
 
-	gw, err := gateway.New(cfg)
+	gw, err := runway.New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create gateway: %v", err)
+		t.Fatalf("Failed to create runway: %v", err)
 	}
 	defer gw.Close()
 
@@ -857,9 +857,9 @@ func TestStreamingError(t *testing.T) {
 		},
 	}
 
-	gw, err := gateway.New(cfg)
+	gw, err := runway.New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create gateway: %v", err)
+		t.Fatalf("Failed to create runway: %v", err)
 	}
 	defer gw.Close()
 

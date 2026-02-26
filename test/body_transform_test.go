@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/gateway"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/runway"
 )
 
 func TestBodyTransformIntegration_SetAndDenyFields(t *testing.T) {
@@ -52,7 +52,7 @@ func TestBodyTransformIntegration_SetAndDenyFields(t *testing.T) {
 					Request: config.RequestTransform{
 						Body: config.BodyTransformConfig{
 							SetFields: map[string]string{
-								"metadata.source": "gateway",
+								"metadata.source": "runway",
 							},
 							RemoveFields: []string{"debug"},
 						},
@@ -61,7 +61,7 @@ func TestBodyTransformIntegration_SetAndDenyFields(t *testing.T) {
 						Body: config.BodyTransformConfig{
 							DenyFields: []string{"password_hash", "internal_id"},
 							SetFields: map[string]string{
-								"meta.served_by": "gateway",
+								"meta.served_by": "runway",
 							},
 						},
 					},
@@ -70,9 +70,9 @@ func TestBodyTransformIntegration_SetAndDenyFields(t *testing.T) {
 		},
 	}
 
-	gw, err := gateway.New(cfg)
+	gw, err := runway.New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create gateway: %v", err)
+		t.Fatalf("Failed to create runway: %v", err)
 	}
 	defer gw.Close()
 
@@ -109,8 +109,8 @@ func TestBodyTransformIntegration_SetAndDenyFields(t *testing.T) {
 	if !ok {
 		t.Fatal("expected meta to be present in response")
 	}
-	if meta["served_by"] != "gateway" {
-		t.Errorf("expected meta.served_by=gateway, got %v", meta["served_by"])
+	if meta["served_by"] != "runway" {
+		t.Errorf("expected meta.served_by=runway, got %v", meta["served_by"])
 	}
 
 	// Original fields should still be there
@@ -154,9 +154,9 @@ func TestBodyTransformIntegration_Template(t *testing.T) {
 		},
 	}
 
-	gw, err := gateway.New(cfg)
+	gw, err := runway.New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create gateway: %v", err)
+		t.Fatalf("Failed to create runway: %v", err)
 	}
 	defer gw.Close()
 
@@ -229,9 +229,9 @@ func TestBodyTransformIntegration_AllowFields(t *testing.T) {
 		},
 	}
 
-	gw, err := gateway.New(cfg)
+	gw, err := runway.New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create gateway: %v", err)
+		t.Fatalf("Failed to create runway: %v", err)
 	}
 	defer gw.Close()
 

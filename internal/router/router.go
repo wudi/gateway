@@ -12,7 +12,7 @@ import (
 
 	"github.com/julienschmidt/httprouter"
 	"github.com/tidwall/gjson"
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 // Route represents a configured route

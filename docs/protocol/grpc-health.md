@@ -3,7 +3,7 @@ title: "gRPC Health Check Server"
 sidebar_position: 7
 ---
 
-The gateway can expose a gRPC health check server implementing the standard `grpc.health.v1.Health` service. This is useful for environments (such as Kubernetes with gRPC health probes) that expect a native gRPC health endpoint rather than HTTP.
+The runway can expose a gRPC health check server implementing the standard `grpc.health.v1.Health` service. This is useful for environments (such as Kubernetes with gRPC health probes) that expect a native gRPC health endpoint rather than HTTP.
 
 ## Configuration
 
@@ -27,7 +27,7 @@ admin:
 
 The server implements the `grpc.health.v1.Health` service:
 
-- **`Check(HealthCheckRequest)`** -- Returns the current serving status. Returns `SERVING` when the gateway is healthy and `NOT_SERVING` when the gateway is unhealthy or draining.
+- **`Check(HealthCheckRequest)`** -- Returns the current serving status. Returns `SERVING` when the runway is healthy and `NOT_SERVING` when the runway is unhealthy or draining.
 - **`Watch(HealthCheckRequest)`** -- Streams health status changes. The server sends an initial status immediately and then sends updates whenever the serving status changes.
 
 ## Kubernetes Integration

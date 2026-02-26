@@ -10,11 +10,11 @@ import (
 	"sync/atomic"
 	"text/template"
 
-	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/middleware"
-	"github.com/wudi/gateway/internal/tmplutil"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/middleware"
+	"github.com/wudi/runway/internal/tmplutil"
+	"github.com/wudi/runway/variables"
 )
 
 // TemplateData is the context available to body generator templates.

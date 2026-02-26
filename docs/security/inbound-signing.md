@@ -9,7 +9,7 @@ The inbound signing middleware verifies HMAC signatures on incoming requests, en
 
 1. The client computes an HMAC signature over a canonical signing string that includes the HTTP method, URI, timestamp, and body hash
 2. The client sends the signature, timestamp, and key ID in request headers
-3. The gateway reconstructs the signing string from the incoming request and verifies the HMAC
+3. The runway reconstructs the signing string from the incoming request and verifies the HMAC
 4. If the signature is invalid, the timestamp is outside the allowed clock skew, or required headers are missing, the request is rejected with 401
 5. In shadow mode, failures are logged but requests are allowed through
 
@@ -118,7 +118,7 @@ body_hash = hashlib.sha256(body.encode()).hexdigest()
 signing_string = f"POST\n/webhooks/payment\n{timestamp}\n{body_hash}"
 signature = hmac.new(secret, signing_string.encode(), hashlib.sha256).hexdigest()
 
-requests.post("https://gateway.example.com/webhooks/payment",
+requests.post("https://runway.example.com/webhooks/payment",
     headers={
         "X-Signature-Timestamp": timestamp,
         "X-Signature-Signature": signature,
@@ -216,7 +216,7 @@ curl http://localhost:8081/inbound-signing
 ## Notes
 
 - The body is fully read and buffered for hashing. For large request bodies, consider combining with `body_limit` to cap the maximum size.
-- Clock skew validation uses the gateway's system clock. Ensure NTP synchronization on both client and gateway hosts.
+- Clock skew validation uses the runway's system clock. Ensure NTP synchronization on both client and runway hosts.
 - The `Key-ID` header is not used for verification — it is logged for auditing and debugging. Key rotation is handled by updating the `secret` value and reloading config.
 - Inbound signing is separate from [Backend Signing](security.md), which signs outgoing requests to backends. Both can be active on the same route.
 

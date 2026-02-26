@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 // collectWebhook starts an httptest.Server that collects batches of
@@ -429,7 +429,7 @@ func TestMergeAuditLogConfig(t *testing.T) {
 	global := config.AuditLogConfig{
 		Enabled:       true,
 		WebhookURL:    "https://global.example.com/audit",
-		Headers:       map[string]string{"X-Source": "gateway"},
+		Headers:       map[string]string{"X-Source": "runway"},
 		SampleRate:    0.5,
 		IncludeBody:   true,
 		MaxBodySize:   32768,

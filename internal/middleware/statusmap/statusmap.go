@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"sync/atomic"
 
-	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/internal/middleware"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // StatusMapper remaps backend response status codes to different client-facing codes.

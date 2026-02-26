@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 // restMapper handles REST-to-Thrift method mapping.

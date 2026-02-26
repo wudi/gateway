@@ -1,7 +1,7 @@
 package grpcweb
 
 import (
-	"github.com/wudi/gateway/internal/proxy/protocol"
+	"github.com/wudi/runway/internal/proxy/protocol"
 )
 
 func init() {

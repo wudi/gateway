@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func testSecret() string {
@@ -56,19 +56,19 @@ func TestSignPOST(t *testing.T) {
 	}
 
 	// Verify 4 headers injected
-	sig := req.Header.Get("X-Gateway-Signature")
-	ts := req.Header.Get("X-Gateway-Timestamp")
-	keyID := req.Header.Get("X-Gateway-Key-ID")
-	signedHdrs := req.Header.Get("X-Gateway-Signed-Headers")
+	sig := req.Header.Get("X-Runway-Signature")
+	ts := req.Header.Get("X-Runway-Timestamp")
+	keyID := req.Header.Get("X-Runway-Key-ID")
+	signedHdrs := req.Header.Get("X-Runway-Signed-Headers")
 
 	if sig == "" {
-		t.Error("missing X-Gateway-Signature")
+		t.Error("missing X-Runway-Signature")
 	}
 	if !strings.HasPrefix(sig, "hmac-sha256=") {
 		t.Errorf("signature should start with 'hmac-sha256=', got %q", sig)
 	}
 	if ts == "" {
-		t.Error("missing X-Gateway-Timestamp")
+		t.Error("missing X-Runway-Timestamp")
 	}
 	if keyID != "key-1" {
 		t.Errorf("expected key-1, got %q", keyID)
@@ -103,7 +103,7 @@ func TestSignGET(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sig := req.Header.Get("X-Gateway-Signature")
+	sig := req.Header.Get("X-Runway-Signature")
 	if sig == "" {
 		t.Error("missing signature for GET")
 	}
@@ -113,7 +113,7 @@ func TestSignGET(t *testing.T) {
 	emptyHex := hex.EncodeToString(emptyHash[:])
 
 	// Verify by recomputing the signature
-	ts := req.Header.Get("X-Gateway-Timestamp")
+	ts := req.Header.Get("X-Runway-Timestamp")
 	signingStr := "GET\n/api/v1/health\n" + ts + "\n" + emptyHex
 	secret, _ := base64.StdEncoding.DecodeString(testSecret())
 	mac := hmac.New(sha256.New, secret)
@@ -147,7 +147,7 @@ func TestSignatureVerification(t *testing.T) {
 	}
 
 	// Recompute signature to verify
-	ts := req.Header.Get("X-Gateway-Timestamp")
+	ts := req.Header.Get("X-Runway-Timestamp")
 	bodyH := sha256.Sum256(body)
 	bodyHex := hex.EncodeToString(bodyH[:])
 
@@ -161,13 +161,13 @@ func TestSignatureVerification(t *testing.T) {
 	mac.Write([]byte(signingStr))
 	expected := "hmac-sha256=" + hex.EncodeToString(mac.Sum(nil))
 
-	got := req.Header.Get("X-Gateway-Signature")
+	got := req.Header.Get("X-Runway-Signature")
 	if got != expected {
 		t.Errorf("signature verification failed:\ngot  %s\nwant %s", got, expected)
 	}
 
 	// Verify signed headers
-	sh := req.Header.Get("X-Gateway-Signed-Headers")
+	sh := req.Header.Get("X-Runway-Signed-Headers")
 	if sh != "Content-Type;Host" {
 		t.Errorf("signed headers: got %q, want %q", sh, "Content-Type;Host")
 	}
@@ -190,13 +190,13 @@ func TestHMACSHA512(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sig := req.Header.Get("X-Gateway-Signature")
+	sig := req.Header.Get("X-Runway-Signature")
 	if !strings.HasPrefix(sig, "hmac-sha512=") {
 		t.Errorf("expected hmac-sha512 prefix, got %q", sig)
 	}
 
 	// Verify by recomputing
-	ts := req.Header.Get("X-Gateway-Timestamp")
+	ts := req.Header.Get("X-Runway-Timestamp")
 	emptyHash := sha256.Sum256(nil)
 	signingStr := "GET\n/test\n" + ts + "\n" + hex.EncodeToString(emptyHash[:])
 
@@ -388,7 +388,7 @@ func TestTimestampIsRecent(t *testing.T) {
 	}
 	after := time.Now().Unix()
 
-	ts, _ := strconv.ParseInt(req.Header.Get("X-Gateway-Timestamp"), 10, 64)
+	ts, _ := strconv.ParseInt(req.Header.Get("X-Runway-Timestamp"), 10, 64)
 	if ts < before || ts > after {
 		t.Errorf("timestamp %d not in range [%d, %d]", ts, before, after)
 	}
@@ -505,11 +505,11 @@ func TestRSASHA256Signing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sig := req.Header.Get("X-Gateway-Signature")
+	sig := req.Header.Get("X-Runway-Signature")
 	if !strings.HasPrefix(sig, "rsa-sha256=") {
 		t.Errorf("expected rsa-sha256 prefix, got %q", sig)
 	}
-	if req.Header.Get("X-Gateway-Key-ID") != "rsa-key-1" {
+	if req.Header.Get("X-Runway-Key-ID") != "rsa-key-1" {
 		t.Error("wrong key ID")
 	}
 }
@@ -533,7 +533,7 @@ func TestRSASHA512Signing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sig := req.Header.Get("X-Gateway-Signature")
+	sig := req.Header.Get("X-Runway-Signature")
 	if !strings.HasPrefix(sig, "rsa-sha512=") {
 		t.Errorf("expected rsa-sha512 prefix, got %q", sig)
 	}
@@ -558,7 +558,7 @@ func TestRSAPSSSHA256Signing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sig := req.Header.Get("X-Gateway-Signature")
+	sig := req.Header.Get("X-Runway-Signature")
 	if !strings.HasPrefix(sig, "rsa-pss-sha256=") {
 		t.Errorf("expected rsa-pss-sha256 prefix, got %q", sig)
 	}
@@ -586,7 +586,7 @@ func TestRSASignAndVerifyRoundTrip(t *testing.T) {
 	}
 
 	// Parse the signature and verify using the public key
-	sigHeader := req.Header.Get("X-Gateway-Signature")
+	sigHeader := req.Header.Get("X-Runway-Signature")
 	parts := strings.SplitN(sigHeader, "=", 2)
 	if parts[0] != "rsa-sha256" {
 		t.Fatalf("wrong algo prefix: %s", parts[0])
@@ -605,7 +605,7 @@ func TestRSASignAndVerifyRoundTrip(t *testing.T) {
 	rsaPub := pub.(*rsa.PublicKey)
 
 	// Rebuild signing string
-	ts := req.Header.Get("X-Gateway-Timestamp")
+	ts := req.Header.Get("X-Runway-Timestamp")
 	readBody, _ := io.ReadAll(req.Body)
 	bodyHash := sha256.Sum256(readBody)
 	signingStr := "POST\n/api/roundtrip\n" + ts + "\n" + hex.EncodeToString(bodyHash[:])
@@ -759,7 +759,7 @@ func TestSignNilBody(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sig := req.Header.Get("X-Gateway-Signature")
+	sig := req.Header.Get("X-Runway-Signature")
 	if sig == "" {
 		t.Error("expected signature even for nil POST body")
 	}
@@ -782,7 +782,7 @@ func TestSignAllHTTPMethods(t *testing.T) {
 		if err := signer.Sign(req); err != nil {
 			t.Errorf("%s: sign failed: %v", method, err)
 		}
-		sig := req.Header.Get("X-Gateway-Signature")
+		sig := req.Header.Get("X-Runway-Signature")
 		if sig == "" {
 			t.Errorf("%s: missing signature", method)
 		}
@@ -806,7 +806,7 @@ func TestSignDefaultAlgorithm(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sig := req.Header.Get("X-Gateway-Signature")
+	sig := req.Header.Get("X-Runway-Signature")
 	if !strings.HasPrefix(sig, "hmac-sha256=") {
 		t.Errorf("expected hmac-sha256 default, got %q", sig)
 	}
@@ -824,17 +824,17 @@ func TestSignOverwritesExistingHeaders(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	req.Header.Set("X-Gateway-Signature", "old-value")
-	req.Header.Set("X-Gateway-Timestamp", "0")
+	req.Header.Set("X-Runway-Signature", "old-value")
+	req.Header.Set("X-Runway-Timestamp", "0")
 
 	if err := signer.Sign(req); err != nil {
 		t.Fatal(err)
 	}
 
-	if req.Header.Get("X-Gateway-Signature") == "old-value" {
+	if req.Header.Get("X-Runway-Signature") == "old-value" {
 		t.Error("signature header was not overwritten")
 	}
-	if req.Header.Get("X-Gateway-Timestamp") == "0" {
+	if req.Header.Get("X-Runway-Timestamp") == "0" {
 		t.Error("timestamp header was not overwritten")
 	}
 }
@@ -856,7 +856,7 @@ func TestSignWithQueryParameters(t *testing.T) {
 	}
 
 	// Verify the full request URI (including query) is in the signing string
-	ts := req.Header.Get("X-Gateway-Timestamp")
+	ts := req.Header.Get("X-Runway-Timestamp")
 	emptyHash := sha256.Sum256(nil)
 	signingStr := "GET\n/api/test?foo=bar&baz=qux\n" + ts + "\n" + hex.EncodeToString(emptyHash[:])
 	secret, _ := base64.StdEncoding.DecodeString(testSecret())
@@ -864,7 +864,7 @@ func TestSignWithQueryParameters(t *testing.T) {
 	mac.Write([]byte(signingStr))
 	expected := "hmac-sha256=" + hex.EncodeToString(mac.Sum(nil))
 
-	if req.Header.Get("X-Gateway-Signature") != expected {
+	if req.Header.Get("X-Runway-Signature") != expected {
 		t.Error("signature does not include query parameters correctly")
 	}
 }
@@ -891,7 +891,7 @@ func TestRSASignAndVerifyPSSRoundTrip(t *testing.T) {
 	}
 
 	// Verify
-	sigHeader := req.Header.Get("X-Gateway-Signature")
+	sigHeader := req.Header.Get("X-Runway-Signature")
 	parts := strings.SplitN(sigHeader, "=", 2)
 	if parts[0] != "rsa-pss-sha256" {
 		t.Fatalf("wrong algo prefix: %s", parts[0])
@@ -902,7 +902,7 @@ func TestRSASignAndVerifyPSSRoundTrip(t *testing.T) {
 	pub, _ := x509.ParsePKIXPublicKey(block.Bytes)
 	rsaPub := pub.(*rsa.PublicKey)
 
-	ts := req.Header.Get("X-Gateway-Timestamp")
+	ts := req.Header.Get("X-Runway-Timestamp")
 	readBody, _ := io.ReadAll(req.Body)
 	bodyHash := sha256.Sum256(readBody)
 	signingStr := "POST\n/api/pss\n" + ts + "\n" + hex.EncodeToString(bodyHash[:])
@@ -938,7 +938,7 @@ func TestRSAPrivateKeyFromFile(t *testing.T) {
 	if err := signer.Sign(req); err != nil {
 		t.Fatal(err)
 	}
-	sig := req.Header.Get("X-Gateway-Signature")
+	sig := req.Header.Get("X-Runway-Signature")
 	if !strings.HasPrefix(sig, "rsa-sha256=") {
 		t.Errorf("expected rsa-sha256 prefix from file key, got %q", sig)
 	}
@@ -982,7 +982,7 @@ func TestSignWithMultipleSignedHeaders(t *testing.T) {
 	}
 
 	// Signed headers should be sorted
-	sh := req.Header.Get("X-Gateway-Signed-Headers")
+	sh := req.Header.Get("X-Runway-Signed-Headers")
 	if sh != "Accept;Content-Type;X-Request-ID" {
 		t.Errorf("expected sorted signed headers, got %q", sh)
 	}
@@ -1049,7 +1049,7 @@ func TestMiddlewareCallsNextOnError(t *testing.T) {
 	if !called {
 		t.Error("next handler should be called even on signing success")
 	}
-	if req.Header.Get("X-Gateway-Signature") == "" {
+	if req.Header.Get("X-Runway-Signature") == "" {
 		t.Error("signing middleware should have set signature header")
 	}
 }

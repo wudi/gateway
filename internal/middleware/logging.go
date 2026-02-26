@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wudi/gateway/internal/logging"
-	"github.com/wudi/gateway/internal/middleware/accesslog"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/internal/logging"
+	"github.com/wudi/runway/internal/middleware/accesslog"
+	"github.com/wudi/runway/variables"
 	"go.uber.org/zap"
 )
 

@@ -5,10 +5,10 @@ import (
 	"sync/atomic"
 
 	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/middleware"
-	"github.com/wudi/gateway/internal/middleware/mock/specmock"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/middleware"
+	"github.com/wudi/runway/internal/middleware/mock/specmock"
 )
 
 // Handler is a mock response handler that can serve static or spec-based responses.

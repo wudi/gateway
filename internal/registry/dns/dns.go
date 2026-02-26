@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/registry"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/registry"
 )
 
 // resolver abstracts DNS lookups for testability.

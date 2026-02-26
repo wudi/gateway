@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/errors"
-	"github.com/wudi/gateway/internal/middleware"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/errors"
+	"github.com/wudi/runway/internal/middleware"
+	"github.com/wudi/runway/variables"
 )
 
 // APIKeyAuth provides API key authentication
@@ -85,7 +85,7 @@ func (a *APIKeyAuth) Authenticate(r *http.Request) (*variables.Identity, error) 
 			return identity, nil
 		}
 		// Only fall through to static keys on 401 (not found/expired); 403/429 are authoritative
-		if gErr, ok := err.(*errors.GatewayError); ok && gErr.Code != 401 {
+		if gErr, ok := err.(*errors.RunwayError); ok && gErr.Code != 401 {
 			return nil, err
 		}
 	}
@@ -197,9 +197,9 @@ func (a *APIKeyAuth) Middleware(required bool) middleware.Middleware {
 
 			if err != nil {
 				if required {
-					gatewayErr := err.(*errors.GatewayError)
+					runwayErr := err.(*errors.RunwayError)
 					w.Header().Set("WWW-Authenticate", "API-Key")
-					gatewayErr.WriteJSON(w)
+					runwayErr.WriteJSON(w)
 					return
 				}
 				// Not required, continue without identity

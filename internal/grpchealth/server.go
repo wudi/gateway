@@ -24,7 +24,7 @@ type Server struct {
 
 // NewServer creates a new gRPC health check server.
 // The getStatus function is called on each Check or Watch to determine
-// whether the gateway is healthy (SERVING) or not (NOT_SERVING).
+// whether the runway is healthy (SERVING) or not (NOT_SERVING).
 func NewServer(address string, getStatus func() bool) *Server {
 	s := &Server{
 		grpcServer: grpc.NewServer(),

@@ -22,7 +22,7 @@ var validHTTPMethods = map[string]bool{
 type LoaderOption func(*Loader)
 
 // WithSecretRegistry sets a custom secret registry on the loader.
-// This allows the public gateway builder API to inject custom providers
+// This allows the public runway builder API to inject custom providers
 // and share a registry across reloads.
 func WithSecretRegistry(r *SecretRegistry) LoaderOption {
 	return func(l *Loader) { l.registry = r }
@@ -926,7 +926,7 @@ func openAPIRouteID(method, path, operationID string) string {
 	return fmt.Sprintf("openapi-%s-%s", strings.ToLower(method), sanitized)
 }
 
-// openAPIConvertPath converts OpenAPI path params {id} to gateway path params :id.
+// openAPIConvertPath converts OpenAPI path params {id} to runway path params :id.
 func openAPIConvertPath(path string) string {
 	return pathParamRegex.ReplaceAllString(path, ":$1")
 }

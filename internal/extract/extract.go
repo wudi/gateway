@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/variables"
 )
 
 // Func extracts a value from a request.

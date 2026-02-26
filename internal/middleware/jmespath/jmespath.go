@@ -10,9 +10,9 @@ import (
 	"sync/atomic"
 
 	"github.com/jmespath/go-jmespath"
-	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/middleware"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // JMESPath applies a pre-compiled JMESPath expression to JSON response bodies.

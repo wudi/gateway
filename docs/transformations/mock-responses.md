@@ -3,7 +3,7 @@ title: "Mock Responses"
 sidebar_position: 16
 ---
 
-The gateway can return mock responses without calling the backend. Mocks can be static (manually configured body) or generated from OpenAPI specs. This is useful for development, testing, API prototyping, and graceful degradation.
+The runway can return mock responses without calling the backend. Mocks can be static (manually configured body) or generated from OpenAPI specs. This is useful for development, testing, API prototyping, and graceful degradation.
 
 ## Configuration
 
@@ -41,7 +41,7 @@ routes:
       seed: 42
 ```
 
-When `from_spec: true`, the gateway generates mock responses from the OpenAPI spec's examples and schemas. No static `body` is needed.
+When `from_spec: true`, the runway generates mock responses from the OpenAPI spec's examples and schemas. No static `body` is needed.
 
 ## How It Works
 

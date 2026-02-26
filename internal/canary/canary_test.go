@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/loadbalancer"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/loadbalancer"
 )
 
 func makeBalancer(groups map[string]int) *loadbalancer.WeightedBalancer {
@@ -878,7 +878,7 @@ func TestAutoStart(t *testing.T) {
 
 	ctrl := m.GetController("auto-route")
 
-	// Simulate auto-start (as gateway.go does after AddRoute)
+	// Simulate auto-start (as runway.go does after AddRoute)
 	if cfg.AutoStart {
 		if err := ctrl.Start(); err != nil {
 			t.Fatal(err)

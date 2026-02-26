@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func TestStickyCookieSessionIntegration(t *testing.T) {
@@ -61,7 +61,7 @@ func TestStickyCookieSessionIntegration(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// First request without cookie — gets assigned to some group
 	resp, err := http.Get(ts.URL + "/sticky")
@@ -172,7 +172,7 @@ func TestStickyHashSessionIntegration(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// Same user should always get the same group
 	var firstGroup string
@@ -346,7 +346,7 @@ func TestTrafficSplitAdminEndpoint(t *testing.T) {
 		},
 	}
 
-	gw, _ := newTestGateway(t, cfg)
+	gw, _ := newTestRunway(t, cfg)
 
 	stats := gw.GetTrafficSplitStats()
 	info, ok := stats["split-route"]

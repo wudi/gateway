@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/wudi/gateway/internal/logging"
+	"github.com/wudi/runway/internal/logging"
 	"go.uber.org/zap"
 )
 

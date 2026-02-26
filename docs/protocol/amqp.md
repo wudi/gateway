@@ -3,7 +3,7 @@ title: "AMQP/RabbitMQ Backend"
 sidebar_position: 11
 ---
 
-The gateway can publish and consume messages from AMQP/RabbitMQ queues, translating HTTP requests into AMQP operations. This enables HTTP-to-message-queue bridging without requiring application-level AMQP client code.
+The runway can publish and consume messages from AMQP/RabbitMQ queues, translating HTTP requests into AMQP operations. This enables HTTP-to-message-queue bridging without requiring application-level AMQP client code.
 
 ## Overview
 

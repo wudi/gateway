@@ -68,7 +68,7 @@ Step 5.3 in the per-route middleware chain -- after spike arrest (step 5.25) and
 
 ## Redis Mode
 
-When `redis: true` and a Redis client is configured, quota counts are stored in Redis using `INCR` with automatic expiry. This enables distributed quota enforcement across multiple gateway instances.
+When `redis: true` and a Redis client is configured, quota counts are stored in Redis using `INCR` with automatic expiry. This enables distributed quota enforcement across multiple runway instances.
 
 Redis key format: `quota:{routeID}:{period}:{windowStart}:{clientKey}`
 

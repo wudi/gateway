@@ -1,10 +1,10 @@
 package bluegreen
 
 import (
-	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/health"
-	"github.com/wudi/gateway/internal/loadbalancer"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/health"
+	"github.com/wudi/runway/internal/loadbalancer"
 )
 
 // BlueGreenByRoute manages per-route blue-green controllers.

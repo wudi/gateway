@@ -3,7 +3,7 @@ title: "External Authentication"
 sidebar_position: 3
 ---
 
-External authentication delegates authorization decisions to an external HTTP or gRPC service. The gateway sends a check request containing the incoming request's method, path, and headers. The external service responds with allow or deny, optionally injecting headers into the upstream request.
+External authentication delegates authorization decisions to an external HTTP or gRPC service. The runway sends a check request containing the incoming request's method, path, and headers. The external service responds with allow or deny, optionally injecting headers into the upstream request.
 
 ## Configuration
 
@@ -47,7 +47,7 @@ routes:
 
 ## HTTP Protocol
 
-When the `url` starts with `http://` or `https://`, the gateway sends a POST request with a JSON body:
+When the `url` starts with `http://` or `https://`, the runway sends a POST request with a JSON body:
 
 ```json
 {
@@ -68,7 +68,7 @@ The selected `headers_to_send` are also set as HTTP headers on the check request
 
 ## gRPC Protocol
 
-When the `url` starts with `grpc://`, the gateway calls `extauth.AuthService/Check` using JSON encoding. The request body is the same `CheckRequest` structure as HTTP.
+When the `url` starts with `grpc://`, the runway calls `extauth.AuthService/Check` using JSON encoding. The request body is the same `CheckRequest` structure as HTTP.
 
 The auth service responds with a `CheckResponse`:
 

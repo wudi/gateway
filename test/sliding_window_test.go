@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/gateway"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/runway"
 )
 
 // TestSlidingWindowRateLimitIntegration tests the sliding window rate limiter
@@ -44,9 +44,9 @@ func TestSlidingWindowRateLimitIntegration(t *testing.T) {
 		},
 	}
 
-	gw, err := gateway.New(cfg)
+	gw, err := runway.New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create gateway: %v", err)
+		t.Fatalf("Failed to create runway: %v", err)
 	}
 	defer gw.Close()
 
@@ -130,9 +130,9 @@ func TestSlidingWindowAdminEndpoint(t *testing.T) {
 		},
 	}
 
-	gw, err := gateway.New(cfg)
+	gw, err := runway.New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create gateway: %v", err)
+		t.Fatalf("Failed to create runway: %v", err)
 	}
 	defer gw.Close()
 

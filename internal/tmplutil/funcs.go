@@ -7,9 +7,9 @@ import (
 	"github.com/Masterminds/sprig/v3"
 )
 
-// FuncMap returns the shared template function map used by all gateway
+// FuncMap returns the shared template function map used by all runway
 // template compilation sites. It includes all Sprig functions plus
-// gateway-specific helpers (json, first, pick).
+// runway-specific helpers (json, first, pick).
 func FuncMap() template.FuncMap {
 	fm := sprig.TxtFuncMap()
 

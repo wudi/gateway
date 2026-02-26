@@ -8,8 +8,8 @@ import (
 
 	"go.opentelemetry.io/otel/baggage"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/variables"
 )
 
 func setupVarContext(next http.Handler) http.Handler {
@@ -503,7 +503,7 @@ func TestPropagator_W3CBaggage_MergesUpstream(t *testing.T) {
 		Enabled:    true,
 		W3CBaggage: true,
 		Tags: []config.BaggageTagDef{
-			{Name: "gateway-tag", Source: "static:gw", Header: "X-GW"},
+			{Name: "runway-tag", Source: "static:gw", Header: "X-GW"},
 		},
 	}
 
@@ -539,8 +539,8 @@ func TestPropagator_W3CBaggage_MergesUpstream(t *testing.T) {
 		t.Errorf("expected upstream baggage preserved, got %q", m.Value())
 	}
 	// Gateway entry added
-	if m := gotBaggage.Member("gateway-tag"); m.Value() != "gw" {
-		t.Errorf("expected gateway baggage added, got %q", m.Value())
+	if m := gotBaggage.Member("runway-tag"); m.Value() != "gw" {
+		t.Errorf("expected runway baggage added, got %q", m.Value())
 	}
 }
 

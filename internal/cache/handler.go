@@ -15,10 +15,10 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/graphql"
-	"github.com/wudi/gateway/internal/middleware/tenant"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/graphql"
+	"github.com/wudi/runway/internal/middleware/tenant"
 )
 
 // Entry represents a cached response.

@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/tidwall/gjson"
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 // CompiledMatcher evaluates domain, header, query, and cookie match criteria for a route.

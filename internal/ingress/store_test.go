@@ -102,20 +102,20 @@ func TestStoreSecretCRUD(t *testing.T) {
 
 func TestStoreGatewayClassCRUD(t *testing.T) {
 	s := NewStore()
-	gc := &gatewayv1.GatewayClass{ObjectMeta: metav1.ObjectMeta{Name: "gateway"}}
+	gc := &gatewayv1.GatewayClass{ObjectMeta: metav1.ObjectMeta{Name: "runway"}}
 	s.SetGatewayClass(gc)
 
-	got, ok := s.GetGatewayClass("gateway")
+	got, ok := s.GetGatewayClass("runway")
 	if !ok {
-		t.Fatal("expected gateway class to exist")
+		t.Fatal("expected runway class to exist")
 	}
-	if got.Name != "gateway" {
-		t.Errorf("expected gateway, got %s", got.Name)
+	if got.Name != "runway" {
+		t.Errorf("expected runway, got %s", got.Name)
 	}
 
-	s.DeleteGatewayClass("gateway")
-	_, ok = s.GetGatewayClass("gateway")
+	s.DeleteGatewayClass("runway")
+	_, ok = s.GetGatewayClass("runway")
 	if ok {
-		t.Error("expected gateway class to be deleted")
+		t.Error("expected runway class to be deleted")
 	}
 }

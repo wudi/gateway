@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Gateway benchmark comparison orchestrator.
-# Runs hey against each gateway one at a time and produces a markdown report.
+# Runs hey against each proxy one at a time and produces a markdown report.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPARE_DIR="$(dirname "$SCRIPT_DIR")"

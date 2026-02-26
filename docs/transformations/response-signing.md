@@ -20,7 +20,7 @@ routes:
       enabled: true
       algorithm: "hmac-sha256"
       secret: "base64-encoded-secret-at-least-32-bytes"
-      key_id: "gateway-key-1"
+      key_id: "runway-key-1"
       header: "X-Response-Signature"
       include_headers:
         - "Content-Type"
@@ -50,7 +50,7 @@ routes:
 The signature header value uses the format:
 
 ```
-keyId="gateway-key-1",algorithm="hmac-sha256",signature="base64-encoded-signature"
+keyId="runway-key-1",algorithm="hmac-sha256",signature="base64-encoded-signature"
 ```
 
 The signature is computed over the response body concatenated with the values of `include_headers` (in order).

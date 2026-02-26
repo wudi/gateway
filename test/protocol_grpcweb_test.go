@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/gateway"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/runway"
 
 	// Register the grpc_web translator
-	_ "github.com/wudi/gateway/internal/proxy/protocol/grpcweb"
+	_ "github.com/wudi/runway/internal/proxy/protocol/grpcweb"
 )
 
 func TestGRPCWebTranslatorConfig(t *testing.T) {
@@ -54,9 +54,9 @@ func TestGRPCWebTranslatorConfig(t *testing.T) {
 		},
 	}
 
-	gw, err := gateway.New(cfg)
+	gw, err := runway.New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create gateway: %v", err)
+		t.Fatalf("Failed to create runway: %v", err)
 	}
 	defer gw.Close()
 
@@ -106,7 +106,7 @@ func TestGRPCWebTranslatorAdminEndpoint(t *testing.T) {
 		},
 	}
 
-	server, err := gateway.NewServer(cfg, "")
+	server, err := runway.NewServer(cfg, "")
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -172,9 +172,9 @@ func TestGRPCWebTranslatorRejectsNonGRPCWebContentType(t *testing.T) {
 		},
 	}
 
-	gw, err := gateway.New(cfg)
+	gw, err := runway.New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create gateway: %v", err)
+		t.Fatalf("Failed to create runway: %v", err)
 	}
 	defer gw.Close()
 
@@ -225,9 +225,9 @@ func TestGRPCWebTranslatorNoBackend(t *testing.T) {
 		},
 	}
 
-	gw, err := gateway.New(cfg)
+	gw, err := runway.New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create gateway: %v", err)
+		t.Fatalf("Failed to create runway: %v", err)
 	}
 	defer gw.Close()
 

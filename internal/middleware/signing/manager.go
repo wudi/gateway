@@ -1,8 +1,8 @@
 package signing
 
 import (
-	"github.com/wudi/gateway/internal/byroute"
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/config"
 )
 
 // SigningByRoute manages per-route request signers.

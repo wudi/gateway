@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/internal/registry"
+	"github.com/wudi/runway/internal/registry"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -819,7 +819,7 @@ func TestGetServicePort_Annotation(t *testing.T) {
 			Name:      "my-service",
 			Namespace: "default",
 			Annotations: map[string]string{
-				"gateway.port": "7777",
+				"runway.port": "7777",
 			},
 		},
 		Spec: corev1.ServiceSpec{

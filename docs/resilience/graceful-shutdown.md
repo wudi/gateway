@@ -3,7 +3,7 @@ title: "Graceful Shutdown & Connection Draining"
 sidebar_position: 9
 ---
 
-The gateway supports configurable graceful shutdown with an optional drain delay for zero-downtime deployments behind load balancers and Kubernetes.
+The runway supports configurable graceful shutdown with an optional drain delay for zero-downtime deployments behind load balancers and Kubernetes.
 
 ## Configuration
 
@@ -20,14 +20,14 @@ shutdown:
 
 ## Shutdown Sequence
 
-When the gateway receives `SIGINT` or `SIGTERM`:
+When the runway receives `SIGINT` or `SIGTERM`:
 
 1. **Mark draining** — The server sets its drain state. Readiness probes immediately return `503 Service Unavailable`.
 2. **Drain delay** — If `drain_delay` is configured, the server waits for the specified duration. This gives external load balancers and Kubernetes time to remove the instance from service endpoints.
 3. **Stop admin server** — The admin API server shuts down gracefully.
 4. **Stop listeners** — All HTTP/TCP/UDP listeners stop accepting new connections and wait for in-flight requests to complete.
 5. **Close L4 proxies** — TCP and UDP proxies are closed.
-6. **Close gateway** — Service discovery watchers, health checkers, tracer, Redis client, and webhook dispatcher are shut down.
+6. **Close runway** — Service discovery watchers, health checkers, tracer, Redis client, and webhook dispatcher are shut down.
 7. **Done** — Shutdown complete.
 
 If the total `timeout` expires before all steps complete, the server forcefully terminates remaining connections.
@@ -42,7 +42,7 @@ shutdown:
   drain_delay: 10s
 ```
 
-Kubernetes sends `SIGTERM` and simultaneously begins removing the pod from Service endpoints. The `drain_delay` ensures the gateway keeps serving requests during the brief window before endpoint removal propagates to all kube-proxies and load balancers.
+Kubernetes sends `SIGTERM` and simultaneously begins removing the pod from Service endpoints. The `drain_delay` ensures the runway keeps serving requests during the brief window before endpoint removal propagates to all kube-proxies and load balancers.
 
 A typical Kubernetes deployment:
 
@@ -54,7 +54,7 @@ spec:
     spec:
       terminationGracePeriodSeconds: 65  # > shutdown.timeout
       containers:
-        - name: gateway
+        - name: runway
           livenessProbe:
             httpGet:
               path: /health

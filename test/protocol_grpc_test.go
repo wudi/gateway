@@ -11,15 +11,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/gateway"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/runway"
 
 	// Register the grpc translator
-	_ "github.com/wudi/gateway/internal/proxy/protocol/grpc"
+	_ "github.com/wudi/runway/internal/proxy/protocol/grpc"
 )
 
 func TestProtocolTranslatorConfig(t *testing.T) {
-	// Test that the gateway can be configured with a protocol translator
+	// Test that the runway can be configured with a protocol translator
 	// (without actually connecting to a gRPC backend)
 	cfg := &config.Config{
 		Listeners: []config.ListenerConfig{{
@@ -55,9 +55,9 @@ func TestProtocolTranslatorConfig(t *testing.T) {
 		},
 	}
 
-	gw, err := gateway.New(cfg)
+	gw, err := runway.New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create gateway: %v", err)
+		t.Fatalf("Failed to create runway: %v", err)
 	}
 	defer gw.Close()
 
@@ -109,7 +109,7 @@ func TestProtocolTranslatorAdminEndpoint(t *testing.T) {
 		},
 	}
 
-	server, err := gateway.NewServer(cfg, "")
+	server, err := runway.NewServer(cfg, "")
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -179,9 +179,9 @@ func TestProtocolTranslatorMethodNotAllowed(t *testing.T) {
 		},
 	}
 
-	gw, err := gateway.New(cfg)
+	gw, err := runway.New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create gateway: %v", err)
+		t.Fatalf("Failed to create runway: %v", err)
 	}
 	defer gw.Close()
 
@@ -238,9 +238,9 @@ func TestProtocolTranslatorFixedMethod(t *testing.T) {
 		},
 	}
 
-	gw, err := gateway.New(cfg)
+	gw, err := runway.New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create gateway: %v", err)
+		t.Fatalf("Failed to create runway: %v", err)
 	}
 	defer gw.Close()
 
@@ -303,9 +303,9 @@ func TestProtocolTranslatorNoBackend(t *testing.T) {
 		},
 	}
 
-	gw, err := gateway.New(cfg)
+	gw, err := runway.New(cfg)
 	if err != nil {
-		t.Fatalf("Failed to create gateway: %v", err)
+		t.Fatalf("Failed to create runway: %v", err)
 	}
 	defer gw.Close()
 

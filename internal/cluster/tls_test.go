@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 // generateTestCerts creates a self-signed CA and leaf cert for testing.

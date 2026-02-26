@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/byroute"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/byroute"
 )
 
 // compiledRule is a pre-compiled version of an EdgeCacheRule.

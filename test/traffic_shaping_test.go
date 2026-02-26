@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func TestThrottleIntegration(t *testing.T) {
@@ -43,7 +43,7 @@ func TestThrottleIntegration(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// Send a burst of requests — they should succeed (possibly with delays)
 	var wg sync.WaitGroup
@@ -96,7 +96,7 @@ func TestThrottleTimeout(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// First request uses burst token
 	resp, err := http.Get(ts.URL + "/slow")
@@ -145,7 +145,7 @@ func TestBandwidthIntegration(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	start := time.Now()
 	resp, err := http.Get(ts.URL + "/data")
@@ -198,7 +198,7 @@ func TestPriorityIntegration(t *testing.T) {
 		},
 	}
 
-	_, ts := newTestGateway(t, cfg)
+	_, ts := newTestRunway(t, cfg)
 
 	// Send requests with mixed priorities
 	var wg sync.WaitGroup
@@ -291,7 +291,7 @@ func TestTrafficShapingAdminEndpoint(t *testing.T) {
 		},
 	}
 
-	gw, _ := newTestGateway(t, cfg)
+	gw, _ := newTestRunway(t, cfg)
 
 	// Verify the admin stats return properly
 	throttleStats := gw.GetThrottlers().Stats()

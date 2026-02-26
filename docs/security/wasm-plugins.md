@@ -5,7 +5,7 @@ sidebar_position: 17
 
 Execute custom request/response filters written as WebAssembly modules. This enables polyglot extensibility (Rust, C, Go/TinyGo, AssemblyScript, Zig) with sandboxed execution.
 
-The gateway uses [Wazero](https://github.com/tetratelabs/wazero), a zero-dependency pure-Go WASM runtime. Plugins communicate with the gateway through a custom ABI (Application Binary Interface) of host functions and guest exports.
+The runway uses [Wazero](https://github.com/tetratelabs/wazero), a zero-dependency pure-Go WASM runtime. Plugins communicate with the runway through a custom ABI (Application Binary Interface) of host functions and guest exports.
 
 ## Configuration
 
@@ -33,7 +33,7 @@ routes:
     wasm_plugins:
       - enabled: true
         name: auth-enricher
-        path: /etc/gateway/plugins/auth.wasm
+        path: /etc/runway/plugins/auth.wasm
         phase: request
         config:
           api_key: "xxx"
@@ -41,7 +41,7 @@ routes:
         pool_size: 10
       - enabled: true
         name: response-filter
-        path: /etc/gateway/plugins/filter.wasm
+        path: /etc/runway/plugins/filter.wasm
         phase: response
         timeout: 5ms
         pool_size: 4
@@ -114,7 +114,7 @@ Properties available via `host_get_property`:
 
 ### Context Passing
 
-When `on_request` or `on_response` is called, the gateway serializes a JSON context object into guest memory via `allocate`. The guest can parse this for a read-only overview, then use host functions for mutations.
+When `on_request` or `on_response` is called, the runway serializes a JSON context object into guest memory via `allocate`. The guest can parse this for a read-only overview, then use host functions for mutations.
 
 **Request context:**
 ```json
@@ -194,7 +194,7 @@ Build with: `cargo build --target wasm32-unknown-unknown --release`
 ## Memory Management
 
 - Each WASM instance has its own linear memory, limited by `max_memory_pages`.
-- The gateway writes context data to guest memory via the `allocate` export and frees it via `deallocate` after the function call.
+- the runway writes context data to guest memory via the `allocate` export and frees it via `deallocate` after the function call.
 - All host function memory accesses are bounds-checked.
 - Instance pools prevent frequent instantiation overhead. Instances are reused across requests.
 

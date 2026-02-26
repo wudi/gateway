@@ -17,8 +17,8 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/errors"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/errors"
 )
 
 // ExtAuth handles external authentication by delegating to an HTTP or gRPC service.

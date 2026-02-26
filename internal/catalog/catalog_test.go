@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/router"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/router"
 )
 
 // mockSpecProvider implements SpecProvider for testing.
@@ -61,7 +61,7 @@ func TestBuild(t *testing.T) {
 		config.CatalogConfig{
 			Enabled:     true,
 			Title:       "Test API",
-			Description: "Test gateway catalog",
+			Description: "Test runway catalog",
 		},
 		routeConfigs,
 		func() []*router.Route { return routes },
@@ -73,8 +73,8 @@ func TestBuild(t *testing.T) {
 	if catalog.Title != "Test API" {
 		t.Errorf("Title = %q, want %q", catalog.Title, "Test API")
 	}
-	if catalog.Description != "Test gateway catalog" {
-		t.Errorf("Description = %q, want %q", catalog.Description, "Test gateway catalog")
+	if catalog.Description != "Test runway catalog" {
+		t.Errorf("Description = %q, want %q", catalog.Description, "Test runway catalog")
 	}
 	if catalog.Stats.TotalRoutes != 2 {
 		t.Errorf("TotalRoutes = %d, want 2", catalog.Stats.TotalRoutes)
@@ -172,8 +172,8 @@ func TestBuildDefaultTitle(t *testing.T) {
 	)
 
 	catalog := builder.Build()
-	if catalog.Title != "API Gateway" {
-		t.Errorf("default Title = %q, want %q", catalog.Title, "API Gateway")
+	if catalog.Title != "API Runway" {
+		t.Errorf("default Title = %q, want %q", catalog.Title, "API Runway")
 	}
 }
 
@@ -228,7 +228,7 @@ func TestHandlerCatalogJSON(t *testing.T) {
 
 func TestHandlerUI(t *testing.T) {
 	builder := NewBuilder(
-		config.CatalogConfig{Enabled: true, Title: "My Gateway"},
+		config.CatalogConfig{Enabled: true, Title: "My Runway"},
 		newTestRouteConfigs(),
 		func() []*router.Route { return newTestRoutes() },
 		nil,
@@ -250,8 +250,8 @@ func TestHandlerUI(t *testing.T) {
 	}
 
 	body := rec.Body.String()
-	if !strings.Contains(body, "My Gateway") {
-		t.Error("expected HTML to contain gateway title")
+	if !strings.Contains(body, "My Runway") {
+		t.Error("expected HTML to contain runway title")
 	}
 	if !strings.Contains(body, "users-api") {
 		t.Error("expected HTML to contain route ID")

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 // BuildCPTLSConfig builds a TLS config for the control plane gRPC server.

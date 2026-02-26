@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/loadbalancer"
-	"github.com/wudi/gateway/internal/proxy/protocol"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/loadbalancer"
+	"github.com/wudi/runway/internal/proxy/protocol"
 )
 
 func init() {

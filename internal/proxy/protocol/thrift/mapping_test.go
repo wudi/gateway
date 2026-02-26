@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/wudi/gateway/config"
+	"github.com/wudi/runway/config"
 )
 
 func TestCompilePathPattern(t *testing.T) {

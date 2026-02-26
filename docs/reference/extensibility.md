@@ -1,26 +1,26 @@
 # Extensibility (Custom Plugins & Middleware)
 
-The gateway can be imported as a Go library to build custom binaries with custom features and middleware.
+The runway can be imported as a Go library to build custom binaries with custom features and middleware.
 
 ## Public Packages
 
 | Package | Import Path | Description |
 |---------|-------------|-------------|
-| `gateway` | `github.com/wudi/gateway/gateway` | Builder API, Feature/Middleware interfaces, extension helpers |
-| `config` | `github.com/wudi/gateway/config` | Configuration types (`Config`, `RouteConfig`, `Loader`) |
-| `variables` | `github.com/wudi/gateway/variables` | Request context, variables, identity |
+| `runway` | `github.com/wudi/runway/runway` | Builder API, Feature/Middleware interfaces, extension helpers |
+| `config` | `github.com/wudi/runway/config` | Configuration types (`Config`, `RouteConfig`, `Loader`) |
+| `variables` | `github.com/wudi/runway/variables` | Request context, variables, identity |
 
 All other packages (`internal/`) remain private.
 
 ## Builder API
 
 ```go
-import gw "github.com/wudi/gateway/gateway"
+import gw "github.com/wudi/runway/runway"
 
-cfg, _ := gw.LoadConfig("gateway.yaml")
+cfg, _ := gw.LoadConfig("runway.yaml")
 
 server, err := gw.New(cfg).
-    WithConfigPath("gateway.yaml").    // for hot reload
+    WithConfigPath("runway.yaml").    // for hot reload
     WithDefaults().                     // register all built-in features
     AddFeature(myFeature).             // custom Feature implementation
     AddMiddleware(gw.MiddlewareSlot{   // custom per-route middleware
@@ -35,15 +35,15 @@ server, err := gw.New(cfg).
 server.Run()
 ```
 
-### `GatewayBuilder` Methods
+### `RunwayBuilder` Methods
 
-- `New(cfg *Config) *GatewayBuilder` — create a builder from config
-- `WithConfigPath(path string) *GatewayBuilder` — set config file path for reload
-- `WithDefaults() *GatewayBuilder` — register all built-in features
-- `WithFeatures(ff ...Feature) *GatewayBuilder` — register multiple features
-- `AddFeature(f Feature) *GatewayBuilder` — register one feature
-- `AddMiddleware(slot MiddlewareSlot) *GatewayBuilder` — add per-route middleware
-- `AddGlobalMiddleware(slot GlobalMiddlewareSlot) *GatewayBuilder` — add global middleware
+- `New(cfg *Config) *RunwayBuilder` — create a builder from config
+- `WithConfigPath(path string) *RunwayBuilder` — set config file path for reload
+- `WithDefaults() *RunwayBuilder` — register all built-in features
+- `WithFeatures(ff ...Feature) *RunwayBuilder` — register multiple features
+- `AddFeature(f Feature) *RunwayBuilder` — register one feature
+- `AddMiddleware(slot MiddlewareSlot) *RunwayBuilder` — add per-route middleware
+- `AddGlobalMiddleware(slot GlobalMiddlewareSlot) *RunwayBuilder` — add global middleware
 - `Build() (*Server, error)` — validate and build
 
 ### `Server` Methods
@@ -86,7 +86,7 @@ gw.MiddlewareSlot{
 
 ### Well-Known Anchors (Per-Route)
 
-Constants are defined in `gateway/anchors.go`. Key anchors:
+Constants are defined in `runway/anchors.go`. Key anchors:
 
 | Constant | Name | Phase |
 |----------|------|-------|
@@ -136,7 +136,7 @@ Optional interfaces:
 
 ## Plugin Configuration (Extensions)
 
-Plugins define their own config in the gateway YAML under `extensions`:
+Plugins define their own config in the runway YAML under `extensions`:
 
 ```yaml
 extensions:

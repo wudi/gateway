@@ -17,14 +17,14 @@ COPY . .
 
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -ldflags="-w -s -X main.version=${VERSION} -X main.buildTime=${BUILD_TIME}" \
-    -o /gateway ./cmd/gateway
+    -o /runway ./cmd/runway
 
 # Runtime stage
 FROM alpine:3.21
 
-LABEL org.opencontainers.image.title="Gateway" \
-      org.opencontainers.image.description="High-performance API gateway" \
-      org.opencontainers.image.source="https://github.com/wudi/gateway" \
+LABEL org.opencontainers.image.title="Runway" \
+      org.opencontainers.image.description="High-performance API runway" \
+      org.opencontainers.image.source="https://github.com/wudi/runway" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.version="${VERSION}"
 
@@ -35,7 +35,7 @@ RUN apk add --no-cache ca-certificates tzdata \
     && mkdir -p /app/configs /app/certs /app/specs /app/geoip \
     && chown -R appuser:appuser /app
 
-COPY --from=builder --chown=appuser:appuser /gateway /app/gateway
+COPY --from=builder --chown=appuser:appuser /runway /app/runway
 
 USER appuser
 
@@ -44,5 +44,5 @@ EXPOSE 8080 8081 8082
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8081/health || exit 1
 
-ENTRYPOINT ["/app/gateway"]
-CMD ["-config", "/app/configs/gateway.yaml"]
+ENTRYPOINT ["/app/runway"]
+CMD ["-config", "/app/configs/runway.yaml"]

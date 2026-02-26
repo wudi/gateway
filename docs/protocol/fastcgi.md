@@ -3,7 +3,7 @@ title: "FastCGI Proxy"
 sidebar_position: 14
 ---
 
-The gateway can proxy requests to FastCGI backends such as PHP-FPM, enabling direct PHP application serving without an intermediate nginx layer.
+The runway can proxy requests to FastCGI backends such as PHP-FPM, enabling direct PHP application serving without an intermediate nginx layer.
 
 ## Overview
 
@@ -66,7 +66,7 @@ routes:
 
 ### Network Auto-Detection
 
-If `network` is omitted, the gateway infers it from the address:
+If `network` is omitted, the runway infers it from the address:
 
 - Addresses starting with `/` or ending with `.sock` use `"unix"`.
 - All other addresses use `"tcp"`.

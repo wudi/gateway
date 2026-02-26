@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/cespare/xxhash/v2"
-	"github.com/wudi/gateway/config"
-	"github.com/wudi/gateway/internal/cluster/clusterpb"
+	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/cluster/clusterpb"
 	"go.uber.org/zap"
 )
 

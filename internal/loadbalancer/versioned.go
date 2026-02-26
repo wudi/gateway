@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/wudi/gateway/variables"
+	"github.com/wudi/runway/variables"
 )
 
 // VersionedBalancer routes requests to per-version sub-balancers.

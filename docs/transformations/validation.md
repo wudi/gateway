@@ -3,7 +3,7 @@ title: "Validation"
 sidebar_position: 14
 ---
 
-The gateway provides two complementary validation systems: **JSON Schema validation** for standalone request/response body validation, and **OpenAPI validation** for full OpenAPI 3.x spec-based request/response validation with automatic route generation.
+The runway provides two complementary validation systems: **JSON Schema validation** for standalone request/response body validation, and **OpenAPI validation** for full OpenAPI 3.x spec-based request/response validation with automatic route generation.
 
 ## JSON Schema Validation
 
@@ -141,7 +141,7 @@ Generated routes are appended to the `routes` list during config loading and fol
 
 ### Authentication
 
-OpenAPI validation uses a no-op authentication function — the gateway's own auth middleware handles authentication before the validation step.
+OpenAPI validation uses a no-op authentication function — The runway's own auth middleware handles authentication before the validation step.
 
 ## Admin API
 

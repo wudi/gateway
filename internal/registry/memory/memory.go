@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/wudi/gateway/internal/registry"
+	"github.com/wudi/runway/internal/registry"
 )
 
 // Registry implements an in-memory service registry with REST API

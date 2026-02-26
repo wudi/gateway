@@ -1,8 +1,8 @@
-# Gateway
+# Runway
 
-A high-performance API gateway and reverse proxy for HTTP, TCP, and UDP with 90+ built-in middleware features.
+A high-performance API runway and reverse proxy for HTTP, TCP, and UDP with 90+ built-in middleware features.
 
-Gateway provides enterprise-grade traffic management, security, resilience, and observability out of the box through declarative YAML configuration. No plugins, no scripting languages, no external dependencies required — just a single binary and a config file.
+Runway provides enterprise-grade traffic management, security, resilience, and observability out of the box through declarative YAML configuration. No plugins, no scripting languages, no external dependencies required — just a single binary and a config file.
 
 ## Highlights
 
@@ -13,7 +13,7 @@ Gateway provides enterprise-grade traffic management, security, resilience, and 
 - **Resilience** — Retries with budgets, hedging, circuit breakers, adaptive concurrency, outlier detection, load shedding, backpressure, SLO enforcement
 - **Traffic control** — Rate limiting, spike arrest, quotas, throttling, bandwidth limits, priority queues, consumer groups, multi-tenancy, canary/blue-green/A/B
 - **Observability** — Prometheus metrics, OpenTelemetry tracing, structured logging (zap), event webhooks, audit logging, developer portal
-- **AI Gateway** — Native proxy for OpenAI, Anthropic, Azure OpenAI, and Gemini with prompt guard, token rate limiting, and response decoration
+- **AI Runway** — Native proxy for OpenAI, Anthropic, Azure OpenAI, and Gemini with prompt guard, token rate limiting, and response decoration
 - **Kubernetes native** — Ingress Controller supporting both Ingress v1 and Gateway API, plus hybrid CP/DP cluster mode with mTLS gRPC config streaming
 - **Zero-downtime ops** — Hot config reload via SIGHUP or admin API, graceful shutdown with connection draining, schema evolution validation
 - **Extensible** — Public Go module API for custom middleware, Lua scripting, WASM plugins, OPA policies
@@ -25,33 +25,33 @@ Gateway provides enterprise-grade traffic management, security, resilience, and 
 
 ```bash
 # Requires Go 1.25+
-git clone https://github.com/wudi/gateway.git
-cd gateway
+git clone https://github.com/wudi/runway.git
+cd runway
 make build
 ```
 
 ### Run
 
 ```bash
-./build/gateway -config configs/gateway.yaml
+./build/runway -config configs/runway.yaml
 ```
 
 ### Docker
 
 ```bash
 # Build
-docker build -t gateway .
+docker build -t runway .
 
 # Run
 docker run -p 8080:8080 -p 8081:8081 \
   -v $(pwd)/configs:/app/configs:ro \
-  gateway
+  runway
 ```
 
 ### Docker Compose
 
 ```bash
-# Gateway + mock backends
+# Runway + mock backends
 make compose-up
 
 # With Redis (distributed rate limiting & caching)
@@ -189,7 +189,7 @@ routes:
 | Feature | Description |
 |---|---|
 | **Rate Limiting** | Fixed window or sliding window (Redis), per-IP or per-client, tiered |
-| **Service Rate Limiting** | Global gateway-wide throughput cap |
+| **Service Rate Limiting** | Global runway-wide throughput cap |
 | **Spike Arrest** | Continuous per-second rate enforcement with burst tolerance |
 | **Quota Enforcement** | Per-client hourly/daily/monthly/yearly usage caps |
 | **Consumer Groups** | Named consumer tiers with per-group rate limits, quotas, and priority |
@@ -221,7 +221,7 @@ routes:
 | **HTTP-to-gRPC** | REST-to-gRPC protocol translation with field mapping |
 | **HTTP-to-Thrift** | REST-to-Thrift protocol translation |
 | **HTTP/3 (QUIC)** | HTTP/3 over QUIC for inbound and outbound connections |
-| **HTTP CONNECT** | TCP tunneling through the gateway via CONNECT method |
+| **HTTP CONNECT** | TCP tunneling through the runway via CONNECT method |
 | **GraphQL Protection** | Query depth/complexity limits, introspection control, operation rate limits |
 | **GraphQL Subscriptions** | WebSocket-based GraphQL subscriptions with connection lifecycle |
 | **GraphQL Federation** | Schema stitching across multiple GraphQL backends |
@@ -229,7 +229,7 @@ routes:
 | **AMQP/RabbitMQ** | HTTP-to-AMQP message queue bridging |
 | **Pub/Sub** | HTTP-to-pub/sub (GCP, AWS SNS/SQS, NATS, Kafka, Azure) via Go CDK |
 | **FastCGI** | PHP-FPM and FastCGI backend proxying |
-| **AI Gateway** | Native proxy for OpenAI, Anthropic, Azure OpenAI, Gemini with prompt guard and token rate limiting |
+| **AI Runway** | Native proxy for OpenAI, Anthropic, Azure OpenAI, Gemini with prompt guard and token rate limiting |
 
 ### Caching & Performance
 
@@ -344,7 +344,7 @@ routes:
               │                      │                      │
      ┌────────▼──────┐    ┌─────────▼────────┐   ┌────────▼───────┐
      │  HTTP Proxy   │    │  WebSocket / SSE  │   │ gRPC / Thrift  │
-     │  + Retries    │    │     Proxy         │   │  / AI Gateway  │
+     │  + Retries    │    │     Proxy         │   │  / AI Runway  │
      │  + Hedging    │    │                   │   │                │
      └────────┬──────┘    └─────────┬────────┘   └────────┬───────┘
               │                     │                      │
@@ -413,7 +413,7 @@ See [docs/admin-api.md](docs/reference/admin-api.md) for the full endpoint refer
 
 ## Service Discovery
 
-Gateway integrates with major service registries to dynamically discover backends:
+Runway integrates with major service registries to dynamically discover backends:
 
 ```yaml
 # Consul
@@ -448,10 +448,10 @@ registry:
 ## CLI
 
 ```
-Usage: gateway [flags]
+Usage: runway [flags]
 
 Flags:
-  -config string    Path to configuration file (default "configs/gateway.yaml")
+  -config string    Path to configuration file (default "configs/runway.yaml")
   -validate         Validate configuration and exit
   -version          Print version and exit
 ```
@@ -460,14 +460,14 @@ Flags:
 
 ```bash
 # Deploy via Helm
-helm install gateway deploy/kubernetes/helm/gateway/ \
-  --set controller.ingressClass=gateway
+helm install runway deploy/kubernetes/helm/runway/ \
+  --set controller.ingressClass=runway
 
 # Or run standalone
-gateway-ingress -kubeconfig ~/.kube/config
+runway-ingress -kubeconfig ~/.kube/config
 ```
 
-Supports both Ingress v1 and Gateway API (GatewayClass, Gateway, HTTPRoute). Annotations use the `apigw.dev/` prefix. See [Kubernetes Ingress](docs/traffic-routing/kubernetes-ingress.md) for full details.
+Supports both Ingress v1 and Gateway API (GatewayClass, Gateway, HTTPRoute). Annotations use the `runway.wudi.io/` prefix. See [Kubernetes Ingress](docs/traffic-routing/kubernetes-ingress.md) for full details.
 
 ### Cluster Mode (CP/DP)
 
@@ -488,7 +488,7 @@ cluster:
   role: data_plane
   data_plane:
     address: "cp-host:9443"
-    cache_dir: /var/lib/gateway/cluster
+    cache_dir: /var/lib/runway/cluster
     tls:
       enabled: true
       cert_file: /path/to/dp-cert.pem
@@ -545,9 +545,9 @@ Full documentation is available in the [docs/](docs/) directory:
 - [AWS Lambda](docs/protocol/lambda.md) — HTTP-to-Lambda invocation
 - [FastCGI](docs/protocol/fastcgi.md) — PHP-FPM and FastCGI backend proxying
 
-### AI Gateway
-- [AI Gateway](docs/ai-gateway/ai-gateway.md) — AI model proxy with prompt guard, token rate limiting, response decoration
-- [AI Providers](docs/ai-gateway/ai-providers.md) — OpenAI, Anthropic, Azure OpenAI, Gemini provider configuration
+### AI Runway
+- [AI Runway](docs/ai-runway/ai-runway.md) — AI model proxy with prompt guard, token rate limiting, response decoration
+- [AI Providers](docs/ai-runway/ai-providers.md) — OpenAI, Anthropic, Azure OpenAI, Gemini provider configuration
 
 ### Resilience
 - [Resilience](docs/resilience/resilience.md) — Retries, budget, hedging, circuit breakers, timeouts

@@ -3,7 +3,7 @@ package loadbalancer
 import (
 	"net/http"
 
-	"github.com/wudi/gateway/internal/middleware/tenant"
+	"github.com/wudi/runway/internal/middleware/tenant"
 )
 
 // TenantAwareBalancer wraps a default balancer with per-tenant backend sets.

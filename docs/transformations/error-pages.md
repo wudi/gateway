@@ -49,8 +49,8 @@ error_pages:
   enabled: true
   pages:
     "default":
-      html_file: /etc/gateway/error.html
-      json_file: /etc/gateway/error.json
+      html_file: /etc/runway/error.html
+      json_file: /etc/runway/error.json
 ```
 
 Inline and file are mutually exclusive per format (`html` vs `html_file`, etc.). File contents are read and compiled at startup.
@@ -102,7 +102,7 @@ All templates (HTML, JSON, XML) are Go `text/template` templates with access to 
 | `{{.RequestPath}}` | Request URL path |
 | `{{.Host}}` | Request Host header |
 | `{{.Timestamp}}` | Current time in RFC3339 format |
-| `{{.RouteID}}` | Gateway route ID |
+| `{{.RouteID}}` | Runway route ID |
 
 ### Example: JSON Error Template
 

@@ -3,7 +3,7 @@ title: "AWS Lambda Backend"
 sidebar_position: 13
 ---
 
-The gateway can invoke AWS Lambda functions as backends, translating HTTP requests into Lambda invocations and returning the function response to the client.
+The runway can invoke AWS Lambda functions as backends, translating HTTP requests into Lambda invocations and returning the function response to the client.
 
 ## Overview
 
