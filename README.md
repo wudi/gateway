@@ -39,14 +39,12 @@ make build
 ### Docker
 
 ```bash
-# Build
-docker build -t runway .
-
-# Run
 docker run -p 8080:8080 -p 8081:8081 \
   -v $(pwd)/configs:/app/configs:ro \
-  runway
+  ghcr.io/wudi/runway:latest
 ```
+
+Multi-arch images (`linux/amd64`, `linux/arm64`) are published to `ghcr.io/wudi/runway`. Tags follow semver on release (e.g. `v1.2.3`, `1.2`) and `latest` + `sha-<commit>` on every push to master.
 
 ### Docker Compose
 
