@@ -438,7 +438,11 @@ func (a *SAMLAuth) HandleACS(w http.ResponseWriter, r *http.Request) {
 	assertion, err := a.sp.ParseResponse(r, possibleRequestIDs)
 	if err != nil {
 		a.ssoFailures.Add(1)
-		log.Printf("saml: ACS parse error: %v", err)
+		if ire, ok := err.(*saml.InvalidResponseError); ok {
+			log.Printf("saml: ACS parse error: %v (detail: %v)", err, ire.PrivateErr)
+		} else {
+			log.Printf("saml: ACS parse error: %v", err)
+		}
 		http.Error(w, "SAML authentication failed", http.StatusForbidden)
 		return
 	}
