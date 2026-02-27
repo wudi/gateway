@@ -110,7 +110,6 @@ const config = {
         apiKey: 'a01d7658dd31235198a49ca526f74a37',
         indexName: 'Runway API Gateway',
         appId: 'VK6HD2PAZ5',
-        contextualSearch: true,
         algoliaOptions: {}
       },
       metadata: [
