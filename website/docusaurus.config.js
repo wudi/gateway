@@ -20,11 +20,13 @@ const config = {
 
   onBrokenLinks: 'throw',
 
+  themes: ['@docusaurus/theme-mermaid'],
   markdown: {
     format: 'md',
     hooks: {
       onBrokenMarkdownLinks: 'throw',
     },
+    mermaid: true,
   },
 
   i18n: {
