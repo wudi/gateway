@@ -17,6 +17,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // CompiledDedup is a compiled per-route dedup handler created once during route setup.
@@ -152,7 +153,7 @@ func (cd *CompiledDedup) Fingerprint(r *http.Request) (string, error) {
 }
 
 // Middleware returns a middleware that deduplicates requests by content hash.
-func (cd *CompiledDedup) Middleware() func(http.Handler) http.Handler {
+func (cd *CompiledDedup) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cd.metrics.TotalRequests.Add(1)
@@ -304,46 +305,16 @@ func (w *capturingWriter) toStoredResponse() *StoredResponse {
 	}
 }
 
-// DedupByRoute manages per-route dedup handlers.
-type DedupByRoute struct {
-	byroute.Manager[*CompiledDedup]
-}
+// DedupByRoute manages per-route request deduplication handlers.
+type DedupByRoute = byroute.NamedFactory[*CompiledDedup, config.RequestDedupConfig]
 
 // NewDedupByRoute creates a new DedupByRoute manager.
-func NewDedupByRoute() *DedupByRoute {
-	return &DedupByRoute{}
-}
-
-// AddRoute creates and registers a dedup handler for the given route.
-func (m *DedupByRoute) AddRoute(routeID string, cfg config.RequestDedupConfig, redisClient *redis.Client) error {
-	if !cfg.Enabled {
-		return nil
-	}
-
-	cd, err := New(routeID, cfg, redisClient)
-	if err != nil {
-		return err
-	}
-
-	m.Add(routeID, cd)
-	return nil
-}
-
-// GetHandler returns the dedup handler for a route, or nil.
-func (m *DedupByRoute) GetHandler(routeID string) *CompiledDedup {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns admin status for all routes.
-func (m *DedupByRoute) Stats() map[string]DedupStatus {
-	return byroute.CollectStats(&m.Manager, func(cd *CompiledDedup) DedupStatus { return cd.Status() })
-}
-
-// CloseAll closes all dedup handlers.
-func (m *DedupByRoute) CloseAll() {
-	m.Range(func(_ string, cd *CompiledDedup) bool {
-		cd.Close()
-		return true
-	})
+// The redis client is captured in the constructor closure.
+func NewDedupByRoute(redisClient *redis.Client) *DedupByRoute {
+	return byroute.NewNamedFactory(
+		func(routeID string, cfg config.RequestDedupConfig) (*CompiledDedup, error) {
+			return New(routeID, cfg, redisClient)
+		},
+		func(cd *CompiledDedup) any { return cd.Status() },
+	).WithClose((*CompiledDedup).Close)
 }

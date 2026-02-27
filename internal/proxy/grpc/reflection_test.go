@@ -92,13 +92,13 @@ func TestReflectionByRoute(t *testing.T) {
 	}
 
 	// Get proxy
-	proxy := m.GetProxy("route1")
+	proxy := m.Lookup("route1")
 	if proxy == nil {
 		t.Fatal("expected non-nil proxy")
 	}
 
 	// Unknown route
-	if p := m.GetProxy("unknown"); p != nil {
+	if p := m.Lookup("unknown"); p != nil {
 		t.Error("expected nil for unknown route")
 	}
 

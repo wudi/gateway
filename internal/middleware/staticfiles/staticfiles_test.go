@@ -216,10 +216,10 @@ func TestStaticByRoute(t *testing.T) {
 		t.Fatalf("AddRoute: %v", err)
 	}
 
-	if h := m.GetHandler("r1"); h == nil {
+	if h := m.Lookup("r1"); h == nil {
 		t.Fatal("expected handler for r1")
 	}
-	if h := m.GetHandler("nonexistent"); h != nil {
+	if h := m.Lookup("nonexistent"); h != nil {
 		t.Fatal("expected nil for nonexistent route")
 	}
 

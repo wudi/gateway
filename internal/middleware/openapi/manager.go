@@ -75,11 +75,6 @@ func (m *OpenAPIByRoute) AddRouteWithDoc(routeID, path, method string, doc *open
 	return nil
 }
 
-// GetValidator returns the OpenAPI validator for a route.
-func (m *OpenAPIByRoute) GetValidator(routeID string) *CompiledOpenAPI {
-	v, _ := m.Get(routeID)
-	return v
-}
 
 // Stats returns per-route OpenAPI validation status.
 func (m *OpenAPIByRoute) Stats() map[string]OpenAPIStatus {

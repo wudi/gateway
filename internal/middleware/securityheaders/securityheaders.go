@@ -6,6 +6,7 @@ import (
 
 	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // headerPair is a pre-computed header name + value.
@@ -109,33 +110,15 @@ func MergeSecurityHeadersConfig(perRoute, global config.SecurityHeadersConfig) c
 }
 
 // SecurityHeadersByRoute is a ByRoute manager for per-route security headers.
-type SecurityHeadersByRoute struct {
-	byroute.Manager[*CompiledSecurityHeaders]
-}
+type SecurityHeadersByRoute = byroute.Factory[*CompiledSecurityHeaders, config.SecurityHeadersConfig]
 
 // NewSecurityHeadersByRoute creates a new manager.
 func NewSecurityHeadersByRoute() *SecurityHeadersByRoute {
-	return &SecurityHeadersByRoute{}
-}
-
-// AddRoute adds compiled security headers for a route.
-func (m *SecurityHeadersByRoute) AddRoute(routeID string, cfg config.SecurityHeadersConfig) {
-	m.Add(routeID, New(cfg))
-}
-
-// GetHeaders returns the compiled security headers for a route, or nil.
-func (m *SecurityHeadersByRoute) GetHeaders(routeID string) *CompiledSecurityHeaders {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route snapshots.
-func (m *SecurityHeadersByRoute) Stats() map[string]Snapshot {
-	return byroute.CollectStats(&m.Manager, func(h *CompiledSecurityHeaders) Snapshot { return h.Snapshot() })
+	return byroute.SimpleFactory(New, func(h *CompiledSecurityHeaders) any { return h.Snapshot() })
 }
 
 // Middleware returns a middleware that injects configured security response headers.
-func (sh *CompiledSecurityHeaders) Middleware() func(http.Handler) http.Handler {
+func (sh *CompiledSecurityHeaders) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			sh.Apply(w.Header())

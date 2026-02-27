@@ -130,29 +130,11 @@ func (pf *ParamForwarder) Stripped() int64 {
 }
 
 // ParamForwardByRoute manages per-route param forwarders.
-type ParamForwardByRoute struct {
-	byroute.Manager[*ParamForwarder]
-}
+type ParamForwardByRoute = byroute.Factory[*ParamForwarder, config.ParamForwardingConfig]
 
 // NewParamForwardByRoute creates a new per-route param forwarder manager.
 func NewParamForwardByRoute() *ParamForwardByRoute {
-	return &ParamForwardByRoute{}
-}
-
-// AddRoute adds a param forwarder for a route.
-func (m *ParamForwardByRoute) AddRoute(routeID string, cfg config.ParamForwardingConfig) {
-	m.Add(routeID, New(cfg))
-}
-
-// GetForwarder returns the param forwarder for a route.
-func (m *ParamForwardByRoute) GetForwarder(routeID string) *ParamForwarder {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route param forwarder stats.
-func (m *ParamForwardByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(pf *ParamForwarder) interface{} {
+	return byroute.SimpleFactory(New, func(pf *ParamForwarder) any {
 		return map[string]interface{}{
 			"stripped":        pf.Stripped(),
 			"allowed_headers": len(pf.allowedHeaders),

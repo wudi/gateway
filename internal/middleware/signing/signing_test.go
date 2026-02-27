@@ -440,7 +440,7 @@ func TestManagerAddRouteAndGetSigner(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := m.GetSigner("route-1")
+	s := m.Lookup("route-1")
 	if s == nil {
 		t.Fatal("expected signer for route-1")
 	}
@@ -449,7 +449,7 @@ func TestManagerAddRouteAndGetSigner(t *testing.T) {
 	}
 
 	// Non-existent route
-	if m.GetSigner("route-2") != nil {
+	if m.Lookup("route-2") != nil {
 		t.Error("expected nil for route-2")
 	}
 
@@ -1012,7 +1012,7 @@ func TestManagerConcurrentAddAndGet(t *testing.T) {
 
 	// All should be retrievable
 	for i := 0; i < n; i++ {
-		if m.GetSigner("route-"+strconv.Itoa(i)) == nil {
+		if m.Lookup("route-"+strconv.Itoa(i)) == nil {
 			t.Errorf("missing signer for route-%d", i)
 		}
 	}

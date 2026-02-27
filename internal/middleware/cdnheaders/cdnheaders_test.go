@@ -202,12 +202,12 @@ func TestByRoute(t *testing.T) {
 		CacheControl: "private",
 	})
 
-	h1 := br.GetHandler("route1")
+	h1 := br.Lookup("route1")
 	if h1 == nil {
 		t.Fatal("expected handler for route1")
 	}
 
-	h3 := br.GetHandler("route3")
+	h3 := br.Lookup("route3")
 	if h3 != nil {
 		t.Error("expected nil for non-existent route")
 	}

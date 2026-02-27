@@ -2480,6 +2480,77 @@ type GRPCWebTranslateConfig struct {
 	TLS            ProtocolTLSConfig `yaml:"tls" json:"tls"`
 }
 
+// IsEnabled methods for all config types with an Enabled field.
+// These implement a common interface used by the feature registration framework
+// to simplify the repetitive (config, config.Enabled) getter pattern.
+
+func (c IPFilterConfig) IsEnabled() bool              { return c.Enabled }
+func (c CORSConfig) IsEnabled() bool                  { return c.Enabled }
+func (c CompressionConfig) IsEnabled() bool            { return c.Enabled }
+func (c ValidationConfig) IsEnabled() bool             { return c.Enabled }
+func (c WAFConfig) IsEnabled() bool                    { return c.Enabled }
+func (c GraphQLConfig) IsEnabled() bool                { return c.Enabled }
+func (c CoalesceConfig) IsEnabled() bool               { return c.Enabled }
+func (c VersioningConfig) IsEnabled() bool             { return c.Enabled }
+func (c ProxyRateLimitConfig) IsEnabled() bool         { return c.Enabled }
+func (c ClaimsPropagationConfig) IsEnabled() bool      { return c.Enabled }
+func (c TokenExchangeConfig) IsEnabled() bool          { return c.Enabled }
+func (c BackendAuthConfig) IsEnabled() bool            { return c.Enabled }
+func (c FastCGIConfig) IsEnabled() bool                { return c.Enabled }
+func (c AIConfig) IsEnabled() bool                     { return c.Enabled }
+func (c BodyGeneratorConfig) IsEnabled() bool          { return c.Enabled }
+func (c ResponseBodyGeneratorConfig) IsEnabled() bool  { return c.Enabled }
+func (c ParamForwardingConfig) IsEnabled() bool        { return c.Enabled }
+func (c PIIRedactionConfig) IsEnabled() bool           { return c.Enabled }
+func (c FieldEncryptionConfig) IsEnabled() bool        { return c.Enabled }
+func (c JMESPathConfig) IsEnabled() bool               { return c.Enabled }
+func (c FieldReplacerConfig) IsEnabled() bool          { return c.Enabled }
+func (c LuaConfig) IsEnabled() bool                    { return c.Enabled }
+func (c TrafficReplayConfig) IsEnabled() bool          { return c.Enabled }
+func (c OPAConfig) IsEnabled() bool                    { return c.Enabled }
+func (c ResponseSigningConfig) IsEnabled() bool        { return c.Enabled }
+func (c RequestCostConfig) IsEnabled() bool            { return c.Enabled }
+func (c GraphQLSubscriptionConfig) IsEnabled() bool    { return c.Enabled }
+func (c ConnectConfig) IsEnabled() bool                { return c.Enabled }
+func (c SLOConfig) IsEnabled() bool                    { return c.Enabled }
+func (c ETagConfig) IsEnabled() bool                   { return c.Enabled }
+func (c StreamingConfig) IsEnabled() bool              { return c.Enabled }
+func (c SSEConfig) IsEnabled() bool                    { return c.Enabled }
+func (c RequestDedupConfig) IsEnabled() bool           { return c.Enabled }
+func (c ExtAuthConfig) IsEnabled() bool                { return c.Enabled }
+func (c QuotaConfig) IsEnabled() bool                  { return c.Enabled }
+func (c MirrorConfig) IsEnabled() bool                 { return c.Enabled }
+func (c ThrottleConfig) IsEnabled() bool               { return c.Enabled }
+func (c BandwidthConfig) IsEnabled() bool              { return c.Enabled }
+func (c FaultInjectionConfig) IsEnabled() bool         { return c.Enabled }
+func (c RequestQueueConfig) IsEnabled() bool           { return c.Enabled }
+func (c RequestDecompressionConfig) IsEnabled() bool   { return c.Enabled }
+func (c ResponseLimitConfig) IsEnabled() bool          { return c.Enabled }
+func (c SecurityHeadersConfig) IsEnabled() bool        { return c.Enabled }
+func (c MaintenanceConfig) IsEnabled() bool            { return c.Enabled }
+func (c BotDetectionConfig) IsEnabled() bool           { return c.Enabled }
+func (c AICrawlConfig) IsEnabled() bool                { return c.Enabled }
+func (c SpikeArrestConfig) IsEnabled() bool            { return c.Enabled }
+func (c ClientMTLSConfig) IsEnabled() bool             { return c.Enabled }
+func (c BackendSigningConfig) IsEnabled() bool         { return c.Enabled }
+func (c InboundSigningConfig) IsEnabled() bool         { return c.Enabled }
+func (c DeprecationConfig) IsEnabled() bool            { return c.Enabled }
+func (c BaggageConfig) IsEnabled() bool                { return c.Enabled }
+func (c AuditLogConfig) IsEnabled() bool               { return c.Enabled }
+func (c NonceConfig) IsEnabled() bool                  { return c.Enabled }
+func (c CSRFConfig) IsEnabled() bool                   { return c.Enabled }
+func (c IdempotencyConfig) IsEnabled() bool            { return c.Enabled }
+func (c IPBlocklistConfig) IsEnabled() bool            { return c.Enabled }
+func (c GeoConfig) IsEnabled() bool                    { return c.Enabled }
+func (c CircuitBreakerConfig) IsEnabled() bool         { return c.Enabled }
+func (c CacheConfig) IsEnabled() bool                  { return c.Enabled }
+func (c MockResponseConfig) IsEnabled() bool           { return c.Enabled }
+func (c ContentNegotiationConfig) IsEnabled() bool     { return c.Enabled }
+func (c AdaptiveConcurrencyConfig) IsEnabled() bool    { return c.Enabled }
+func (c PriorityConfig) IsEnabled() bool               { return c.Enabled }
+func (c CDNCacheConfig) IsEnabled() bool               { return c.Enabled }
+func (c EdgeCacheRulesConfig) IsEnabled() bool         { return c.Enabled }
+
 func DefaultConfig() *Config {
 	return &Config{
 		Listeners: []ListenerConfig{{

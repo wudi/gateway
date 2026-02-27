@@ -156,27 +156,9 @@ func mustMarshal(v interface{}) []byte {
 }
 
 // ErrorHandlerByRoute manages per-route error handlers.
-type ErrorHandlerByRoute struct {
-	byroute.Manager[*ErrorHandler]
-}
+type ErrorHandlerByRoute = byroute.Factory[*ErrorHandler, config.ErrorHandlingConfig]
 
 // NewErrorHandlerByRoute creates a new per-route error handler manager.
 func NewErrorHandlerByRoute() *ErrorHandlerByRoute {
-	return &ErrorHandlerByRoute{}
-}
-
-// AddRoute adds an error handler for a route.
-func (m *ErrorHandlerByRoute) AddRoute(routeID string, cfg config.ErrorHandlingConfig) {
-	m.Add(routeID, New(cfg))
-}
-
-// GetHandler returns the error handler for a route.
-func (m *ErrorHandlerByRoute) GetHandler(routeID string) *ErrorHandler {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route error handling stats.
-func (m *ErrorHandlerByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(h *ErrorHandler) interface{} { return h.Stats() })
+	return byroute.SimpleFactory(New, func(h *ErrorHandler) any { return h.Stats() })
 }

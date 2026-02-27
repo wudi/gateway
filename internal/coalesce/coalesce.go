@@ -16,6 +16,7 @@ import (
 	"github.com/wudi/runway/config"
 	"github.com/wudi/runway/internal/graphql"
 	"golang.org/x/sync/singleflight"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // Response captures a buffered HTTP response for replay to multiple callers.
@@ -231,33 +232,15 @@ func (c *Coalescer) ServeCoalesced(w http.ResponseWriter, r *http.Request, next 
 }
 
 // CoalesceByRoute manages per-route Coalescers.
-type CoalesceByRoute struct {
-	byroute.Manager[*Coalescer]
-}
+type CoalesceByRoute = byroute.Factory[*Coalescer, config.CoalesceConfig]
 
 // NewCoalesceByRoute creates a new CoalesceByRoute manager.
 func NewCoalesceByRoute() *CoalesceByRoute {
-	return &CoalesceByRoute{}
-}
-
-// AddRoute adds a Coalescer for the given route.
-func (m *CoalesceByRoute) AddRoute(routeID string, cfg config.CoalesceConfig) {
-	m.Add(routeID, New(cfg))
-}
-
-// GetCoalescer returns the Coalescer for a route, or nil if not configured.
-func (m *CoalesceByRoute) GetCoalescer(routeID string) *Coalescer {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route coalescing metrics.
-func (m *CoalesceByRoute) Stats() map[string]Stats {
-	return byroute.CollectStats(&m.Manager, func(c *Coalescer) Stats { return c.Stats() })
+	return byroute.SimpleFactory(New, func(c *Coalescer) any { return c.Stats() })
 }
 
 // Middleware returns a middleware that deduplicates concurrent identical requests via singleflight.
-func (c *Coalescer) Middleware() func(http.Handler) http.Handler {
+func (c *Coalescer) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !c.ShouldCoalesce(r) {

@@ -132,10 +132,10 @@ func TestBotDetectByRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if m.GetDetector("route1") == nil {
+	if m.Lookup("route1") == nil {
 		t.Error("expected detector for route1")
 	}
-	if m.GetDetector("nonexistent") != nil {
+	if m.Lookup("nonexistent") != nil {
 		t.Error("expected nil for nonexistent route")
 	}
 

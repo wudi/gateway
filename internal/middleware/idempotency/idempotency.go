@@ -12,6 +12,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/wudi/runway/config"
 	"github.com/wudi/runway/variables"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // CompiledIdempotency is a compiled per-route idempotency handler created once during route setup.
@@ -327,7 +328,7 @@ func MergeIdempotencyConfig(perRoute, global config.IdempotencyConfig) config.Id
 }
 
 // Middleware returns a middleware that checks idempotency keys and replays cached responses.
-func (ci *CompiledIdempotency) Middleware() func(http.Handler) http.Handler {
+func (ci *CompiledIdempotency) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			outcome := ci.Check(r)

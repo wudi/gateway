@@ -156,28 +156,8 @@ func (h *Handler) Stats() map[string]interface{} {
 }
 
 // PubSubByRoute manages per-route PubSub handlers.
-type PubSubByRoute struct {
-	byroute.Manager[*Handler]
-}
+type PubSubByRoute = byroute.Factory[*Handler, config.PubSubConfig]
 
 func NewPubSubByRoute() *PubSubByRoute {
-	return &PubSubByRoute{}
-}
-
-func (m *PubSubByRoute) AddRoute(routeID string, cfg config.PubSubConfig) error {
-	h, err := New(cfg)
-	if err != nil {
-		return err
-	}
-	m.Add(routeID, h)
-	return nil
-}
-
-func (m *PubSubByRoute) GetHandler(routeID string) *Handler {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-func (m *PubSubByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(h *Handler) interface{} { return h.Stats() })
+	return byroute.NewFactory(New, func(h *Handler) any { return h.Stats() })
 }

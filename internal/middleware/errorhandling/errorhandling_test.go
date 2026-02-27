@@ -263,19 +263,19 @@ func TestErrorHandlerByRoute(t *testing.T) {
 	m.AddRoute("r1", config.ErrorHandlingConfig{Mode: "pass_status"})
 	m.AddRoute("r2", config.ErrorHandlingConfig{Mode: "detailed"})
 
-	if h := m.GetHandler("r1"); h == nil {
+	if h := m.Lookup("r1"); h == nil {
 		t.Fatal("expected handler for r1")
 	} else if h.mode != "pass_status" {
 		t.Errorf("expected mode pass_status for r1, got %s", h.mode)
 	}
 
-	if h := m.GetHandler("r2"); h == nil {
+	if h := m.Lookup("r2"); h == nil {
 		t.Fatal("expected handler for r2")
 	} else if h.mode != "detailed" {
 		t.Errorf("expected mode detailed for r2, got %s", h.mode)
 	}
 
-	if h := m.GetHandler("nonexistent"); h != nil {
+	if h := m.Lookup("nonexistent"); h != nil {
 		t.Fatal("expected nil for nonexistent route")
 	}
 

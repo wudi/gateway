@@ -20,11 +20,6 @@ func (m *ReflectionByRoute) AddRoute(routeID string, backends []string, cfg conf
 	m.Add(routeID, NewReflectionProxy(routeID, backends, cfg))
 }
 
-// GetProxy returns the gRPC reflection proxy for a route.
-func (m *ReflectionByRoute) GetProxy(routeID string) *ReflectionProxy {
-	v, _ := m.Get(routeID)
-	return v
-}
 
 // Stats returns per-route gRPC reflection stats.
 func (m *ReflectionByRoute) Stats() map[string]interface{} {

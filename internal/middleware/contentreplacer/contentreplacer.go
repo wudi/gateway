@@ -172,32 +172,9 @@ func (w *bufferingWriter) flush() {
 }
 
 // ContentReplacerByRoute manages per-route content replacers.
-type ContentReplacerByRoute struct {
-	byroute.Manager[*ContentReplacer]
-}
+type ContentReplacerByRoute = byroute.Factory[*ContentReplacer, config.ContentReplacerConfig]
 
 // NewContentReplacerByRoute creates a new per-route content replacer manager.
 func NewContentReplacerByRoute() *ContentReplacerByRoute {
-	return &ContentReplacerByRoute{}
-}
-
-// AddRoute adds a content replacer for a route.
-func (m *ContentReplacerByRoute) AddRoute(routeID string, cfg config.ContentReplacerConfig) error {
-	cr, err := New(cfg)
-	if err != nil {
-		return err
-	}
-	m.Add(routeID, cr)
-	return nil
-}
-
-// GetReplacer returns the content replacer for a route.
-func (m *ContentReplacerByRoute) GetReplacer(routeID string) *ContentReplacer {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route content replacer metrics.
-func (m *ContentReplacerByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(cr *ContentReplacer) interface{} { return cr.Stats() })
+	return byroute.NewFactory(New, func(cr *ContentReplacer) any { return cr.Stats() })
 }

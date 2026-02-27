@@ -127,12 +127,12 @@ func TestMirrorByRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mirror := m.GetMirror("route1")
+	mirror := m.Lookup("route1")
 	if mirror == nil || !mirror.IsEnabled() {
 		t.Fatal("expected mirror for route1")
 	}
 
-	if m.GetMirror("unknown") != nil {
+	if m.Lookup("unknown") != nil {
 		t.Error("expected nil for unknown route")
 	}
 }

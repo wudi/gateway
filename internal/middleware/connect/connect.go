@@ -201,29 +201,11 @@ func (h *TunnelHandler) TotalBytes() int64 {
 }
 
 // ConnectByRoute manages per-route CONNECT tunnel handlers.
-type ConnectByRoute struct {
-	byroute.Manager[*TunnelHandler]
-}
+type ConnectByRoute = byroute.Factory[*TunnelHandler, config.ConnectConfig]
 
 // NewConnectByRoute creates a new per-route CONNECT tunnel handler manager.
 func NewConnectByRoute() *ConnectByRoute {
-	return &ConnectByRoute{}
-}
-
-// AddRoute adds a CONNECT tunnel handler for a route.
-func (c *ConnectByRoute) AddRoute(routeID string, cfg config.ConnectConfig) {
-	c.Add(routeID, New(cfg))
-}
-
-// GetHandler returns the CONNECT tunnel handler for a route.
-func (c *ConnectByRoute) GetHandler(routeID string) *TunnelHandler {
-	v, _ := c.Get(routeID)
-	return v
-}
-
-// Stats returns per-route CONNECT tunnel stats.
-func (c *ConnectByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&c.Manager, func(h *TunnelHandler) interface{} {
+	return byroute.SimpleFactory(New, func(h *TunnelHandler) any {
 		return map[string]interface{}{
 			"active_tunnels": h.ActiveTunnels(),
 			"total_tunnels":  h.TotalTunnels(),

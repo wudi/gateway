@@ -234,10 +234,10 @@ func TestNegotiatorByRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if m.GetNegotiator("r1") == nil {
+	if m.Lookup("r1") == nil {
 		t.Error("expected negotiator for r1")
 	}
-	if m.GetNegotiator("r2") != nil {
+	if m.Lookup("r2") != nil {
 		t.Error("expected nil for r2")
 	}
 

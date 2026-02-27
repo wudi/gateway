@@ -376,10 +376,10 @@ func TestLuaScriptByRoute(t *testing.T) {
 		t.Fatalf("AddRoute failed: %v", err)
 	}
 
-	if m.GetScript("route1") == nil {
+	if m.Lookup("route1") == nil {
 		t.Error("expected script for route1")
 	}
-	if m.GetScript("nonexistent") != nil {
+	if m.Lookup("nonexistent") != nil {
 		t.Error("expected nil for nonexistent route")
 	}
 
@@ -403,7 +403,7 @@ func TestLuaScriptByRoute_CompileError(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for invalid script")
 	}
-	if m.GetScript("bad") != nil {
+	if m.Lookup("bad") != nil {
 		t.Error("expected nil for failed route")
 	}
 }

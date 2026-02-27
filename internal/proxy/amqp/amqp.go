@@ -157,28 +157,8 @@ func (h *Handler) Stats() map[string]interface{} {
 }
 
 // AMQPByRoute manages per-route AMQP handlers.
-type AMQPByRoute struct {
-	byroute.Manager[*Handler]
-}
+type AMQPByRoute = byroute.Factory[*Handler, config.AMQPConfig]
 
 func NewAMQPByRoute() *AMQPByRoute {
-	return &AMQPByRoute{}
-}
-
-func (m *AMQPByRoute) AddRoute(routeID string, cfg config.AMQPConfig) error {
-	h, err := New(cfg)
-	if err != nil {
-		return err
-	}
-	m.Add(routeID, h)
-	return nil
-}
-
-func (m *AMQPByRoute) GetHandler(routeID string) *Handler {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-func (m *AMQPByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(h *Handler) interface{} { return h.Stats() })
+	return byroute.NewFactory(New, func(h *Handler) any { return h.Stats() })
 }

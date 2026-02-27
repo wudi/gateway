@@ -11,6 +11,7 @@ import (
 
 	"github.com/wudi/runway/internal/errors"
 	"github.com/wudi/runway/variables"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // Throttler delays requests using a token bucket limiter.
@@ -138,7 +139,7 @@ func (t *Throttler) Snapshot() ThrottleSnapshot {
 }
 
 // Middleware returns a middleware that delays requests using the throttler's token bucket.
-func (t *Throttler) Middleware() func(http.Handler) http.Handler {
+func (t *Throttler) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if err := t.Throttle(r.Context(), r); err != nil {

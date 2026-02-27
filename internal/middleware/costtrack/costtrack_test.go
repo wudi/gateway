@@ -280,13 +280,13 @@ func TestCostByRouteManager(t *testing.T) {
 	})
 
 	// GetTracker
-	if m.GetTracker("route1") == nil {
+	if m.Lookup("route1") == nil {
 		t.Error("expected tracker for route1")
 	}
-	if m.GetTracker("route2") == nil {
+	if m.Lookup("route2") == nil {
 		t.Error("expected tracker for route2")
 	}
-	if m.GetTracker("nonexistent") != nil {
+	if m.Lookup("nonexistent") != nil {
 		t.Error("expected nil for nonexistent route")
 	}
 
@@ -306,7 +306,7 @@ func TestCostByRouteManager(t *testing.T) {
 	}
 
 	// Exercise route2 to verify method cost
-	ct2 := m.GetTracker("route2")
+	ct2 := m.Lookup("route2")
 	handler := ct2.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 	}))

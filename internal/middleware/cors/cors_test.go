@@ -179,12 +179,12 @@ func TestCORSByRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := m.GetHandler("route1")
+	h := m.Lookup("route1")
 	if h == nil || !h.IsEnabled() {
 		t.Fatal("expected CORS handler for route1")
 	}
 
-	if m.GetHandler("unknown") != nil {
+	if m.Lookup("unknown") != nil {
 		t.Error("expected nil for unknown route")
 	}
 }

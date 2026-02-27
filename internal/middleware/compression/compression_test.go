@@ -249,7 +249,7 @@ func TestCompressorByRouteStats(t *testing.T) {
 		Level:   6,
 	})
 
-	c := m.GetCompressor("route1")
+	c := m.Lookup("route1")
 	if c == nil || !c.IsEnabled() {
 		t.Fatal("expected compressor for route1")
 	}
@@ -259,7 +259,7 @@ func TestCompressorByRouteStats(t *testing.T) {
 		t.Error("expected stats for route1")
 	}
 
-	if m.GetCompressor("unknown") != nil {
+	if m.Lookup("unknown") != nil {
 		t.Error("expected nil for unknown route")
 	}
 }

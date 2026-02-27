@@ -273,20 +273,20 @@ func TestMiddlewareWithBody(t *testing.T) {
 }
 
 func TestDedupByRoute(t *testing.T) {
-	m := NewDedupByRoute()
+	m := NewDedupByRoute(nil)
 
 	err := m.AddRoute("route-1", config.RequestDedupConfig{
 		Enabled: true,
 		TTL:     time.Second,
-	}, nil)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if h := m.GetHandler("route-1"); h == nil {
+	if h := m.Lookup("route-1"); h == nil {
 		t.Error("expected handler for route-1")
 	}
-	if h := m.GetHandler("route-2"); h != nil {
+	if h := m.Lookup("route-2"); h != nil {
 		t.Error("expected nil for non-existent route-2")
 	}
 
@@ -296,18 +296,6 @@ func TestDedupByRoute(t *testing.T) {
 	}
 }
 
-func TestDedupByRouteDisabled(t *testing.T) {
-	m := NewDedupByRoute()
-	err := m.AddRoute("route-1", config.RequestDedupConfig{
-		Enabled: false,
-	}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if h := m.GetHandler("route-1"); h != nil {
-		t.Error("expected nil for disabled route")
-	}
-}
 
 func TestMemoryStoreExpiry(t *testing.T) {
 	store := NewMemoryStore(100 * time.Millisecond)

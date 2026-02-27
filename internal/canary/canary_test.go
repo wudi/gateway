@@ -450,10 +450,10 @@ func TestCanaryByRoute_Manager(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if ctrl := m.GetController("route1"); ctrl == nil {
+	if ctrl := m.Lookup("route1"); ctrl == nil {
 		t.Fatal("expected controller for route1")
 	}
-	if ctrl := m.GetController("nonexistent"); ctrl != nil {
+	if ctrl := m.Lookup("nonexistent"); ctrl != nil {
 		t.Fatal("expected nil for nonexistent route")
 	}
 
@@ -876,7 +876,7 @@ func TestAutoStart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctrl := m.GetController("auto-route")
+	ctrl := m.Lookup("auto-route")
 
 	// Simulate auto-start (as runway.go does after AddRoute)
 	if cfg.AutoStart {
@@ -969,7 +969,7 @@ func TestRollbackEvent_ConsecutiveFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctrl := m.GetController("ev-route")
+	ctrl := m.Lookup("ev-route")
 	if err := ctrl.Start(); err != nil {
 		t.Fatal(err)
 	}

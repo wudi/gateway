@@ -248,10 +248,10 @@ func TestResponseLimitByRoute(t *testing.T) {
 		Action:  "truncate",
 	})
 
-	if rl := mgr.GetLimiter("api"); rl == nil {
+	if rl := mgr.Lookup("api"); rl == nil {
 		t.Error("expected non-nil limiter for 'api'")
 	}
-	if rl := mgr.GetLimiter("missing"); rl != nil {
+	if rl := mgr.Lookup("missing"); rl != nil {
 		t.Error("expected nil for missing route")
 	}
 
@@ -264,11 +264,13 @@ func TestResponseLimitByRoute(t *testing.T) {
 	if len(stats) != 2 {
 		t.Errorf("expected 2 stats entries, got %d", len(stats))
 	}
-	if stats["api"].MaxSize != 1<<20 {
-		t.Errorf("expected api max_size=1MB, got %d", stats["api"].MaxSize)
+	apiSnap := stats["api"].(Snapshot)
+	if apiSnap.MaxSize != 1<<20 {
+		t.Errorf("expected api max_size=1MB, got %d", apiSnap.MaxSize)
 	}
-	if stats["upload"].Action != "truncate" {
-		t.Errorf("expected upload action=truncate, got %q", stats["upload"].Action)
+	uploadSnap := stats["upload"].(Snapshot)
+	if uploadSnap.Action != "truncate" {
+		t.Errorf("expected upload action=truncate, got %q", uploadSnap.Action)
 	}
 }
 

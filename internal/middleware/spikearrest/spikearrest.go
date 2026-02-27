@@ -128,27 +128,9 @@ func MergeSpikeArrestConfig(perRoute, global config.SpikeArrestConfig) config.Sp
 }
 
 // SpikeArrestByRoute manages per-route spike arresters.
-type SpikeArrestByRoute struct {
-	byroute.Manager[*SpikeArrester]
-}
+type SpikeArrestByRoute = byroute.Factory[*SpikeArrester, config.SpikeArrestConfig]
 
 // NewSpikeArrestByRoute creates a new per-route spike arrest manager.
 func NewSpikeArrestByRoute() *SpikeArrestByRoute {
-	return &SpikeArrestByRoute{}
-}
-
-// AddRoute adds a spike arrester for a route.
-func (m *SpikeArrestByRoute) AddRoute(routeID string, cfg config.SpikeArrestConfig) {
-	m.Add(routeID, New(cfg))
-}
-
-// GetArrester returns the spike arrester for a route.
-func (m *SpikeArrestByRoute) GetArrester(routeID string) *SpikeArrester {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route spike arrest metrics.
-func (m *SpikeArrestByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(sa *SpikeArrester) interface{} { return sa.Stats() })
+	return byroute.SimpleFactory(New, func(sa *SpikeArrester) any { return sa.Stats() })
 }

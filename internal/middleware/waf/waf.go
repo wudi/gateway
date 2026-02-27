@@ -190,32 +190,9 @@ func clientIP(r *http.Request) string {
 }
 
 // WAFByRoute manages WAF instances per route.
-type WAFByRoute struct {
-	byroute.Manager[*WAF]
-}
+type WAFByRoute = byroute.Factory[*WAF, config.WAFConfig]
 
 // NewWAFByRoute creates a new per-route WAF manager.
 func NewWAFByRoute() *WAFByRoute {
-	return &WAFByRoute{}
-}
-
-// AddRoute adds a WAF for a route. Returns error if WAF init fails.
-func (m *WAFByRoute) AddRoute(routeID string, cfg config.WAFConfig) error {
-	w, err := New(cfg)
-	if err != nil {
-		return err
-	}
-	m.Add(routeID, w)
-	return nil
-}
-
-// GetWAF returns the WAF for a route, or nil if not configured.
-func (m *WAFByRoute) GetWAF(routeID string) *WAF {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns WAF stats for all routes.
-func (m *WAFByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(w *WAF) interface{} { return w.Stats() })
+	return byroute.NewFactory(New, func(w *WAF) any { return w.Stats() })
 }

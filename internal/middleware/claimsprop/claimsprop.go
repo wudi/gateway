@@ -9,6 +9,7 @@ import (
 	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/config"
 	"github.com/wudi/runway/variables"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // ClaimsPropagator propagates JWT claims as request headers.
@@ -86,33 +87,15 @@ func (cp *ClaimsPropagator) Stats() map[string]interface{} {
 }
 
 // ClaimsPropByRoute manages per-route claims propagators.
-type ClaimsPropByRoute struct {
-	byroute.Manager[*ClaimsPropagator]
-}
+type ClaimsPropByRoute = byroute.Factory[*ClaimsPropagator, config.ClaimsPropagationConfig]
 
 // NewClaimsPropByRoute creates a new claims propagation manager.
 func NewClaimsPropByRoute() *ClaimsPropByRoute {
-	return &ClaimsPropByRoute{}
-}
-
-// AddRoute adds a claims propagator for a route.
-func (m *ClaimsPropByRoute) AddRoute(routeID string, cfg config.ClaimsPropagationConfig) {
-	m.Add(routeID, New(cfg))
-}
-
-// GetPropagator returns the claims propagator for a route (may be nil).
-func (m *ClaimsPropByRoute) GetPropagator(routeID string) *ClaimsPropagator {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route propagation statistics.
-func (m *ClaimsPropByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(cp *ClaimsPropagator) interface{} { return cp.Stats() })
+	return byroute.SimpleFactory(New, func(cp *ClaimsPropagator) any { return cp.Stats() })
 }
 
 // Middleware returns a middleware that propagates JWT claims as request headers to backends.
-func (cp *ClaimsPropagator) Middleware() func(http.Handler) http.Handler {
+func (cp *ClaimsPropagator) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cp.Apply(r)

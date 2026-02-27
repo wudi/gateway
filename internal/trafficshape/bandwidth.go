@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 
 	"golang.org/x/time/rate"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // BandwidthLimiter limits request and response throughput using token bucket rate limiters.
@@ -151,7 +152,7 @@ func (w *rateLimitedWriter) Unwrap() http.ResponseWriter {
 }
 
 // Middleware returns a middleware that wraps request body and response writer with bandwidth limits.
-func (bw *BandwidthLimiter) Middleware() func(http.Handler) http.Handler {
+func (bw *BandwidthLimiter) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			bw.WrapRequest(r)

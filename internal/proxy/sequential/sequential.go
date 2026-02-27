@@ -310,11 +310,6 @@ func (m *SequentialByRoute) AddRoute(routeID string, cfg config.SequentialConfig
 	return nil
 }
 
-// GetHandler returns the sequential handler for a route.
-func (m *SequentialByRoute) GetHandler(routeID string) *SequentialHandler {
-	v, _ := m.Get(routeID)
-	return v
-}
 
 // Stats returns per-route sequential handler stats.
 func (m *SequentialByRoute) Stats() map[string]interface{} {

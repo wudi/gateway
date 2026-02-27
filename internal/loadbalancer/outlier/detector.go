@@ -10,6 +10,7 @@ import (
 	"github.com/wudi/runway/config"
 	"github.com/wudi/runway/internal/loadbalancer"
 	"github.com/wudi/runway/variables"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // ejectionInfo tracks current ejection state for a backend.
@@ -326,7 +327,7 @@ func medianDuration(vals []time.Duration) time.Duration {
 }
 
 // Middleware returns a middleware that records per-backend request outcomes for outlier detection.
-func (det *Detector) Middleware() func(http.Handler) http.Handler {
+func (det *Detector) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			next.ServeHTTP(w, r)

@@ -102,10 +102,10 @@ func TestProxyRateLimitByRoute(t *testing.T) {
 		Period:  time.Second,
 	})
 
-	if m.GetLimiter("route1") == nil {
+	if m.Lookup("route1") == nil {
 		t.Error("expected limiter for route1")
 	}
-	if m.GetLimiter("nonexistent") != nil {
+	if m.Lookup("nonexistent") != nil {
 		t.Error("expected nil for nonexistent route")
 	}
 

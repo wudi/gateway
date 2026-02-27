@@ -293,10 +293,10 @@ func TestAggregateByRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if m.GetHandler("r1") == nil {
+	if m.Lookup("r1") == nil {
 		t.Error("expected handler for r1")
 	}
-	if m.GetHandler("r2") != nil {
+	if m.Lookup("r2") != nil {
 		t.Error("expected nil for r2")
 	}
 

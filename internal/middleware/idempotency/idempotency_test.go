@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/variables"
 )
 
@@ -394,17 +395,17 @@ func TestMemoryStoreExpiry(t *testing.T) {
 }
 
 func TestManagerAddAndGet(t *testing.T) {
-	m := NewIdempotencyByRoute()
+	m := NewIdempotencyByRoute(nil)
 
-	err := m.AddRoute("route-1", config.IdempotencyConfig{Enabled: true}, nil)
+	err := m.AddRoute("route-1", config.IdempotencyConfig{Enabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if h := m.GetHandler("route-1"); h == nil {
+	if h := m.Lookup("route-1"); h == nil {
 		t.Error("expected handler for route-1")
 	}
-	if h := m.GetHandler("route-2"); h != nil {
+	if h := m.Lookup("route-2"); h != nil {
 		t.Error("expected nil for unknown route")
 	}
 
@@ -418,21 +419,9 @@ func TestManagerAddAndGet(t *testing.T) {
 		t.Errorf("expected 1 stat entry, got %d", len(stats))
 	}
 
-	m.CloseAll()
+	byroute.ForEach(&m.Manager, (*CompiledIdempotency).Close)
 }
 
-func TestManagerSkipsDisabled(t *testing.T) {
-	m := NewIdempotencyByRoute()
-
-	err := m.AddRoute("route-1", config.IdempotencyConfig{Enabled: false}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if h := m.GetHandler("route-1"); h != nil {
-		t.Error("expected nil for disabled route")
-	}
-}
 
 func TestCustomHeaderName(t *testing.T) {
 	ci, _ := New("test", config.IdempotencyConfig{

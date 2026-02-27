@@ -184,23 +184,14 @@ func (b *BackpressureByRoute) AddRoute(routeID string, cfg config.BackpressureCo
 	b.Add(routeID, New(cfg, bal))
 }
 
-// GetHandler returns the backpressure handler for a route.
-func (b *BackpressureByRoute) GetHandler(routeID string) *Backpressure {
-	v, _ := b.Get(routeID)
-	return v
-}
-
-// CloseAll stops all backpressure timers.
-func (b *BackpressureByRoute) CloseAll() {
-	b.Range(func(_ string, bp *Backpressure) bool {
-		bp.Close()
-		return true
-	})
-}
-
 // Stats returns per-route backpressure stats.
 func (b *BackpressureByRoute) Stats() map[string]interface{} {
 	return byroute.CollectStats(&b.Manager, func(bp *Backpressure) interface{} {
 		return bp.Stats()
 	})
+}
+
+// CloseAll closes all backpressure handlers.
+func (b *BackpressureByRoute) CloseAll() {
+	byroute.ForEach(&b.Manager, (*Backpressure).Close)
 }

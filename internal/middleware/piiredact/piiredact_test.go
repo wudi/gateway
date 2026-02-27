@@ -240,10 +240,10 @@ func TestManager(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if pr := m.GetRedactor("route1"); pr == nil {
+	if pr := m.Lookup("route1"); pr == nil {
 		t.Error("expected redactor for route1")
 	}
-	if pr := m.GetRedactor("missing"); pr != nil {
+	if pr := m.Lookup("missing"); pr != nil {
 		t.Error("expected nil for missing route")
 	}
 

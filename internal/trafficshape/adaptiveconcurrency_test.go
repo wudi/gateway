@@ -301,13 +301,13 @@ func TestAdaptiveConcurrencyByRoute_CRUD(t *testing.T) {
 		MaxConcurrency: 50,
 	})
 
-	if l := m.GetLimiter("r1"); l == nil {
+	if l := m.Lookup("r1"); l == nil {
 		t.Error("expected limiter for r1")
 	}
-	if l := m.GetLimiter("r2"); l == nil {
+	if l := m.Lookup("r2"); l == nil {
 		t.Error("expected limiter for r2")
 	}
-	if l := m.GetLimiter("r3"); l != nil {
+	if l := m.Lookup("r3"); l != nil {
 		t.Error("expected nil for r3")
 	}
 
@@ -321,7 +321,7 @@ func TestAdaptiveConcurrencyByRoute_CRUD(t *testing.T) {
 		t.Errorf("expected 2 stats entries, got %d", len(stats))
 	}
 
-	m.StopAll()
+	m.CloseAll()
 }
 
 func TestMergeAdaptiveConcurrencyConfig(t *testing.T) {

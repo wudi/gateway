@@ -37,11 +37,6 @@ func (m *FederationByRoute) AddRoute(routeID string, cfg config.GraphQLFederatio
 	return nil
 }
 
-// GetHandler returns the federation HTTP handler for a route.
-func (m *FederationByRoute) GetHandler(routeID string) *Handler {
-	v, _ := m.Get(routeID)
-	return v
-}
 
 // Stats returns per-route federation statistics.
 func (m *FederationByRoute) Stats() map[string]interface{} {

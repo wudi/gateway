@@ -221,10 +221,10 @@ func TestManager(t *testing.T) {
 		t.Fatalf("AddRoute: %v", err)
 	}
 
-	if v := m.GetVersioner("api"); v == nil {
+	if v := m.Lookup("api"); v == nil {
 		t.Fatal("expected versioner for route 'api'")
 	}
-	if v := m.GetVersioner("other"); v != nil {
+	if v := m.Lookup("other"); v != nil {
 		t.Fatal("expected nil for unknown route")
 	}
 

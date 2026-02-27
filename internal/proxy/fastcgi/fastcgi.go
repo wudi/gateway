@@ -143,32 +143,9 @@ func buildExtraParamsMiddleware(docRoot string, params map[string]string) gofast
 }
 
 // FastCGIByRoute manages per-route FastCGI handlers.
-type FastCGIByRoute struct {
-	byroute.Manager[*Handler]
-}
+type FastCGIByRoute = byroute.NamedFactory[*Handler, config.FastCGIConfig]
 
 // NewFastCGIByRoute creates a new per-route FastCGI manager.
 func NewFastCGIByRoute() *FastCGIByRoute {
-	return &FastCGIByRoute{}
-}
-
-// AddRoute creates and registers a FastCGI handler for a route.
-func (m *FastCGIByRoute) AddRoute(routeID string, cfg config.FastCGIConfig) error {
-	h, err := New(routeID, cfg)
-	if err != nil {
-		return err
-	}
-	m.Add(routeID, h)
-	return nil
-}
-
-// GetHandler returns the FastCGI handler for a route, or nil.
-func (m *FastCGIByRoute) GetHandler(routeID string) *Handler {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route FastCGI stats.
-func (m *FastCGIByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(h *Handler) interface{} { return h.Stats() })
+	return byroute.NewNamedFactory(New, func(h *Handler) any { return h.Stats() })
 }

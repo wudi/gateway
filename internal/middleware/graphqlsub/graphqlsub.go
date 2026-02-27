@@ -93,29 +93,11 @@ func (h *SubscriptionHandler) Protocol() string {
 }
 
 // SubscriptionByRoute manages per-route subscription handlers.
-type SubscriptionByRoute struct {
-	byroute.Manager[*SubscriptionHandler]
-}
+type SubscriptionByRoute = byroute.Factory[*SubscriptionHandler, config.GraphQLSubscriptionConfig]
 
 // NewSubscriptionByRoute creates a new per-route subscription handler manager.
 func NewSubscriptionByRoute() *SubscriptionByRoute {
-	return &SubscriptionByRoute{}
-}
-
-// AddRoute adds a subscription handler for a route.
-func (m *SubscriptionByRoute) AddRoute(routeID string, cfg config.GraphQLSubscriptionConfig) {
-	m.Add(routeID, New(cfg))
-}
-
-// GetHandler returns the subscription handler for a route.
-func (m *SubscriptionByRoute) GetHandler(routeID string) *SubscriptionHandler {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route subscription stats.
-func (m *SubscriptionByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(h *SubscriptionHandler) interface{} {
+	return byroute.SimpleFactory(New, func(h *SubscriptionHandler) any {
 		return map[string]interface{}{
 			"protocol":        h.Protocol(),
 			"active_conns":    h.ActiveConns(),

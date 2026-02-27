@@ -143,28 +143,8 @@ func (h *Handler) Stats() map[string]interface{} {
 }
 
 // LambdaByRoute manages per-route Lambda handlers.
-type LambdaByRoute struct {
-	byroute.Manager[*Handler]
-}
+type LambdaByRoute = byroute.Factory[*Handler, config.LambdaConfig]
 
 func NewLambdaByRoute() *LambdaByRoute {
-	return &LambdaByRoute{}
-}
-
-func (m *LambdaByRoute) AddRoute(routeID string, cfg config.LambdaConfig) error {
-	h, err := New(cfg)
-	if err != nil {
-		return err
-	}
-	m.Add(routeID, h)
-	return nil
-}
-
-func (m *LambdaByRoute) GetHandler(routeID string) *Handler {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-func (m *LambdaByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(h *Handler) interface{} { return h.Stats() })
+	return byroute.NewFactory(New, func(h *Handler) any { return h.Stats() })
 }

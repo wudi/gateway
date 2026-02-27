@@ -184,10 +184,10 @@ func TestClaimsPropByRoute(t *testing.T) {
 		Claims:  map[string]string{"sub": "X-User-ID"},
 	})
 
-	if cp := m.GetPropagator("route1"); cp == nil {
+	if cp := m.Lookup("route1"); cp == nil {
 		t.Error("expected propagator for route1")
 	}
-	if cp := m.GetPropagator("nonexistent"); cp != nil {
+	if cp := m.Lookup("nonexistent"); cp != nil {
 		t.Error("expected nil for nonexistent route")
 	}
 

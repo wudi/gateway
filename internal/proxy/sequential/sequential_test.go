@@ -242,10 +242,10 @@ func TestSequentialByRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if m.GetHandler("route1") == nil {
+	if m.Lookup("route1") == nil {
 		t.Error("expected handler for route1")
 	}
-	if m.GetHandler("route2") != nil {
+	if m.Lookup("route2") != nil {
 		t.Error("expected nil for route2")
 	}
 

@@ -47,11 +47,6 @@ func (m *DetectorByRoute) AddRoute(routeID string, cfg config.OutlierDetectionCo
 	m.Add(routeID, d)
 }
 
-// GetDetector returns the detector for a route, or nil.
-func (m *DetectorByRoute) GetDetector(routeID string) *Detector {
-	v, _ := m.Get(routeID)
-	return v
-}
 
 // Stats returns snapshots for all routes.
 func (m *DetectorByRoute) Stats() map[string]DetectorSnapshot {
@@ -60,9 +55,6 @@ func (m *DetectorByRoute) Stats() map[string]DetectorSnapshot {
 
 // StopAll stops all detectors and removes them.
 func (m *DetectorByRoute) StopAll() {
-	m.Range(func(_ string, d *Detector) bool {
-		d.Stop()
-		return true
-	})
+	byroute.ForEach(&m.Manager, (*Detector).Stop)
 	m.Clear()
 }

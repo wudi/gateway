@@ -23,7 +23,9 @@ import (
 	"time"
 
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/internal/logging"
+	"github.com/wudi/runway/internal/middleware"
 	"go.uber.org/zap"
 )
 
@@ -298,7 +300,7 @@ func hasBody(method string) bool {
 }
 
 // Middleware returns a middleware that signs outgoing requests with HMAC before they reach the backend.
-func (s *CompiledSigner) Middleware() func(http.Handler) http.Handler {
+func (s *CompiledSigner) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if err := s.Sign(r); err != nil {
@@ -310,4 +312,12 @@ func (s *CompiledSigner) Middleware() func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// SigningByRoute manages per-route request signers.
+type SigningByRoute = byroute.NamedFactory[*CompiledSigner, config.BackendSigningConfig]
+
+// NewSigningByRoute creates a new SigningByRoute manager.
+func NewSigningByRoute() *SigningByRoute {
+	return byroute.NewNamedFactory(New, func(s *CompiledSigner) any { return s.Status() })
 }

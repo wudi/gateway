@@ -322,10 +322,10 @@ func TestDecompressorByRoute(t *testing.T) {
 		MaxDecompressedSize: 100 << 20, // 100MB
 	})
 
-	if d := mgr.GetDecompressor("api"); d == nil {
+	if d := mgr.Lookup("api"); d == nil {
 		t.Error("expected non-nil decompressor for 'api'")
 	}
-	if d := mgr.GetDecompressor("missing"); d != nil {
+	if d := mgr.Lookup("missing"); d != nil {
 		t.Error("expected nil for missing route")
 	}
 

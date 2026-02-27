@@ -146,12 +146,12 @@ func TestValidatorByRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	v := m.GetValidator("route1")
+	v := m.Lookup("route1")
 	if v == nil || !v.IsEnabled() {
 		t.Fatal("expected validator for route1")
 	}
 
-	if m.GetValidator("unknown") != nil {
+	if m.Lookup("unknown") != nil {
 		t.Error("expected nil for unknown route")
 	}
 }

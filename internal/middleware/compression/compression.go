@@ -13,6 +13,7 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // encodingWriter is an io.Writer that can be closed.
@@ -459,33 +460,15 @@ func (w *CompressingResponseWriter) Unwrap() http.ResponseWriter {
 }
 
 // CompressorByRoute manages compressors per route.
-type CompressorByRoute struct {
-	byroute.Manager[*Compressor]
-}
+type CompressorByRoute = byroute.Factory[*Compressor, config.CompressionConfig]
 
 // NewCompressorByRoute creates a new per-route compressor manager.
 func NewCompressorByRoute() *CompressorByRoute {
-	return &CompressorByRoute{}
-}
-
-// AddRoute adds a compressor for a route.
-func (m *CompressorByRoute) AddRoute(routeID string, cfg config.CompressionConfig) {
-	m.Add(routeID, New(cfg))
-}
-
-// GetCompressor returns the compressor for a route.
-func (m *CompressorByRoute) GetCompressor(routeID string) *Compressor {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route compression statistics.
-func (m *CompressorByRoute) Stats() map[string]CompressionSnapshot {
-	return byroute.CollectStats(&m.Manager, func(c *Compressor) CompressionSnapshot { return c.Stats() })
+	return byroute.SimpleFactory(New, func(c *Compressor) any { return c.Stats() })
 }
 
 // Middleware returns a middleware that wraps the response writer with negotiated compression.
-func (c *Compressor) Middleware() func(http.Handler) http.Handler {
+func (c *Compressor) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			algo := c.NegotiateEncoding(r)

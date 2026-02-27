@@ -243,34 +243,11 @@ func (bw *bufferedResponseWriter) SetBody(s string) {
 // --- LuaScriptByRoute manager ---
 
 // LuaScriptByRoute manages per-route Lua scripts.
-type LuaScriptByRoute struct {
-	byroute.Manager[*LuaScript]
-}
+type LuaScriptByRoute = byroute.Factory[*LuaScript, config.LuaConfig]
 
 // NewLuaScriptByRoute creates a new per-route Lua script manager.
 func NewLuaScriptByRoute() *LuaScriptByRoute {
-	return &LuaScriptByRoute{}
-}
-
-// AddRoute adds a Lua script for a route.
-func (m *LuaScriptByRoute) AddRoute(routeID string, cfg config.LuaConfig) error {
-	ls, err := New(cfg)
-	if err != nil {
-		return err
-	}
-	m.Add(routeID, ls)
-	return nil
-}
-
-// GetScript returns the Lua script for a route.
-func (m *LuaScriptByRoute) GetScript(routeID string) *LuaScript {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route Lua script stats.
-func (m *LuaScriptByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(ls *LuaScript) interface{} {
+	return byroute.NewFactory(New, func(ls *LuaScript) any {
 		return ls.Stats()
 	})
 }

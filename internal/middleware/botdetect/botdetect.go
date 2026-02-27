@@ -94,34 +94,11 @@ func MergeBotDetectionConfig(route, global config.BotDetectionConfig) config.Bot
 }
 
 // BotDetectByRoute manages per-route bot detectors.
-type BotDetectByRoute struct {
-	byroute.Manager[*BotDetector]
-}
+type BotDetectByRoute = byroute.Factory[*BotDetector, config.BotDetectionConfig]
 
 // NewBotDetectByRoute creates a new per-route bot detection manager.
 func NewBotDetectByRoute() *BotDetectByRoute {
-	return &BotDetectByRoute{}
-}
-
-// AddRoute adds a bot detector for a route.
-func (m *BotDetectByRoute) AddRoute(routeID string, cfg config.BotDetectionConfig) error {
-	bd, err := New(cfg)
-	if err != nil {
-		return err
-	}
-	m.Add(routeID, bd)
-	return nil
-}
-
-// GetDetector returns the bot detector for a route.
-func (m *BotDetectByRoute) GetDetector(routeID string) *BotDetector {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route blocked counts.
-func (m *BotDetectByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(bd *BotDetector) interface{} {
+	return byroute.NewFactory(New, func(bd *BotDetector) any {
 		return map[string]interface{}{"blocked": bd.Blocked()}
 	})
 }

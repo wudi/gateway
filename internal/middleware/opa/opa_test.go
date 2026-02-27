@@ -326,10 +326,10 @@ func TestOPAByRoute(t *testing.T) {
 		t.Fatalf("failed to add route: %v", err)
 	}
 
-	if m.GetEnforcer("route1") == nil {
+	if m.Lookup("route1") == nil {
 		t.Error("expected enforcer for route1")
 	}
-	if m.GetEnforcer("nonexistent") != nil {
+	if m.Lookup("nonexistent") != nil {
 		t.Error("expected nil for nonexistent route")
 	}
 

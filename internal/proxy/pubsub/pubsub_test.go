@@ -195,12 +195,12 @@ func TestPubSubByRouteAddAndGet(t *testing.T) {
 		t.Fatalf("AddRoute failed: %v", err)
 	}
 
-	h := m.GetHandler("route-1")
+	h := m.Lookup("route-1")
 	if h == nil {
 		t.Fatal("GetHandler returned nil for existing route")
 	}
 
-	h2 := m.GetHandler("nonexistent")
+	h2 := m.Lookup("nonexistent")
 	if h2 != nil {
 		t.Error("GetHandler should return nil for nonexistent route")
 	}

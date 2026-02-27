@@ -8,6 +8,7 @@ import (
 
 	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // Handler manages CORS for a route
@@ -168,33 +169,16 @@ func (h *Handler) isOriginAllowed(origin string) bool {
 }
 
 // CORSByRoute manages CORS handlers per route
-type CORSByRoute struct {
-	byroute.Manager[*Handler]
-}
+type CORSByRoute = byroute.Factory[*Handler, config.CORSConfig]
 
 // NewCORSByRoute creates a new per-route CORS manager
 func NewCORSByRoute() *CORSByRoute {
-	return &CORSByRoute{}
+	return byroute.NewFactory(New, nil)
 }
 
-// AddRoute adds a CORS handler for a route
-func (m *CORSByRoute) AddRoute(routeID string, cfg config.CORSConfig) error {
-	h, err := New(cfg)
-	if err != nil {
-		return err
-	}
-	m.Add(routeID, h)
-	return nil
-}
-
-// GetHandler returns the CORS handler for a route
-func (m *CORSByRoute) GetHandler(routeID string) *Handler {
-	v, _ := m.Get(routeID)
-	return v
-}
 
 // Middleware returns a middleware that handles CORS preflight and applies response headers.
-func (h *Handler) Middleware() func(http.Handler) http.Handler {
+func (h *Handler) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if h.IsPreflight(r) {

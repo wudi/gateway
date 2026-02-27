@@ -183,32 +183,9 @@ func (te *TokenExchanger) Middleware() middleware.Middleware {
 }
 
 // TokenExchangeByRoute manages per-route token exchangers.
-type TokenExchangeByRoute struct {
-	byroute.Manager[*TokenExchanger]
-}
+type TokenExchangeByRoute = byroute.NamedFactory[*TokenExchanger, config.TokenExchangeConfig]
 
 // NewTokenExchangeByRoute creates a new manager.
 func NewTokenExchangeByRoute() *TokenExchangeByRoute {
-	return &TokenExchangeByRoute{}
-}
-
-// AddRoute registers a token exchanger for a route.
-func (m *TokenExchangeByRoute) AddRoute(routeID string, cfg config.TokenExchangeConfig) error {
-	te, err := New(routeID, cfg)
-	if err != nil {
-		return err
-	}
-	m.Add(routeID, te)
-	return nil
-}
-
-// GetExchanger returns the exchanger for a route, or nil if none.
-func (m *TokenExchangeByRoute) GetExchanger(routeID string) *TokenExchanger {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns exchange status for all routes.
-func (m *TokenExchangeByRoute) Stats() map[string]ExchangeStatus {
-	return byroute.CollectStats(&m.Manager, func(te *TokenExchanger) ExchangeStatus { return te.Status() })
+	return byroute.NewNamedFactory(New, func(te *TokenExchanger) any { return te.Status() })
 }

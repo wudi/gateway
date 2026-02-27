@@ -87,7 +87,7 @@ func TestTimeoutByRouteAddGetStats(t *testing.T) {
 		Idle:    60 * time.Second,
 	})
 
-	ct := m.GetTimeout("api")
+	ct := m.Lookup("api")
 	if ct == nil {
 		t.Fatal("expected compiled timeout for route api")
 	}
@@ -99,7 +99,7 @@ func TestTimeoutByRouteAddGetStats(t *testing.T) {
 	}
 
 	// Non-existent route
-	if m.GetTimeout("nonexistent") != nil {
+	if m.Lookup("nonexistent") != nil {
 		t.Error("expected nil for non-existent route")
 	}
 
@@ -114,10 +114,11 @@ func TestTimeoutByRouteAddGetStats(t *testing.T) {
 	if len(stats) != 1 {
 		t.Fatalf("expected 1 stat entry, got %d", len(stats))
 	}
-	s, ok := stats["api"]
+	sAny, ok := stats["api"]
 	if !ok {
 		t.Fatal("expected stats for route api")
 	}
+	s := sAny.(TimeoutStatus)
 	if s.Request != "30s" {
 		t.Errorf("expected Request '30s', got %q", s.Request)
 	}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/wudi/runway/config"
 	"github.com/wudi/runway/variables"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // NonceChecker validates request nonces for replay prevention.
@@ -167,6 +168,11 @@ func parseTimestamp(s string) (time.Time, error) {
 	return time.Unix(unix, 0), nil
 }
 
+// CloseStore releases the nonce store resources.
+func (nc *NonceChecker) CloseStore() {
+	nc.store.Close()
+}
+
 // MergeNonceConfig merges per-route config over global config.
 func MergeNonceConfig(perRoute, global config.NonceConfig) config.NonceConfig {
 	merged := config.MergeNonZero(global, perRoute)
@@ -175,7 +181,7 @@ func MergeNonceConfig(perRoute, global config.NonceConfig) config.NonceConfig {
 }
 
 // Middleware returns a middleware that checks nonce for replay prevention.
-func (nc *NonceChecker) Middleware() func(http.Handler) http.Handler {
+func (nc *NonceChecker) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			allowed, statusCode, msg := nc.Check(r)

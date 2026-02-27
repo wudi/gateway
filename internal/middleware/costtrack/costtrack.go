@@ -231,31 +231,11 @@ func ValidateWindow(window string) bool {
 }
 
 // CostByRoute manages per-route cost trackers.
-type CostByRoute struct {
-	byroute.Manager[*CostTracker]
-}
+type CostByRoute = byroute.Factory[*CostTracker, config.RequestCostConfig]
 
 // NewCostByRoute creates a new per-route cost tracker manager.
 func NewCostByRoute() *CostByRoute {
-	return &CostByRoute{}
-}
-
-// AddRoute adds a cost tracker for a route.
-func (m *CostByRoute) AddRoute(routeID string, cfg config.RequestCostConfig) {
-	m.Add(routeID, New(cfg))
-}
-
-// GetTracker returns the cost tracker for a route.
-func (m *CostByRoute) GetTracker(routeID string) *CostTracker {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route cost tracker stats.
-func (m *CostByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(ct *CostTracker) interface{} {
-		return ct.Stats()
-	})
+	return byroute.SimpleFactory(New, func(ct *CostTracker) any { return ct.Stats() })
 }
 
 // FormatBudgetKey returns a formatted budget key for display.

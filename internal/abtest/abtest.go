@@ -97,11 +97,6 @@ func (m *ABTestByRoute) AddRoute(routeID string, cfg config.ABTestConfig, wb *lo
 	m.Add(routeID, New(routeID, cfg, wb))
 }
 
-// GetTest returns the A/B test for a route, or nil.
-func (m *ABTestByRoute) GetTest(routeID string) *ABTest {
-	v, _ := m.Get(routeID)
-	return v
-}
 
 // Stats returns snapshots for all routes.
 func (m *ABTestByRoute) Stats() map[string]ABTestSnapshot {

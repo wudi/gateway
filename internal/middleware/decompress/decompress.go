@@ -14,6 +14,7 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // defaultMaxDecompressedSize is the default zip bomb protection limit (50 MB).
@@ -228,33 +229,15 @@ func MergeDecompressionConfig(perRoute, global config.RequestDecompressionConfig
 }
 
 // DecompressorByRoute manages decompressors per route.
-type DecompressorByRoute struct {
-	byroute.Manager[*Decompressor]
-}
+type DecompressorByRoute = byroute.Factory[*Decompressor, config.RequestDecompressionConfig]
 
 // NewDecompressorByRoute creates a new per-route decompressor manager.
 func NewDecompressorByRoute() *DecompressorByRoute {
-	return &DecompressorByRoute{}
-}
-
-// AddRoute adds a decompressor for a route.
-func (m *DecompressorByRoute) AddRoute(routeID string, cfg config.RequestDecompressionConfig) {
-	m.Add(routeID, New(cfg))
-}
-
-// GetDecompressor returns the decompressor for a route.
-func (m *DecompressorByRoute) GetDecompressor(routeID string) *Decompressor {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route decompression statistics.
-func (m *DecompressorByRoute) Stats() map[string]Snapshot {
-	return byroute.CollectStats(&m.Manager, func(d *Decompressor) Snapshot { return d.Stats() })
+	return byroute.SimpleFactory(New, func(d *Decompressor) any { return d.Stats() })
 }
 
 // Middleware returns a middleware that decompresses request bodies with Content-Encoding.
-func (d *Decompressor) Middleware() func(http.Handler) http.Handler {
+func (d *Decompressor) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if algo, ok := d.ShouldDecompress(r); ok {

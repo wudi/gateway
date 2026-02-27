@@ -24,11 +24,6 @@ func (m *BlueGreenByRoute) AddRoute(routeID string, cfg config.BlueGreenConfig, 
 	return nil
 }
 
-// GetController returns the controller for a route, or nil if none.
-func (m *BlueGreenByRoute) GetController(routeID string) *Controller {
-	v, _ := m.Get(routeID)
-	return v
-}
 
 // Stats returns snapshots for all routes.
 func (m *BlueGreenByRoute) Stats() map[string]Snapshot {
@@ -37,8 +32,5 @@ func (m *BlueGreenByRoute) Stats() map[string]Snapshot {
 
 // StopAll stops all controllers.
 func (m *BlueGreenByRoute) StopAll() {
-	m.Range(func(_ string, c *Controller) bool {
-		c.Stop()
-		return true
-	})
+	byroute.ForEach(&m.Manager, (*Controller).Stop)
 }

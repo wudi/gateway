@@ -223,7 +223,7 @@ func TestByRouteManager(t *testing.T) {
 		MaxWait:  10 * time.Second,
 	})
 
-	q := mgr.GetQueue("route1")
+	q := mgr.Lookup("route1")
 	if q == nil {
 		t.Fatal("expected queue for route1")
 	}
@@ -231,7 +231,7 @@ func TestByRouteManager(t *testing.T) {
 		t.Fatalf("expected maxDepth=50, got %d", q.maxDepth)
 	}
 
-	if mgr.GetQueue("nonexistent") != nil {
+	if mgr.Lookup("nonexistent") != nil {
 		t.Fatal("expected nil for nonexistent route")
 	}
 

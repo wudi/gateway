@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/byroute"
 )
 
 func TestQuotaEnforcer_AllowsWithinLimit(t *testing.T) {
@@ -248,7 +249,7 @@ func TestCurrentWindow_Yearly(t *testing.T) {
 }
 
 func TestQuotaByRoute(t *testing.T) {
-	m := NewQuotaByRoute()
+	m := NewQuotaByRoute(nil)
 
 	cfg := config.QuotaConfig{
 		Enabled: true,
@@ -256,12 +257,12 @@ func TestQuotaByRoute(t *testing.T) {
 		Period:  "daily",
 		Key:     "ip",
 	}
-	m.AddRoute("route1", cfg, nil)
+	m.AddRoute("route1", cfg)
 
-	if qe := m.GetEnforcer("route1"); qe == nil {
+	if qe := m.Lookup("route1"); qe == nil {
 		t.Error("expected enforcer for route1")
 	}
-	if qe := m.GetEnforcer("route2"); qe != nil {
+	if qe := m.Lookup("route2"); qe != nil {
 		t.Error("expected nil for route2")
 	}
 
@@ -270,12 +271,12 @@ func TestQuotaByRoute(t *testing.T) {
 		t.Errorf("unexpected route IDs: %v", ids)
 	}
 
-	stats := m.Stats()
+	stats := byroute.CollectStats(&m.Manager, func(qe *QuotaEnforcer) map[string]interface{} { return qe.Stats() })
 	if len(stats) != 1 {
 		t.Errorf("unexpected stats length: %d", len(stats))
 	}
 
-	m.CloseAll()
+	byroute.ForEach(&m.Manager, (*QuotaEnforcer).Close)
 }
 
 func TestValidateKey(t *testing.T) {

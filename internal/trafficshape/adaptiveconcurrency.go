@@ -224,37 +224,12 @@ func (al *AdaptiveLimiter) Snapshot() AdaptiveConcurrencySnapshot {
 }
 
 // AdaptiveConcurrencyByRoute manages per-route adaptive concurrency limiters.
-type AdaptiveConcurrencyByRoute struct {
-	byroute.Manager[*AdaptiveLimiter]
-}
+type AdaptiveConcurrencyByRoute = byroute.Factory[*AdaptiveLimiter, config.AdaptiveConcurrencyConfig]
 
 // NewAdaptiveConcurrencyByRoute creates a new manager.
 func NewAdaptiveConcurrencyByRoute() *AdaptiveConcurrencyByRoute {
-	return &AdaptiveConcurrencyByRoute{}
-}
-
-// AddRoute creates and stores an adaptive limiter for a route.
-func (m *AdaptiveConcurrencyByRoute) AddRoute(routeID string, cfg config.AdaptiveConcurrencyConfig) {
-	m.Add(routeID, NewAdaptiveLimiter(cfg))
-}
-
-// GetLimiter returns the adaptive limiter for a route, or nil.
-func (m *AdaptiveConcurrencyByRoute) GetLimiter(routeID string) *AdaptiveLimiter {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns snapshots for all routes.
-func (m *AdaptiveConcurrencyByRoute) Stats() map[string]AdaptiveConcurrencySnapshot {
-	return byroute.CollectStats(&m.Manager, func(l *AdaptiveLimiter) AdaptiveConcurrencySnapshot { return l.Snapshot() })
-}
-
-// StopAll stops all adaptive limiters.
-func (m *AdaptiveConcurrencyByRoute) StopAll() {
-	m.Range(func(_ string, l *AdaptiveLimiter) bool {
-		l.Stop()
-		return true
-	})
+	return byroute.SimpleFactory(NewAdaptiveLimiter, func(l *AdaptiveLimiter) any { return l.Snapshot() }).
+		WithClose((*AdaptiveLimiter).Stop)
 }
 
 // MergeAdaptiveConcurrencyConfig merges a route-level config with the global config as fallback.

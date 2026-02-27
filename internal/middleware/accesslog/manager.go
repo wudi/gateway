@@ -46,11 +46,6 @@ func (m *AccessLogByRoute) AddRoute(routeID string, cfg config.AccessLogConfig) 
 	return nil
 }
 
-// GetConfig returns the compiled access log config for a route, or nil.
-func (m *AccessLogByRoute) GetConfig(routeID string) *CompiledAccessLog {
-	v, _ := m.Get(routeID)
-	return v
-}
 
 // Stats returns admin-facing status for all routes.
 func (m *AccessLogByRoute) Stats() map[string]AccessLogStatus {

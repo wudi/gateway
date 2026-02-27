@@ -62,27 +62,9 @@ func (pl *ProxyLimiter) Stats() map[string]int64 {
 }
 
 // ProxyRateLimitByRoute manages per-route proxy rate limiters.
-type ProxyRateLimitByRoute struct {
-	byroute.Manager[*ProxyLimiter]
-}
+type ProxyRateLimitByRoute = byroute.Factory[*ProxyLimiter, config.ProxyRateLimitConfig]
 
 // NewProxyRateLimitByRoute creates a new per-route proxy rate limiter manager.
 func NewProxyRateLimitByRoute() *ProxyRateLimitByRoute {
-	return &ProxyRateLimitByRoute{}
-}
-
-// AddRoute adds a proxy rate limiter for a route.
-func (m *ProxyRateLimitByRoute) AddRoute(routeID string, cfg config.ProxyRateLimitConfig) {
-	m.Add(routeID, New(cfg))
-}
-
-// GetLimiter returns the proxy limiter for a route.
-func (m *ProxyRateLimitByRoute) GetLimiter(routeID string) *ProxyLimiter {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route proxy rate limit metrics.
-func (m *ProxyRateLimitByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(pl *ProxyLimiter) interface{} { return pl.Stats() })
+	return byroute.SimpleFactory(New, func(pl *ProxyLimiter) any { return pl.Stats() })
 }

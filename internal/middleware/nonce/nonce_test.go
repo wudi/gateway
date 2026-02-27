@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/variables"
 )
 
@@ -557,40 +558,40 @@ func TestMergeNonceConfig(t *testing.T) {
 }
 
 func TestNonceByRoute_AddAndGet(t *testing.T) {
-	m := NewNonceByRoute()
-	defer m.CloseAll()
+	m := NewNonceByRoute(nil)
+	defer byroute.ForEach(&m.Manager, func(nc *NonceChecker) { nc.CloseStore() })
 
 	err := m.AddRoute("route-1", config.NonceConfig{
 		Enabled:  true,
 		Required: true,
 		Header:   "X-Nonce",
 		TTL:      5 * time.Minute,
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	nc := m.GetChecker("route-1")
+	nc := m.Lookup("route-1")
 	if nc == nil {
 		t.Fatal("expected checker for route-1")
 	}
 
-	nc2 := m.GetChecker("route-nonexistent")
+	nc2 := m.Lookup("route-nonexistent")
 	if nc2 != nil {
 		t.Fatal("expected nil for nonexistent route")
 	}
 }
 
 func TestNonceByRoute_Stats(t *testing.T) {
-	m := NewNonceByRoute()
-	defer m.CloseAll()
+	m := NewNonceByRoute(nil)
+	defer byroute.ForEach(&m.Manager, func(nc *NonceChecker) { nc.CloseStore() })
 
 	m.AddRoute("route-1", config.NonceConfig{
 		Enabled:  true,
 		Required: true,
 		Header:   "X-Nonce",
 		TTL:      5 * time.Minute,
-	}, nil)
+	})
 
 	stats := m.Stats()
 	if len(stats) != 1 {
@@ -602,11 +603,11 @@ func TestNonceByRoute_Stats(t *testing.T) {
 }
 
 func TestNonceByRoute_RouteIDs(t *testing.T) {
-	m := NewNonceByRoute()
-	defer m.CloseAll()
+	m := NewNonceByRoute(nil)
+	defer byroute.ForEach(&m.Manager, func(nc *NonceChecker) { nc.CloseStore() })
 
-	m.AddRoute("a", config.NonceConfig{Enabled: true, Required: true, TTL: time.Minute}, nil)
-	m.AddRoute("b", config.NonceConfig{Enabled: true, Required: true, TTL: time.Minute}, nil)
+	m.AddRoute("a", config.NonceConfig{Enabled: true, Required: true, TTL: time.Minute})
+	m.AddRoute("b", config.NonceConfig{Enabled: true, Required: true, TTL: time.Minute})
 
 	ids := m.RouteIDs()
 	if len(ids) != 2 {

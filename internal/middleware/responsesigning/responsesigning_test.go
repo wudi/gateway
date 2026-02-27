@@ -244,7 +244,7 @@ func TestByRouteManager(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := m.GetSigner("route-1")
+	s := m.Lookup("route-1")
 	if s == nil {
 		t.Fatal("expected signer for route-1")
 	}
@@ -253,7 +253,7 @@ func TestByRouteManager(t *testing.T) {
 	}
 
 	// Non-existent route
-	if m.GetSigner("route-2") != nil {
+	if m.Lookup("route-2") != nil {
 		t.Error("expected nil for route-2")
 	}
 
@@ -290,7 +290,7 @@ func TestByRouteAddError(t *testing.T) {
 		t.Fatal("expected error for invalid secret")
 	}
 
-	if m.GetSigner("route-1") != nil {
+	if m.Lookup("route-1") != nil {
 		t.Error("signer should not be stored after error")
 	}
 }

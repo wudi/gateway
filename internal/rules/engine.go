@@ -1,13 +1,12 @@
 package rules
 
 import (
-	"fmt"
 	"sync"
 
 	lua "github.com/yuin/gopher-lua"
 
-	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/internal/logging"
 	"github.com/wudi/runway/internal/luautil"
 	"go.uber.org/zap"
@@ -186,33 +185,6 @@ func ruleInfos(rules []*CompiledRule) []RuleInfo {
 	return infos
 }
 
-// RulesByRoute manages per-route rule engines.
-type RulesByRoute struct {
-	byroute.Manager[*RuleEngine]
-}
-
-// NewRulesByRoute creates a new per-route rule manager.
-func NewRulesByRoute() *RulesByRoute {
-	return &RulesByRoute{}
-}
-
-// AddRoute compiles and stores rules for a route.
-func (rbr *RulesByRoute) AddRoute(routeID string, rules config.RulesConfig) error {
-	engine, err := NewEngine(rules.Request, rules.Response)
-	if err != nil {
-		return fmt.Errorf("route %s: %w", routeID, err)
-	}
-
-	rbr.Add(routeID, engine)
-	return nil
-}
-
-// GetEngine returns the rule engine for a route, or nil.
-func (rbr *RulesByRoute) GetEngine(routeID string) *RuleEngine {
-	v, _ := rbr.Get(routeID)
-	return v
-}
-
 // EngineStats is the admin API view of one rule engine.
 type EngineStats struct {
 	RequestRules  []RuleInfo      `json:"request_rules"`
@@ -220,13 +192,21 @@ type EngineStats struct {
 	Metrics       MetricsSnapshot `json:"metrics"`
 }
 
-// Stats returns admin API info for all routes.
-func (rbr *RulesByRoute) Stats() map[string]EngineStats {
-	return byroute.CollectStats(&rbr.Manager, func(engine *RuleEngine) EngineStats {
-		return EngineStats{
-			RequestRules:  engine.RequestRuleInfos(),
-			ResponseRules: engine.ResponseRuleInfos(),
-			Metrics:       engine.GetMetrics(),
-		}
-	})
+// RulesByRoute manages per-route rule engines.
+type RulesByRoute = byroute.Factory[*RuleEngine, config.RulesConfig]
+
+// NewRulesByRoute creates a new per-route rule manager.
+func NewRulesByRoute() *RulesByRoute {
+	return byroute.NewFactory(
+		func(cfg config.RulesConfig) (*RuleEngine, error) {
+			return NewEngine(cfg.Request, cfg.Response)
+		},
+		func(e *RuleEngine) any {
+			return EngineStats{
+				RequestRules:  e.RequestRuleInfos(),
+				ResponseRules: e.ResponseRuleInfos(),
+				Metrics:       e.GetMetrics(),
+			}
+		},
+	)
 }

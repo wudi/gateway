@@ -119,11 +119,6 @@ func (m *StaticByRoute) AddRoute(routeID string, root, index string, browse bool
 	return nil
 }
 
-// GetHandler returns the static file handler for a route.
-func (m *StaticByRoute) GetHandler(routeID string) *StaticFileHandler {
-	v, _ := m.Get(routeID)
-	return v
-}
 
 // Stats returns per-route static file stats.
 func (m *StaticByRoute) Stats() map[string]interface{} {

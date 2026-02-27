@@ -122,34 +122,11 @@ func (h *Handler) Stats() map[string]interface{} {
 }
 
 // DeprecationByRoute manages per-route deprecation handlers.
-type DeprecationByRoute struct {
-	byroute.Manager[*Handler]
-}
+type DeprecationByRoute = byroute.Factory[*Handler, config.DeprecationConfig]
 
 // NewDeprecationByRoute creates a new per-route deprecation manager.
 func NewDeprecationByRoute() *DeprecationByRoute {
-	return &DeprecationByRoute{}
-}
-
-// AddRoute adds a deprecation handler for a route.
-func (m *DeprecationByRoute) AddRoute(routeID string, cfg config.DeprecationConfig) error {
-	h, err := New(cfg)
-	if err != nil {
-		return err
-	}
-	m.Add(routeID, h)
-	return nil
-}
-
-// GetHandler returns the deprecation handler for a route.
-func (m *DeprecationByRoute) GetHandler(routeID string) *Handler {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route deprecation stats.
-func (m *DeprecationByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(h *Handler) interface{} { return h.Stats() })
+	return byroute.NewFactory(New, func(h *Handler) any { return h.Stats() })
 }
 
 // MergeDeprecationConfig returns per-route config if enabled, else global.

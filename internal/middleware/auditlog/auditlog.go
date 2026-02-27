@@ -401,39 +401,11 @@ func MergeAuditLogConfig(route, global config.AuditLogConfig) config.AuditLogCon
 // ---------------------------------------------------------------------------
 
 // AuditLogByRoute manages per-route audit loggers.
-type AuditLogByRoute struct {
-	byroute.Manager[*AuditLogger]
-}
+type AuditLogByRoute = byroute.NamedFactory[*AuditLogger, config.AuditLogConfig]
 
 // NewAuditLogByRoute creates a new per-route audit log manager.
 func NewAuditLogByRoute() *AuditLogByRoute {
-	return &AuditLogByRoute{}
-}
-
-// AddRoute creates and registers an AuditLogger for the given route.
-func (m *AuditLogByRoute) AddRoute(routeID string, cfg config.AuditLogConfig) error {
-	logger := New(routeID, cfg)
-	m.Add(routeID, logger)
-	return nil
-}
-
-// GetLogger returns the AuditLogger for the given route, or nil.
-func (m *AuditLogByRoute) GetLogger(routeID string) *AuditLogger {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// CloseAll closes all registered loggers, draining their queues.
-func (m *AuditLogByRoute) CloseAll() {
-	m.Range(func(_ string, al *AuditLogger) bool {
-		al.Close()
-		return true
-	})
-}
-
-// Stats returns per-route audit log statistics.
-func (m *AuditLogByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(al *AuditLogger) interface{} {
+	return byroute.SimpleNamedFactory(New, func(al *AuditLogger) any {
 		return al.Stats()
-	})
+	}).WithClose((*AuditLogger).Close)
 }

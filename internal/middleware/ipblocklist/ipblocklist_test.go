@@ -318,10 +318,10 @@ func TestBlocklistByRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if bl := m.GetBlocklist("route-1"); bl == nil {
+	if bl := m.Lookup("route-1"); bl == nil {
 		t.Error("expected blocklist for route-1")
 	}
-	if bl := m.GetBlocklist("route-2"); bl != nil {
+	if bl := m.Lookup("route-2"); bl != nil {
 		t.Error("expected nil for non-existent route-2")
 	}
 

@@ -9,7 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // RecordedRequest holds a snapshot of an HTTP request.
@@ -147,7 +149,7 @@ func (rec *Recorder) Snapshot() map[string]interface{} {
 }
 
 // RecordingMiddleware returns middleware that records matching requests.
-func (rec *Recorder) RecordingMiddleware() func(http.Handler) http.Handler {
+func (rec *Recorder) RecordingMiddleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if rec.recording.Load() && rec.shouldRecord(r) {
@@ -247,55 +249,9 @@ func (rec *Recorder) getReplayState() *replayState {
 }
 
 // ReplayByRoute manages Recorders per route.
-type ReplayByRoute struct {
-	mu        sync.RWMutex
-	recorders map[string]*Recorder
-}
+type ReplayByRoute = byroute.Factory[*Recorder, config.TrafficReplayConfig]
 
 // NewReplayByRoute creates a new ReplayByRoute manager.
 func NewReplayByRoute() *ReplayByRoute {
-	return &ReplayByRoute{
-		recorders: make(map[string]*Recorder),
-	}
-}
-
-// AddRoute creates and stores a Recorder for the given route.
-func (m *ReplayByRoute) AddRoute(id string, cfg config.TrafficReplayConfig) error {
-	rec, err := New(cfg)
-	if err != nil {
-		return err
-	}
-	m.mu.Lock()
-	m.recorders[id] = rec
-	m.mu.Unlock()
-	return nil
-}
-
-// GetRecorder returns the Recorder for the given route, or nil.
-func (m *ReplayByRoute) GetRecorder(id string) *Recorder {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.recorders[id]
-}
-
-// RouteIDs returns all route IDs with traffic replay configured.
-func (m *ReplayByRoute) RouteIDs() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	ids := make([]string, 0, len(m.recorders))
-	for id := range m.recorders {
-		ids = append(ids, id)
-	}
-	return ids
-}
-
-// Stats returns snapshot stats for all routes.
-func (m *ReplayByRoute) Stats() map[string]interface{} {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	result := make(map[string]interface{}, len(m.recorders))
-	for id, rec := range m.recorders {
-		result[id] = rec.Snapshot()
-	}
-	return result
+	return byroute.NewFactory(New, func(r *Recorder) any { return r.Snapshot() })
 }

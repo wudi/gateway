@@ -153,11 +153,6 @@ func (m *SOAPByRoute) AddRoute(routeID string, cfg config.SOAPProtocolConfig, tr
 	return nil
 }
 
-// GetHandler returns the handler for a route.
-func (m *SOAPByRoute) GetHandler(routeID string) *Handler {
-	v, _ := m.Get(routeID)
-	return v
-}
 
 // Stats returns per-route stats.
 func (m *SOAPByRoute) Stats() map[string]interface{} {

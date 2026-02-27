@@ -15,6 +15,7 @@ import (
 
 	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // Encoder decodes backend responses from a non-JSON format to JSON.
@@ -315,33 +316,15 @@ func isYAML(contentType string) bool {
 }
 
 // EncoderByRoute manages encoders per route.
-type EncoderByRoute struct {
-	byroute.Manager[*Encoder]
-}
+type EncoderByRoute = byroute.Factory[*Encoder, config.BackendEncodingConfig]
 
 // NewEncoderByRoute creates a new encoder manager.
 func NewEncoderByRoute() *EncoderByRoute {
-	return &EncoderByRoute{}
-}
-
-// AddRoute adds an encoder for a route.
-func (br *EncoderByRoute) AddRoute(routeID string, cfg config.BackendEncodingConfig) {
-	br.Add(routeID, New(cfg))
-}
-
-// GetEncoder returns the encoder for a route.
-func (br *EncoderByRoute) GetEncoder(routeID string) *Encoder {
-	v, _ := br.Get(routeID)
-	return v
-}
-
-// Stats returns encoder statistics for all routes.
-func (br *EncoderByRoute) Stats() map[string]Snapshot {
-	return byroute.CollectStats(&br.Manager, func(e *Encoder) Snapshot { return e.Stats() })
+	return byroute.SimpleFactory(New, func(e *Encoder) any { return e.Stats() })
 }
 
 // Middleware returns a middleware that decodes XML/YAML backend responses to JSON.
-func (enc *Encoder) Middleware() func(http.Handler) http.Handler {
+func (enc *Encoder) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			bw := &backendEncWriter{

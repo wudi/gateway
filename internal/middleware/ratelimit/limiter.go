@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/internal/errors"
 	"github.com/wudi/runway/internal/middleware"
 	"github.com/wudi/runway/variables"
@@ -372,174 +372,119 @@ func (tl *TieredLimiter) Middleware() middleware.Middleware {
 	}
 }
 
-// RateLimitByRoute creates a map of rate limiters per route
-type RateLimitByRoute struct {
-	limiters      map[string]*Limiter
-	distributed   map[string]*RedisLimiter
-	slidingWindow map[string]*SlidingWindowLimiter
-	tiered        map[string]*TieredLimiter
-	mu            sync.RWMutex
+// rateLimiterVariant wraps different rate limiter implementations behind a single type.
+type rateLimiterVariant struct {
+	algorithm string                // "token_bucket", "sliding_window", "tiered"
+	mode      string                // "local" or "distributed"
+	local     *Limiter              // set for token_bucket
+	sliding   *SlidingWindowLimiter // set for local sliding_window
+	redis     *RedisLimiter         // set for distributed sliding_window
+	tiered    *TieredLimiter        // set for tiered
 }
 
-// NewRateLimitByRoute creates a new route-based rate limiter
+func (v *rateLimiterVariant) Middleware() middleware.Middleware {
+	switch {
+	case v.tiered != nil:
+		return v.tiered.Middleware()
+	case v.redis != nil:
+		return v.redis.Middleware()
+	case v.sliding != nil:
+		return v.sliding.Middleware()
+	default:
+		return v.local.Middleware()
+	}
+}
+
+// RateLimitByRoute manages per-route rate limiters backed by byroute.Manager.
+type RateLimitByRoute struct {
+	byroute.Manager[*rateLimiterVariant]
+}
+
+// NewRateLimitByRoute creates a new route-based rate limiter.
 func NewRateLimitByRoute() *RateLimitByRoute {
 	return &RateLimitByRoute{}
 }
 
-// AddRoute adds a rate limiter for a specific route
+// AddRoute adds a token-bucket rate limiter for a specific route.
 func (rl *RateLimitByRoute) AddRoute(routeID string, cfg Config) {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-	if rl.limiters == nil {
-		rl.limiters = make(map[string]*Limiter)
-	}
-	rl.limiters[routeID] = NewLimiter(cfg)
+	rl.Add(routeID, &rateLimiterVariant{
+		algorithm: "token_bucket",
+		mode:      "local",
+		local:     NewLimiter(cfg),
+	})
 }
 
 // AddRouteDistributed adds a Redis-backed rate limiter for a specific route.
 func (rl *RateLimitByRoute) AddRouteDistributed(routeID string, cfg RedisLimiterConfig) {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-	if rl.distributed == nil {
-		rl.distributed = make(map[string]*RedisLimiter)
-	}
-	rl.distributed[routeID] = NewRedisLimiter(cfg)
+	rl.Add(routeID, &rateLimiterVariant{
+		algorithm: "sliding_window",
+		mode:      "distributed",
+		redis:     NewRedisLimiter(cfg),
+	})
 }
 
 // AddRouteSlidingWindow adds a sliding window rate limiter for a specific route.
 func (rl *RateLimitByRoute) AddRouteSlidingWindow(routeID string, cfg Config) {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-	if rl.slidingWindow == nil {
-		rl.slidingWindow = make(map[string]*SlidingWindowLimiter)
-	}
-	rl.slidingWindow[routeID] = NewSlidingWindowLimiter(cfg)
+	rl.Add(routeID, &rateLimiterVariant{
+		algorithm: "sliding_window",
+		mode:      "local",
+		sliding:   NewSlidingWindowLimiter(cfg),
+	})
 }
 
 // AddRouteTiered adds a tiered rate limiter for a specific route.
 func (rl *RateLimitByRoute) AddRouteTiered(routeID string, cfg TieredConfig) {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-	if rl.tiered == nil {
-		rl.tiered = make(map[string]*TieredLimiter)
-	}
-	rl.tiered[routeID] = NewTieredLimiter(cfg)
+	rl.Add(routeID, &rateLimiterVariant{
+		algorithm: "tiered",
+		mode:      "local",
+		tiered:    NewTieredLimiter(cfg),
+	})
 }
 
-// RouteIDs returns all route IDs with rate limiters.
-func (rl *RateLimitByRoute) RouteIDs() []string {
-	rl.mu.RLock()
-	defer rl.mu.RUnlock()
-	seen := make(map[string]bool)
-	var ids []string
-	for id := range rl.limiters {
-		if !seen[id] {
-			ids = append(ids, id)
-			seen[id] = true
-		}
-	}
-	for id := range rl.distributed {
-		if !seen[id] {
-			ids = append(ids, id)
-			seen[id] = true
-		}
-	}
-	for id := range rl.slidingWindow {
-		if !seen[id] {
-			ids = append(ids, id)
-			seen[id] = true
-		}
-	}
-	for id := range rl.tiered {
-		if !seen[id] {
-			ids = append(ids, id)
-			seen[id] = true
-		}
-	}
-	return ids
-}
-
-// GetSlidingWindowLimiter returns the sliding window rate limiter for a route.
-func (rl *RateLimitByRoute) GetSlidingWindowLimiter(routeID string) *SlidingWindowLimiter {
-	rl.mu.RLock()
-	defer rl.mu.RUnlock()
-	return rl.slidingWindow[routeID]
-}
-
-// GetLimiter returns the local rate limiter for a route
+// GetLimiter returns the local token-bucket rate limiter for a route, or nil.
 func (rl *RateLimitByRoute) GetLimiter(routeID string) *Limiter {
-	rl.mu.RLock()
-	defer rl.mu.RUnlock()
-	return rl.limiters[routeID]
-}
-
-// GetDistributedLimiter returns the Redis rate limiter for a route.
-func (rl *RateLimitByRoute) GetDistributedLimiter(routeID string) *RedisLimiter {
-	rl.mu.RLock()
-	defer rl.mu.RUnlock()
-	return rl.distributed[routeID]
-}
-
-// GetTieredLimiter returns the tiered rate limiter for a route.
-func (rl *RateLimitByRoute) GetTieredLimiter(routeID string) *TieredLimiter {
-	rl.mu.RLock()
-	defer rl.mu.RUnlock()
-	return rl.tiered[routeID]
-}
-
-// GetMiddleware returns the appropriate middleware for a route (tiered > distributed > sliding_window > token_bucket).
-func (rl *RateLimitByRoute) GetMiddleware(routeID string) middleware.Middleware {
-	rl.mu.RLock()
-	defer rl.mu.RUnlock()
-	if tl, ok := rl.tiered[routeID]; ok {
-		return tl.Middleware()
-	}
-	if dl, ok := rl.distributed[routeID]; ok {
-		return dl.Middleware()
-	}
-	if sw, ok := rl.slidingWindow[routeID]; ok {
-		return sw.Middleware()
-	}
-	if l, ok := rl.limiters[routeID]; ok {
-		return l.Middleware()
+	if v := rl.Lookup(routeID); v != nil {
+		return v.local
 	}
 	return nil
 }
 
-// Middleware creates a middleware that rate limits based on route
-func (rl *RateLimitByRoute) Middleware() middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			varCtx := variables.GetFromRequest(r)
-			routeID := varCtx.RouteID
-
-			rl.mu.RLock()
-			limiter, exists := rl.limiters[routeID]
-			rl.mu.RUnlock()
-
-			if !exists || limiter == nil {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			key := limiter.keyFn(r)
-			allowed, remaining, resetTime := limiter.tb.Allow(key)
-
-			w.Header().Set("X-RateLimit-Limit", limiter.tb.burstStr)
-			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(remaining))
-			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(resetTime.Unix(), 10))
-
-			if !allowed {
-				retryAfter := int(time.Until(resetTime).Seconds())
-				if retryAfter < 1 {
-					retryAfter = 1
-				}
-				w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
-				errors.ErrTooManyRequests.WriteJSON(w)
-				return
-			}
-
-			next.ServeHTTP(w, r)
-		})
+// GetDistributedLimiter returns the Redis rate limiter for a route, or nil.
+func (rl *RateLimitByRoute) GetDistributedLimiter(routeID string) *RedisLimiter {
+	if v := rl.Lookup(routeID); v != nil {
+		return v.redis
 	}
+	return nil
+}
+
+// GetSlidingWindowLimiter returns the sliding window rate limiter for a route, or nil.
+func (rl *RateLimitByRoute) GetSlidingWindowLimiter(routeID string) *SlidingWindowLimiter {
+	if v := rl.Lookup(routeID); v != nil {
+		return v.sliding
+	}
+	return nil
+}
+
+// GetTieredLimiter returns the tiered rate limiter for a route, or nil.
+func (rl *RateLimitByRoute) GetTieredLimiter(routeID string) *TieredLimiter {
+	if v := rl.Lookup(routeID); v != nil {
+		return v.tiered
+	}
+	return nil
+}
+
+// GetMiddleware returns the middleware for a route, or nil if no limiter is configured.
+func (rl *RateLimitByRoute) GetMiddleware(routeID string) middleware.Middleware {
+	if v := rl.Lookup(routeID); v != nil {
+		return v.Middleware()
+	}
+	return nil
+}
+
+// LimiterInfo returns the mode and algorithm for a route's rate limiter.
+func (rl *RateLimitByRoute) LimiterInfo(routeID string) (mode, algorithm string) {
+	if v := rl.Lookup(routeID); v != nil {
+		return v.mode, v.algorithm
+	}
+	return "", ""
 }

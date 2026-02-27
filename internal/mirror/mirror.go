@@ -13,6 +13,7 @@ import (
 	"github.com/wudi/runway/config"
 	"github.com/wudi/runway/internal/logging"
 	"go.uber.org/zap"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // Mirror handles traffic mirroring/shadowing for a route
@@ -302,11 +303,6 @@ func (m *MirrorByRoute) AddRoute(routeID string, cfg config.MirrorConfig) error 
 	return nil
 }
 
-// GetMirror returns the mirror for a route
-func (m *MirrorByRoute) GetMirror(routeID string) *Mirror {
-	v, _ := m.Get(routeID)
-	return v
-}
 
 // Stats returns a snapshot of metrics for all routes.
 func (m *MirrorByRoute) Stats() map[string]MirrorSnapshot {
@@ -321,7 +317,7 @@ func (m *MirrorByRoute) Stats() map[string]MirrorSnapshot {
 
 // GetMismatchSnapshot returns a mismatch snapshot for a route.
 func (m *MirrorByRoute) GetMismatchSnapshot(routeID string) *MismatchSnapshot {
-	mir := m.GetMirror(routeID)
+	mir := m.Lookup(routeID)
 	if mir == nil || mir.mismatchStore == nil {
 		return nil
 	}
@@ -331,7 +327,7 @@ func (m *MirrorByRoute) GetMismatchSnapshot(routeID string) *MismatchSnapshot {
 
 // ClearMismatches clears the mismatch store for a route.
 func (m *MirrorByRoute) ClearMismatches(routeID string) bool {
-	mir := m.GetMirror(routeID)
+	mir := m.Lookup(routeID)
 	if mir == nil || mir.mismatchStore == nil {
 		return false
 	}
@@ -340,7 +336,7 @@ func (m *MirrorByRoute) ClearMismatches(routeID string) bool {
 }
 
 // Middleware returns a middleware that buffers the request body and sends mirrored requests async.
-func (m *Mirror) Middleware() func(http.Handler) http.Handler {
+func (m *Mirror) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !m.ShouldMirror(r) {

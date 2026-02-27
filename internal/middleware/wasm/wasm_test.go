@@ -331,7 +331,7 @@ func TestRequestPhase_NoOp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	chain := mgr.GetChain("test-route")
+	chain := mgr.Lookup("test-route")
 	if chain == nil {
 		t.Fatal("expected chain")
 	}
@@ -381,7 +381,7 @@ func TestRequestPhase_SetHeader(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	chain := mgr.GetChain("test-route")
+	chain := mgr.Lookup("test-route")
 	mw := chain.RequestMiddleware()
 
 	var gotHeader string
@@ -420,7 +420,7 @@ func TestSendResponse_EarlyTermination(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	chain := mgr.GetChain("test-route")
+	chain := mgr.Lookup("test-route")
 	mw := chain.RequestMiddleware()
 
 	var backendCalled bool
@@ -465,7 +465,7 @@ func TestResponsePhase_NoOp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	chain := mgr.GetChain("test-route")
+	chain := mgr.Lookup("test-route")
 	mw := chain.ResponseMiddleware()
 	if mw == nil {
 		t.Fatal("expected response middleware")
@@ -518,7 +518,7 @@ func TestPoolBorrowReturn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	chain := mgr.GetChain("test")
+	chain := mgr.Lookup("test")
 	if chain == nil || len(chain.plugins) == 0 {
 		t.Fatal("expected plugin chain")
 	}
@@ -566,7 +566,7 @@ func TestMultiplePlugins_Chain(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	chain := mgr.GetChain("test-route")
+	chain := mgr.Lookup("test-route")
 	if chain == nil || len(chain.plugins) != 2 {
 		t.Fatalf("expected 2 plugins, got %v", chain)
 	}
@@ -665,11 +665,11 @@ func TestByRoute_Manager(t *testing.T) {
 	}
 
 	// GetChain
-	chain := mgr.GetChain("route-a")
+	chain := mgr.Lookup("route-a")
 	if chain == nil {
 		t.Fatal("expected chain for route-a")
 	}
-	if chain2 := mgr.GetChain("nonexistent"); chain2 != nil {
+	if chain2 := mgr.Lookup("nonexistent"); chain2 != nil {
 		t.Error("expected nil for nonexistent route")
 	}
 
@@ -711,7 +711,7 @@ func TestDisabledPlugin(t *testing.T) {
 	}
 
 	// No chain should be created for disabled-only plugins
-	chain := mgr.GetChain("test")
+	chain := mgr.Lookup("test")
 	if chain != nil {
 		t.Error("expected nil chain for all-disabled plugins")
 	}
@@ -732,7 +732,7 @@ func TestBothPhase(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	chain := mgr.GetChain("test")
+	chain := mgr.Lookup("test")
 	if chain == nil {
 		t.Fatal("expected chain")
 	}
@@ -777,7 +777,7 @@ func TestRequestBody_Passthrough(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	chain := mgr.GetChain("test")
+	chain := mgr.Lookup("test")
 	mw := chain.RequestMiddleware()
 
 	var gotBody string

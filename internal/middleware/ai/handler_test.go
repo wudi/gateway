@@ -371,11 +371,11 @@ func TestAIByRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := mgr.GetHandler("route-1")
+	h := mgr.Lookup("route-1")
 	if h == nil {
 		t.Fatal("expected handler for route-1")
 	}
-	if mgr.GetHandler("nonexistent") != nil {
+	if mgr.Lookup("nonexistent") != nil {
 		t.Error("expected nil for nonexistent route")
 	}
 

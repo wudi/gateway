@@ -304,7 +304,7 @@ func TestSSEByRouteStats(t *testing.T) {
 		t.Fatalf("expected 2 routes, got %d", len(mgr.RouteIDs()))
 	}
 
-	h := mgr.GetHandler("route1")
+	h := mgr.Lookup("route1")
 	if h == nil {
 		t.Fatal("expected handler for route1")
 	}

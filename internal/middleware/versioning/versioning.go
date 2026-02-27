@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/internal/middleware"
 	"github.com/wudi/runway/variables"
 )
 
@@ -190,7 +192,7 @@ func (v *Versioner) Snapshot() VersioningSnapshot {
 
 // Middleware returns a middleware that detects the API version, sets it in context,
 // strips prefix if configured, and injects deprecation headers.
-func (v *Versioner) Middleware() func(http.Handler) http.Handler {
+func (v *Versioner) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			version := v.DetectVersion(r)
@@ -201,4 +203,12 @@ func (v *Versioner) Middleware() func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// VersioningByRoute manages per-route versioners.
+type VersioningByRoute = byroute.Factory[*Versioner, config.VersioningConfig]
+
+// NewVersioningByRoute creates a new manager.
+func NewVersioningByRoute() *VersioningByRoute {
+	return byroute.NewFactory(New, func(v *Versioner) any { return v.Snapshot() })
 }
