@@ -153,10 +153,10 @@ func TestFaultInjectionByRoute(t *testing.T) {
 		Abort:   config.FaultAbortConfig{Percentage: 100, StatusCode: 500},
 	})
 
-	if fi := m.GetInjector("r1"); fi == nil {
+	if fi := m.Lookup("r1"); fi == nil {
 		t.Fatal("expected non-nil injector for r1")
 	}
-	if fi := m.GetInjector("r2"); fi != nil {
+	if fi := m.Lookup("r2"); fi != nil {
 		t.Fatal("expected nil injector for r2")
 	}
 

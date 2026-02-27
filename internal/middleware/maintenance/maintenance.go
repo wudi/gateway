@@ -9,6 +9,7 @@ import (
 
 	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // CompiledMaintenance holds pre-compiled maintenance mode state for a route.
@@ -177,33 +178,15 @@ func MergeMaintenanceConfig(perRoute, global config.MaintenanceConfig) config.Ma
 }
 
 // MaintenanceByRoute is a ByRoute manager for per-route maintenance mode.
-type MaintenanceByRoute struct {
-	byroute.Manager[*CompiledMaintenance]
-}
+type MaintenanceByRoute = byroute.Factory[*CompiledMaintenance, config.MaintenanceConfig]
 
 // NewMaintenanceByRoute creates a new manager.
 func NewMaintenanceByRoute() *MaintenanceByRoute {
-	return &MaintenanceByRoute{}
-}
-
-// AddRoute adds compiled maintenance mode for a route.
-func (m *MaintenanceByRoute) AddRoute(routeID string, cfg config.MaintenanceConfig) {
-	m.Add(routeID, New(cfg))
-}
-
-// GetMaintenance returns the compiled maintenance for a route, or nil.
-func (m *MaintenanceByRoute) GetMaintenance(routeID string) *CompiledMaintenance {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route snapshots.
-func (m *MaintenanceByRoute) Stats() map[string]Snapshot {
-	return byroute.CollectStats(&m.Manager, func(h *CompiledMaintenance) Snapshot { return h.Snapshot() })
+	return byroute.SimpleFactory(New, func(h *CompiledMaintenance) any { return h.Snapshot() })
 }
 
 // Middleware returns a middleware that short-circuits with a maintenance response when active.
-func (cm *CompiledMaintenance) Middleware() func(http.Handler) http.Handler {
+func (cm *CompiledMaintenance) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if cm.ShouldBlock(r) {

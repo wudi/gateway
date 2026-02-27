@@ -13,6 +13,7 @@ import (
 	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/config"
 	"github.com/wudi/runway/internal/errors"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // ValidationMetrics tracks validation counters.
@@ -212,34 +213,11 @@ func RejectValidation(w http.ResponseWriter, err error) {
 }
 
 // ValidatorByRoute manages validators per route.
-type ValidatorByRoute struct {
-	byroute.Manager[*Validator]
-}
+type ValidatorByRoute = byroute.Factory[*Validator, config.ValidationConfig]
 
 // NewValidatorByRoute creates a new per-route validator manager.
 func NewValidatorByRoute() *ValidatorByRoute {
-	return &ValidatorByRoute{}
-}
-
-// AddRoute adds a validator for a route.
-func (m *ValidatorByRoute) AddRoute(routeID string, cfg config.ValidationConfig) error {
-	v, err := New(cfg)
-	if err != nil {
-		return err
-	}
-	m.Add(routeID, v)
-	return nil
-}
-
-// GetValidator returns the validator for a route.
-func (m *ValidatorByRoute) GetValidator(routeID string) *Validator {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route validation metrics.
-func (m *ValidatorByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(v *Validator) interface{} {
+	return byroute.NewFactory(New, func(v *Validator) any {
 		return map[string]interface{}{
 			"enabled":             v.enabled,
 			"has_request_schema":  v.requestSchema != nil,
@@ -251,7 +229,7 @@ func (m *ValidatorByRoute) Stats() map[string]interface{} {
 }
 
 // Middleware returns a middleware that validates the request body against a schema.
-func (v *Validator) Middleware() func(http.Handler) http.Handler {
+func (v *Validator) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if err := v.Validate(r); err != nil {

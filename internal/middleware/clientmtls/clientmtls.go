@@ -128,34 +128,11 @@ func MergeClientMTLSConfig(route, global config.ClientMTLSConfig) config.ClientM
 }
 
 // ClientMTLSByRoute manages per-route client mTLS verifiers.
-type ClientMTLSByRoute struct {
-	byroute.Manager[*ClientMTLSVerifier]
-}
+type ClientMTLSByRoute = byroute.Factory[*ClientMTLSVerifier, config.ClientMTLSConfig]
 
 // NewClientMTLSByRoute creates a new per-route client mTLS manager.
 func NewClientMTLSByRoute() *ClientMTLSByRoute {
-	return &ClientMTLSByRoute{}
-}
-
-// AddRoute adds a client mTLS verifier for a route.
-func (m *ClientMTLSByRoute) AddRoute(routeID string, cfg config.ClientMTLSConfig) error {
-	v, err := New(cfg)
-	if err != nil {
-		return err
-	}
-	m.Add(routeID, v)
-	return nil
-}
-
-// GetVerifier returns the client mTLS verifier for a route.
-func (m *ClientMTLSByRoute) GetVerifier(routeID string) *ClientMTLSVerifier {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route verification metrics.
-func (m *ClientMTLSByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(v *ClientMTLSVerifier) interface{} {
+	return byroute.NewFactory(New, func(v *ClientMTLSVerifier) any {
 		return map[string]interface{}{
 			"verified": v.Verified(),
 			"rejected": v.Rejected(),

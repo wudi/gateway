@@ -399,36 +399,11 @@ func compileCondition(cfg *config.ConditionConfig) (*compiledCondition, error) {
 // --- ByRoute Manager ---
 
 // ModifiersByRoute manages per-route modifier chains.
-type ModifiersByRoute struct {
-	byroute.Manager[*ModifierChain]
-}
+type ModifiersByRoute = byroute.Factory[*ModifierChain, []config.ModifierConfig]
 
 // NewModifiersByRoute creates a new per-route modifier manager.
 func NewModifiersByRoute() *ModifiersByRoute {
-	return &ModifiersByRoute{}
-}
-
-// AddRoute compiles and adds a modifier chain for a route.
-func (m *ModifiersByRoute) AddRoute(routeID string, cfgs []config.ModifierConfig) error {
-	chain, err := Compile(cfgs)
-	if err != nil {
-		return err
-	}
-	m.Add(routeID, chain)
-	return nil
-}
-
-// GetChain returns the modifier chain for a route.
-func (m *ModifiersByRoute) GetChain(routeID string) *ModifierChain {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route modifier stats.
-func (m *ModifiersByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(mc *ModifierChain) interface{} {
-		return mc.Stats()
-	})
+	return byroute.NewFactory(Compile, func(mc *ModifierChain) any { return mc.Stats() })
 }
 
 // Ensure unused imports don't cause issues.

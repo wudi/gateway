@@ -125,29 +125,13 @@ func (q *RequestQueue) Snapshot() QueueSnapshot {
 }
 
 // RequestQueueByRoute manages per-route request queues.
-type RequestQueueByRoute struct {
-	byroute.Manager[*RequestQueue]
-}
+type RequestQueueByRoute = byroute.Factory[*RequestQueue, config.RequestQueueConfig]
 
 // NewRequestQueueByRoute creates a new RequestQueueByRoute.
 func NewRequestQueueByRoute() *RequestQueueByRoute {
-	return &RequestQueueByRoute{}
-}
-
-// AddRoute creates and stores a request queue for a route.
-func (m *RequestQueueByRoute) AddRoute(routeID string, cfg config.RequestQueueConfig) {
-	m.Add(routeID, New(cfg.MaxDepth, cfg.MaxWait))
-}
-
-// GetQueue returns the request queue for a route, or nil.
-func (m *RequestQueueByRoute) GetQueue(routeID string) *RequestQueue {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns snapshots for all routes.
-func (m *RequestQueueByRoute) Stats() map[string]QueueSnapshot {
-	return byroute.CollectStats(&m.Manager, func(q *RequestQueue) QueueSnapshot { return q.Snapshot() })
+	return byroute.SimpleFactory(func(cfg config.RequestQueueConfig) *RequestQueue {
+		return New(cfg.MaxDepth, cfg.MaxWait)
+	}, func(q *RequestQueue) any { return q.Snapshot() })
 }
 
 // MergeRequestQueueConfig merges a route-level request queue config with the global config as fallback.

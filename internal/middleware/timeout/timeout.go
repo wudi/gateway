@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/internal/middleware"
 	"github.com/wudi/runway/variables"
 )
 
@@ -46,7 +48,7 @@ func (ct *CompiledTimeout) Metrics() TimeoutSnapshot {
 // Middleware returns an HTTP middleware that enforces the request-level timeout.
 // It sets context.WithTimeout on the request context and wraps the ResponseWriter
 // to inject a Retry-After header on 504 responses.
-func (ct *CompiledTimeout) Middleware() func(http.Handler) http.Handler {
+func (ct *CompiledTimeout) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		// If no request timeout is configured, pass through
 		if ct.Request <= 0 {
@@ -108,4 +110,41 @@ func (w *retryAfterWriter) Flush() {
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// TimeoutStatus describes the timeout configuration and metrics for a route.
+type TimeoutStatus struct {
+	Request       string          `json:"request,omitempty"`
+	Idle          string          `json:"idle,omitempty"`
+	Backend       string          `json:"backend,omitempty"`
+	HeaderTimeout string          `json:"header_timeout,omitempty"`
+	Metrics       TimeoutSnapshot `json:"metrics"`
+}
+
+// Status returns the admin API snapshot for this timeout configuration.
+func (ct *CompiledTimeout) Status() TimeoutStatus {
+	s := TimeoutStatus{Metrics: ct.Metrics()}
+	if ct.Request > 0 {
+		s.Request = ct.Request.String()
+	}
+	if ct.Idle > 0 {
+		s.Idle = ct.Idle.String()
+	}
+	if ct.Backend > 0 {
+		s.Backend = ct.Backend.String()
+	}
+	if ct.HeaderTimeout > 0 {
+		s.HeaderTimeout = ct.HeaderTimeout.String()
+	}
+	return s
+}
+
+// TimeoutByRoute manages per-route compiled timeouts.
+type TimeoutByRoute = byroute.Factory[*CompiledTimeout, config.TimeoutConfig]
+
+// NewTimeoutByRoute creates a new timeout manager.
+func NewTimeoutByRoute() *TimeoutByRoute {
+	return byroute.SimpleFactory(New, func(ct *CompiledTimeout) any {
+		return ct.Status()
+	})
 }

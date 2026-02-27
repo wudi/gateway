@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/internal/logging"
 	"github.com/wudi/runway/variables"
 	"go.uber.org/zap"
@@ -258,4 +259,41 @@ func MergeGeoConfig(perRoute, global config.GeoConfig) config.GeoConfig {
 		merged.InjectHeaders = global.InjectHeaders
 	}
 	return merged
+}
+
+// GeoByRoute manages per-route geo filters.
+type GeoByRoute struct {
+	byroute.Manager[*CompiledGeo]
+	provider Provider
+}
+
+// NewGeoByRoute creates a new GeoByRoute manager.
+// Call SetProvider before AddRoute to supply the geo provider.
+func NewGeoByRoute() *GeoByRoute {
+	return &GeoByRoute{}
+}
+
+// SetProvider sets the geo provider used by subsequent AddRoute calls.
+func (m *GeoByRoute) SetProvider(p Provider) {
+	m.provider = p
+}
+
+// AddRoute creates and registers a geo filter for the given route.
+func (m *GeoByRoute) AddRoute(routeID string, cfg config.GeoConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+
+	g, err := New(routeID, cfg, m.provider)
+	if err != nil {
+		return err
+	}
+
+	m.Add(routeID, g)
+	return nil
+}
+
+// Stats returns admin status for all routes.
+func (m *GeoByRoute) Stats() map[string]GeoSnapshot {
+	return byroute.CollectStats(&m.Manager, func(g *CompiledGeo) GeoSnapshot { return g.Status() })
 }

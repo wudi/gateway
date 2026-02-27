@@ -312,37 +312,11 @@ func (sw *sseResponseWriter) close() {
 }
 
 // SSEByRoute manages per-route SSE handlers.
-type SSEByRoute struct {
-	byroute.Manager[*SSEHandler]
-}
+type SSEByRoute = byroute.Factory[*SSEHandler, config.SSEConfig]
 
 // NewSSEByRoute creates a new per-route SSE handler manager.
 func NewSSEByRoute() *SSEByRoute {
-	return &SSEByRoute{}
-}
-
-// AddRoute adds an SSE handler for a route.
-func (m *SSEByRoute) AddRoute(routeID string, cfg config.SSEConfig) {
-	m.Add(routeID, New(cfg))
-}
-
-// GetHandler returns the SSE handler for a route.
-func (m *SSEByRoute) GetHandler(routeID string) *SSEHandler {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route SSE stats.
-func (m *SSEByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(h *SSEHandler) interface{} {
+	return byroute.SimpleFactory(New, func(h *SSEHandler) any {
 		return h.Stats()
-	})
-}
-
-// StopAllHubs stops all fan-out hubs across all routes.
-func (m *SSEByRoute) StopAllHubs() {
-	m.Range(func(id string, h *SSEHandler) bool {
-		h.StopHub()
-		return true
-	})
+	}).WithClose((*SSEHandler).StopHub)
 }

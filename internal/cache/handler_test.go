@@ -243,17 +243,17 @@ func TestCacheByRoute(t *testing.T) {
 		MaxSize: 50,
 	})
 
-	h1 := cbr.GetHandler("route1")
+	h1 := cbr.Lookup("route1")
 	if h1 == nil {
 		t.Fatal("expected handler for route1")
 	}
 
-	h2 := cbr.GetHandler("route2")
+	h2 := cbr.Lookup("route2")
 	if h2 == nil {
 		t.Fatal("expected handler for route2")
 	}
 
-	h3 := cbr.GetHandler("route3")
+	h3 := cbr.Lookup("route3")
 	if h3 != nil {
 		t.Fatal("expected nil for non-existent route3")
 	}
@@ -568,8 +568,8 @@ func TestSharedBucket_SameStore(t *testing.T) {
 		Bucket:  "shared",
 	})
 
-	h1 := cbr.GetHandler("route1")
-	h2 := cbr.GetHandler("route2")
+	h1 := cbr.Lookup("route1")
+	h2 := cbr.Lookup("route2")
 
 	// Store via route1
 	req := httptest.NewRequest("GET", "/api/data", nil)
@@ -599,8 +599,8 @@ func TestSharedBucket_DifferentBucket(t *testing.T) {
 		Bucket:  "bucket_b",
 	})
 
-	h1 := cbr.GetHandler("route1")
-	h2 := cbr.GetHandler("route2")
+	h1 := cbr.Lookup("route1")
+	h2 := cbr.Lookup("route2")
 
 	req := httptest.NewRequest("GET", "/api/data", nil)
 	h1.Store(req, &Entry{StatusCode: 200, Body: []byte(`{"from":"route1"}`)})
@@ -624,8 +624,8 @@ func TestSharedBucket_NoBucket(t *testing.T) {
 		MaxSize: 100,
 	})
 
-	h1 := cbr.GetHandler("route1")
-	h2 := cbr.GetHandler("route2")
+	h1 := cbr.Lookup("route1")
+	h2 := cbr.Lookup("route2")
 
 	req := httptest.NewRequest("GET", "/api/data", nil)
 	h1.Store(req, &Entry{StatusCode: 200, Body: []byte(`{"from":"route1"}`)})
@@ -663,7 +663,7 @@ func TestCacheByRoute_PurgeRoute(t *testing.T) {
 	cbr := NewCacheByRoute(nil)
 	cbr.AddRoute("route1", config.CacheConfig{Enabled: true, MaxSize: 100})
 
-	h := cbr.GetHandler("route1")
+	h := cbr.Lookup("route1")
 	req := httptest.NewRequest("GET", "/api/data", nil)
 	h.Store(req, &Entry{StatusCode: 200, Body: []byte("cached")})
 
@@ -685,7 +685,7 @@ func TestCacheByRoute_PurgeRouteKey(t *testing.T) {
 	cbr := NewCacheByRoute(nil)
 	cbr.AddRoute("route1", config.CacheConfig{Enabled: true, MaxSize: 100})
 
-	h := cbr.GetHandler("route1")
+	h := cbr.Lookup("route1")
 	req := httptest.NewRequest("GET", "/api/data", nil)
 	h.Store(req, &Entry{StatusCode: 200, Body: []byte("cached")})
 
@@ -705,8 +705,8 @@ func TestCacheByRoute_PurgeAll(t *testing.T) {
 	cbr.AddRoute("route1", config.CacheConfig{Enabled: true, MaxSize: 100})
 	cbr.AddRoute("route2", config.CacheConfig{Enabled: true, MaxSize: 100})
 
-	h1 := cbr.GetHandler("route1")
-	h2 := cbr.GetHandler("route2")
+	h1 := cbr.Lookup("route1")
+	h2 := cbr.Lookup("route2")
 	req := httptest.NewRequest("GET", "/api/data", nil)
 	h1.Store(req, &Entry{StatusCode: 200, Body: []byte("r1")})
 	h2.Store(req, &Entry{StatusCode: 200, Body: []byte("r2")})
@@ -1052,7 +1052,7 @@ func TestCacheByRoute_ExtendedStoreTTL(t *testing.T) {
 		StaleWhileRevalidate: 5 * time.Second,
 	})
 
-	h := cbr.GetHandler("route1")
+	h := cbr.Lookup("route1")
 	if h == nil {
 		t.Fatal("expected handler for route1")
 	}
@@ -1251,7 +1251,7 @@ func TestCacheByRoute_PurgeByPathPattern(t *testing.T) {
 	cbr := NewCacheByRoute(nil)
 	cbr.AddRoute("route1", config.CacheConfig{Enabled: true, MaxSize: 100})
 
-	h := cbr.GetHandler("route1")
+	h := cbr.Lookup("route1")
 	h.StoreWithMeta("key1", "/api/users", &Entry{StatusCode: 200, Body: []byte("users")})
 	h.StoreWithMeta("key2", "/api/posts", &Entry{StatusCode: 200, Body: []byte("posts")})
 
@@ -1274,7 +1274,7 @@ func TestCacheByRoute_PurgeByTags(t *testing.T) {
 	cbr := NewCacheByRoute(nil)
 	cbr.AddRoute("route1", config.CacheConfig{Enabled: true, MaxSize: 100, Tags: []string{"all"}})
 
-	h := cbr.GetHandler("route1")
+	h := cbr.Lookup("route1")
 	h.StoreWithMeta("key1", "/page1", &Entry{StatusCode: 200, Body: []byte("1")})
 	h.StoreWithMeta("key2", "/page2", &Entry{StatusCode: 200, Body: []byte("2")})
 
@@ -1303,7 +1303,7 @@ func TestCacheByRouteDistributedFallback(t *testing.T) {
 		Mode:    "distributed",
 	})
 
-	h := cbr.GetHandler("route1")
+	h := cbr.Lookup("route1")
 	if h == nil {
 		t.Fatal("expected handler for route1 even with distributed mode and no redis")
 	}

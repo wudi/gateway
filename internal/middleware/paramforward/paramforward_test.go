@@ -160,10 +160,10 @@ func TestParamForwardByRoute(t *testing.T) {
 
 	m.AddRoute("r1", cfg)
 
-	if m.GetForwarder("r1") == nil {
+	if m.Lookup("r1") == nil {
 		t.Error("expected forwarder for r1")
 	}
-	if m.GetForwarder("r2") != nil {
+	if m.Lookup("r2") != nil {
 		t.Error("expected nil for r2")
 	}
 

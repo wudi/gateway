@@ -485,10 +485,10 @@ func TestByRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if v := m.GetVerifier("route-1"); v == nil {
+	if v := m.Lookup("route-1"); v == nil {
 		t.Error("expected verifier for route-1")
 	}
-	if v := m.GetVerifier("route-2"); v != nil {
+	if v := m.Lookup("route-2"); v != nil {
 		t.Error("expected nil verifier for route-2")
 	}
 

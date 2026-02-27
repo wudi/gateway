@@ -192,10 +192,10 @@ func TestManagerLifecycle(t *testing.T) {
 	m.AddRoute("route1", cfg, bal)
 	m.AddRoute("route2", cfg, bal)
 
-	if d := m.GetDetector("route1"); d == nil {
+	if d := m.Lookup("route1"); d == nil {
 		t.Error("expected detector for route1")
 	}
-	if d := m.GetDetector("nonexistent"); d != nil {
+	if d := m.Lookup("nonexistent"); d != nil {
 		t.Error("expected nil for nonexistent route")
 	}
 

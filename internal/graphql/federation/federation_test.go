@@ -448,7 +448,7 @@ func TestFederationByRoute(t *testing.T) {
 	}
 
 	// GetHandler for non-existent route
-	if h := m.GetHandler("unknown"); h != nil {
+	if h := m.Lookup("unknown"); h != nil {
 		t.Error("expected nil for unknown route")
 	}
 }

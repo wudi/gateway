@@ -302,39 +302,11 @@ func (h *AIHandler) AIRateLimitMiddleware() middleware.Middleware {
 // --- AIByRoute ---
 
 // AIByRoute manages per-route AI handlers.
-type AIByRoute struct {
-	byroute.Manager[*AIHandler]
-}
+type AIByRoute = byroute.Factory[*AIHandler, config.AIConfig]
 
 // NewAIByRoute creates a new per-route AI handler manager.
 func NewAIByRoute() *AIByRoute {
-	return &AIByRoute{}
-}
-
-// AddRoute creates and stores an AI handler for a route.
-func (m *AIByRoute) AddRoute(routeID string, cfg config.AIConfig) error {
-	h, err := New(cfg)
-	if err != nil {
-		return fmt.Errorf("ai handler for route %s: %w", routeID, err)
-	}
-	m.Add(routeID, h)
-	return nil
-}
-
-// GetHandler returns the AI handler for a route.
-func (m *AIByRoute) GetHandler(routeID string) *AIHandler {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route AI stats.
-func (m *AIByRoute) Stats() map[string]any {
-	result := make(map[string]any)
-	m.Range(func(id string, h *AIHandler) bool {
-		result[id] = h.Stats()
-		return true
-	})
-	return result
+	return byroute.NewFactory(New, func(h *AIHandler) any { return h.Stats() })
 }
 
 // --- Error helpers ---

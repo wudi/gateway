@@ -245,11 +245,11 @@ func TestDeprecationByRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := m.GetHandler("route1")
+	h := m.Lookup("route1")
 	if h == nil {
 		t.Fatal("expected handler")
 	}
-	if m.GetHandler("nonexistent") != nil {
+	if m.Lookup("nonexistent") != nil {
 		t.Fatal("expected nil for nonexistent route")
 	}
 

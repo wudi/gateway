@@ -93,7 +93,7 @@ func TestGraphQLByRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := m.GetHandler("route1")
+	h := m.Lookup("route1")
 	if h == nil {
 		t.Fatal("expected handler")
 	}

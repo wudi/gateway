@@ -570,13 +570,13 @@ func TestByRouteManager(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if m.GetController("route1") == nil {
+	if m.Lookup("route1") == nil {
 		t.Error("expected controller for route1")
 	}
-	if m.GetController("route2") == nil {
+	if m.Lookup("route2") == nil {
 		t.Error("expected controller for route2")
 	}
-	if m.GetController("nonexistent") != nil {
+	if m.Lookup("nonexistent") != nil {
 		t.Error("expected nil for nonexistent route")
 	}
 

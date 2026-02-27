@@ -531,11 +531,6 @@ func (m *CanaryByRoute) AddRoute(routeID string, cfg config.CanaryConfig, wb *lo
 	return nil
 }
 
-// GetController returns the controller for a route (may be nil).
-func (m *CanaryByRoute) GetController(routeID string) *Controller {
-	v, _ := m.Get(routeID)
-	return v
-}
 
 // Stats returns snapshots for all canary controllers.
 func (m *CanaryByRoute) Stats() map[string]CanarySnapshot {
@@ -544,8 +539,5 @@ func (m *CanaryByRoute) Stats() map[string]CanarySnapshot {
 
 // StopAll stops all controller goroutines.
 func (m *CanaryByRoute) StopAll() {
-	m.Range(func(_ string, ctrl *Controller) bool {
-		ctrl.Stop()
-		return true
-	})
+	byroute.ForEach(&m.Manager, (*Controller).Stop)
 }

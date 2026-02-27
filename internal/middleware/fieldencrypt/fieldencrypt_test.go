@@ -243,10 +243,10 @@ func TestManager(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if fe := m.GetEncryptor("route1"); fe == nil {
+	if fe := m.Lookup("route1"); fe == nil {
 		t.Error("expected encryptor for route1")
 	}
-	if fe := m.GetEncryptor("missing"); fe != nil {
+	if fe := m.Lookup("missing"); fe != nil {
 		t.Error("expected nil for missing route")
 	}
 

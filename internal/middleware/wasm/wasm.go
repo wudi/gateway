@@ -500,11 +500,6 @@ func (m *WasmByRoute) AddRoute(routeID string, cfgs []config.WasmPluginConfig) e
 	return nil
 }
 
-// GetChain returns the WASM plugin chain for a route.
-func (m *WasmByRoute) GetChain(routeID string) *WasmPluginChain {
-	v, _ := m.Get(routeID)
-	return v
-}
 
 // Stats returns per-route WASM plugin stats.
 func (m *WasmByRoute) Stats() map[string]any {

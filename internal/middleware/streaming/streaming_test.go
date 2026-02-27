@@ -177,10 +177,10 @@ func TestStreamByRoute(t *testing.T) {
 		DisableBuffering: true,
 	})
 
-	if m.GetHandler("route1") == nil {
+	if m.Lookup("route1") == nil {
 		t.Error("expected handler for route1")
 	}
-	if m.GetHandler("nonexistent") != nil {
+	if m.Lookup("nonexistent") != nil {
 		t.Error("expected nil for nonexistent route")
 	}
 
@@ -202,7 +202,7 @@ func TestStreamByRoute_Stats(t *testing.T) {
 		DisableBuffering: true,
 	})
 
-	h := m.GetHandler("r1")
+	h := m.Lookup("r1")
 	backend := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("data"))
 	})

@@ -145,10 +145,10 @@ func TestBodyGenByRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if bg := m.GetGenerator("route1"); bg == nil {
+	if bg := m.Lookup("route1"); bg == nil {
 		t.Error("expected generator for route1")
 	}
-	if bg := m.GetGenerator("route2"); bg != nil {
+	if bg := m.Lookup("route2"); bg != nil {
 		t.Error("expected nil for route2")
 	}
 

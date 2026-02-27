@@ -416,11 +416,6 @@ func (m *AggregateByRoute) AddRoute(routeID string, cfg config.AggregateConfig, 
 	return nil
 }
 
-// GetHandler returns the aggregate handler for a route.
-func (m *AggregateByRoute) GetHandler(routeID string) *AggregateHandler {
-	v, _ := m.Get(routeID)
-	return v
-}
 
 // Stats returns per-route aggregate handler stats.
 func (m *AggregateByRoute) Stats() map[string]interface{} {

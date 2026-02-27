@@ -207,10 +207,10 @@ func TestBackendAuthByRoute(t *testing.T) {
 		t.Fatalf("AddRoute: %v", err)
 	}
 
-	if p := m.GetProvider("r1"); p == nil {
+	if p := m.Lookup("r1"); p == nil {
 		t.Fatal("expected provider for r1")
 	}
-	if p := m.GetProvider("nonexistent"); p != nil {
+	if p := m.Lookup("nonexistent"); p != nil {
 		t.Fatal("expected nil for nonexistent route")
 	}
 

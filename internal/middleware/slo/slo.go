@@ -179,27 +179,9 @@ func (w *sloWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 }
 
 // SLOByRoute manages per-route SLO trackers.
-type SLOByRoute struct {
-	byroute.Manager[*Tracker]
-}
+type SLOByRoute = byroute.Factory[*Tracker, config.SLOConfig]
 
 // NewSLOByRoute creates a new per-route SLO manager.
 func NewSLOByRoute() *SLOByRoute {
-	return &SLOByRoute{}
-}
-
-// AddRoute adds an SLO tracker for a route.
-func (m *SLOByRoute) AddRoute(routeID string, cfg config.SLOConfig) {
-	m.Add(routeID, NewTracker(cfg))
-}
-
-// GetTracker returns the SLO tracker for a route.
-func (m *SLOByRoute) GetTracker(routeID string) *Tracker {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route SLO stats.
-func (m *SLOByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(t *Tracker) interface{} { return t.Snapshot() })
+	return byroute.SimpleFactory(NewTracker, func(t *Tracker) any { return t.Snapshot() })
 }

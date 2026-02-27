@@ -208,7 +208,7 @@ func TestGRPCByRoute(t *testing.T) {
 	m := NewGRPCByRoute()
 	m.AddRoute("route1", config.GRPCConfig{Enabled: true})
 
-	h := m.GetHandler("route1")
+	h := m.Lookup("route1")
 	if h == nil {
 		t.Fatal("expected handler for route1")
 	}
@@ -216,7 +216,7 @@ func TestGRPCByRoute(t *testing.T) {
 		t.Error("expected handler to be enabled")
 	}
 
-	if m.GetHandler("unknown") != nil {
+	if m.Lookup("unknown") != nil {
 		t.Error("expected nil for unknown route")
 	}
 

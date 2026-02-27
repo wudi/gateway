@@ -114,34 +114,11 @@ func MergeBaggageConfig(perRoute, global config.BaggageConfig) config.BaggageCon
 }
 
 // BaggageByRoute manages per-route baggage propagators.
-type BaggageByRoute struct {
-	byroute.Manager[*Propagator]
-}
+type BaggageByRoute = byroute.Factory[*Propagator, config.BaggageConfig]
 
 // NewBaggageByRoute creates a new per-route baggage manager.
 func NewBaggageByRoute() *BaggageByRoute {
-	return &BaggageByRoute{}
-}
-
-// AddRoute adds a baggage propagator for a route.
-func (b *BaggageByRoute) AddRoute(routeID string, cfg config.BaggageConfig) error {
-	p, err := New(cfg)
-	if err != nil {
-		return err
-	}
-	b.Add(routeID, p)
-	return nil
-}
-
-// GetPropagator returns the propagator for a route.
-func (b *BaggageByRoute) GetPropagator(routeID string) *Propagator {
-	v, _ := b.Get(routeID)
-	return v
-}
-
-// Stats returns per-route baggage stats.
-func (b *BaggageByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&b.Manager, func(p *Propagator) interface{} {
+	return byroute.NewFactory(New, func(p *Propagator) any {
 		return map[string]interface{}{
 			"tags":            len(p.tags),
 			"propagated":      p.Propagated(),

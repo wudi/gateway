@@ -278,34 +278,11 @@ func MergeAICrawlConfig(route, global config.AICrawlConfig) config.AICrawlConfig
 }
 
 // AICrawlByRoute manages per-route AI crawl controllers.
-type AICrawlByRoute struct {
-	byroute.Manager[*AICrawlController]
-}
+type AICrawlByRoute = byroute.Factory[*AICrawlController, config.AICrawlConfig]
 
 // NewAICrawlByRoute creates a new per-route AI crawl control manager.
 func NewAICrawlByRoute() *AICrawlByRoute {
-	return &AICrawlByRoute{}
-}
-
-// AddRoute adds an AI crawl controller for a route.
-func (m *AICrawlByRoute) AddRoute(routeID string, cfg config.AICrawlConfig) error {
-	ctrl, err := New(cfg)
-	if err != nil {
-		return err
-	}
-	m.Add(routeID, ctrl)
-	return nil
-}
-
-// GetController returns the AI crawl controller for a route.
-func (m *AICrawlByRoute) GetController(routeID string) *AICrawlController {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route AI crawl statistics.
-func (m *AICrawlByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(ctrl *AICrawlController) interface{} {
+	return byroute.NewFactory(New, func(ctrl *AICrawlController) any {
 		return ctrl.Stats()
 	})
 }

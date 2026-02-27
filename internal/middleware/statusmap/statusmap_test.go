@@ -130,10 +130,10 @@ func TestStatusMapByRoute(t *testing.T) {
 	m := NewStatusMapByRoute()
 	m.AddRoute("r1", map[int]int{404: 200})
 
-	if sm := m.GetMapper("r1"); sm == nil {
+	if sm := m.Lookup("r1"); sm == nil {
 		t.Fatal("expected mapper for r1")
 	}
-	if sm := m.GetMapper("nonexistent"); sm != nil {
+	if sm := m.Lookup("nonexistent"); sm != nil {
 		t.Fatal("expected nil for nonexistent route")
 	}
 

@@ -745,7 +745,7 @@ func TestRulesByRoute(t *testing.T) {
 		t.Fatalf("AddRoute error: %v", err)
 	}
 
-	engine := rbr.GetEngine("route-1")
+	engine := rbr.Lookup("route-1")
 	if engine == nil {
 		t.Fatal("expected engine for route-1")
 	}
@@ -753,7 +753,7 @@ func TestRulesByRoute(t *testing.T) {
 		t.Error("expected request rules for route-1")
 	}
 
-	if rbr.GetEngine("nonexistent") != nil {
+	if rbr.Lookup("nonexistent") != nil {
 		t.Error("expected nil for nonexistent route")
 	}
 

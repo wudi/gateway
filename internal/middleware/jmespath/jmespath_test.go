@@ -226,12 +226,12 @@ func TestJMESPathByRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	jp := mgr.GetJMESPath("route1")
+	jp := mgr.Lookup("route1")
 	if jp == nil {
 		t.Fatal("expected non-nil JMESPath for route1")
 	}
 
-	missing := mgr.GetJMESPath("nonexistent")
+	missing := mgr.Lookup("nonexistent")
 	if missing != nil {
 		t.Fatal("expected nil for nonexistent route")
 	}

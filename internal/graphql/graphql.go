@@ -12,6 +12,7 @@ import (
 	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/vektah/gqlparser/v2/parser"
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/internal/middleware"
 	"golang.org/x/time/rate"
 )
@@ -469,4 +470,12 @@ func detectIntrospection(doc *ast.QueryDocument) bool {
 		}
 	}
 	return false
+}
+
+// GraphQLByRoute manages per-route GraphQL parsers.
+type GraphQLByRoute = byroute.Factory[*Parser, config.GraphQLConfig]
+
+// NewGraphQLByRoute creates a new route-based GraphQL manager.
+func NewGraphQLByRoute() *GraphQLByRoute {
+	return byroute.NewFactory(New, func(p *Parser) any { return p.Stats() })
 }

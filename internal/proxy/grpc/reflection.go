@@ -18,6 +18,7 @@ import (
 
 	"github.com/wudi/runway/config"
 	"github.com/wudi/runway/internal/logging"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // ReflectionProxy aggregates gRPC reflection from multiple backends on a route.
@@ -344,7 +345,7 @@ func (rp *ReflectionProxy) fetchFileByFilename(ctx context.Context, backendURL, 
 }
 
 // Middleware returns a middleware that intercepts gRPC reflection requests.
-func (rp *ReflectionProxy) Middleware() func(http.Handler) http.Handler {
+func (rp *ReflectionProxy) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if IsReflectionRequest(r) {

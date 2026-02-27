@@ -207,37 +207,17 @@ func (qe *QuotaEnforcer) Stats() map[string]interface{} {
 }
 
 // QuotaByRoute manages per-route quota enforcers.
-type QuotaByRoute struct {
-	byroute.Manager[*QuotaEnforcer]
-}
+type QuotaByRoute = byroute.NamedFactory[*QuotaEnforcer, config.QuotaConfig]
 
 // NewQuotaByRoute creates a new per-route quota manager.
-func NewQuotaByRoute() *QuotaByRoute {
-	return &QuotaByRoute{}
-}
-
-// AddRoute adds a quota enforcer for a route.
-func (m *QuotaByRoute) AddRoute(routeID string, cfg config.QuotaConfig, redisClient *redis.Client) {
-	m.Add(routeID, New(routeID, cfg, redisClient))
-}
-
-// GetEnforcer returns the quota enforcer for a route.
-func (m *QuotaByRoute) GetEnforcer(routeID string) *QuotaEnforcer {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route quota stats.
-func (m *QuotaByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(qe *QuotaEnforcer) interface{} { return qe.Stats() })
-}
-
-// CloseAll stops all background goroutines.
-func (m *QuotaByRoute) CloseAll() {
-	m.Range(func(_ string, qe *QuotaEnforcer) bool {
-		qe.Close()
-		return true
-	})
+// The redis client is captured in the constructor closure.
+func NewQuotaByRoute(redisClient *redis.Client) *QuotaByRoute {
+	return byroute.SimpleNamedFactory(
+		func(routeID string, cfg config.QuotaConfig) *QuotaEnforcer {
+			return New(routeID, cfg, redisClient)
+		},
+		func(qe *QuotaEnforcer) any { return qe.Stats() },
+	).WithClose((*QuotaEnforcer).Close)
 }
 
 // ValidateKey checks that a quota key format is valid.

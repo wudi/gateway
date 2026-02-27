@@ -113,7 +113,7 @@ func TestByRouteManager(t *testing.T) {
 		ExperimentName: "exp1",
 	}, wb)
 
-	ab := mgr.GetTest("route1")
+	ab := mgr.Lookup("route1")
 	if ab == nil {
 		t.Fatal("expected A/B test for route1")
 	}
@@ -121,7 +121,7 @@ func TestByRouteManager(t *testing.T) {
 		t.Fatalf("expected experiment name 'exp1', got %q", ab.experimentName)
 	}
 
-	if mgr.GetTest("nonexistent") != nil {
+	if mgr.Lookup("nonexistent") != nil {
 		t.Fatal("expected nil for nonexistent route")
 	}
 

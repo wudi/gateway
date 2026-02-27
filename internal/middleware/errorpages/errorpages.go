@@ -9,7 +9,11 @@ import (
 	"text/template"
 	"time"
 
+	"sort"
+
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/internal/middleware"
 	"github.com/wudi/runway/variables"
 )
 
@@ -278,7 +282,7 @@ func defaultBody(format string, data TemplateData) string {
 }
 
 // Middleware returns a middleware that intercepts error responses and renders custom error pages.
-func (ep *CompiledErrorPages) Middleware() func(http.Handler) http.Handler {
+func (ep *CompiledErrorPages) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			epw := &errorPageWriter{
@@ -334,4 +338,49 @@ func (w *errorPageWriter) Flush() {
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// ErrorPagesByRoute manages per-route compiled error pages.
+type ErrorPagesByRoute struct {
+	byroute.Manager[*CompiledErrorPages]
+}
+
+// NewErrorPagesByRoute creates a new error pages manager.
+func NewErrorPagesByRoute() *ErrorPagesByRoute {
+	return &ErrorPagesByRoute{}
+}
+
+// AddRoute registers compiled error pages for the given route.
+// It takes both global and per-route configs for merge at compile time.
+func (m *ErrorPagesByRoute) AddRoute(routeID string, globalCfg, routeCfg config.ErrorPagesConfig) error {
+	ep, err := New(globalCfg, routeCfg)
+	if err != nil {
+		return err
+	}
+	if ep == nil {
+		return nil
+	}
+	m.Add(routeID, ep)
+	return nil
+}
+
+// Stats returns error page status for all routes.
+func (m *ErrorPagesByRoute) Stats() map[string]ErrorPagesStatus {
+	return byroute.CollectStats(&m.Manager, func(ep *CompiledErrorPages) ErrorPagesStatus {
+		keys := make([]string, 0)
+		for code := range ep.exactPages {
+			keys = append(keys, fmt.Sprintf("%d", code))
+		}
+		for base := range ep.classPages {
+			keys = append(keys, fmt.Sprintf("%dxx", base/100))
+		}
+		if ep.defaultPage != nil {
+			keys = append(keys, "default")
+		}
+		sort.Strings(keys)
+		return ErrorPagesStatus{
+			PageKeys: keys,
+			Metrics:  ep.Metrics(),
+		}
+	})
 }

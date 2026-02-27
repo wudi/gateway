@@ -9,6 +9,7 @@ import (
 
 	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // CDNHeaders injects CDN cache control headers into responses.
@@ -126,33 +127,15 @@ func MergeCDNCacheConfig(perRoute, global config.CDNCacheConfig) config.CDNCache
 }
 
 // CDNHeadersByRoute manages CDN headers per route.
-type CDNHeadersByRoute struct {
-	byroute.Manager[*CDNHeaders]
-}
+type CDNHeadersByRoute = byroute.Factory[*CDNHeaders, config.CDNCacheConfig]
 
 // NewCDNHeadersByRoute creates a new CDN headers manager.
 func NewCDNHeadersByRoute() *CDNHeadersByRoute {
-	return &CDNHeadersByRoute{}
-}
-
-// AddRoute adds a CDN headers handler for a route.
-func (br *CDNHeadersByRoute) AddRoute(routeID string, cfg config.CDNCacheConfig) {
-	br.Add(routeID, New(cfg))
-}
-
-// GetHandler returns the CDN headers handler for a route.
-func (br *CDNHeadersByRoute) GetHandler(routeID string) *CDNHeaders {
-	v, _ := br.Get(routeID)
-	return v
-}
-
-// Stats returns CDN headers statistics for all routes.
-func (br *CDNHeadersByRoute) Stats() map[string]Snapshot {
-	return byroute.CollectStats(&br.Manager, func(h *CDNHeaders) Snapshot { return h.Stats() })
+	return byroute.SimpleFactory(New, func(h *CDNHeaders) any { return h.Stats() })
 }
 
 // Middleware returns a middleware that injects CDN cache control headers into responses.
-func (cdn *CDNHeaders) Middleware() func(http.Handler) http.Handler {
+func (cdn *CDNHeaders) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cw := &cdnHeadersWriter{

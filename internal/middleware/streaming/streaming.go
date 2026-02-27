@@ -114,29 +114,11 @@ func (fw *flushWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 }
 
 // StreamByRoute manages per-route stream handlers.
-type StreamByRoute struct {
-	byroute.Manager[*StreamHandler]
-}
+type StreamByRoute = byroute.Factory[*StreamHandler, config.StreamingConfig]
 
 // NewStreamByRoute creates a new per-route stream handler manager.
 func NewStreamByRoute() *StreamByRoute {
-	return &StreamByRoute{}
-}
-
-// AddRoute adds a stream handler for a route.
-func (m *StreamByRoute) AddRoute(routeID string, cfg config.StreamingConfig) {
-	m.Add(routeID, New(cfg))
-}
-
-// GetHandler returns the stream handler for a route.
-func (m *StreamByRoute) GetHandler(routeID string) *StreamHandler {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route streaming stats.
-func (m *StreamByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(h *StreamHandler) interface{} {
+	return byroute.SimpleFactory(New, func(h *StreamHandler) any {
 		return map[string]interface{}{
 			"total_requests": h.TotalRequests(),
 			"flushed_writes": h.FlushedWrites(),

@@ -305,13 +305,13 @@ func TestCoalesceByRoute(t *testing.T) {
 	mgr.AddRoute("route-1", config.CoalesceConfig{Enabled: true, Timeout: 5 * time.Second})
 	mgr.AddRoute("route-2", config.CoalesceConfig{Enabled: true, Methods: []string{"POST"}})
 
-	if c := mgr.GetCoalescer("route-1"); c == nil {
+	if c := mgr.Lookup("route-1"); c == nil {
 		t.Error("GetCoalescer(route-1) should not be nil")
 	}
-	if c := mgr.GetCoalescer("route-2"); c == nil {
+	if c := mgr.Lookup("route-2"); c == nil {
 		t.Error("GetCoalescer(route-2) should not be nil")
 	}
-	if c := mgr.GetCoalescer("route-3"); c != nil {
+	if c := mgr.Lookup("route-3"); c != nil {
 		t.Error("GetCoalescer(route-3) should be nil")
 	}
 

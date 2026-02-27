@@ -46,7 +46,7 @@ func TestHandlerStats(t *testing.T) {
 
 func TestAMQPByRouteGetHandlerMissing(t *testing.T) {
 	m := NewAMQPByRoute()
-	if m.GetHandler("missing") != nil {
+	if m.Lookup("missing") != nil {
 		t.Error("GetHandler should return nil for nonexistent route")
 	}
 }
@@ -62,7 +62,7 @@ func TestAMQPByRouteAddRouteError(t *testing.T) {
 
 func TestAMQPByRouteGetHandlerNonexistent(t *testing.T) {
 	m := NewAMQPByRoute()
-	h := m.GetHandler("nonexistent")
+	h := m.Lookup("nonexistent")
 	if h != nil {
 		t.Error("GetHandler should return nil for nonexistent route")
 	}

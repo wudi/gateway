@@ -625,7 +625,7 @@ func (s *Server) adminHandler() http.Handler {
 	mux.HandleFunc("/certificates", s.handleCertificates)
 
 	// Auto-register admin stats endpoints from features
-	for _, f := range s.gateway.features {
+	for _, f := range s.gateway.allFeatures() {
 		asp, ok := f.(AdminStatsProvider)
 		if !ok {
 			continue
@@ -1437,18 +1437,11 @@ func (s *Server) handleRateLimits(w http.ResponseWriter, r *http.Request) {
 	routeIDs := rl.RouteIDs()
 	result := make(map[string]interface{})
 	for _, id := range routeIDs {
-		info := map[string]interface{}{}
-		if dl := rl.GetDistributedLimiter(id); dl != nil {
-			info["mode"] = "distributed"
-			info["algorithm"] = "sliding_window"
-		} else if sw := rl.GetSlidingWindowLimiter(id); sw != nil {
-			info["mode"] = "local"
-			info["algorithm"] = "sliding_window"
-		} else {
-			info["mode"] = "local"
-			info["algorithm"] = "token_bucket"
+		mode, algorithm := rl.LimiterInfo(id)
+		result[id] = map[string]interface{}{
+			"mode":      mode,
+			"algorithm": algorithm,
 		}
-		result[id] = info
 	}
 	json.NewEncoder(w).Encode(result)
 }
@@ -1480,7 +1473,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Auto-collect stats from all features with admin endpoints
-	for _, f := range s.gateway.features {
+	for _, f := range s.gateway.allFeatures() {
 		if asp, ok := f.(AdminStatsProvider); ok {
 			path := asp.AdminPath()
 			if path == "" {
@@ -1576,7 +1569,7 @@ func (s *Server) handleMaintenanceAction(w http.ResponseWriter, r *http.Request)
 	routeID := parts[0]
 	action := parts[1]
 
-	cm := s.gateway.GetMaintenanceHandlers().GetMaintenance(routeID)
+	cm := s.gateway.GetMaintenanceHandlers().Lookup(routeID)
 	if cm == nil {
 		http.Error(w, `{"error":"route not found or maintenance not configured"}`, http.StatusNotFound)
 		return
@@ -1920,7 +1913,7 @@ func (s *Server) handleCanaryAction(w http.ResponseWriter, r *http.Request) {
 	routeID := parts[0]
 	actionName := parts[1]
 
-	ctrl := s.gateway.GetCanaryControllers().GetController(routeID)
+	ctrl := s.gateway.GetCanaryControllers().Lookup(routeID)
 	if ctrl == nil {
 		http.Error(w, fmt.Sprintf("no canary controller for route %q", routeID), http.StatusNotFound)
 		return
@@ -2024,7 +2017,7 @@ func (s *Server) handleBlueGreenAction(w http.ResponseWriter, r *http.Request) {
 	// GET /blue-green/{route}/status is allowed
 	if r.Method == http.MethodGet && len(parts) == 2 && parts[1] == "status" {
 		routeID := parts[0]
-		ctrl := s.gateway.GetBlueGreenControllers().GetController(routeID)
+		ctrl := s.gateway.GetBlueGreenControllers().Lookup(routeID)
 		if ctrl == nil {
 			http.Error(w, fmt.Sprintf("no blue-green controller for route %q", routeID), http.StatusNotFound)
 			return
@@ -2046,7 +2039,7 @@ func (s *Server) handleBlueGreenAction(w http.ResponseWriter, r *http.Request) {
 	routeID := parts[0]
 	actionName := parts[1]
 
-	ctrl := s.gateway.GetBlueGreenControllers().GetController(routeID)
+	ctrl := s.gateway.GetBlueGreenControllers().Lookup(routeID)
 	if ctrl == nil {
 		http.Error(w, fmt.Sprintf("no blue-green controller for route %q", routeID), http.StatusNotFound)
 		return
@@ -2085,7 +2078,7 @@ func (s *Server) handleTrafficReplayAction(w http.ResponseWriter, r *http.Reques
 	routeID := parts[0]
 	actionName := parts[1]
 
-	rec := s.gateway.GetTrafficReplay().GetRecorder(routeID)
+	rec := s.gateway.GetTrafficReplay().Lookup(routeID)
 	if rec == nil {
 		http.Error(w, fmt.Sprintf("no traffic replay recorder for route %q", routeID), http.StatusNotFound)
 		return
@@ -2184,7 +2177,7 @@ func (s *Server) handleABTestAction(w http.ResponseWriter, r *http.Request) {
 	routeID := parts[0]
 	actionName := parts[1]
 
-	ab := s.gateway.GetABTests().GetTest(routeID)
+	ab := s.gateway.GetABTests().Lookup(routeID)
 	if ab == nil {
 		http.Error(w, fmt.Sprintf("no A/B test for route %q", routeID), http.StatusNotFound)
 		return

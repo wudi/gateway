@@ -105,7 +105,7 @@ func TestFastCGIByRoute(t *testing.T) {
 	if ids := m.RouteIDs(); len(ids) != 0 {
 		t.Errorf("expected 0 route IDs, got %d", len(ids))
 	}
-	if h := m.GetHandler("nonexistent"); h != nil {
+	if h := m.Lookup("nonexistent"); h != nil {
 		t.Error("expected nil handler for nonexistent route")
 	}
 
@@ -118,7 +118,7 @@ func TestFastCGIByRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if h := m.GetHandler("route1"); h == nil {
+	if h := m.Lookup("route1"); h == nil {
 		t.Error("expected handler for route1, got nil")
 	}
 	ids := m.RouteIDs()

@@ -177,32 +177,9 @@ func (p *TokenProvider) Stats() map[string]interface{} {
 }
 
 // BackendAuthByRoute manages per-route backend auth token providers.
-type BackendAuthByRoute struct {
-	byroute.Manager[*TokenProvider]
-}
+type BackendAuthByRoute = byroute.NamedFactory[*TokenProvider, config.BackendAuthConfig]
 
 // NewBackendAuthByRoute creates a new per-route backend auth manager.
 func NewBackendAuthByRoute() *BackendAuthByRoute {
-	return &BackendAuthByRoute{}
-}
-
-// AddRoute adds a backend auth provider for a route.
-func (m *BackendAuthByRoute) AddRoute(routeID string, cfg config.BackendAuthConfig) error {
-	p, err := New(routeID, cfg)
-	if err != nil {
-		return err
-	}
-	m.Add(routeID, p)
-	return nil
-}
-
-// GetProvider returns the token provider for a route.
-func (m *BackendAuthByRoute) GetProvider(routeID string) *TokenProvider {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route backend auth stats.
-func (m *BackendAuthByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(p *TokenProvider) interface{} { return p.Stats() })
+	return byroute.NewNamedFactory(New, func(p *TokenProvider) any { return p.Stats() })
 }

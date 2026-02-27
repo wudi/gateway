@@ -4,8 +4,8 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/internal/errors"
 	"github.com/wudi/runway/variables"
 )
@@ -130,42 +130,15 @@ func (f *Filter) IsEnabled() bool {
 	return f.enabled
 }
 
-// IPFilterByRoute manages IP filters per route
-type IPFilterByRoute struct {
-	byroute.Manager[*Filter]
-}
+// IPFilterByRoute manages per-route IP filters.
+type IPFilterByRoute = byroute.Factory[*Filter, config.IPFilterConfig]
 
-// NewIPFilterByRoute creates a new per-route IP filter manager
+// NewIPFilterByRoute creates a new per-route IP filter manager.
 func NewIPFilterByRoute() *IPFilterByRoute {
-	return &IPFilterByRoute{}
+	return byroute.NewFactory(New, nil)
 }
 
-// AddRoute adds an IP filter for a route
-func (m *IPFilterByRoute) AddRoute(routeID string, cfg config.IPFilterConfig) error {
-	f, err := New(cfg)
-	if err != nil {
-		return err
-	}
-	m.Add(routeID, f)
-	return nil
-}
-
-// GetFilter returns the IP filter for a route
-func (m *IPFilterByRoute) GetFilter(routeID string) *Filter {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// CheckRequest checks if a request is allowed by the route's IP filter
-func (m *IPFilterByRoute) CheckRequest(routeID string, r *http.Request) bool {
-	f := m.GetFilter(routeID)
-	if f == nil {
-		return true
-	}
-	return f.Check(r)
-}
-
-// RejectRequest sends a 403 Forbidden response
+// RejectRequest sends a 403 Forbidden response.
 func RejectRequest(w http.ResponseWriter) {
 	errors.ErrForbidden.WithDetails("IP address not allowed").WriteJSON(w)
 }

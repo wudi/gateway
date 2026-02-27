@@ -1,7 +1,6 @@
 package jmespath
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,6 +12,7 @@ import (
 	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/config"
 	"github.com/wudi/runway/internal/middleware"
+	"github.com/wudi/runway/internal/middleware/bufutil"
 )
 
 // JMESPath applies a pre-compiled JMESPath expression to JSON response bodies.
@@ -42,33 +42,29 @@ func New(cfg config.JMESPathConfig) (*JMESPath, error) {
 func (jp *JMESPath) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			bw := &bodyBufferWriter{
-				ResponseWriter: w,
-				statusCode:     200,
-				header:         make(http.Header),
-			}
+			bw := bufutil.New()
 			next.ServeHTTP(bw, r)
 
-			body := bw.body.Bytes()
+			body := bw.Body.Bytes()
 
 			// Only transform JSON responses
-			ct := bw.header.Get("Content-Type")
+			ct := bw.Header().Get("Content-Type")
 			if !isJSON(ct) {
-				flushOriginal(w, bw, body)
+				bw.FlushToWithLength(w, body)
 				return
 			}
 
 			// Decode the response body
 			var data interface{}
 			if err := json.Unmarshal(body, &data); err != nil {
-				flushOriginal(w, bw, body)
+				bw.FlushToWithLength(w, body)
 				return
 			}
 
 			// Apply the JMESPath expression
 			result, err := jp.compiled.Search(data)
 			if err != nil {
-				flushOriginal(w, bw, body)
+				bw.FlushToWithLength(w, body)
 				return
 			}
 
@@ -82,21 +78,16 @@ func (jp *JMESPath) Middleware() middleware.Middleware {
 			// Re-encode to JSON
 			encoded, err := json.Marshal(result)
 			if err != nil {
-				flushOriginal(w, bw, body)
+				bw.FlushToWithLength(w, body)
 				return
 			}
 
 			jp.applied.Add(1)
 
-			// Copy captured headers to real writer
-			for k, vv := range bw.header {
-				for _, v := range vv {
-					w.Header().Add(k, v)
-				}
-			}
+			bufutil.CopyHeaders(w.Header(), bw.Header())
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Content-Length", strconv.Itoa(len(encoded)))
-			w.WriteHeader(bw.statusCode)
+			w.WriteHeader(bw.StatusCode)
 			w.Write(encoded)
 		})
 	}
@@ -121,65 +112,10 @@ func isJSON(ct string) bool {
 	return strings.HasPrefix(ct, "application/json") || strings.HasPrefix(ct, "text/json")
 }
 
-// flushOriginal writes the buffered response unchanged.
-func flushOriginal(w http.ResponseWriter, bw *bodyBufferWriter, body []byte) {
-	for k, vv := range bw.header {
-		for _, v := range vv {
-			w.Header().Add(k, v)
-		}
-	}
-	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
-	w.WriteHeader(bw.statusCode)
-	w.Write(body)
-}
-
-// bodyBufferWriter captures the response for transformation.
-type bodyBufferWriter struct {
-	http.ResponseWriter
-	statusCode int
-	body       bytes.Buffer
-	header     http.Header
-}
-
-func (bw *bodyBufferWriter) Header() http.Header {
-	return bw.header
-}
-
-func (bw *bodyBufferWriter) WriteHeader(code int) {
-	bw.statusCode = code
-}
-
-func (bw *bodyBufferWriter) Write(b []byte) (int, error) {
-	return bw.body.Write(b)
-}
-
 // JMESPathByRoute manages per-route JMESPath instances.
-type JMESPathByRoute struct {
-	byroute.Manager[*JMESPath]
-}
+type JMESPathByRoute = byroute.Factory[*JMESPath, config.JMESPathConfig]
 
 // NewJMESPathByRoute creates a new per-route JMESPath manager.
 func NewJMESPathByRoute() *JMESPathByRoute {
-	return &JMESPathByRoute{}
-}
-
-// AddRoute adds a JMESPath instance for a route.
-func (m *JMESPathByRoute) AddRoute(routeID string, cfg config.JMESPathConfig) error {
-	jp, err := New(cfg)
-	if err != nil {
-		return err
-	}
-	m.Add(routeID, jp)
-	return nil
-}
-
-// GetJMESPath returns the JMESPath instance for a route.
-func (m *JMESPathByRoute) GetJMESPath(routeID string) *JMESPath {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route JMESPath stats.
-func (m *JMESPathByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(jp *JMESPath) interface{} { return jp.Stats() })
+	return byroute.NewFactory(New, func(jp *JMESPath) any { return jp.Stats() })
 }

@@ -438,10 +438,10 @@ func TestExtAuthByRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if ea := mgr.GetAuth("route1"); ea == nil {
+	if ea := mgr.Lookup("route1"); ea == nil {
 		t.Error("expected ext auth for route1")
 	}
-	if ea := mgr.GetAuth("route2"); ea != nil {
+	if ea := mgr.Lookup("route2"); ea != nil {
 		t.Error("expected nil for route2")
 	}
 

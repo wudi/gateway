@@ -1,7 +1,6 @@
 package responsesigning
 
 import (
-	"bytes"
 	"crypto"
 	"crypto/hmac"
 	"crypto/rand"
@@ -22,6 +21,7 @@ import (
 	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/config"
 	"github.com/wudi/runway/internal/middleware"
+	"github.com/wudi/runway/internal/middleware/bufutil"
 )
 
 // signMode distinguishes HMAC from RSA signing modes.
@@ -146,34 +146,6 @@ func loadPrivateKey(file string) (*rsa.PrivateKey, error) {
 	return rsaKey, nil
 }
 
-// bufferingWriter captures status, headers, and body from the inner handler.
-type bufferingWriter struct {
-	http.ResponseWriter
-	status int
-	body   bytes.Buffer
-	header http.Header
-}
-
-func newBufferingWriter(w http.ResponseWriter) *bufferingWriter {
-	return &bufferingWriter{
-		ResponseWriter: w,
-		status:         http.StatusOK,
-		header:         make(http.Header),
-	}
-}
-
-func (bw *bufferingWriter) Header() http.Header {
-	return bw.header
-}
-
-func (bw *bufferingWriter) WriteHeader(code int) {
-	bw.status = code
-}
-
-func (bw *bufferingWriter) Write(b []byte) (int, error) {
-	return bw.body.Write(b)
-}
-
 // sign builds the signature content and computes the signature.
 func (s *Signer) sign(headerValues map[string]string, body []byte) (string, error) {
 	// Build signing content: keyID + "\n" + selected_header_values + "\n" + body
@@ -220,54 +192,31 @@ func (s *Signer) sign(headerValues map[string]string, body []byte) (string, erro
 func (s *Signer) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			bw := newBufferingWriter(w)
-
-			// Run the inner handler, capturing the response
+			bw := bufutil.New()
 			next.ServeHTTP(bw, r)
 
 			// Collect header values for signing
 			headerValues := make(map[string]string, len(s.includeHeaders))
 			for _, hdr := range s.includeHeaders {
-				headerValues[hdr] = bw.header.Get(hdr)
+				headerValues[hdr] = bw.Header().Get(hdr)
 			}
 
 			// Sign
-			sigValue, err := s.sign(headerValues, bw.body.Bytes())
+			sigValue, err := s.sign(headerValues, bw.Body.Bytes())
 			if err != nil {
 				s.errors.Add(1)
-				// Still flush buffered response even on signing error
-				flushBuffered(w, bw)
+				bw.FlushTo(w)
 				return
 			}
 
 			s.totalSigned.Add(1)
 
-			// Merge buffered headers to actual response writer
-			for k, vals := range bw.header {
-				for _, v := range vals {
-					w.Header().Add(k, v)
-				}
-			}
-
-			// Set the signature header
+			bufutil.CopyHeaders(w.Header(), bw.Header())
 			w.Header().Set(s.header, sigValue)
-
-			// Write status and body
-			w.WriteHeader(bw.status)
-			w.Write(bw.body.Bytes())
+			w.WriteHeader(bw.StatusCode)
+			w.Write(bw.Body.Bytes())
 		})
 	}
-}
-
-// flushBuffered writes the buffered response to the actual writer without signature.
-func flushBuffered(w http.ResponseWriter, bw *bufferingWriter) {
-	for k, vals := range bw.header {
-		for _, v := range vals {
-			w.Header().Add(k, v)
-		}
-	}
-	w.WriteHeader(bw.status)
-	w.Write(bw.body.Bytes())
 }
 
 // TotalSigned returns the count of successfully signed responses.
@@ -286,34 +235,11 @@ func (s *Signer) Algorithm() string {
 }
 
 // SignerByRoute manages per-route response signers.
-type SignerByRoute struct {
-	byroute.Manager[*Signer]
-}
+type SignerByRoute = byroute.Factory[*Signer, config.ResponseSigningConfig]
 
 // NewSignerByRoute creates a new per-route response signer manager.
 func NewSignerByRoute() *SignerByRoute {
-	return &SignerByRoute{}
-}
-
-// AddRoute registers a response signer for a route.
-func (m *SignerByRoute) AddRoute(routeID string, cfg config.ResponseSigningConfig) error {
-	s, err := New(cfg)
-	if err != nil {
-		return err
-	}
-	m.Add(routeID, s)
-	return nil
-}
-
-// GetSigner returns the signer for a route, or nil if none.
-func (m *SignerByRoute) GetSigner(routeID string) *Signer {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route response signing stats.
-func (m *SignerByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(s *Signer) interface{} {
+	return byroute.NewFactory(New, func(s *Signer) any {
 		return map[string]interface{}{
 			"algorithm":    s.algorithm,
 			"key_id":       s.keyID,

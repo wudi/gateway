@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/byroute"
 )
 
 // collectWebhook starts an httptest.Server that collects batches of
@@ -613,13 +614,13 @@ func TestAuditLogByRoute(t *testing.T) {
 		t.Fatalf("AddRoute failed: %v", err)
 	}
 
-	if mgr.GetLogger("route-a") == nil {
+	if mgr.Lookup("route-a") == nil {
 		t.Error("GetLogger(route-a) returned nil")
 	}
-	if mgr.GetLogger("route-b") == nil {
+	if mgr.Lookup("route-b") == nil {
 		t.Error("GetLogger(route-b) returned nil")
 	}
-	if mgr.GetLogger("nonexistent") != nil {
+	if mgr.Lookup("nonexistent") != nil {
 		t.Error("GetLogger(nonexistent) should return nil")
 	}
 
@@ -628,7 +629,7 @@ func TestAuditLogByRoute(t *testing.T) {
 		t.Errorf("Stats() returned %d entries, want 2", len(stats))
 	}
 
-	mgr.CloseAll()
+	byroute.ForEach(&mgr.Manager, (*AuditLogger).Close)
 }
 
 func TestAuditWriterStatusCapture(t *testing.T) {

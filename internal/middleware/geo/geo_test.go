@@ -336,6 +336,7 @@ func TestMetrics(t *testing.T) {
 func TestGeoByRoute(t *testing.T) {
 	provider := newMockProvider()
 	m := NewGeoByRoute()
+	m.SetProvider(provider)
 
 	cfg1 := config.GeoConfig{
 		Enabled:       true,
@@ -348,20 +349,20 @@ func TestGeoByRoute(t *testing.T) {
 		InjectHeaders:  true,
 	}
 
-	if err := m.AddRoute("r1", cfg1, provider); err != nil {
+	if err := m.AddRoute("r1", cfg1); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.AddRoute("r2", cfg2, provider); err != nil {
+	if err := m.AddRoute("r2", cfg2); err != nil {
 		t.Fatal(err)
 	}
 
-	if g := m.GetGeo("r1"); g == nil {
+	if g := m.Lookup("r1"); g == nil {
 		t.Error("expected geo for r1")
 	}
-	if g := m.GetGeo("r2"); g == nil {
+	if g := m.Lookup("r2"); g == nil {
 		t.Error("expected geo for r2")
 	}
-	if g := m.GetGeo("r3"); g != nil {
+	if g := m.Lookup("r3"); g != nil {
 		t.Error("expected nil for r3")
 	}
 

@@ -520,12 +520,12 @@ func TestByRoute(t *testing.T) {
 		},
 	})
 
-	h := br.GetHandler("route1")
+	h := br.Lookup("route1")
 	if h == nil {
 		t.Fatal("expected handler for route1")
 	}
 
-	if br.GetHandler("nonexistent") != nil {
+	if br.Lookup("nonexistent") != nil {
 		t.Error("expected nil for nonexistent route")
 	}
 

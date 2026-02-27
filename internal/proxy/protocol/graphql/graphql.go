@@ -194,11 +194,6 @@ func (m *GraphQLByRoute) AddRoute(routeID string, cfg config.GraphQLProtocolConf
 	return nil
 }
 
-// GetHandler returns the handler for a route.
-func (m *GraphQLByRoute) GetHandler(routeID string) *Handler {
-	v, _ := m.Get(routeID)
-	return v
-}
 
 // Stats returns per-route stats.
 func (m *GraphQLByRoute) Stats() map[string]interface{} {

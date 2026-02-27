@@ -476,10 +476,10 @@ func TestReplayByRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if mgr.GetRecorder("route1") == nil {
+	if mgr.Lookup("route1") == nil {
 		t.Error("expected recorder for route1")
 	}
-	if mgr.GetRecorder("route2") != nil {
+	if mgr.Lookup("route2") != nil {
 		t.Error("expected nil for route2")
 	}
 

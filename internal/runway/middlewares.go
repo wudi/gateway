@@ -7,13 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"time"
 
 	"go.uber.org/zap"
 
 	"github.com/wudi/runway/internal/cache"
-	"github.com/wudi/runway/internal/canary"
 	"github.com/wudi/runway/internal/circuitbreaker"
 	"github.com/wudi/runway/config"
 	"github.com/wudi/runway/internal/errors"
@@ -21,6 +19,7 @@ import (
 	"github.com/wudi/runway/internal/loadbalancer"
 	"github.com/wudi/runway/internal/metrics"
 	"github.com/wudi/runway/internal/middleware"
+	"github.com/wudi/runway/internal/middleware/bufutil"
 	"github.com/wudi/runway/internal/middleware/geo"
 	"github.com/wudi/runway/internal/middleware/ipblocklist"
 	"github.com/wudi/runway/internal/middleware/ipfilter"
@@ -29,8 +28,6 @@ import (
 	"github.com/wudi/runway/internal/middleware/transform"
 	"github.com/wudi/runway/internal/middleware/validation"
 	grpcproxy "github.com/wudi/runway/internal/proxy/grpc"
-	"github.com/wudi/runway/internal/abtest"
-	"github.com/wudi/runway/internal/bluegreen"
 	"github.com/wudi/runway/internal/router"
 	"github.com/wudi/runway/internal/rules"
 	"github.com/wudi/runway/internal/trafficshape"
@@ -321,33 +318,8 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 								return
 							}
 
-							// Backend succeeded — write response to client
-							for k, vv := range capWriter.Header() {
-								for _, v := range vv {
-									w.Header().Add(k, v)
-								}
-							}
-							w.Header().Set("X-Cache", "MISS")
-							w.WriteHeader(capWriter.StatusCode())
-							w.Write(capWriter.Body.Bytes())
-
-							// Store if response is cacheable
-							sieCtx := variables.GetFromRequest(r)
-							if sieCtx.SkipFlags&variables.SkipCacheStore == 0 &&
-								h.ShouldStore(capWriter.StatusCode(), capWriter.Header(), int64(capWriter.Body.Len())) {
-								newEntry := &cache.Entry{
-									StatusCode: capWriter.StatusCode(),
-									Headers:    capWriter.Header().Clone(),
-									Body:       capWriter.Body.Bytes(),
-								}
-								if conditional {
-									cache.PopulateConditionalFields(newEntry)
-								}
-								if sieCtx.Overrides != nil && sieCtx.Overrides.CacheTTLOverride > 0 {
-									newEntry.TTL = sieCtx.Overrides.CacheTTLOverride
-								}
-								h.StoreWithMeta(key, r.URL.Path, newEntry)
-							}
+							// Backend succeeded — write response and store
+							writeCapturedAndStore(w, r, capWriter, h, key, conditional)
 							return
 						}
 					}
@@ -392,33 +364,8 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 						}
 					}
 
-					// Write captured response to client
-					for k, vv := range capWriter.Header() {
-						for _, v := range vv {
-							w.Header().Add(k, v)
-						}
-					}
-					w.Header().Set("X-Cache", "MISS")
-					w.WriteHeader(capWriter.StatusCode())
-					w.Write(capWriter.Body.Bytes())
-
-					// Store if response is cacheable
-					sieVarCtx := variables.GetFromRequest(r)
-					skipStore := sieVarCtx.SkipFlags&variables.SkipCacheStore != 0
-					if !skipStore && h.ShouldStore(capWriter.StatusCode(), capWriter.Header(), int64(capWriter.Body.Len())) {
-						entry := &cache.Entry{
-							StatusCode: capWriter.StatusCode(),
-							Headers:    capWriter.Header().Clone(),
-							Body:       capWriter.Body.Bytes(),
-						}
-						if conditional {
-							cache.PopulateConditionalFields(entry)
-						}
-						if sieVarCtx.Overrides != nil && sieVarCtx.Overrides.CacheTTLOverride > 0 {
-							entry.TTL = sieVarCtx.Overrides.CacheTTLOverride
-						}
-						h.StoreWithMeta(key, r.URL.Path, entry)
-					}
+					// Write captured response and store
+					writeCapturedAndStore(w, r, capWriter, h, key, conditional)
 					return
 				}
 
@@ -436,18 +383,8 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 				// Store if response is cacheable (check skip flag again — may be set by response rules)
 				if varCtx.SkipFlags&variables.SkipCacheStore == 0 &&
 					h.ShouldStore(cachingWriter.StatusCode(), cachingWriter.Header(), int64(cachingWriter.Body.Len())) {
-					entry := &cache.Entry{
-						StatusCode: cachingWriter.StatusCode(),
-						Headers:    cachingWriter.Header().Clone(),
-						Body:       cachingWriter.Body.Bytes(),
-					}
-					if conditional {
-						cache.PopulateConditionalFields(entry)
-					}
-					if varCtx.Overrides != nil && varCtx.Overrides.CacheTTLOverride > 0 {
-						entry.TTL = varCtx.Overrides.CacheTTLOverride
-					}
-					h.StoreWithMeta(h.KeyForRequest(r), r.URL.Path, entry)
+					entry := buildCacheEntry(cachingWriter.StatusCode(), cachingWriter.Header(), cachingWriter.Body.Bytes(), conditional)
+					storeCacheEntry(h, h.KeyForRequest(r), r.URL.Path, entry, varCtx)
 				}
 				return
 			}
@@ -459,11 +396,7 @@ func cacheMW(h *cache.Handler, mc *metrics.Collector, routeID string) middleware
 
 // writeStaleResponse writes a stale cached entry to the response writer with X-Cache: STALE.
 func writeStaleResponse(w http.ResponseWriter, r *http.Request, entry *cache.Entry, conditional bool) {
-	for key, values := range entry.Headers {
-		for _, v := range values {
-			w.Header().Add(key, v)
-		}
-	}
+	bufutil.CopyHeaders(w.Header(), entry.Headers)
 	w.Header().Set("X-Cache", "STALE")
 
 	if conditional {
@@ -484,6 +417,22 @@ func writeStaleResponse(w http.ResponseWriter, r *http.Request, entry *cache.Ent
 	w.Write(entry.Body)
 }
 
+// writeCapturedAndStore writes a captured response to the client with X-Cache: MISS,
+// and stores it in the cache if the response is cacheable.
+func writeCapturedAndStore(w http.ResponseWriter, r *http.Request, capWriter *cache.CapturingResponseWriter, h *cache.Handler, key string, conditional bool) {
+	bufutil.CopyHeaders(w.Header(), capWriter.Header())
+	w.Header().Set("X-Cache", "MISS")
+	w.WriteHeader(capWriter.StatusCode())
+	w.Write(capWriter.Body.Bytes())
+
+	varCtx := variables.GetFromRequest(r)
+	if varCtx.SkipFlags&variables.SkipCacheStore == 0 &&
+		h.ShouldStore(capWriter.StatusCode(), capWriter.Header(), int64(capWriter.Body.Len())) {
+		entry := buildCacheEntry(capWriter.StatusCode(), capWriter.Header(), capWriter.Body.Bytes(), conditional)
+		storeCacheEntry(h, key, r.URL.Path, entry, varCtx)
+	}
+}
+
 // revalidateInBackground runs the inner handler to refresh a stale cache entry.
 func revalidateInBackground(h *cache.Handler, next http.Handler, origReq *http.Request, key string, conditional bool) {
 	// Clone the request for background use (the original request's context may be cancelled)
@@ -495,16 +444,30 @@ func revalidateInBackground(h *cache.Handler, next http.Handler, origReq *http.R
 
 	// Only store successful responses
 	if h.ShouldStore(capWriter.StatusCode(), capWriter.Header(), int64(capWriter.Body.Len())) {
-		entry := &cache.Entry{
-			StatusCode: capWriter.StatusCode(),
-			Headers:    capWriter.Header().Clone(),
-			Body:       capWriter.Body.Bytes(),
-		}
-		if conditional {
-			cache.PopulateConditionalFields(entry)
-		}
+		entry := buildCacheEntry(capWriter.StatusCode(), capWriter.Header(), capWriter.Body.Bytes(), conditional)
 		h.StoreWithMeta(key, origReq.URL.Path, entry)
 	}
+}
+
+// buildCacheEntry creates a cache.Entry from captured response data.
+func buildCacheEntry(statusCode int, headers http.Header, body []byte, conditional bool) *cache.Entry {
+	entry := &cache.Entry{
+		StatusCode: statusCode,
+		Headers:    headers.Clone(),
+		Body:       body,
+	}
+	if conditional {
+		cache.PopulateConditionalFields(entry)
+	}
+	return entry
+}
+
+// storeCacheEntry applies optional TTL override and stores the entry.
+func storeCacheEntry(h *cache.Handler, key, path string, entry *cache.Entry, varCtx *variables.Context) {
+	if varCtx != nil && varCtx.Overrides != nil && varCtx.Overrides.CacheTTLOverride > 0 {
+		entry.TTL = varCtx.Overrides.CacheTTLOverride
+	}
+	h.StoreWithMeta(key, path, entry)
 }
 
 var errServerError = fmt.Errorf("server error")
@@ -636,40 +599,43 @@ func evaluateResponseRules(engine *rules.RuleEngine, rw *rules.RulesResponseWrit
 func sessionAffinityMW(sa *loadbalancer.SessionAffinityBalancer) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			saw := &sessionAffinityWriter{ResponseWriter: w, sa: sa, r: r}
-			next.ServeHTTP(saw, r)
+			next.ServeHTTP(&onFirstHeaderWriter{
+				ResponseWriter: w,
+				fn: func(dst http.ResponseWriter) {
+					varCtx := variables.GetFromRequest(r)
+					if varCtx.UpstreamAddr != "" {
+						http.SetCookie(dst, sa.MakeCookie(varCtx.UpstreamAddr))
+					}
+				},
+			}, r)
 		})
 	}
 }
 
-// sessionAffinityWriter intercepts WriteHeader to inject the backend affinity cookie.
-type sessionAffinityWriter struct {
+// onFirstHeaderWriter calls fn exactly once before the first WriteHeader.
+// Used by sessionAffinityMW and trafficGroupMW to inject headers/cookies.
+type onFirstHeaderWriter struct {
 	http.ResponseWriter
-	sa            *loadbalancer.SessionAffinityBalancer
-	r             *http.Request
+	fn            func(http.ResponseWriter)
 	headerWritten bool
 }
 
-func (w *sessionAffinityWriter) WriteHeader(code int) {
+func (w *onFirstHeaderWriter) WriteHeader(code int) {
 	if !w.headerWritten {
 		w.headerWritten = true
-		varCtx := variables.GetFromRequest(w.r)
-		if varCtx.UpstreamAddr != "" {
-			cookie := w.sa.MakeCookie(varCtx.UpstreamAddr)
-			http.SetCookie(w.ResponseWriter, cookie)
-		}
+		w.fn(w.ResponseWriter)
 	}
 	w.ResponseWriter.WriteHeader(code)
 }
 
-func (w *sessionAffinityWriter) Write(b []byte) (int, error) {
+func (w *onFirstHeaderWriter) Write(b []byte) (int, error) {
 	if !w.headerWritten {
 		w.WriteHeader(200)
 	}
 	return w.ResponseWriter.Write(b)
 }
 
-func (w *sessionAffinityWriter) Flush() {
+func (w *onFirstHeaderWriter) Flush() {
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
@@ -678,44 +644,19 @@ func (w *sessionAffinityWriter) Flush() {
 func trafficGroupMW(sp *loadbalancer.StickyPolicy) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			abw := &abVariantWriter{ResponseWriter: w, sp: sp, r: r}
-			next.ServeHTTP(abw, r)
+			next.ServeHTTP(&onFirstHeaderWriter{
+				ResponseWriter: w,
+				fn: func(dst http.ResponseWriter) {
+					varCtx := variables.GetFromRequest(r)
+					if varCtx.TrafficGroup != "" {
+						dst.Header().Set("X-AB-Variant", varCtx.TrafficGroup)
+						if cookie := sp.SetCookie(varCtx.TrafficGroup); cookie != nil {
+							http.SetCookie(dst, cookie)
+						}
+					}
+				},
+			}, r)
 		})
-	}
-}
-
-// abVariantWriter intercepts WriteHeader to inject traffic group headers and cookies.
-type abVariantWriter struct {
-	http.ResponseWriter
-	sp            *loadbalancer.StickyPolicy
-	r             *http.Request
-	headerWritten bool
-}
-
-func (w *abVariantWriter) WriteHeader(code int) {
-	if !w.headerWritten {
-		w.headerWritten = true
-		varCtx := variables.GetFromRequest(w.r)
-		if varCtx.TrafficGroup != "" {
-			w.ResponseWriter.Header().Set("X-AB-Variant", varCtx.TrafficGroup)
-			if cookie := w.sp.SetCookie(varCtx.TrafficGroup); cookie != nil {
-				http.SetCookie(w.ResponseWriter, cookie)
-			}
-		}
-	}
-	w.ResponseWriter.WriteHeader(code)
-}
-
-func (w *abVariantWriter) Write(b []byte) (int, error) {
-	if !w.headerWritten {
-		w.WriteHeader(200)
-	}
-	return w.ResponseWriter.Write(b)
-}
-
-func (w *abVariantWriter) Flush() {
-	if f, ok := w.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
 	}
 }
 
@@ -810,52 +751,36 @@ func priorityMW(admitter *trafficshape.PriorityAdmitter, cfg config.PriorityConf
 	}
 }
 
-// 22. canaryObserverMW records per-traffic-group outcomes for canary analysis.
-func canaryObserverMW(ctrl *canary.Controller) middleware.Middleware {
+// trafficRecorder is satisfied by canary.Controller, bluegreen.Controller, and abtest.ABTest.
+type trafficRecorder interface {
+	RecordRequest(group string, statusCode int, latency time.Duration)
+}
+
+// trafficObserverMW records per-traffic-group outcomes for traffic analysis.
+func trafficObserverMW(rec trafficRecorder) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
-			rec := getStatusRecorder(w)
-			next.ServeHTTP(rec, r)
-
-			varCtx := variables.GetFromRequest(r)
-			if varCtx.TrafficGroup != "" {
-				ctrl.RecordRequest(varCtx.TrafficGroup, rec.statusCode, time.Since(start))
+			sr := getStatusRecorder(w)
+			next.ServeHTTP(sr, r)
+			if varCtx := variables.GetFromRequest(r); varCtx.TrafficGroup != "" {
+				rec.RecordRequest(varCtx.TrafficGroup, sr.statusCode, time.Since(start))
 			}
-			putStatusRecorder(rec)
+			putStatusRecorder(sr)
 		})
 	}
 }
 
-func blueGreenObserverMW(ctrl *bluegreen.Controller) middleware.Middleware {
+// skipFlagMW wraps a middleware to bypass it when the given skip flag is set.
+func skipFlagMW(flag variables.SkipFlags, inner middleware.Middleware) middleware.Middleware {
 	return func(next http.Handler) http.Handler {
+		h := inner(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			start := time.Now()
-			rec := getStatusRecorder(w)
-			next.ServeHTTP(rec, r)
-
-			varCtx := variables.GetFromRequest(r)
-			if varCtx.TrafficGroup != "" {
-				ctrl.RecordRequest(varCtx.TrafficGroup, rec.statusCode, time.Since(start))
+			if variables.GetFromRequest(r).SkipFlags&flag != 0 {
+				next.ServeHTTP(w, r)
+				return
 			}
-			putStatusRecorder(rec)
-		})
-	}
-}
-
-// abTestObserverMW records per-traffic-group outcomes for A/B test metric collection.
-func abTestObserverMW(ab *abtest.ABTest) middleware.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			start := time.Now()
-			rec := getStatusRecorder(w)
-			next.ServeHTTP(rec, r)
-
-			varCtx := variables.GetFromRequest(r)
-			if varCtx.TrafficGroup != "" {
-				ab.RecordRequest(varCtx.TrafficGroup, rec.statusCode, time.Since(start))
-			}
-			putStatusRecorder(rec)
+			h.ServeHTTP(w, r)
 		})
 	}
 }
@@ -966,11 +891,7 @@ func (w *validatingResponseWriter) Write(b []byte) (int, error) {
 	if w.buf.Len()+len(b) > w.maxSize {
 		// Switch to pass-through: flush what we have and stream the rest
 		w.overflowed = true
-		for k, vv := range w.header {
-			for _, v := range vv {
-				w.ResponseWriter.Header().Add(k, v)
-			}
-		}
+		bufutil.CopyHeaders(w.ResponseWriter.Header(), w.header)
 		w.ResponseWriter.WriteHeader(w.statusCode)
 		w.ResponseWriter.Write(w.buf.Bytes())
 		w.buf.Reset()
@@ -987,11 +908,7 @@ func (w *validatingResponseWriter) Flush() {
 
 // flush writes the buffered status, headers, and body to the underlying writer.
 func (w *validatingResponseWriter) flush() {
-	for k, vv := range w.header {
-		for _, v := range vv {
-			w.ResponseWriter.Header().Add(k, v)
-		}
-	}
+	bufutil.CopyHeaders(w.ResponseWriter.Header(), w.header)
 	if w.statusCode == 0 {
 		w.statusCode = 200
 	}
@@ -1007,14 +924,10 @@ func isCollectionMW(collectionKey string) middleware.Middleware {
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			bw := &collectionBufferWriter{
-				ResponseWriter: w,
-				header:         make(http.Header),
-				statusCode:     200,
-			}
+			bw := bufutil.New()
 			next.ServeHTTP(bw, r)
 
-			body := bw.body.Bytes()
+			body := bw.Body.Bytes()
 
 			// If JSON array response, wrap it
 			if len(body) > 0 && body[0] == '[' {
@@ -1024,25 +937,7 @@ func isCollectionMW(collectionKey string) middleware.Middleware {
 				}
 			}
 
-			for k, vv := range bw.header {
-				for _, v := range vv {
-					w.Header().Add(k, v)
-				}
-			}
-			w.Header().Set("Content-Length", strconv.Itoa(len(body)))
-			w.WriteHeader(bw.statusCode)
-			w.Write(body)
+			bw.FlushToWithLength(w, body)
 		})
 	}
 }
-
-type collectionBufferWriter struct {
-	http.ResponseWriter
-	statusCode int
-	body       bytes.Buffer
-	header     http.Header
-}
-
-func (w *collectionBufferWriter) Header() http.Header     { return w.header }
-func (w *collectionBufferWriter) WriteHeader(code int)     { w.statusCode = code }
-func (w *collectionBufferWriter) Write(b []byte) (int, error) { return w.body.Write(b) }

@@ -599,10 +599,10 @@ func TestManagerByRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if p := m.GetParser("route1"); p == nil {
+	if p := m.Lookup("route1"); p == nil {
 		t.Error("expected parser for route1")
 	}
-	if p := m.GetParser("nonexistent"); p != nil {
+	if p := m.Lookup("nonexistent"); p != nil {
 		t.Error("expected nil for nonexistent route")
 	}
 

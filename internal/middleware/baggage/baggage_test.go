@@ -275,10 +275,10 @@ func TestBaggageByRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if p := b.GetPropagator("route1"); p == nil {
+	if p := b.Lookup("route1"); p == nil {
 		t.Error("expected propagator for route1")
 	}
-	if p := b.GetPropagator("nonexistent"); p != nil {
+	if p := b.Lookup("nonexistent"); p != nil {
 		t.Error("expected nil for nonexistent route")
 	}
 

@@ -99,11 +99,11 @@ func TestFilterByRoute(t *testing.T) {
 	r := httptest.NewRequest("GET", "/", nil)
 	r.RemoteAddr = "10.0.0.1:1234"
 
-	if m.CheckRequest("route1", r) {
+	if f := m.Lookup("route1"); f != nil && f.Check(r) {
 		t.Error("should deny 10.x IP")
 	}
 
-	if !m.CheckRequest("unknown-route", r) {
+	if f := m.Lookup("unknown-route"); f != nil && !f.Check(r) {
 		t.Error("unknown route should allow all")
 	}
 }

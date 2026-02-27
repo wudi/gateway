@@ -150,10 +150,10 @@ func TestSpikeArrestByRoute(t *testing.T) {
 		Period:  time.Second,
 	})
 
-	if sa := m.GetArrester("route1"); sa == nil {
+	if sa := m.Lookup("route1"); sa == nil {
 		t.Fatal("expected arrester for route1")
 	}
-	if sa := m.GetArrester("nonexistent"); sa != nil {
+	if sa := m.Lookup("nonexistent"); sa != nil {
 		t.Fatal("expected nil for nonexistent route")
 	}
 

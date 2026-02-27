@@ -18,7 +18,9 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/internal/errors"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // ExtAuth handles external authentication by delegating to an HTTP or gRPC service.
@@ -392,7 +394,7 @@ func buildHTTPTLSConfig(cfg config.ExtAuthTLSConfig) (*tls.Config, error) {
 }
 
 // Middleware returns a middleware that calls an external auth service before allowing the request.
-func (ea *ExtAuth) Middleware() func(http.Handler) http.Handler {
+func (ea *ExtAuth) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			result, err := ea.Check(r)
@@ -422,4 +424,13 @@ func (ea *ExtAuth) Middleware() func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// ExtAuthByRoute manages per-route external auth clients.
+type ExtAuthByRoute = byroute.Factory[*ExtAuth, config.ExtAuthConfig]
+
+// NewExtAuthByRoute creates a new per-route ext auth manager.
+func NewExtAuthByRoute() *ExtAuthByRoute {
+	return byroute.NewFactory(New, func(ea *ExtAuth) any { return ea.metrics.Snapshot() }).
+		WithClose((*ExtAuth).Close)
 }

@@ -277,34 +277,11 @@ func (e *OPAEnforcer) TotalErrors() int64 {
 }
 
 // OPAByRoute manages per-route OPA enforcers.
-type OPAByRoute struct {
-	byroute.Manager[*OPAEnforcer]
-}
+type OPAByRoute = byroute.Factory[*OPAEnforcer, config.OPAConfig]
 
 // NewOPAByRoute creates a new per-route OPA enforcer manager.
 func NewOPAByRoute() *OPAByRoute {
-	return &OPAByRoute{}
-}
-
-// AddRoute adds an OPA enforcer for a route.
-func (m *OPAByRoute) AddRoute(routeID string, cfg config.OPAConfig) error {
-	enforcer, err := New(cfg)
-	if err != nil {
-		return err
-	}
-	m.Add(routeID, enforcer)
-	return nil
-}
-
-// GetEnforcer returns the OPA enforcer for a route.
-func (m *OPAByRoute) GetEnforcer(routeID string) *OPAEnforcer {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route OPA stats.
-func (m *OPAByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(e *OPAEnforcer) interface{} {
+	return byroute.NewFactory(New, func(e *OPAEnforcer) any {
 		return map[string]interface{}{
 			"total_requests": e.TotalRequests(),
 			"total_denied":   e.TotalDenied(),

@@ -1292,7 +1292,7 @@ func TestTokenExchangeByRoute_MultipleRoutes(t *testing.T) {
 	m := NewTokenExchangeByRoute()
 
 	// GetExchanger for nonexistent route
-	if m.GetExchanger("nonexistent") != nil {
+	if m.Lookup("nonexistent") != nil {
 		t.Error("expected nil for nonexistent route")
 	}
 

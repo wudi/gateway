@@ -362,11 +362,6 @@ func (m *NegotiatorByRoute) AddRoute(routeID string, cfg config.ContentNegotiati
 	return nil
 }
 
-// GetNegotiator returns the negotiator for a route.
-func (m *NegotiatorByRoute) GetNegotiator(routeID string) *Negotiator {
-	v, _ := m.Get(routeID)
-	return v
-}
 
 // Stats returns per-route negotiator stats.
 func (m *NegotiatorByRoute) Stats() map[string]interface{} {

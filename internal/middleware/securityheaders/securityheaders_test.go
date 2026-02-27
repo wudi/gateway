@@ -155,10 +155,10 @@ func TestSecurityHeadersByRoute(t *testing.T) {
 		ReferrerPolicy:  "no-referrer",
 	})
 
-	if h := m.GetHeaders("api"); h == nil {
+	if h := m.Lookup("api"); h == nil {
 		t.Fatal("expected api headers")
 	}
-	if h := m.GetHeaders("unknown"); h != nil {
+	if h := m.Lookup("unknown"); h != nil {
 		t.Fatal("expected nil for unknown route")
 	}
 

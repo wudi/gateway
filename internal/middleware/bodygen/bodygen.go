@@ -113,34 +113,11 @@ func (bg *BodyGen) Generated() int64 {
 }
 
 // BodyGenByRoute manages per-route body generators.
-type BodyGenByRoute struct {
-	byroute.Manager[*BodyGen]
-}
+type BodyGenByRoute = byroute.Factory[*BodyGen, config.BodyGeneratorConfig]
 
 // NewBodyGenByRoute creates a new per-route body generator manager.
 func NewBodyGenByRoute() *BodyGenByRoute {
-	return &BodyGenByRoute{}
-}
-
-// AddRoute adds a body generator for a route.
-func (m *BodyGenByRoute) AddRoute(routeID string, cfg config.BodyGeneratorConfig) error {
-	bg, err := New(cfg)
-	if err != nil {
-		return err
-	}
-	m.Add(routeID, bg)
-	return nil
-}
-
-// GetGenerator returns the body generator for a route.
-func (m *BodyGenByRoute) GetGenerator(routeID string) *BodyGen {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route body generator stats.
-func (m *BodyGenByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(bg *BodyGen) interface{} {
+	return byroute.NewFactory(New, func(bg *BodyGen) any {
 		return map[string]interface{}{"generated": bg.Generated(), "content_type": bg.contentType}
 	})
 }

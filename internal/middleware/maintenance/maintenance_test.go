@@ -194,19 +194,19 @@ func TestMaintenanceByRoute(t *testing.T) {
 	m.AddRoute("api", config.MaintenanceConfig{Enabled: true})
 	m.AddRoute("web", config.MaintenanceConfig{Enabled: false})
 
-	if h := m.GetMaintenance("api"); h == nil {
+	if h := m.Lookup("api"); h == nil {
 		t.Fatal("expected api maintenance")
 	} else if !h.IsEnabled() {
 		t.Fatal("expected api maintenance enabled")
 	}
 
-	if h := m.GetMaintenance("web"); h == nil {
+	if h := m.Lookup("web"); h == nil {
 		t.Fatal("expected web maintenance")
 	} else if h.IsEnabled() {
 		t.Fatal("expected web maintenance disabled")
 	}
 
-	if h := m.GetMaintenance("unknown"); h != nil {
+	if h := m.Lookup("unknown"); h != nil {
 		t.Fatal("expected nil for unknown route")
 	}
 

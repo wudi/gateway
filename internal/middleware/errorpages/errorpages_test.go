@@ -286,10 +286,10 @@ func TestManager(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if ep := m.GetErrorPages("route1"); ep == nil {
+	if ep := m.Lookup("route1"); ep == nil {
 		t.Error("expected non-nil for route1")
 	}
-	if ep := m.GetErrorPages("route2"); ep != nil {
+	if ep := m.Lookup("route2"); ep != nil {
 		t.Error("expected nil for route2")
 	}
 

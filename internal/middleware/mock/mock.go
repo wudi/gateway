@@ -79,11 +79,6 @@ func (m *MockByRoute) AddSpecRoute(routeID string, cfg config.MockResponseConfig
 	m.Add(routeID, specmock.New(doc, cfg.DefaultStatus, cfg.Seed, cfg.Headers))
 }
 
-// GetHandler returns the mock handler for a route.
-func (m *MockByRoute) GetHandler(routeID string) Handler {
-	v, _ := m.Get(routeID)
-	return v
-}
 
 // Stats returns per-route mock stats.
 func (m *MockByRoute) Stats() map[string]interface{} {

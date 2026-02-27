@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/internal/loadbalancer"
 	"github.com/wudi/runway/variables"
 )
@@ -477,10 +478,10 @@ func TestBackpressureByRoute(t *testing.T) {
 	bal := newMockBalancer("http://backend1:8080")
 	m.AddRoute("route1", config.BackpressureConfig{}, bal)
 
-	if h := m.GetHandler("route1"); h == nil {
+	if h := m.Lookup("route1"); h == nil {
 		t.Fatal("expected handler for route1")
 	}
-	if h := m.GetHandler("nonexistent"); h != nil {
+	if h := m.Lookup("nonexistent"); h != nil {
 		t.Fatal("expected nil for nonexistent route")
 	}
 
@@ -494,7 +495,7 @@ func TestBackpressureByRoute(t *testing.T) {
 		t.Error("expected stats for route1")
 	}
 
-	m.CloseAll()
+	byroute.ForEach(&m.Manager, (*Backpressure).Close)
 }
 
 func TestBackpressure_StatusCaptureWrite(t *testing.T) {

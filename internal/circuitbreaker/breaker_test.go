@@ -247,17 +247,17 @@ func TestBreakerByRoute(t *testing.T) {
 		Timeout:          2 * time.Second,
 	})
 
-	b1 := br.GetBreaker("route1")
+	b1 := br.Lookup("route1")
 	if b1 == nil {
 		t.Fatal("expected breaker for route1")
 	}
 
-	b2 := br.GetBreaker("route2")
+	b2 := br.Lookup("route2")
 	if b2 == nil {
 		t.Fatal("expected breaker for route2")
 	}
 
-	b3 := br.GetBreaker("route3")
+	b3 := br.Lookup("route3")
 	if b3 != nil {
 		t.Fatal("expected nil for non-existent route3")
 	}

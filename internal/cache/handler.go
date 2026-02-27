@@ -49,6 +49,7 @@ type Handler struct {
 	pathMu               sync.RWMutex
 	tagHeaders           []string // response headers to extract tags from
 	staticTags           []string // static tags for all entries
+	Bucket               string   // shared bucket name (empty if dedicated store)
 }
 
 // NewHandler creates a new cache handler for a route with the given store backend.
@@ -628,9 +629,8 @@ func WriteCachedResponse(w http.ResponseWriter, r *http.Request, entry *Entry, c
 // CacheByRoute manages cache handlers per route.
 type CacheByRoute struct {
 	byroute.Manager[*Handler]
-	extraMu      sync.RWMutex
+	storeMu      sync.Mutex // protects bucketStores and redisClient during AddRoute
 	bucketStores map[string]Store
-	buckets      map[string]string // routeID → bucket name
 	redisClient  *redis.Client
 }
 
@@ -644,18 +644,17 @@ func NewCacheByRoute(redisClient *redis.Client) *CacheByRoute {
 
 // SetRedisClient sets the Redis client for distributed caching.
 func (cbr *CacheByRoute) SetRedisClient(client *redis.Client) {
-	cbr.extraMu.Lock()
-	defer cbr.extraMu.Unlock()
+	cbr.storeMu.Lock()
+	defer cbr.storeMu.Unlock()
 	cbr.redisClient = client
 }
 
 // AddRoute adds a cache handler for a route.
 func (cbr *CacheByRoute) AddRoute(routeID string, cfg config.CacheConfig) {
-	cbr.extraMu.Lock()
+	cbr.storeMu.Lock()
 
 	if cbr.bucketStores == nil {
 		cbr.bucketStores = make(map[string]Store)
-		cbr.buckets = make(map[string]string)
 	}
 
 	ttl := cfg.TTL
@@ -680,13 +679,15 @@ func (cbr *CacheByRoute) AddRoute(routeID string, cfg config.CacheConfig) {
 			store = cbr.createStore(cfg, "gw:cache:bucket:"+cfg.Bucket+":", storeTTL)
 			cbr.bucketStores[cfg.Bucket] = store
 		}
-		cbr.buckets[routeID] = cfg.Bucket
 	} else {
 		store = cbr.createStore(cfg, "gw:cache:"+routeID+":", storeTTL)
 	}
 
-	cbr.extraMu.Unlock()
-	cbr.Add(routeID, NewHandler(cfg, store))
+	cbr.storeMu.Unlock()
+
+	h := NewHandler(cfg, store)
+	h.Bucket = cfg.Bucket
+	cbr.Add(routeID, h)
 }
 
 // createStore creates a Store based on config mode.
@@ -701,15 +702,10 @@ func (cbr *CacheByRoute) createStore(cfg config.CacheConfig, redisPrefix string,
 	return NewMemoryStore(maxSize, ttl)
 }
 
-// GetHandler returns the cache handler for a route.
-func (cbr *CacheByRoute) GetHandler(routeID string) *Handler {
-	v, _ := cbr.Get(routeID)
-	return v
-}
 
 // PurgeRoute purges all cache entries for a specific route. Returns pre-purge size and whether the route was found.
 func (cbr *CacheByRoute) PurgeRoute(routeID string) (int, bool) {
-	h := cbr.GetHandler(routeID)
+	h := cbr.Lookup(routeID)
 	if h == nil {
 		return 0, false
 	}
@@ -720,7 +716,7 @@ func (cbr *CacheByRoute) PurgeRoute(routeID string) (int, bool) {
 
 // PurgeRouteKey deletes a specific key from a route's cache. Returns true if the route was found.
 func (cbr *CacheByRoute) PurgeRouteKey(routeID, key string) bool {
-	h := cbr.GetHandler(routeID)
+	h := cbr.Lookup(routeID)
 	if h == nil {
 		return false
 	}
@@ -731,7 +727,7 @@ func (cbr *CacheByRoute) PurgeRouteKey(routeID, key string) bool {
 // PurgeByPathPattern removes entries matching a glob pattern from a route's cache.
 // Returns (count, true) if the route was found, (0, false) otherwise.
 func (cbr *CacheByRoute) PurgeByPathPattern(routeID, pattern string) (int, bool) {
-	h := cbr.GetHandler(routeID)
+	h := cbr.Lookup(routeID)
 	if h == nil {
 		return 0, false
 	}
@@ -741,7 +737,7 @@ func (cbr *CacheByRoute) PurgeByPathPattern(routeID, pattern string) (int, bool)
 // PurgeByTags removes entries matching any of the given tags from a route's cache.
 // Returns (count, true) if the route was found, (0, false) otherwise.
 func (cbr *CacheByRoute) PurgeByTags(routeID string, tags []string) (int, bool) {
-	h := cbr.GetHandler(routeID)
+	h := cbr.Lookup(routeID)
 	if h == nil {
 		return 0, false
 	}
@@ -761,16 +757,10 @@ func (cbr *CacheByRoute) PurgeAll() int {
 
 // Stats returns cache statistics for all routes.
 func (cbr *CacheByRoute) Stats() map[string]CacheStats {
-	cbr.extraMu.RLock()
-	buckets := cbr.buckets
-	cbr.extraMu.RUnlock()
-
 	result := make(map[string]CacheStats)
 	cbr.Range(func(id string, h *Handler) bool {
 		stats := h.Stats()
-		if bucket, ok := buckets[id]; ok {
-			stats.Bucket = bucket
-		}
+		stats.Bucket = h.Bucket
 		result[id] = stats
 		return true
 	})

@@ -161,10 +161,10 @@ func TestContentReplacerByRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if cr := m.GetReplacer("route1"); cr == nil {
+	if cr := m.Lookup("route1"); cr == nil {
 		t.Fatal("expected replacer for route1")
 	}
-	if cr := m.GetReplacer("nonexistent"); cr != nil {
+	if cr := m.Lookup("nonexistent"); cr != nil {
 		t.Fatal("expected nil for nonexistent route")
 	}
 

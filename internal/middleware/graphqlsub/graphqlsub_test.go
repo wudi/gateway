@@ -206,7 +206,7 @@ func TestByRouteManager(t *testing.T) {
 		MaxConnections: 50,
 	})
 
-	h1 := m.GetHandler("route1")
+	h1 := m.Lookup("route1")
 	if h1 == nil {
 		t.Fatal("expected handler for route1")
 	}
@@ -214,7 +214,7 @@ func TestByRouteManager(t *testing.T) {
 		t.Errorf("expected graphql-ws, got %s", h1.Protocol())
 	}
 
-	h2 := m.GetHandler("route2")
+	h2 := m.Lookup("route2")
 	if h2 == nil {
 		t.Fatal("expected handler for route2")
 	}
@@ -222,7 +222,7 @@ func TestByRouteManager(t *testing.T) {
 		t.Errorf("expected default protocol for route2, got %s", h2.Protocol())
 	}
 
-	if m.GetHandler("nonexistent") != nil {
+	if m.Lookup("nonexistent") != nil {
 		t.Error("expected nil for nonexistent route")
 	}
 

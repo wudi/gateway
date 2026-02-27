@@ -7,6 +7,7 @@ import (
 
 	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // ResponseLimiter enforces a maximum response body size for a route.
@@ -61,7 +62,7 @@ func (rl *ResponseLimiter) Stats() Snapshot {
 }
 
 // Middleware returns the response size limiting middleware.
-func (rl *ResponseLimiter) Middleware() func(http.Handler) http.Handler {
+func (rl *ResponseLimiter) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			rl.metrics.TotalResponses.Add(1)
@@ -186,27 +187,9 @@ func MergeResponseLimitConfig(perRoute, global config.ResponseLimitConfig) confi
 }
 
 // ResponseLimitByRoute manages response limiters per route.
-type ResponseLimitByRoute struct {
-	byroute.Manager[*ResponseLimiter]
-}
+type ResponseLimitByRoute = byroute.Factory[*ResponseLimiter, config.ResponseLimitConfig]
 
 // NewResponseLimitByRoute creates a new per-route response limit manager.
 func NewResponseLimitByRoute() *ResponseLimitByRoute {
-	return &ResponseLimitByRoute{}
-}
-
-// AddRoute adds a response limiter for a route.
-func (m *ResponseLimitByRoute) AddRoute(routeID string, cfg config.ResponseLimitConfig) {
-	m.Add(routeID, New(cfg))
-}
-
-// GetLimiter returns the response limiter for a route.
-func (m *ResponseLimitByRoute) GetLimiter(routeID string) *ResponseLimiter {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route response limit statistics.
-func (m *ResponseLimitByRoute) Stats() map[string]Snapshot {
-	return byroute.CollectStats(&m.Manager, func(rl *ResponseLimiter) Snapshot { return rl.Stats() })
+	return byroute.SimpleFactory(New, func(rl *ResponseLimiter) any { return rl.Stats() })
 }

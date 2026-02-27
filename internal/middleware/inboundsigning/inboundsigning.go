@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/internal/logging"
 	"github.com/wudi/runway/internal/middleware"
 	"go.uber.org/zap"
@@ -375,4 +376,12 @@ func hasBody(method string) bool {
 		return true
 	}
 	return false
+}
+
+// InboundSigningByRoute manages per-route inbound signature verifiers.
+type InboundSigningByRoute = byroute.NamedFactory[*CompiledVerifier, config.InboundSigningConfig]
+
+// NewInboundSigningByRoute creates a new manager.
+func NewInboundSigningByRoute() *InboundSigningByRoute {
+	return byroute.NewNamedFactory(New, func(v *CompiledVerifier) any { return v.Status() })
 }

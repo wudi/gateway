@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/internal/logging"
+	"github.com/wudi/runway/internal/middleware"
 	"go.uber.org/zap"
 )
 
@@ -345,7 +347,7 @@ func MergeCSRFConfig(perRoute, global config.CSRFConfig) config.CSRFConfig {
 }
 
 // Middleware returns a middleware that validates CSRF double-submit cookie tokens.
-func (cp *CompiledCSRF) Middleware() func(http.Handler) http.Handler {
+func (cp *CompiledCSRF) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			allowed, statusCode, msg := cp.Check(w, r)
@@ -356,4 +358,12 @@ func (cp *CompiledCSRF) Middleware() func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// CSRFByRoute manages per-route CSRF protectors.
+type CSRFByRoute = byroute.NamedFactory[*CompiledCSRF, config.CSRFConfig]
+
+// NewCSRFByRoute creates a new CSRFByRoute manager.
+func NewCSRFByRoute() *CSRFByRoute {
+	return byroute.NewNamedFactory(New, func(cp *CompiledCSRF) any { return cp.Status() })
 }

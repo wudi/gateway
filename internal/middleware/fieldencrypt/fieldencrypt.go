@@ -243,32 +243,9 @@ func (w *bodyBufferWriter) flush() {
 }
 
 // FieldEncryptByRoute manages per-route field encryptors.
-type FieldEncryptByRoute struct {
-	byroute.Manager[*FieldEncryptor]
-}
+type FieldEncryptByRoute = byroute.Factory[*FieldEncryptor, config.FieldEncryptionConfig]
 
 // NewFieldEncryptByRoute creates a new manager.
 func NewFieldEncryptByRoute() *FieldEncryptByRoute {
-	return &FieldEncryptByRoute{}
-}
-
-// AddRoute adds a field encryptor for a route.
-func (m *FieldEncryptByRoute) AddRoute(routeID string, cfg config.FieldEncryptionConfig) error {
-	fe, err := New(cfg)
-	if err != nil {
-		return err
-	}
-	m.Add(routeID, fe)
-	return nil
-}
-
-// GetEncryptor returns the field encryptor for a route.
-func (m *FieldEncryptByRoute) GetEncryptor(routeID string) *FieldEncryptor {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route field encryption metrics.
-func (m *FieldEncryptByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(fe *FieldEncryptor) interface{} { return fe.Stats() })
+	return byroute.NewFactory(New, func(fe *FieldEncryptor) any { return fe.Stats() })
 }

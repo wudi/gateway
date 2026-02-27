@@ -270,10 +270,10 @@ func TestSLOByRoute(t *testing.T) {
 		Window:  time.Hour,
 	})
 
-	if m.GetTracker("route1") == nil {
+	if m.Lookup("route1") == nil {
 		t.Fatal("expected tracker")
 	}
-	if m.GetTracker("nonexistent") != nil {
+	if m.Lookup("nonexistent") != nil {
 		t.Fatal("expected nil for nonexistent route")
 	}
 

@@ -201,11 +201,6 @@ func (br *BreakerByRoute) AddRouteDistributed(routeID string, cfg config.Circuit
 	}
 }
 
-// GetBreaker returns the circuit breaker for a route.
-func (br *BreakerByRoute) GetBreaker(routeID string) BreakerInterface {
-	v, _ := br.Get(routeID)
-	return v
-}
 
 // Snapshots returns snapshots of all circuit breakers.
 // For tenant-aware breakers, tenant sub-snapshots are included.

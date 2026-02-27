@@ -9,6 +9,7 @@ import (
 
 	"github.com/wudi/runway/config"
 	"github.com/wudi/runway/internal/byroute"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // compiledRule is a pre-compiled version of an EdgeCacheRule.
@@ -156,7 +157,7 @@ func (e *EdgeCacheRules) Stats() Snapshot {
 }
 
 // Middleware returns a middleware that evaluates edge cache rules on responses.
-func (e *EdgeCacheRules) Middleware() func(http.Handler) http.Handler {
+func (e *EdgeCacheRules) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ew := &edgeCacheWriter{
@@ -224,27 +225,9 @@ func MergeEdgeCacheRulesConfig(perRoute, global config.EdgeCacheRulesConfig) con
 }
 
 // EdgeCacheRulesByRoute manages edge cache rules per route.
-type EdgeCacheRulesByRoute struct {
-	byroute.Manager[*EdgeCacheRules]
-}
+type EdgeCacheRulesByRoute = byroute.Factory[*EdgeCacheRules, config.EdgeCacheRulesConfig]
 
 // NewEdgeCacheRulesByRoute creates a new edge cache rules manager.
 func NewEdgeCacheRulesByRoute() *EdgeCacheRulesByRoute {
-	return &EdgeCacheRulesByRoute{}
-}
-
-// AddRoute adds edge cache rules for a route.
-func (br *EdgeCacheRulesByRoute) AddRoute(routeID string, cfg config.EdgeCacheRulesConfig) {
-	br.Add(routeID, New(cfg))
-}
-
-// GetHandler returns the edge cache rules for a route.
-func (br *EdgeCacheRulesByRoute) GetHandler(routeID string) *EdgeCacheRules {
-	v, _ := br.Get(routeID)
-	return v
-}
-
-// Stats returns edge cache rules statistics for all routes.
-func (br *EdgeCacheRulesByRoute) Stats() map[string]Snapshot {
-	return byroute.CollectStats(&br.Manager, func(e *EdgeCacheRules) Snapshot { return e.Stats() })
+	return byroute.SimpleFactory(New, func(e *EdgeCacheRules) any { return e.Stats() })
 }

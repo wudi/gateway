@@ -193,17 +193,17 @@ func TestByRoute(t *testing.T) {
 	br.AddRoute("route1", config.BackendEncodingConfig{Encoding: "xml"})
 	br.AddRoute("route2", config.BackendEncodingConfig{Encoding: "yaml"})
 
-	e1 := br.GetEncoder("route1")
+	e1 := br.Lookup("route1")
 	if e1 == nil || e1.Encoding() != "xml" {
 		t.Error("expected XML encoder for route1")
 	}
 
-	e2 := br.GetEncoder("route2")
+	e2 := br.Lookup("route2")
 	if e2 == nil || e2.Encoding() != "yaml" {
 		t.Error("expected YAML encoder for route2")
 	}
 
-	e3 := br.GetEncoder("route3")
+	e3 := br.Lookup("route3")
 	if e3 != nil {
 		t.Error("expected nil for non-existent route")
 	}

@@ -90,27 +90,11 @@ func (w *mappingWriter) Unwrap() http.ResponseWriter {
 }
 
 // StatusMapByRoute manages per-route status mappers.
-type StatusMapByRoute struct {
-	byroute.Manager[*StatusMapper]
-}
+type StatusMapByRoute = byroute.Factory[*StatusMapper, map[int]int]
 
 // NewStatusMapByRoute creates a new per-route status map manager.
 func NewStatusMapByRoute() *StatusMapByRoute {
-	return &StatusMapByRoute{}
-}
-
-// AddRoute adds a status mapper for a route.
-func (m *StatusMapByRoute) AddRoute(routeID string, mappings map[int]int) {
-	m.Add(routeID, New(routeID, mappings))
-}
-
-// GetMapper returns the status mapper for a route.
-func (m *StatusMapByRoute) GetMapper(routeID string) *StatusMapper {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route status mapping stats.
-func (m *StatusMapByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(sm *StatusMapper) interface{} { return sm.Stats() })
+	return byroute.SimpleFactory(func(mappings map[int]int) *StatusMapper {
+		return New("", mappings)
+	}, func(sm *StatusMapper) any { return sm.Stats() })
 }

@@ -1,7 +1,6 @@
 package etag
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
@@ -10,6 +9,7 @@ import (
 	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/config"
 	"github.com/wudi/runway/internal/middleware"
+	"github.com/wudi/runway/internal/middleware/bufutil"
 )
 
 // ETagHandler generates ETag headers and handles If-None-Match conditional requests.
@@ -30,42 +30,32 @@ func New(cfg config.ETagConfig) *ETagHandler {
 func (h *ETagHandler) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			bw := &bufferingWriter{
-				header: http.Header{},
-				body:   &bytes.Buffer{},
-				status: http.StatusOK,
-			}
+			bw := bufutil.New()
 
 			// Copy existing headers from the real ResponseWriter so downstream
 			// middleware that set headers before Write() are preserved.
 			for k, v := range w.Header() {
-				bw.header[k] = v
+				bw.Header()[k] = v
 			}
 
 			next.ServeHTTP(bw, r)
 
 			// Only generate ETags for successful responses with a body.
-			if bw.status >= 200 && bw.status < 300 && bw.body.Len() > 0 {
-				etag := generateETag(bw.body.Bytes(), h.weak)
-				bw.header.Set("ETag", etag)
+			if bw.StatusCode >= 200 && bw.StatusCode < 300 && bw.Body.Len() > 0 {
+				etag := generateETag(bw.Body.Bytes(), h.weak)
+				bw.Header().Set("ETag", etag)
 				h.generated.Add(1)
 
 				// Check If-None-Match.
 				if inm := r.Header.Get("If-None-Match"); inm != "" && matchETag(inm, etag) {
 					h.notModified.Add(1)
-					// Copy headers to the real writer.
-					copyHeaders(w.Header(), bw.header)
+					bufutil.CopyHeaders(w.Header(), bw.Header())
 					w.WriteHeader(http.StatusNotModified)
 					return
 				}
 			}
 
-			// Write buffered response to the real writer.
-			copyHeaders(w.Header(), bw.header)
-			w.WriteHeader(bw.status)
-			if bw.body.Len() > 0 {
-				w.Write(bw.body.Bytes())
-			}
+			bw.FlushTo(w)
 		})
 	}
 }
@@ -79,29 +69,6 @@ func (h *ETagHandler) Generated() int64 {
 func (h *ETagHandler) NotModified() int64 {
 	return h.notModified.Load()
 }
-
-// bufferingWriter captures the response status and body for ETag computation.
-type bufferingWriter struct {
-	header http.Header
-	body   *bytes.Buffer
-	status int
-}
-
-func (bw *bufferingWriter) Header() http.Header {
-	return bw.header
-}
-
-func (bw *bufferingWriter) Write(b []byte) (int, error) {
-	return bw.body.Write(b)
-}
-
-func (bw *bufferingWriter) WriteHeader(status int) {
-	bw.status = status
-}
-
-// Flush implements http.Flusher. Since we buffer everything, this is a no-op
-// until the middleware flushes to the real writer.
-func (bw *bufferingWriter) Flush() {}
 
 // generateETag produces an ETag from body bytes using SHA-256.
 func generateETag(body []byte, weak bool) string {
@@ -165,39 +132,12 @@ func matchETag(inm, etag string) bool {
 	return false
 }
 
-// copyHeaders copies all headers from src to dst.
-func copyHeaders(dst, src http.Header) {
-	for k, vs := range src {
-		for _, v := range vs {
-			dst.Add(k, v)
-		}
-	}
-}
-
 // ETagByRoute manages per-route ETag handlers.
-type ETagByRoute struct {
-	byroute.Manager[*ETagHandler]
-}
+type ETagByRoute = byroute.Factory[*ETagHandler, config.ETagConfig]
 
 // NewETagByRoute creates a new per-route ETag handler manager.
 func NewETagByRoute() *ETagByRoute {
-	return &ETagByRoute{}
-}
-
-// AddRoute adds an ETag handler for a route.
-func (m *ETagByRoute) AddRoute(routeID string, cfg config.ETagConfig) {
-	m.Add(routeID, New(cfg))
-}
-
-// GetHandler returns the ETag handler for a route.
-func (m *ETagByRoute) GetHandler(routeID string) *ETagHandler {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route ETag stats.
-func (m *ETagByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(h *ETagHandler) interface{} {
+	return byroute.SimpleFactory(New, func(h *ETagHandler) any {
 		return map[string]interface{}{
 			"generated":    h.Generated(),
 			"not_modified": h.NotModified(),

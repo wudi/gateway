@@ -224,32 +224,9 @@ func (w *bufferingWriter) flush() {
 }
 
 // PIIRedactByRoute manages per-route PII redactors.
-type PIIRedactByRoute struct {
-	byroute.Manager[*PIIRedactor]
-}
+type PIIRedactByRoute = byroute.Factory[*PIIRedactor, config.PIIRedactionConfig]
 
 // NewPIIRedactByRoute creates a new manager.
 func NewPIIRedactByRoute() *PIIRedactByRoute {
-	return &PIIRedactByRoute{}
-}
-
-// AddRoute adds a PII redactor for a route.
-func (m *PIIRedactByRoute) AddRoute(routeID string, cfg config.PIIRedactionConfig) error {
-	pr, err := New(cfg)
-	if err != nil {
-		return err
-	}
-	m.Add(routeID, pr)
-	return nil
-}
-
-// GetRedactor returns the PII redactor for a route.
-func (m *PIIRedactByRoute) GetRedactor(routeID string) *PIIRedactor {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route PII redaction metrics.
-func (m *PIIRedactByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(pr *PIIRedactor) interface{} { return pr.Stats() })
+	return byroute.NewFactory(New, func(pr *PIIRedactor) any { return pr.Stats() })
 }

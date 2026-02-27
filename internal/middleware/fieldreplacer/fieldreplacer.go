@@ -1,12 +1,10 @@
 package fieldreplacer
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -15,6 +13,7 @@ import (
 	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/config"
 	"github.com/wudi/runway/internal/middleware"
+	"github.com/wudi/runway/internal/middleware/bufutil"
 )
 
 // compiledOp holds a pre-compiled replacement operation.
@@ -59,25 +58,11 @@ func New(cfg config.FieldReplacerConfig) (*FieldReplacer, error) {
 func (fr *FieldReplacer) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			bw := &bodyBufferWriter{
-				ResponseWriter: w,
-				statusCode:     200,
-				header:         make(http.Header),
-			}
+			bw := bufutil.New()
 			next.ServeHTTP(bw, r)
 
-			body := bw.body.Bytes()
-			result := fr.apply(body)
-
-			// Copy captured headers to real writer.
-			for k, vv := range bw.header {
-				for _, v := range vv {
-					w.Header().Add(k, v)
-				}
-			}
-			w.Header().Set("Content-Length", strconv.Itoa(len(result)))
-			w.WriteHeader(bw.statusCode)
-			w.Write(result)
+			result := fr.apply(bw.Body.Bytes())
+			bw.FlushToWithLength(w, result)
 		})
 	}
 }
@@ -141,55 +126,12 @@ func (fr *FieldReplacer) Processed() int64 {
 	return fr.processed.Load()
 }
 
-// bodyBufferWriter captures the response for transformation.
-type bodyBufferWriter struct {
-	http.ResponseWriter
-	statusCode int
-	body       bytes.Buffer
-	header     http.Header
-}
-
-func (bw *bodyBufferWriter) Header() http.Header {
-	return bw.header
-}
-
-func (bw *bodyBufferWriter) WriteHeader(code int) {
-	bw.statusCode = code
-}
-
-func (bw *bodyBufferWriter) Write(b []byte) (int, error) {
-	return bw.body.Write(b)
-}
-
 // FieldReplacerByRoute manages per-route field replacers.
-type FieldReplacerByRoute struct {
-	byroute.Manager[*FieldReplacer]
-}
+type FieldReplacerByRoute = byroute.Factory[*FieldReplacer, config.FieldReplacerConfig]
 
 // NewFieldReplacerByRoute creates a new per-route field replacer manager.
 func NewFieldReplacerByRoute() *FieldReplacerByRoute {
-	return &FieldReplacerByRoute{}
-}
-
-// AddRoute adds a field replacer for a route.
-func (m *FieldReplacerByRoute) AddRoute(routeID string, cfg config.FieldReplacerConfig) error {
-	fr, err := New(cfg)
-	if err != nil {
-		return err
-	}
-	m.Add(routeID, fr)
-	return nil
-}
-
-// GetReplacer returns the field replacer for a route.
-func (m *FieldReplacerByRoute) GetReplacer(routeID string) *FieldReplacer {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns per-route field replacer stats.
-func (m *FieldReplacerByRoute) Stats() map[string]interface{} {
-	return byroute.CollectStats(&m.Manager, func(fr *FieldReplacer) interface{} {
+	return byroute.NewFactory(New, func(fr *FieldReplacer) any {
 		return map[string]interface{}{
 			"operations": len(fr.ops),
 			"processed":  fr.Processed(),

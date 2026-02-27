@@ -1,32 +1,31 @@
 package nonce
 
 import (
-	"fmt"
-
 	"github.com/redis/go-redis/v9"
-	"github.com/wudi/runway/internal/byroute"
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/internal/byroute"
 )
 
 // NonceByRoute manages per-route nonce checkers.
 type NonceByRoute struct {
 	byroute.Manager[*NonceChecker]
+	redisClient *redis.Client
 }
 
 // NewNonceByRoute creates a new NonceByRoute manager.
-func NewNonceByRoute() *NonceByRoute {
-	return &NonceByRoute{}
+func NewNonceByRoute(redisClient *redis.Client) *NonceByRoute {
+	return &NonceByRoute{redisClient: redisClient}
 }
 
 // AddRoute creates and registers a nonce checker for the given route.
-func (m *NonceByRoute) AddRoute(routeID string, cfg config.NonceConfig, redisClient *redis.Client) error {
+func (m *NonceByRoute) AddRoute(routeID string, cfg config.NonceConfig) error {
 	if !cfg.Enabled {
 		return nil
 	}
 
 	var store NonceStore
-	if cfg.Mode == "distributed" && redisClient != nil {
-		store = NewRedisStore(redisClient, routeID)
+	if cfg.Mode == "distributed" && m.redisClient != nil {
+		store = NewRedisStore(m.redisClient, routeID)
 	} else {
 		ttl := cfg.TTL
 		if ttl == 0 {
@@ -46,28 +45,12 @@ func (m *NonceByRoute) AddRoute(routeID string, cfg config.NonceConfig, redisCli
 	return nil
 }
 
-// GetChecker returns the nonce checker for a route, or nil.
-func (m *NonceByRoute) GetChecker(routeID string) *NonceChecker {
-	v, _ := m.Get(routeID)
-	return v
-}
-
 // Stats returns admin status for all routes.
 func (m *NonceByRoute) Stats() map[string]NonceStatus {
 	return byroute.CollectStats(&m.Manager, func(nc *NonceChecker) NonceStatus { return nc.Status() })
 }
 
-// CloseAll stops all nonce checker cleanup goroutines.
+// CloseAll closes all nonce stores.
 func (m *NonceByRoute) CloseAll() {
-	m.Range(func(_ string, nc *NonceChecker) bool {
-		nc.store.Close()
-		return true
-	})
+	byroute.ForEach(&m.Manager, func(nc *NonceChecker) { nc.CloseStore() })
 }
-
-// Ensure NonceByRoute satisfies string formatting for error messages.
-var _ fmt.Stringer = (*dummyStringer)(nil)
-
-type dummyStringer struct{}
-
-func (d *dummyStringer) String() string { return "" }

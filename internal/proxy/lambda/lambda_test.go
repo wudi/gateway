@@ -70,7 +70,7 @@ func TestHandlerStats(t *testing.T) {
 
 func TestLambdaByRouteGetHandlerNonexistent(t *testing.T) {
 	m := NewLambdaByRoute()
-	h := m.GetHandler("nonexistent")
+	h := m.Lookup("nonexistent")
 	if h != nil {
 		t.Error("GetHandler should return nil for nonexistent route")
 	}

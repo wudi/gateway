@@ -164,12 +164,12 @@ func TestWAFByRoute(t *testing.T) {
 		t.Fatalf("AddRoute() error: %v", err)
 	}
 
-	w := m.GetWAF("route1")
+	w := m.Lookup("route1")
 	if w == nil {
 		t.Fatal("expected WAF for route1")
 	}
 
-	if m.GetWAF("unknown") != nil {
+	if m.Lookup("unknown") != nil {
 		t.Error("expected nil for unknown route")
 	}
 

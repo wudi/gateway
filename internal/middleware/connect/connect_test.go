@@ -330,10 +330,10 @@ func TestConnectByRoute(t *testing.T) {
 		AllowedPorts: []int{443, 8443},
 	})
 
-	if m.GetHandler("route1") == nil {
+	if m.Lookup("route1") == nil {
 		t.Error("expected handler for route1")
 	}
-	if m.GetHandler("nonexistent") != nil {
+	if m.Lookup("nonexistent") != nil {
 		t.Error("expected nil for nonexistent route")
 	}
 

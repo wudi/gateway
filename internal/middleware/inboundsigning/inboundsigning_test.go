@@ -288,10 +288,10 @@ func TestManager(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if v := m.GetVerifier("route1"); v == nil {
+	if v := m.Lookup("route1"); v == nil {
 		t.Error("expected verifier for route1")
 	}
-	if v := m.GetVerifier("missing"); v != nil {
+	if v := m.Lookup("missing"); v != nil {
 		t.Error("expected nil for missing route")
 	}
 

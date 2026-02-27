@@ -18,6 +18,7 @@ import (
 	"github.com/wudi/runway/internal/logging"
 	"github.com/wudi/runway/variables"
 	"go.uber.org/zap"
+	"github.com/wudi/runway/internal/middleware"
 )
 
 // Blocklist manages a dynamic IP blocklist with static entries and feed-based updates.
@@ -118,7 +119,7 @@ func (bl *Blocklist) Check(ip net.IP) bool {
 }
 
 // Middleware returns a middleware that checks the IP blocklist.
-func (bl *Blocklist) Middleware() func(http.Handler) http.Handler {
+func (bl *Blocklist) Middleware() middleware.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			clientIP := variables.ExtractClientIP(r)
@@ -346,45 +347,10 @@ func MergeIPBlocklistConfig(perRoute, global config.IPBlocklistConfig) config.IP
 }
 
 // BlocklistByRoute manages per-route blocklists.
-type BlocklistByRoute struct {
-	byroute.Manager[*Blocklist]
-}
+type BlocklistByRoute = byroute.Factory[*Blocklist, config.IPBlocklistConfig]
 
 // NewBlocklistByRoute creates a new BlocklistByRoute manager.
 func NewBlocklistByRoute() *BlocklistByRoute {
-	return &BlocklistByRoute{}
-}
-
-// AddRoute creates and registers a blocklist for the given route.
-func (m *BlocklistByRoute) AddRoute(routeID string, cfg config.IPBlocklistConfig) error {
-	if !cfg.Enabled {
-		return nil
-	}
-
-	bl, err := New(cfg)
-	if err != nil {
-		return err
-	}
-
-	m.Add(routeID, bl)
-	return nil
-}
-
-// GetBlocklist returns the blocklist for a route, or nil.
-func (m *BlocklistByRoute) GetBlocklist(routeID string) *Blocklist {
-	v, _ := m.Get(routeID)
-	return v
-}
-
-// Stats returns admin status for all routes.
-func (m *BlocklistByRoute) Stats() map[string]BlocklistStatus {
-	return byroute.CollectStats(&m.Manager, func(bl *Blocklist) BlocklistStatus { return bl.Status() })
-}
-
-// CloseAll closes all blocklists.
-func (m *BlocklistByRoute) CloseAll() {
-	m.Range(func(_ string, bl *Blocklist) bool {
-		bl.Close()
-		return true
-	})
+	return byroute.NewFactory(New, func(bl *Blocklist) any { return bl.Status() }).
+		WithClose((*Blocklist).Close)
 }
