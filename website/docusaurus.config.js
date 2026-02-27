@@ -113,6 +113,9 @@ const config = {
         contextualSearch: true,
         algoliaOptions: {}
       },
+      metadata: [
+        { name: 'algolia-site-verification', content: '5289A224E7F58A6A' },
+      ],
     }),
 };
 
