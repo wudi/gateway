@@ -69,6 +69,42 @@ Results are saved to `perf/compare/results/<timestamp>/` containing:
 | Gateway | RPS | Avg (ms) | P50 (ms) | P95 (ms) | P99 (ms) | Avg CPU% | Peak Mem (MB) |
 |---------|-----|----------|----------|----------|----------|----------|---------------|
 
+## Results
+
+Tested on Linux 5.10, 4 CPUs, 8 GB RAM, Docker 29.1, 50 concurrent connections, 60s duration per test.
+
+### Simple Proxy
+
+| Gateway | RPS | Avg (ms) | P50 (ms) | P95 (ms) | P99 (ms) | Avg CPU% | Peak Mem (MB) |
+|---------|-----|----------|----------|----------|----------|----------|---------------|
+| **Runway (this)** | **15688** | **3.2** | **2.6** | **7.5** | **11.7** | 155.9 | **44.5** |
+| Kong 3.9 | 14750 | 3.4 | 2.7 | 8.4 | 12.6 | 120.9 | 572.3 |
+| KrakenD 2.7 | 9405 | 5.3 | 4.2 | 13.9 | 21.0 | 155.6 | 42.6 |
+| Traefik 3.3 | 14783 | 3.4 | 2.8 | 8.0 | 12.5 | 158.3 | 59.0 |
+| Tyk 5.7 | 1532 | 32.6 | 9.4 | 162.5 | 435.8 | 342.5 | 57.9 |
+
+### API Key Authentication
+
+| Gateway | RPS | Avg (ms) | P50 (ms) | P95 (ms) | P99 (ms) | Avg CPU% | Peak Mem (MB) |
+|---------|-----|----------|----------|----------|----------|----------|---------------|
+| **Runway (this)** | **15038** | **3.3** | 2.8 | **7.9** | **12.1** | 156.0 | **47.3** |
+| Kong 3.9 | 12140 | 4.1 | **1.9** | 13.1 | 19.9 | 123.0 | 551.2 |
+| Tyk 5.7 | 9345 | 5.3 | 3.9 | 14.9 | 20.8 | 180.4 | 58.6 |
+
+KrakenD and Traefik are excluded — they lack native API key authentication.
+
+### Rate Limiting (10k req/s)
+
+| Gateway | RPS | Avg (ms) | P50 (ms) | P95 (ms) | P99 (ms) | Avg CPU% | Peak Mem (MB) |
+|---------|-----|----------|----------|----------|----------|----------|---------------|
+| **Runway (this)** | **13946** | 3.6 | 3.0 | 8.4 | 12.9 | 158.0 | **44.9** |
+| Kong 3.9 | 7231 | 6.9 | 6.2 | 14.6 | 21.9 | 170.6 | 552.1 |
+| KrakenD 2.7 | 10010 | 5.0 | 3.9 | 13.1 | 20.0 | 154.5 | 49.4 |
+| Traefik 3.3 | 18939 | 3.0 | 2.1 | 7.0 | 11.5 | 157.7 | 62.4 |
+| Tyk 5.7 | 52091 | 3.0 | 0.8 | 2.0 | 3.5 | 153.9 | 35.2 |
+
+Note: RPS counts all responses including rejections. Traefik's high total RPS includes 429 rejections (~43% of responses); its successful throughput is ~9.5k req/s, correctly enforcing the limit. Tyk returned 404 for all requests in this scenario (route misconfiguration in the benchmark), so its numbers are not meaningful.
+
 ## Architecture
 
 Each gateway runs one at a time to avoid resource contention. The flow for each gateway:
