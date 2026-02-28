@@ -217,6 +217,7 @@ Full documentation is available in the [docs/](docs/) directory:
 - [Kubernetes Ingress](docs/traffic-routing/kubernetes-ingress.md) — Ingress v1 and Gateway API controller
 - [Cluster Mode](docs/reference/cluster-mode.md) — CP/DP hybrid deployment with mTLS gRPC
 - [Extensibility](docs/reference/extensibility.md) — Public Go module API, Lua, WASM plugins
+- [Benchmarks](docs/getting-started/benchmarks.md) — Gateway comparison vs Kong, KrakenD, Traefik, Tyk
 
 ## Development
 
