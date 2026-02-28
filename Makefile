@@ -194,6 +194,10 @@ bench:
 	@echo "Running benchmarks..."
 	$(GOTEST) $(BENCH_FLAGS) ./...
 
+bench-protocol:
+	@echo "Running multi-protocol proxy benchmarks..."
+	$(GOTEST) -tags integration $(BENCH_FLAGS) ./test/bench/
+
 bench-save:
 	@echo "Running benchmarks and saving results..."
 	@mkdir -p $(BENCH_DIR)
