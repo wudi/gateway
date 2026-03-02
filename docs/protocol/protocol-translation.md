@@ -365,11 +365,126 @@ Browser clients send requests with content type `application/grpc-web+proto` (bi
 
 See [gRPC-Web Proxy](grpc-web.md) for full documentation.
 
+## HTTP-to-gRPC JSON Codec Proxy
+
+Proxies HTTP/JSON requests to gRPC backends using a custom JSON codec (`content-type: application/grpc+json`). Both the gateway and the backend send raw JSON bytes over the gRPC wire — **no proto descriptors or server reflection required**.
+
+> **Backend requirement:** The backend gRPC server **must** register a codec named `"json"` via `encoding.RegisterCodec()`. Without this, calls fail with `Unimplemented` (codec not found). See [Backend Setup](#backend-setup) below.
+
+### When to Use
+
+- You **control the backend** and can register a JSON codec
+- You want the simplest possible gRPC integration (no `.proto` files, no reflection)
+- Your backend already accepts JSON-encoded gRPC requests
+
+### When NOT to Use
+
+- Third-party gRPC backends that only speak protobuf — use `http_to_grpc` instead
+- Browser clients that need gRPC-Web framing — use `grpc_web` instead
+
+### Path-Based Mode (Default)
+
+The URL path is interpreted as the gRPC method path (`/package.Service/Method`):
+
+```yaml
+routes:
+  - id: "grpc-json-api"
+    path: "/mypackage.MyService"
+    path_prefix: true
+    backends:
+      - url: "grpc://grpc-backend:50051"
+    protocol:
+      type: "grpc_json"
+      grpc_json:
+        timeout: 30s
+```
+
+A POST to `/mypackage.MyService/GetUser` invokes `mypackage.MyService.GetUser`.
+
+### Service-Scoped Mode
+
+Fix the service name; the method is extracted from the last URL path segment:
+
+```yaml
+routes:
+  - id: "grpc-json-scoped"
+    path: "/api/myservice"
+    path_prefix: true
+    backends:
+      - url: "grpc://grpc-backend:50051"
+    protocol:
+      type: "grpc_json"
+      grpc_json:
+        service: "mypackage.MyService"
+        timeout: 30s
+```
+
+A POST to `/api/myservice/GetUser` invokes `mypackage.MyService.GetUser`.
+
+### Fixed Method Mode
+
+Always invoke the same RPC regardless of URL path:
+
+```yaml
+routes:
+  - id: "grpc-json-fixed"
+    path: "/get-user"
+    backends:
+      - url: "grpc://grpc-backend:50051"
+    protocol:
+      type: "grpc_json"
+      grpc_json:
+        service: "mypackage.UserService"
+        method: "GetUser"
+        timeout: 30s
+```
+
+### TLS Configuration
+
+```yaml
+protocol:
+  type: "grpc_json"
+  grpc_json:
+    timeout: 30s
+    tls:
+      enabled: true
+      ca_file: "/etc/certs/ca.pem"
+      cert_file: "/etc/certs/client.pem"
+      key_file: "/etc/certs/client-key.pem"
+```
+
+### Backend Setup
+
+The backend gRPC server must register a JSON codec. Example in Go:
+
+```go
+import "google.golang.org/grpc/encoding"
+
+type jsonCodec struct{}
+
+func (jsonCodec) Marshal(v interface{}) ([]byte, error)     { return json.Marshal(v) }
+func (jsonCodec) Unmarshal(data []byte, v interface{}) error { return json.Unmarshal(data, v) }
+func (jsonCodec) Name() string                               { return "json" }
+
+func init() {
+    encoding.RegisterCodec(jsonCodec{})
+}
+```
+
+### How It Works
+
+1. The gateway receives an HTTP POST with a JSON body
+2. The JSON body is read as raw bytes (no parsing or transformation)
+3. A gRPC connection is established with `ForceCodec(jsonCodec{})`, which sets the wire content-type to `application/grpc+json`
+4. The raw JSON bytes are sent via `conn.Invoke()` using gRPC framing
+5. The backend's JSON codec deserializes the bytes into the target proto message
+6. The response follows the reverse path: proto message → JSON codec → raw bytes → HTTP response
+
 ## Key Config Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `protocol.type` | string | `http_to_grpc`, `http_to_thrift`, `grpc_to_rest`, or `grpc_web` |
+| `protocol.type` | string | `http_to_grpc`, `http_to_thrift`, `grpc_to_rest`, `grpc_web`, or `grpc_json` |
 | `protocol.grpc.service` | string | Fully-qualified gRPC service name |
 | `protocol.grpc.timeout` | duration | Per-call timeout (default 30s) |
 | `protocol.grpc.descriptor_cache_ttl` | duration | Reflection cache TTL (default 5m) |
@@ -391,6 +506,10 @@ See [gRPC-Web Proxy](grpc-web.md) for full documentation.
 | `protocol.grpc_web.timeout` | duration | Per-call timeout (default 30s) |
 | `protocol.grpc_web.max_message_size` | int | Maximum message size in bytes (default 4MB) |
 | `protocol.grpc_web.text_mode` | bool | Accept grpc-web-text base64 encoding |
+| `protocol.grpc_json.service` | string | Fully-qualified gRPC service name (optional) |
+| `protocol.grpc_json.method` | string | Fixed gRPC method name (requires `service`) |
+| `protocol.grpc_json.timeout` | duration | Per-call timeout (default 30s) |
+| `protocol.grpc_json.tls` | object | TLS settings for backend connection |
 | `grpc.enabled` | bool | Enable gRPC passthrough (mutually exclusive with protocol) |
 | `websocket.enabled` | bool | Enable WebSocket proxying |
 | `websocket.ping_interval` | duration | Keep-alive ping interval |

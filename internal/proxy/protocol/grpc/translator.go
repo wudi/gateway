@@ -470,7 +470,7 @@ func (t *Translator) handleBidiStream(
 
 // writeError writes a JSON error response with the appropriate HTTP status code.
 func (t *Translator) writeError(w http.ResponseWriter, code codes.Code, message string) {
-	httpStatus := GRPCStatusToHTTP(code)
+	httpStatus := protocol.GRPCStatusToHTTP(code)
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Grpc-Status", fmt.Sprintf("%d", code))
 	w.Header().Set("Grpc-Message", message)

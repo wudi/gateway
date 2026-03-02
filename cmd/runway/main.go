@@ -11,6 +11,7 @@ import (
 
 	// Protocol translators (auto-register)
 	_ "github.com/wudi/runway/internal/proxy/protocol/grpc"
+	_ "github.com/wudi/runway/internal/proxy/protocol/grpcjson"
 	_ "github.com/wudi/runway/internal/proxy/protocol/grpcweb"
 	_ "github.com/wudi/runway/internal/proxy/protocol/rest"
 	_ "github.com/wudi/runway/internal/proxy/protocol/thrift"

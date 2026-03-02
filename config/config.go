@@ -1166,13 +1166,14 @@ type GRPCHealthCheckConfig struct {
 
 // ProtocolConfig defines protocol translation settings per route.
 type ProtocolConfig struct {
-	Type    string                 `yaml:"type"` // "http_to_grpc", "http_to_thrift", "grpc_to_rest", "rest_to_graphql", "rest_to_soap"
-	GRPC    GRPCTranslateConfig    `yaml:"grpc"`
-	Thrift  ThriftTranslateConfig  `yaml:"thrift"`
-	REST    RESTTranslateConfig    `yaml:"rest"`
-	GraphQL GraphQLProtocolConfig  `yaml:"graphql"`
-	SOAP    SOAPProtocolConfig     `yaml:"soap"`
-	GRPCWeb GRPCWebTranslateConfig `yaml:"grpc_web"`
+	Type     string                   `yaml:"type"` // "http_to_grpc", "http_to_thrift", "grpc_to_rest", "grpc_web", "grpc_json"
+	GRPC     GRPCTranslateConfig      `yaml:"grpc"`
+	Thrift   ThriftTranslateConfig    `yaml:"thrift"`
+	REST     RESTTranslateConfig      `yaml:"rest"`
+	GraphQL  GraphQLProtocolConfig    `yaml:"graphql"`
+	SOAP     SOAPProtocolConfig       `yaml:"soap"`
+	GRPCWeb  GRPCWebTranslateConfig   `yaml:"grpc_web"`
+	GRPCJson GRPCJSONTranslateConfig  `yaml:"grpc_json"`
 }
 
 // RESTTranslateConfig defines gRPC-to-REST translation settings.
@@ -2478,6 +2479,17 @@ type GRPCWebTranslateConfig struct {
 	MaxMessageSize int               `yaml:"max_message_size" json:"max_message_size"` // max message size in bytes (default 4MB)
 	TextMode       bool              `yaml:"text_mode" json:"text_mode"`              // accept grpc-web-text base64 encoding (default true)
 	TLS            ProtocolTLSConfig `yaml:"tls" json:"tls"`
+}
+
+// GRPCJSONTranslateConfig configures gRPC JSON codec proxy translation.
+// Both the gateway and the backend use a custom gRPC codec named "json",
+// sending raw JSON bytes over the gRPC wire (content-type: application/grpc+json).
+// No proto descriptors are required.
+type GRPCJSONTranslateConfig struct {
+	Service string            `yaml:"service" json:"service"` // optional: fully-qualified gRPC service name
+	Method  string            `yaml:"method" json:"method"`   // optional: fixed method (requires service)
+	Timeout time.Duration     `yaml:"timeout" json:"timeout"` // per-call timeout (default 30s)
+	TLS     ProtocolTLSConfig `yaml:"tls" json:"tls"`
 }
 
 // IsEnabled methods for all config types with an Enabled field.

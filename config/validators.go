@@ -999,7 +999,7 @@ func (l *Loader) validateNetworkFeatures(route RouteConfig, _ *Config) error {
 
 	// Protocol translation
 	if route.Protocol.Type != "" {
-		validProtocolTypes := map[string]bool{"http_to_grpc": true, "http_to_thrift": true, "grpc_to_rest": true, "grpc_web": true}
+		validProtocolTypes := map[string]bool{"http_to_grpc": true, "http_to_thrift": true, "grpc_to_rest": true, "grpc_web": true, "grpc_json": true}
 		if !validProtocolTypes[route.Protocol.Type] {
 			return fmt.Errorf("route %s: unknown protocol type: %s", routeID, route.Protocol.Type)
 		}
@@ -1060,6 +1060,13 @@ func (l *Loader) validateNetworkFeatures(route RouteConfig, _ *Config) error {
 			}
 			if route.Protocol.GRPCWeb.MaxMessageSize < 0 {
 				return fmt.Errorf("route %s: protocol grpc_web max_message_size must be >= 0", routeID)
+			}
+		case "grpc_json":
+			if route.Protocol.GRPCJson.Method != "" && route.Protocol.GRPCJson.Service == "" {
+				return fmt.Errorf("route %s: grpc_json.method requires grpc_json.service", routeID)
+			}
+			if route.Protocol.GRPCJson.TLS.Enabled && route.Protocol.GRPCJson.TLS.CAFile == "" {
+				return fmt.Errorf("route %s: grpc_json tls enabled but ca_file not provided", routeID)
 			}
 		}
 	}

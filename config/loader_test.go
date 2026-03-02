@@ -1127,6 +1127,128 @@ routes:
 	}
 }
 
+func TestLoaderValidateGRPCJSON(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+	}{
+		{
+			name: "valid grpc_json protocol path-based",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: grpc-json-route
+    path: /mypackage.MyService
+    path_prefix: true
+    backends:
+      - url: grpc://localhost:50051
+    protocol:
+      type: grpc_json
+      grpc_json:
+        timeout: 30s
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid grpc_json with service and method",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: grpc-json-fixed
+    path: /get-user
+    backends:
+      - url: grpc://localhost:50051
+    protocol:
+      type: grpc_json
+      grpc_json:
+        service: mypackage.UserService
+        method: GetUser
+        timeout: 30s
+`,
+			wantErr: false,
+		},
+		{
+			name: "valid grpc_json with service only",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: grpc-json-scoped
+    path: /api/myservice
+    path_prefix: true
+    backends:
+      - url: grpc://localhost:50051
+    protocol:
+      type: grpc_json
+      grpc_json:
+        service: mypackage.MyService
+`,
+			wantErr: false,
+		},
+		{
+			name: "grpc_json method without service",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: grpc-json-invalid
+    path: /api
+    backends:
+      - url: grpc://localhost:50051
+    protocol:
+      type: grpc_json
+      grpc_json:
+        method: GetUser
+`,
+			wantErr: true,
+		},
+		{
+			name: "grpc_json TLS enabled without ca_file",
+			yaml: `
+listeners:
+  - id: "http-main"
+    address: ":8080"
+    protocol: "http"
+routes:
+  - id: grpc-json-tls
+    path: /api
+    backends:
+      - url: grpc://localhost:50051
+    protocol:
+      type: grpc_json
+      grpc_json:
+        tls:
+          enabled: true
+`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loader := NewLoader()
+			_, err := loader.Parse([]byte(tt.yaml))
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestLoaderValidateThriftInlineSchema(t *testing.T) {
 	tests := []struct {
 		name    string
