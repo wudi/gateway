@@ -70,6 +70,8 @@ Access previous step responses:
 
 ## Template Functions
 
+All [Sprig v3 functions](../reference/template-functions.md) (string, math, date, encoding, collections, etc.) are available, plus the Runway-specific helpers:
+
 | Function | Description | Example |
 |----------|-------------|---------|
 | `json` | JSON-encodes a value | `{{json (index .Responses "Resp0")}}` |

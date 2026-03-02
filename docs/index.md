@@ -101,3 +101,4 @@ A high-performance, feature-rich API gateway supporting HTTP, TCP, and UDP proxy
 - [Admin API Reference](reference/admin-api.md) — Health, feature endpoints, dashboard, reload
 - [Configuration Reference](reference/configuration-reference.md) — Complete YAML schema
 - [Rules Engine](reference/rules-engine.md) — Expression syntax, request/response rules, actions
+- [Template Functions](reference/template-functions.md) — Sprig and custom template function reference

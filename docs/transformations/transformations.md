@@ -131,7 +131,7 @@ Template data:
 - `.body` — the parsed JSON body (as a Go interface{})
 - `.vars` — a map of gateway variables (`request_id`, `route_id`, `request_method`, `request_path`, `host`, `time_unix`, `time_iso8601`, `remote_addr`)
 
-The `json` template function marshals a value to JSON. Template output must be valid JSON.
+The `json` template function marshals a value to JSON. All [Sprig v3 functions](../reference/template-functions.md) are also available. Template output must be valid JSON.
 
 When `template` is set, it is the **terminal** operation — the template output replaces the body entirely. Other operations (set/add/remove/rename/allow/deny) are applied before the template.
 

@@ -54,8 +54,7 @@ The template receives a `TemplateData` struct with these fields:
 
 ## Template Functions
 
-- `json` — Marshal a value to JSON string
-- `first` — Return first element of a string slice
+All [Sprig v3 functions](../reference/template-functions.md) (string, math, date, encoding, collections, etc.) are available, plus the Runway-specific `json` and `first` helpers.
 
 ## Error Handling
 

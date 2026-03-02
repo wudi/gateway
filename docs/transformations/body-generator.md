@@ -50,6 +50,8 @@ The following fields are available in the template:
 
 ## Template Functions
 
+All [Sprig v3 functions](../reference/template-functions.md) (string, math, date, encoding, collections, etc.) are available in addition to the Runway-specific helpers:
+
 | Function | Description | Example |
 |----------|-------------|---------|
 | `json` | JSON-encodes a value | `{{json .PathParams}}` |

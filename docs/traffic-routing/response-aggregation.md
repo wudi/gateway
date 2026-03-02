@@ -68,7 +68,7 @@ Backend URLs support Go `text/template` with the following context:
 - `.ClientIP` — client IP address
 - `.RouteID` — route ID
 
-Template functions: `json` (marshal to JSON string).
+Template functions: `json` (marshal to JSON string) and all [Sprig v3 functions](../reference/template-functions.md).
 
 ## Fail Strategies
 

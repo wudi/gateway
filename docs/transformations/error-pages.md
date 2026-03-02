@@ -104,6 +104,8 @@ All templates (HTML, JSON, XML) are Go `text/template` templates with access to 
 | `{{.Timestamp}}` | Current time in RFC3339 format       |
 | `{{.RouteID}}` | Gateway route ID                     |
 
+> **Note:** Error page templates use standard Go `text/template` only. [Sprig functions](../reference/template-functions.md) are **not** available in error page templates.
+
 ### Example: JSON Error Template
 
 ```

@@ -720,7 +720,7 @@ See [Canary Deployments](../traffic-routing/canary-deployments.md) for full docu
           template: string
 ```
 
-**Validation:** `allow_fields` and `deny_fields` are mutually exclusive. `template` must be a valid Go `text/template`.
+**Validation:** `allow_fields` and `deny_fields` are mutually exclusive. `template` must be a valid Go `text/template`. Templates support [Sprig v3 functions](template-functions.md).
 
 ### Validation
 
@@ -2244,7 +2244,7 @@ routes:
       content_type: string       # Content-Type for generated body (default "application/json")
 ```
 
-**Validation:** `template` is required when enabled and must be a valid Go template. Mutually exclusive with `passthrough`.
+**Validation:** `template` is required when enabled and must be a valid Go template. Templates support [Sprig v3 functions](template-functions.md). Mutually exclusive with `passthrough`.
 
 See [Body Generator](../transformations/body-generator.md) for details.
 
@@ -2401,7 +2401,7 @@ routes:
       content_type: string       # Content-Type for generated response (default "application/json")
 ```
 
-**Validation:** `template` is required when enabled. Mutually exclusive with `passthrough`.
+**Validation:** `template` is required when enabled. Templates support [Sprig v3 functions](template-functions.md). Mutually exclusive with `passthrough`.
 
 See [Response Body Generator](../transformations/response-body-generator.md) for details.
 
