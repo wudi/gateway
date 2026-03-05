@@ -109,3 +109,91 @@ The request handling order in `runway.go:serveHTTP()` is:
 13. Metrics
 
 Do not reorder these steps. Throttle must be after rate limiting (rejected requests never enter the queue). Priority must be after auth (so `Identity.ClientID` is available for level determination). Bandwidth must be after body limit and before validation/websocket. WebSocket must be before cache/circuit breaker. Cache check must be before coalescing and circuit breaker (a cache hit avoids touching the backend entirely). Coalescing must be after cache (only cache misses are coalesced) and before circuit breaker (coalesced requests share circuit breaker outcomes). Circuit breaker recording must happen after the proxy call completes. Request rules must be after auth (so `auth.*` fields are populated). Response rules must be before circuit breaker outcome recording and cache store. Adaptive concurrency must be after circuit breaker (when circuit breaker is open, requests don't reach the limiter) and before compression (measured latency should include the proxy round-trip).
+
+## Admin UI (`ui/`)
+
+### Overview
+
+The admin UI is a React SPA served at `/ui/` on the admin port (8081), gated by `admin.ui.enabled: true`. It provides an attention-driven, route-centric management dashboard using a Linear.app-inspired dark design system.
+
+### Tech Stack
+
+React 18, TypeScript, Vite, Tailwind CSS 3, TanStack React Query v5, react-router-dom v6, lucide-react, clsx + tailwind-merge. No component library — all components are hand-built with Tailwind.
+
+### Design System
+
+Dark mode only. Design tokens defined as CSS custom properties in `src/index.css`, extended as Tailwind theme colors:
+
+- Backgrounds: `bg-primary` (#0A0A0A), `bg-secondary` (#141414), `bg-elevated` (#1C1C1C)
+- Borders: `border` (#2A2A2A) — always 1px, no shadows
+- Text: `text-primary` (#ECECEC), `text-secondary` (#888888), `text-tertiary` (#555555)
+- Corners: `rounded-lg` for cards/panels, `rounded-md` for buttons/inputs
+- Modals: glassmorphism (`backdrop-blur-xl bg-white/5 border border-[#2A2A2A]`)
+- Transitions: `transition-colors duration-150` on all interactive elements
+- Numbers: `font-variant-numeric: tabular-nums` for all numeric table columns
+
+### Design Principles
+
+1. **Route-centric, not feature-centric.** The route is the primary entity. Per-route features (circuit breakers, cache, retries, rate limits) are shown in the Route detail panel, not on separate pages.
+2. **Problems first.** Surface degraded state before healthy state. Zero problems = green banner, not empty tables.
+3. **Dense tables over card grids.** Operators want scan-friendly rows. Use `StatRow` (single dense row) not `StatCard` grids.
+4. **Progressive disclosure.** Route list → slide-over detail panel. No full-page navigations that lose list context.
+5. **Keyboard-first.** Cmd+K search, `j`/`k` row navigation, `Enter` to expand, `Esc` to close.
+
+### Navigation (7 pages)
+
+| Path | Page | Purpose |
+|------|------|---------|
+| `/ui` | Status | Attention-driven dashboard: alerts banner, problems table, system summary row, recent events |
+| `/ui/routes` | Routes | Route list (60%) + slide-over detail panel (40%) showing all per-route features |
+| `/ui/infrastructure` | Infrastructure | Tabbed: Backends, Listeners, Certificates, Upstreams, Cluster |
+| `/ui/traffic` | Traffic Control | Collapsible sections: Rate Limits, Throttle & Shaping, Load Shedding, Adaptive Concurrency |
+| `/ui/deployments` | Deployments | Sections: Active Canaries, Blue-Green, A/B Tests, Traffic Splits |
+| `/ui/security` | Security | Sections: WAF, Rules Engine, Auth stats, Bot Detection, cert expiry alerts |
+| `/ui/operations` | Operations | Config reload + history, Drain toggle, Maintenance toggles, API Keys, Traffic Replay |
+
+### Route Detail Panel
+
+The Routes page uses a split layout: route list on the left, slide-over detail panel on the right. The detail panel shows **only configured features** for the selected route (no "not configured" placeholders). Feature data comes from the `/dashboard` endpoint, partitioned client-side by route ID.
+
+Feature badges in the list view use 2-letter codes (CB, RT, CA, RL, WS, TH) colored by state (green/amber/red). Below 1024px, the detail panel becomes a full-width overlay.
+
+### Data Fetching
+
+- TanStack React Query with `refetchInterval` from `PollingContext` (user-configurable: 2s/5s/10s/30s/off)
+- Status page polls `/dashboard` + `/health` every 5s; detail pages poll every 10s; route detail panel polls every 5s while open
+- `fetchJSON<T>(path)` uses same origin in production; Vite proxy to `:8081` in dev
+- POST mutations use `useMutation` with query invalidation; non-destructive mutations use optimistic updates
+
+### Layout Stability
+
+- Never reorder/remove table rows during a poll. New rows append; removed rows grey out for one cycle before removal.
+- Numeric columns use `tabular-nums` to prevent width jitter.
+- Status indicators use fixed-width colored dots, not variable-width text.
+- Relative timestamps update client-side between polls.
+
+### Interaction Patterns
+
+- **Destructive actions** (drain, cache purge, CB force-open): ConfirmModal with glassmorphism → spinner → inline success/error banner (not toasts). High-impact actions require typing the route name.
+- **Non-destructive mutations** (CB reset, maintenance toggle): fire immediately, optimistic UI, brief checkmark fade.
+
+### Empty States
+
+1. Feature not configured: section header with "(not configured)" muted, collapsed. No empty tables.
+2. Feature configured, zero data: show table with zero values (zeros are meaningful).
+3. Entire page empty: single-line message with docs link.
+
+### Go Embedding
+
+`ui/embed.go` uses `//go:embed dist/*` to bundle built assets. `server.go:adminHandler()` serves them at `/ui/` with SPA fallback (all `/ui/*` paths serve `index.html`). Gated by `admin.ui.enabled`. Vite builds with `base: "/ui/"`.
+
+### Build
+
+- Dev: `cd ui && npm run dev` (Vite on :5173, proxies API to :8081)
+- Prod: `cd ui && npm run build` then `go build -o ./build/runway ./cmd/runway/` (embeds `ui/dist/`)
+
+### Responsive
+
+- Sidebar: icon-only below 1200px, hamburger below 768px
+- Route detail panel: full-width overlay below 1024px
+- Tables: hide non-critical columns at narrow widths; horizontal scroll below 768px
