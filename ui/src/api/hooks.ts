@@ -20,7 +20,11 @@ export function useHealth() {
   const refetchInterval = usePollingInterval(5000);
   return useQuery<HealthResponse>({
     queryKey: ['health'],
-    queryFn: () => fetchJSON('/health'),
+    queryFn: async () => {
+      // Health endpoint returns 503 when degraded — still valid data
+      const res = await fetch('/health');
+      return res.json() as Promise<HealthResponse>;
+    },
     refetchInterval,
   });
 }

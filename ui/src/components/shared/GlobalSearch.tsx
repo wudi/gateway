@@ -9,13 +9,13 @@ interface SearchResult {
 }
 
 const pages: SearchResult[] = [
-  { label: 'Status', path: '/ui', type: 'page' },
-  { label: 'Routes', path: '/ui/routes', type: 'page' },
-  { label: 'Infrastructure', path: '/ui/infrastructure', type: 'page' },
-  { label: 'Traffic Control', path: '/ui/traffic', type: 'page' },
-  { label: 'Deployments', path: '/ui/deployments', type: 'page' },
-  { label: 'Security', path: '/ui/security', type: 'page' },
-  { label: 'Operations', path: '/ui/operations', type: 'page' },
+  { label: 'Status', path: '/', type: 'page' },
+  { label: 'Routes', path: '/routes', type: 'page' },
+  { label: 'Infrastructure', path: '/infrastructure', type: 'page' },
+  { label: 'Traffic Control', path: '/traffic', type: 'page' },
+  { label: 'Deployments', path: '/deployments', type: 'page' },
+  { label: 'Security', path: '/security', type: 'page' },
+  { label: 'Operations', path: '/operations', type: 'page' },
 ];
 
 interface GlobalSearchProps {
@@ -31,7 +31,7 @@ export function GlobalSearch({ routeIds = [] }: GlobalSearchProps) {
 
   const allResults: SearchResult[] = [
     ...pages,
-    ...routeIds.map((id) => ({ label: id, path: `/ui/routes?route=${id}`, type: 'route' as const })),
+    ...routeIds.map((id) => ({ label: id, path: `/routes?route=${id}`, type: 'route' as const })),
   ];
 
   const filtered = query

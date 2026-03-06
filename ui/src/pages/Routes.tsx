@@ -7,24 +7,13 @@ import { ConfirmModal } from '../components/shared/ConfirmModal';
 import { Spinner } from '../components/shared/Spinner';
 import { X } from 'lucide-react';
 
-interface DashboardRoute {
+interface ApiRoute {
   id: string;
   path: string;
+  path_prefix: boolean;
   backends: number;
-  healthy_backends: number;
-  total_requests: number;
-  error_rate: number;
-  features: string[];
+  methods?: string[];
 }
-
-const featureColors: Record<string, string> = {
-  CB: 'bg-green-500/20 text-green-400',
-  RT: 'bg-blue-500/20 text-blue-400',
-  CA: 'bg-purple-500/20 text-purple-400',
-  RL: 'bg-amber-500/20 text-amber-400',
-  WS: 'bg-cyan-500/20 text-cyan-400',
-  TH: 'bg-orange-500/20 text-orange-400',
-};
 
 export function RoutesPage() {
   const [searchParams] = useSearchParams();
@@ -36,8 +25,8 @@ export function RoutesPage() {
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
 
-  const { data: dashboard, isLoading } = useDashboard();
-  const { data: routes } = useRoutes();
+  const { data: dashboard } = useDashboard();
+  const { data: routes, isLoading } = useRoutes();
   const cbAction = useCircuitBreakerAction();
   const cachePurge = useCachePurge();
 
@@ -65,11 +54,39 @@ export function RoutesPage() {
     }
   }, [selectedRouteId]);
 
-  if (isLoading || !dashboard) {
+  if (isLoading) {
     return <div className="flex justify-center py-12"><Spinner size="lg" /></div>;
   }
 
-  const columns: Column<DashboardRoute>[] = [
+  const routeList = (routes ?? []) as unknown as ApiRoute[];
+
+  // Extract dashboard feature data (real API uses hyphenated keys)
+  const dashAny = dashboard as Record<string, unknown> | undefined;
+  const cbMap = (dashAny?.['circuit-breakers'] ?? dashAny?.circuit_breakers ?? {}) as Record<string, { state: string }>;
+  const cacheMap = (dashAny?.cache ?? {}) as Record<string, { hits: number; misses: number; size: number; evictions: number }>;
+  const retryMap = (dashAny?.retries ?? {}) as Record<string, unknown>;
+  const rlMap = (dashAny?.['rate-limits'] ?? dashAny?.rate_limits ?? {}) as Record<string, unknown>;
+
+  // Derive feature badges per route
+  function getFeatures(routeId: string): string[] {
+    const features: string[] = [];
+    if (cbMap[routeId]) features.push('CB');
+    if (cacheMap[routeId]) features.push('CA');
+    if (retryMap[routeId]) features.push('RT');
+    if (rlMap[routeId]) features.push('RL');
+    return features;
+  }
+
+  const featureColors: Record<string, string> = {
+    CB: 'bg-green-500/20 text-green-400',
+    RT: 'bg-blue-500/20 text-blue-400',
+    CA: 'bg-purple-500/20 text-purple-400',
+    RL: 'bg-amber-500/20 text-amber-400',
+    WS: 'bg-cyan-500/20 text-cyan-400',
+    TH: 'bg-orange-500/20 text-orange-400',
+  };
+
+  const columns: Column<ApiRoute>[] = [
     {
       key: 'id',
       header: 'Route ID',
@@ -85,49 +102,40 @@ export function RoutesPage() {
     {
       key: 'backends',
       header: 'Backends',
-      render: (row) => (
-        <span>
-          {row.healthy_backends}/{row.backends}
-        </span>
-      ),
+      render: (row) => <span>{row.backends}</span>,
       numeric: true,
-    },
-    {
-      key: 'requests',
-      header: 'Requests',
-      render: (row) => row.total_requests.toLocaleString(),
-      numeric: true,
-      sortable: true,
-      sortFn: (a, b) => a.total_requests - b.total_requests,
     },
     {
       key: 'features',
       header: 'Features',
-      render: (row) => (
-        <div className="flex gap-1">
-          {row.features.map((f) => (
-            <span
-              key={f}
-              className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${featureColors[f] ?? 'bg-gray-500/20 text-gray-400'}`}
-            >
-              {f}
-            </span>
-          ))}
-        </div>
-      ),
+      render: (row) => {
+        const features = getFeatures(row.id);
+        return (
+          <div className="flex gap-1">
+            {features.map((f) => (
+              <span
+                key={f}
+                className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${featureColors[f] ?? 'bg-gray-500/20 text-gray-400'}`}
+              >
+                {f}
+              </span>
+            ))}
+          </div>
+        );
+      },
     },
   ];
 
-  const selectedRoute = routes?.find((r) => r.id === selectedRouteId);
-  const cbData = selectedRouteId ? dashboard.circuit_breakers[selectedRouteId] : undefined;
-  const cacheData = selectedRouteId ? dashboard.cache[selectedRouteId] : undefined;
+  const selectedRoute = routeList.find((r) => r.id === selectedRouteId);
+  const cbData = selectedRouteId ? cbMap[selectedRouteId] : undefined;
+  const cacheData = selectedRouteId ? cacheMap[selectedRouteId] : undefined;
 
   return (
     <div className="flex gap-0">
       <div className={selectedRouteId ? 'w-[60%]' : 'w-full'}>
         <h1 className="text-xl font-semibold text-text-primary mb-4">Routes</h1>
         <DataTable
-          data={dashboard.routes}
+          data={routeList}
           columns={columns}
           rowKey={(r) => r.id}
           selectedKey={selectedRouteId ?? undefined}
@@ -169,25 +177,19 @@ export function RoutesPage() {
               <p className="text-sm text-text-primary">{selectedRoute.path}</p>
             </div>
 
-            <div>
-              <h3 className="text-xs text-text-tertiary mb-1">Methods</h3>
-              <p className="text-sm text-text-primary">{selectedRoute.methods.join(', ')}</p>
-            </div>
+            {selectedRoute.methods && selectedRoute.methods.length > 0 && (
+              <div>
+                <h3 className="text-xs text-text-tertiary mb-1">Methods</h3>
+                <p className="text-sm text-text-primary">{selectedRoute.methods.join(', ')}</p>
+              </div>
+            )}
 
             <div>
               <h3 className="text-xs text-text-tertiary mb-1">Backends</h3>
-              {selectedRoute.backends.length === 0 ? (
-                <StatusBadge status="degraded" label="No backends" />
-              ) : (
-                <ul className="text-sm text-text-primary">
-                  {selectedRoute.backends.map((b) => (
-                    <li key={b.url}>{b.url} (weight: {b.weight})</li>
-                  ))}
-                </ul>
-              )}
+              <p className="text-sm text-text-primary">{selectedRoute.backends} backend(s)</p>
             </div>
 
-            {selectedRoute.features.circuit_breaker?.enabled && cbData && (
+            {cbData && (
               <div>
                 <h3 className="text-xs text-text-tertiary mb-1">Circuit Breaker</h3>
                 <div className="space-y-2">
@@ -214,15 +216,13 @@ export function RoutesPage() {
               </div>
             )}
 
-            {selectedRoute.features.cache?.enabled && (
+            {cacheData && (
               <div>
                 <h3 className="text-xs text-text-tertiary mb-1">Cache</h3>
-                {cacheData && (
-                  <div className="text-sm text-text-primary space-y-1">
-                    <p>Hits: {cacheData.hits} / Misses: {cacheData.misses}</p>
-                    <p>Size: {cacheData.size} / Evictions: {cacheData.evictions}</p>
-                  </div>
-                )}
+                <div className="text-sm text-text-primary space-y-1">
+                  <p>Hits: {cacheData.hits} / Misses: {cacheData.misses}</p>
+                  <p>Size: {cacheData.size} / Evictions: {cacheData.evictions}</p>
+                </div>
                 <button
                   type="button"
                   onClick={() => setCacheConfirm(selectedRouteId)}
@@ -230,40 +230,6 @@ export function RoutesPage() {
                 >
                   Purge Cache
                 </button>
-              </div>
-            )}
-
-            {selectedRoute.features.retry?.enabled && (
-              <div>
-                <h3 className="text-xs text-text-tertiary mb-1">Retry</h3>
-                <p className="text-sm text-text-primary">
-                  Max: {selectedRoute.features.retry.max_retries}, Backoff: {selectedRoute.features.retry.backoff}
-                </p>
-              </div>
-            )}
-
-            {selectedRoute.features.rate_limit?.enabled && (
-              <div>
-                <h3 className="text-xs text-text-tertiary mb-1">Rate Limit</h3>
-                <p className="text-sm text-text-primary">
-                  {selectedRoute.features.rate_limit.rate}/s (burst: {selectedRoute.features.rate_limit.burst})
-                </p>
-              </div>
-            )}
-
-            {selectedRoute.features.websocket?.enabled && (
-              <div>
-                <h3 className="text-xs text-text-tertiary mb-1">WebSocket</h3>
-                <p className="text-sm text-text-primary">Enabled</p>
-              </div>
-            )}
-
-            {selectedRoute.features.throttle?.enabled && (
-              <div>
-                <h3 className="text-xs text-text-tertiary mb-1">Throttle</h3>
-                <p className="text-sm text-text-primary">
-                  Rate: {selectedRoute.features.throttle.rate}
-                </p>
               </div>
             )}
           </div>

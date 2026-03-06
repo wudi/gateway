@@ -11,13 +11,13 @@ import {
 } from 'lucide-react';
 
 const navItems = [
-  { path: '/ui', label: 'Status', icon: Activity, end: true },
-  { path: '/ui/routes', label: 'Routes', icon: Route },
-  { path: '/ui/infrastructure', label: 'Infrastructure', icon: Server },
-  { path: '/ui/traffic', label: 'Traffic Control', icon: Gauge },
-  { path: '/ui/deployments', label: 'Deployments', icon: GitBranch },
-  { path: '/ui/security', label: 'Security', icon: Shield },
-  { path: '/ui/operations', label: 'Operations', icon: Settings },
+  { path: '/', label: 'Status', icon: Activity, end: true },
+  { path: '/routes', label: 'Routes', icon: Route },
+  { path: '/infrastructure', label: 'Infrastructure', icon: Server },
+  { path: '/traffic', label: 'Traffic Control', icon: Gauge },
+  { path: '/deployments', label: 'Deployments', icon: GitBranch },
+  { path: '/security', label: 'Security', icon: Shield },
+  { path: '/operations', label: 'Operations', icon: Settings },
 ];
 
 export function Sidebar() {

@@ -24,7 +24,15 @@ const handlers = [
   }),
 
   http.get('/routes', () => {
-    return HttpResponse.json(getStore().routes);
+    // Transform to real API format: {id, path, path_prefix, backends (count)}
+    const routes = getStore().routes.map((r) => ({
+      id: r.id,
+      path: r.path,
+      path_prefix: false,
+      backends: Array.isArray(r.backends) ? r.backends.length : r.backends,
+      methods: r.methods,
+    }));
+    return HttpResponse.json(routes);
   }),
 
   http.get('/backends', () => {

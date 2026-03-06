@@ -28,6 +28,7 @@ export interface DashboardResponse {
   uptime_seconds: number;
   total_requests: number;
   active_connections: number;
+  [key: string]: unknown;
 }
 
 export const defaultDashboard: DashboardResponse = {

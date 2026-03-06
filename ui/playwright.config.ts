@@ -8,13 +8,15 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
   use: {
-    baseURL: 'http://localhost:8081/ui/',
+    baseURL: 'http://localhost:8081',
     trace: 'on-first-retry',
   },
+  // globalSetup removed — webServer.url handles readiness polling
   projects: [
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+      testIgnore: /visual\//,
     },
     {
       name: 'visual',
@@ -22,10 +24,9 @@ export default defineConfig({
       testDir: './e2e/visual',
     },
   ],
-  globalSetup: './e2e/global-setup.ts',
   webServer: {
     command: '../build/runway -config e2e/fixtures/test-config.yaml',
-    url: 'http://localhost:8081/health',
+    url: 'http://localhost:8081/routes',
     reuseExistingServer: !process.env.CI,
     timeout: 15000,
   },

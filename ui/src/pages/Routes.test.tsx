@@ -5,8 +5,6 @@ import { renderWithProviders } from '../test/utils';
 import { RoutesPage } from './Routes';
 import { server } from '../test/mocks/handlers';
 import { http, HttpResponse } from 'msw';
-import { allFeaturesRoute, zeroBackendsRoute } from '../test/mocks/fixtures/edge-cases';
-import { defaultRoutes } from '../test/mocks/fixtures/routes';
 
 describe('RoutesPage', () => {
   it('renders route list', async () => {
@@ -21,10 +19,9 @@ describe('RoutesPage', () => {
   it('feature badges present for configured features', async () => {
     renderWithProviders(<RoutesPage />);
     await waitFor(() => {
+      // api-route has CB and CA in the mock dashboard data
       expect(screen.getAllByText('CB').length).toBeGreaterThan(0);
       expect(screen.getAllByText('CA').length).toBeGreaterThan(0);
-      expect(screen.getAllByText('RT').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getAllByText('RL').length).toBeGreaterThan(0);
     });
   });
 
@@ -105,76 +102,43 @@ describe('RoutesPage', () => {
     });
   });
 
-  it('route with zero backends shows degraded state', async () => {
+  it('detail panel shows path and backends count', async () => {
     const user = userEvent.setup();
-    server.use(
-      http.get('/routes', () =>
-        HttpResponse.json([...defaultRoutes, zeroBackendsRoute]),
-      ),
-      http.get('/dashboard', () =>
-        HttpResponse.json({
-          routes: [
-            { id: 'no-backends-route', path: '/orphan', backends: 0, healthy_backends: 0, total_requests: 0, error_rate: 0, features: [] },
-          ],
-          backends: [],
-          circuit_breakers: {},
-          rate_limits: {},
-          cache: {},
-          uptime_seconds: 100,
-          total_requests: 0,
-          active_connections: 0,
-        }),
-      ),
-    );
     renderWithProviders(<RoutesPage />);
-    await waitFor(() => screen.getByText('no-backends-route'));
-    await user.click(screen.getByText('no-backends-route'));
+    await waitFor(() => screen.getByText('api-route'));
+    await user.click(screen.getByText('api-route'));
     await waitFor(() => {
-      expect(screen.getByText('No backends')).toBeInTheDocument();
+      const panel = screen.getByLabelText(/details for api-route/i);
+      expect(within(panel).getByText('Path')).toBeInTheDocument();
+      expect(within(panel).getByText('Backends')).toBeInTheDocument();
     });
   });
 
-  it('route with ALL features shows all sections', async () => {
+  it('route with CB and cache shows both sections', async () => {
     const user = userEvent.setup();
     server.use(
       http.get('/routes', () =>
-        HttpResponse.json([...defaultRoutes, allFeaturesRoute]),
+        HttpResponse.json([
+          { id: 'full-route', path: '/full/*', backends: 2, path_prefix: false },
+        ]),
       ),
       http.get('/dashboard', () =>
         HttpResponse.json({
-          routes: [
-            {
-              id: 'all-features-route',
-              path: '/all/*',
-              backends: 2,
-              healthy_backends: 2,
-              total_requests: 100,
-              error_rate: 0,
-              features: ['CB', 'CA', 'RT', 'RL', 'WS', 'TH'],
-            },
-          ],
-          backends: [],
-          circuit_breakers: {
-            'all-features-route': { state: 'closed', failures: 0, successes: 0, consecutive_failures: 0 },
+          routes: { total: 1, healthy: 1 },
+          'circuit-breakers': {
+            'full-route': { state: 'closed', failures: 0, successes: 0 },
           },
-          rate_limits: {},
-          cache: { 'all-features-route': { hits: 0, misses: 0, size: 0, evictions: 0 } },
-          uptime_seconds: 100,
-          total_requests: 100,
-          active_connections: 0,
+          cache: { 'full-route': { hits: 10, misses: 5, size: 15, evictions: 0 } },
+          uptime: '1h0m0s',
         }),
       ),
     );
     renderWithProviders(<RoutesPage />);
-    await waitFor(() => screen.getByText('all-features-route'));
-    await user.click(screen.getByText('all-features-route'));
+    await waitFor(() => screen.getByText('full-route'));
+    await user.click(screen.getByText('full-route'));
     await waitFor(() => {
       expect(screen.getByText('Circuit Breaker')).toBeInTheDocument();
       expect(screen.getByText('Cache')).toBeInTheDocument();
-      expect(screen.getByText('Retry')).toBeInTheDocument();
-      expect(screen.getByText('Rate Limit')).toBeInTheDocument();
-      expect(screen.getByText('WebSocket')).toBeInTheDocument();
-      expect(screen.getByText('Throttle')).toBeInTheDocument();
     });
   });
 });

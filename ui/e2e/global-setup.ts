@@ -15,8 +15,6 @@ async function waitForReady(url: string, timeoutMs = 15000): Promise<void> {
 }
 
 export default async function globalSetup(_config: FullConfig) {
-  // The webServer config in playwright.config.ts handles starting the process.
-  // We just need to wait for both health and routes to be ready.
   await waitForReady('http://localhost:8081/health');
   await waitForReady('http://localhost:8081/routes');
 }

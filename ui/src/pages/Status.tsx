@@ -22,23 +22,34 @@ export function StatusPage() {
 
   if (!dashboard || !health) return null;
 
+  const dashAny = dashboard as Record<string, unknown>;
   const problems: Array<{ type: string; route: string; message: string }> = [];
 
-  // Check for open circuit breakers
-  for (const [routeId, cb] of Object.entries(dashboard.circuit_breakers)) {
-    if (cb.state === 'open') {
-      problems.push({ type: 'Circuit Breaker', route: routeId, message: `Circuit breaker is ${cb.state}` });
+  // Check for open circuit breakers (real API uses "circuit-breakers", mock uses "circuit_breakers")
+  const cbData = (dashAny['circuit-breakers'] ?? dashAny.circuit_breakers ?? null) as Record<string, { state: string }> | null;
+  if (cbData) {
+    for (const [routeId, cb] of Object.entries(cbData)) {
+      if (cb.state === 'open') {
+        problems.push({ type: 'Circuit Breaker', route: routeId, message: `Circuit breaker is ${cb.state}` });
+      }
     }
   }
 
   // Check for unhealthy backends
-  for (const backend of dashboard.backends) {
-    if (!backend.healthy) {
-      problems.push({ type: 'Backend', route: backend.route_id, message: `Backend ${backend.url} is unhealthy` });
+  if (dashboard.backends && Array.isArray(dashboard.backends)) {
+    for (const backend of dashboard.backends) {
+      if (!backend.healthy) {
+        problems.push({ type: 'Backend', route: backend.route_id, message: `Backend ${backend.url} is unhealthy` });
+      }
     }
   }
 
   const hasProblems = problems.length > 0;
+
+  // Route count — real API: {total, healthy}, mock: array
+  const routeCount = Array.isArray(dashboard.routes)
+    ? dashboard.routes.length
+    : (dashboard.routes as { total?: number })?.total ?? 0;
 
   return (
     <div className="space-y-6">
@@ -70,7 +81,7 @@ export function StatusPage() {
                   <td className="px-4 py-2 text-text-secondary">{p.message}</td>
                   <td className="px-4 py-2 text-right">
                     <Link
-                      to={`/ui/routes?route=${p.route}`}
+                      to={`/routes?route=${p.route}`}
                       className="text-blue-400 hover:text-blue-300 transition-colors duration-150"
                     >
                       View
@@ -85,10 +96,9 @@ export function StatusPage() {
 
       <StatRow
         items={[
-          { label: 'Uptime', value: `${Math.floor(dashboard.uptime_seconds / 3600)}h` },
-          { label: 'Routes', value: dashboard.routes.length },
-          { label: 'Total Requests', value: dashboard.total_requests.toLocaleString() },
-          { label: 'Active Connections', value: dashboard.active_connections },
+          { label: 'Uptime', value: (dashAny.uptime as string) ?? 'N/A' },
+          { label: 'Routes', value: routeCount },
+          { label: 'Listeners', value: (dashAny.listeners as number) ?? 0 },
         ]}
       />
 

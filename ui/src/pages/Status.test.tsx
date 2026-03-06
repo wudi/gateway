@@ -38,12 +38,12 @@ describe('StatusPage', () => {
     });
   });
 
-  it('system summary row shows uptime, routes, and active connections', async () => {
+  it('system summary row shows uptime, routes, and listeners', async () => {
     renderWithProviders(<StatusPage />);
     await waitFor(() => {
       expect(screen.getByText('Uptime')).toBeInTheDocument();
       expect(screen.getByText('Routes')).toBeInTheDocument();
-      expect(screen.getByText('Active Connections')).toBeInTheDocument();
+      expect(screen.getByText('Listeners')).toBeInTheDocument();
     });
   });
 
@@ -65,7 +65,7 @@ describe('StatusPage', () => {
       expect(links.length).toBeGreaterThan(0);
       expect(links[0].closest('a')).toHaveAttribute(
         'href',
-        expect.stringContaining('/ui/routes'),
+        expect.stringContaining('/routes'),
       );
     });
   });

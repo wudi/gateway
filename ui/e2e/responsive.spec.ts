@@ -1,16 +1,17 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Responsive', () => {
-  test('narrow viewport hides sidebar text', async ({ page }) => {
-    await page.setViewportSize({ width: 1100, height: 800 });
-    await page.goto('/');
-    // At narrow width, sidebar should show icons only
-    await expect(page.locator('nav')).toBeVisible();
+  test('default viewport shows sidebar with text labels', async ({ page }) => {
+    await page.goto('/ui/');
+    const nav = page.getByRole('navigation', { name: 'Main navigation' });
+    await expect(nav).toBeVisible();
+    await expect(nav.getByText('Status')).toBeVisible();
+    await expect(nav.getByText('Routes')).toBeVisible();
   });
 
-  test('mobile viewport shows hamburger', async ({ page }) => {
+  test('narrow viewport still renders page', async ({ page }) => {
     await page.setViewportSize({ width: 700, height: 800 });
-    await page.goto('/');
-    await expect(page.locator('body')).toBeVisible();
+    await page.goto('/ui/');
+    await expect(page.locator('h1')).toContainText('Status');
   });
 });

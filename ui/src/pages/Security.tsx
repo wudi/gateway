@@ -10,12 +10,11 @@ export function SecurityPage() {
     return <div className="flex justify-center py-12"><Spinner size="lg" /></div>;
   }
 
-  const certData = (certs ?? []) as Array<{ hostname: string; days_remaining: number }>;
+  const certData = (Array.isArray(certs) ? certs : []) as Array<{ hostname: string; days_remaining: number }>;
   const expiringCerts = certData.filter((c) => c.days_remaining <= 30);
-  const rulesData = (rules ?? { request_rules: [], response_rules: [] }) as {
-    request_rules: unknown[];
-    response_rules: unknown[];
-  };
+  const rulesObj = (rules ?? {}) as Record<string, unknown>;
+  const requestRules = Array.isArray(rulesObj.request_rules) ? rulesObj.request_rules : [];
+  const responseRules = Array.isArray(rulesObj.response_rules) ? rulesObj.response_rules : [];
 
   return (
     <div className="space-y-6">
@@ -29,7 +28,7 @@ export function SecurityPage() {
       <div>
         <h2 className="text-sm font-medium text-text-primary mb-3">Rules Engine</h2>
         <p className="text-sm text-text-secondary">
-          Request rules: {rulesData.request_rules.length} / Response rules: {rulesData.response_rules.length}
+          Request rules: {requestRules.length} / Response rules: {responseRules.length}
         </p>
       </div>
 

@@ -9,18 +9,19 @@ type Tab = 'backends' | 'listeners' | 'certificates' | 'upstreams' | 'cluster';
 
 interface BackendItem {
   url: string;
-  route_id: string;
-  healthy: boolean;
-  response_time_ms: number;
-  active_connections: number;
-  total_requests: number;
+  status?: string;
+  healthy?: boolean;
+  latency?: string;
+  response_time_ms?: number;
+  route_id?: string;
+  [key: string]: unknown;
 }
 
 interface ListenerItem {
   id: string;
   address: string;
   protocol: string;
-  active_connections: number;
+  active_connections?: number;
 }
 
 interface CertItem {
@@ -47,6 +48,8 @@ export function InfrastructurePage() {
     { id: 'upstreams', label: 'Upstreams' },
   ];
 
+  const isHealthy = (row: BackendItem) => row.status === 'healthy' || row.healthy === true;
+
   const backendColumns: Column<BackendItem>[] = [
     {
       key: 'url',
@@ -54,21 +57,16 @@ export function InfrastructurePage() {
       render: (row) => row.url,
     },
     {
-      key: 'route',
-      header: 'Route',
-      render: (row) => row.route_id,
-    },
-    {
       key: 'status',
       header: 'Status',
-      render: (row) => <StatusBadge status={row.healthy ? 'healthy' : 'down'} />,
+      render: (row) => <StatusBadge status={isHealthy(row) ? 'healthy' : 'down'} />,
       sortable: true,
-      sortFn: (a, b) => (a.healthy === b.healthy ? 0 : a.healthy ? 1 : -1),
+      sortFn: (a, b) => (isHealthy(a) === isHealthy(b) ? 0 : isHealthy(a) ? 1 : -1),
     },
     {
-      key: 'response_time',
-      header: 'Response Time',
-      render: (row) => `${row.response_time_ms}ms`,
+      key: 'latency',
+      header: 'Latency',
+      render: (row) => row.latency ?? (row.response_time_ms ? `${row.response_time_ms}ms` : '-'),
       numeric: true,
     },
   ];
@@ -134,8 +132,8 @@ export function InfrastructurePage() {
           <Spinner />
         ) : (
           <DataTable
-            data={((backends.data as BackendItem[]) ?? []).sort((a, b) =>
-              a.healthy === b.healthy ? 0 : a.healthy ? 1 : -1,
+            data={((Array.isArray(backends.data) ? backends.data : []) as BackendItem[]).sort((a, b) =>
+              isHealthy(a) === isHealthy(b) ? 0 : isHealthy(a) ? 1 : -1,
             )}
             columns={backendColumns}
             rowKey={(r) => r.url}
@@ -149,7 +147,7 @@ export function InfrastructurePage() {
           <Spinner />
         ) : (
           <DataTable
-            data={(listeners.data as ListenerItem[]) ?? []}
+            data={(Array.isArray(listeners.data) ? listeners.data : []) as ListenerItem[]}
             columns={listenerColumns}
             rowKey={(r) => r.id}
             emptyMessage="No listeners configured."
@@ -162,7 +160,7 @@ export function InfrastructurePage() {
           <Spinner />
         ) : (
           <DataTable
-            data={(certificates.data as CertItem[]) ?? []}
+            data={(Array.isArray(certificates.data) ? certificates.data : []) as CertItem[]}
             columns={certColumns}
             rowKey={(r) => r.hostname}
             emptyMessage="No certificates configured."
@@ -175,7 +173,7 @@ export function InfrastructurePage() {
           <Spinner />
         ) : (
           <div className="text-sm text-text-primary">
-            {upstreams.data
+            {upstreams.data && typeof upstreams.data === 'object' && Object.keys(upstreams.data as object).length > 0
               ? Object.entries(upstreams.data as Record<string, { backends: Array<{ url: string; healthy: boolean }> }>).map(
                   ([name, upstream]) => (
                     <div key={name} className="mb-4">

@@ -8,7 +8,7 @@ registry:
 
 routes:
   - id: cb-cache-route
-    path: /api/*
+    path: /api/*path
     backends:
       - url: http://localhost:9999
     circuit_breaker:
@@ -20,7 +20,7 @@ routes:
       ttl: 60s
 
   - id: retry-rl-route
-    path: /service/*
+    path: /service/*path
     backends:
       - url: http://localhost:9999
     retry:

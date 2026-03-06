@@ -41,8 +41,8 @@ export function TrafficControlPage() {
     return <div className="flex justify-center py-12"><Spinner size="lg" /></div>;
   }
 
-  const rlData = (rateLimits.data ?? {}) as Record<string, { rate: number; burst: number; current: number }>;
-  const tsData = (trafficShaping.data ?? {}) as Record<string, { throttle_ms: number; bandwidth_limit: number }>;
+  const rlData = (rateLimits.data ?? {}) as Record<string, Record<string, unknown>>;
+  const tsData = (trafficShaping.data ?? {}) as Record<string, Record<string, unknown>>;
 
   return (
     <div className="space-y-4">
@@ -62,9 +62,9 @@ export function TrafficControlPage() {
             {Object.entries(rlData).map(([route, rl]) => (
               <tr key={route}>
                 <td className="py-1 text-text-primary">{route}</td>
-                <td className="py-1 tabular-nums">{rl.rate}/s</td>
-                <td className="py-1 tabular-nums">{rl.burst}</td>
-                <td className="py-1 tabular-nums">{rl.current}</td>
+                <td className="py-1 tabular-nums">{String(rl.algorithm ?? rl.rate ?? 'N/A')}</td>
+                <td className="py-1 tabular-nums">{String(rl.mode ?? rl.burst ?? 'N/A')}</td>
+                <td className="py-1 tabular-nums">{String(rl.current ?? '-')}</td>
               </tr>
             ))}
           </tbody>
@@ -84,8 +84,8 @@ export function TrafficControlPage() {
             {Object.entries(tsData).map(([route, ts]) => (
               <tr key={route}>
                 <td className="py-1 text-text-primary">{route}</td>
-                <td className="py-1 tabular-nums">{ts.throttle_ms}</td>
-                <td className="py-1 tabular-nums">{ts.bandwidth_limit}</td>
+                <td className="py-1 tabular-nums">{String(ts.throttle_ms ?? ts.delay ?? '-')}</td>
+                <td className="py-1 tabular-nums">{String(ts.bandwidth_limit ?? '-')}</td>
               </tr>
             ))}
           </tbody>
