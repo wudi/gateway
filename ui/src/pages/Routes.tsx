@@ -119,7 +119,6 @@ export function RoutesPage() {
   ];
 
   const selectedRoute = routes?.find((r) => r.id === selectedRouteId);
-  const selectedDashRoute = dashboard.routes.find((r) => r.id === selectedRouteId);
   const cbData = selectedRouteId ? dashboard.circuit_breakers[selectedRouteId] : undefined;
   const cacheData = selectedRouteId ? dashboard.cache[selectedRouteId] : undefined;
 

@@ -5,7 +5,7 @@ import { StatusPage } from './Status';
 import { server } from '../test/mocks/handlers';
 import { http, HttpResponse } from 'msw';
 import { createDegradedDashboard } from '../test/mocks/fixtures/dashboard';
-import { degradedHealth } from '../test/mocks/fixtures/health';
+
 
 describe('StatusPage', () => {
   it('green banner when zero problems', async () => {

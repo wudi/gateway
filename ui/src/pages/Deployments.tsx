@@ -4,7 +4,7 @@ import { ConfirmModal } from '../components/shared/ConfirmModal';
 import { Spinner } from '../components/shared/Spinner';
 
 export function DeploymentsPage() {
-  const { data: dashboard, isLoading } = useDashboard();
+  const { isLoading } = useDashboard();
   const [promoteConfirm, setPromoteConfirm] = useState<string | null>(null);
 
   if (isLoading) {

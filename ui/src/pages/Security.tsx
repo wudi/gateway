@@ -2,7 +2,7 @@ import { useDashboard, useCertificates, useRules } from '../api/hooks';
 import { Spinner } from '../components/shared/Spinner';
 
 export function SecurityPage() {
-  const { data: dashboard, isLoading: dashLoading } = useDashboard();
+  const { isLoading: dashLoading } = useDashboard();
   const { data: certs, isLoading: certsLoading } = useCertificates();
   const { data: rules, isLoading: rulesLoading } = useRules();
 

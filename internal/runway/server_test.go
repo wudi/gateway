@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/wudi/runway/config"
+	"github.com/wudi/runway/ui"
 )
 
 func TestNewServerWithListeners(t *testing.T) {
@@ -980,13 +981,29 @@ func TestUISPAFallback(t *testing.T) {
 func TestUIStaticAssets(t *testing.T) {
 	server := newTestServerWithAdmin(t, true)
 
-	// GET /ui/assets/index.js should serve the JS file
-	req := httptest.NewRequest("GET", "/ui/assets/index.js", nil)
+	// Find the actual JS asset filename from embedded FS
+	entries, err := ui.DistFS.ReadDir("dist/assets")
+	if err != nil {
+		t.Fatalf("Failed to read embedded assets dir: %v", err)
+	}
+	var jsFile string
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".js") {
+			jsFile = e.Name()
+			break
+		}
+	}
+	if jsFile == "" {
+		t.Fatal("No JS file found in embedded dist/assets")
+	}
+
+	// GET /ui/assets/<hash>.js should serve the JS file
+	req := httptest.NewRequest("GET", "/ui/assets/"+jsFile, nil)
 	w := httptest.NewRecorder()
 	server.adminHandler().ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Errorf("Expected 200 for /ui/assets/index.js, got %d", w.Code)
+		t.Errorf("Expected 200 for /ui/assets/%s, got %d", jsFile, w.Code)
 	}
 	ct := w.Header().Get("Content-Type")
 	if !strings.Contains(ct, "javascript") {

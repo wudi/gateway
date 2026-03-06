@@ -11,7 +11,6 @@ export function OperationsPage() {
   const [drainConfirm, setDrainConfirm] = useState(false);
   const [reloadResult, setReloadResult] = useState<'success' | 'error' | null>(null);
   const [maintenanceEnabled, setMaintenanceEnabled] = useState(false);
-  const [maintenanceError, setMaintenanceError] = useState(false);
 
   const handleReload = async () => {
     try {
@@ -24,12 +23,7 @@ export function OperationsPage() {
   };
 
   const handleMaintenanceToggle = () => {
-    const prev = maintenanceEnabled;
-    setMaintenanceEnabled(!prev);
-    // Simulate potential error for testing rollback
-    if (maintenanceError) {
-      setTimeout(() => setMaintenanceEnabled(prev), 100);
-    }
+    setMaintenanceEnabled(!maintenanceEnabled);
   };
 
   const reloadHistory = (reloadStatus.data ?? []) as Array<{
