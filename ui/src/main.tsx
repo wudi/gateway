@@ -1,3 +1,4 @@
+import './index.css';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
@@ -27,11 +28,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
       <PollingProvider>
         <BrowserRouter basename="/ui">
-          <div style={{ display: 'flex', minHeight: '100vh' }}>
-            <aside style={{ width: 220, borderRight: '1px solid #2A2A2A' }}>
+          <div className="flex min-h-screen">
+            <aside className="w-[220px] border-r border-border">
               <Sidebar />
             </aside>
-            <main style={{ flex: 1, padding: 24 }}>
+            <main className="flex-1 p-6">
               <GlobalSearch />
               <Routes>
                 <Route path="/" element={<StatusPage />} />
