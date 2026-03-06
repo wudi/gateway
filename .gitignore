@@ -36,6 +36,7 @@ Thumbs.db
 
 # Docusaurus
 node_modules/
+*.tsbuildinfo
 website/.docusaurus/
 website/build/
 website/.cache-loader/
