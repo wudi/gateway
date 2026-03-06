@@ -1630,6 +1630,8 @@ admin:
   grpc_health:
     enabled: bool             # enable gRPC health check server (default false)
     address: string           # listen address (default ":9090")
+  ui:
+    enabled: bool             # serve admin UI SPA at /ui/ (default false)
 ```
 
 ---

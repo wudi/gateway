@@ -888,3 +888,139 @@ func TestDrainInDashboard(t *testing.T) {
 		t.Error("Expected draining=true in dashboard drain info")
 	}
 }
+
+func newTestServerWithAdmin(t *testing.T, uiEnabled bool) *Server {
+	t.Helper()
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(backend.Close)
+
+	cfg := &config.Config{
+		Listeners: []config.ListenerConfig{
+			{ID: "http", Address: ":0", Protocol: config.ProtocolHTTP},
+		},
+		Registry: config.RegistryConfig{Type: "memory"},
+		Routes: []config.RouteConfig{
+			{ID: "test", Path: "/test", Backends: []config.BackendConfig{{URL: backend.URL}}},
+		},
+		Admin: config.AdminConfig{
+			Enabled: true,
+			Port:    8082,
+			UI:      config.AdminUIConfig{Enabled: uiEnabled},
+		},
+	}
+
+	server, err := NewServer(cfg, "")
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+	t.Cleanup(func() { server.Runway().Close() })
+	return server
+}
+
+func TestUIServingDisabledByDefault(t *testing.T) {
+	server := newTestServerWithAdmin(t, false)
+
+	req := httptest.NewRequest("GET", "/ui/", nil)
+	w := httptest.NewRecorder()
+	server.adminHandler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("Expected 404 when UI disabled, got %d", w.Code)
+	}
+}
+
+func TestUIServingEnabled(t *testing.T) {
+	server := newTestServerWithAdmin(t, true)
+
+	req := httptest.NewRequest("GET", "/ui/", nil)
+	w := httptest.NewRecorder()
+	server.adminHandler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected 200, got %d", w.Code)
+	}
+	ct := w.Header().Get("Content-Type")
+	if !strings.Contains(ct, "text/html") {
+		t.Errorf("Expected text/html Content-Type, got %s", ct)
+	}
+	if !strings.Contains(w.Body.String(), "<html") {
+		t.Error("Expected response body to contain <html")
+	}
+}
+
+func TestUISPAFallback(t *testing.T) {
+	server := newTestServerWithAdmin(t, true)
+
+	// GET /ui/routes should serve index.html (SPA fallback)
+	req1 := httptest.NewRequest("GET", "/ui/routes", nil)
+	w1 := httptest.NewRecorder()
+	server.adminHandler().ServeHTTP(w1, req1)
+
+	if w1.Code != http.StatusOK {
+		t.Errorf("Expected 200 for /ui/routes, got %d", w1.Code)
+	}
+
+	// GET /ui/some/deep/path should also serve index.html
+	req2 := httptest.NewRequest("GET", "/ui/some/deep/path", nil)
+	w2 := httptest.NewRecorder()
+	server.adminHandler().ServeHTTP(w2, req2)
+
+	if w2.Code != http.StatusOK {
+		t.Errorf("Expected 200 for /ui/some/deep/path, got %d", w2.Code)
+	}
+
+	// Both should serve the same index.html content
+	if w1.Body.String() != w2.Body.String() {
+		t.Error("Expected identical body for SPA fallback paths")
+	}
+}
+
+func TestUIStaticAssets(t *testing.T) {
+	server := newTestServerWithAdmin(t, true)
+
+	// GET /ui/assets/index.js should serve the JS file
+	req := httptest.NewRequest("GET", "/ui/assets/index.js", nil)
+	w := httptest.NewRecorder()
+	server.adminHandler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected 200 for /ui/assets/index.js, got %d", w.Code)
+	}
+	ct := w.Header().Get("Content-Type")
+	if !strings.Contains(ct, "javascript") {
+		t.Errorf("Expected javascript Content-Type, got %s", ct)
+	}
+
+	// Non-existent asset falls back to index.html
+	req2 := httptest.NewRequest("GET", "/ui/assets/nonexistent.js", nil)
+	w2 := httptest.NewRecorder()
+	server.adminHandler().ServeHTTP(w2, req2)
+
+	if w2.Code != http.StatusOK {
+		t.Errorf("Expected 200 for nonexistent asset (SPA fallback), got %d", w2.Code)
+	}
+	if !strings.Contains(w2.Body.String(), "<html") {
+		t.Error("Expected SPA fallback to serve index.html")
+	}
+}
+
+func TestUIDoesNotConflictWithAPIRoutes(t *testing.T) {
+	server := newTestServerWithAdmin(t, true)
+
+	apiPaths := []string{"/dashboard", "/health", "/routes"}
+	for _, path := range apiPaths {
+		req := httptest.NewRequest("GET", path, nil)
+		w := httptest.NewRecorder()
+		server.adminHandler().ServeHTTP(w, req)
+
+		ct := w.Header().Get("Content-Type")
+		if !strings.Contains(ct, "application/json") {
+			t.Errorf("Expected application/json for %s, got %s", path, ct)
+		}
+		if strings.Contains(w.Body.String(), "<html") {
+			t.Errorf("API route %s should not return HTML", path)
+		}
+	}
+}

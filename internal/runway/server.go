@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"math/big"
 	"net/http"
 	"net/http/pprof"
@@ -34,6 +35,7 @@ import (
 	"github.com/wudi/runway/internal/proxy/tcp"
 	"github.com/wudi/runway/internal/proxy/udp"
 	"github.com/wudi/runway/internal/trafficreplay"
+	"github.com/wudi/runway/ui"
 	"go.uber.org/zap"
 )
 
@@ -750,7 +752,44 @@ func (s *Server) adminHandler() http.Handler {
 		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 	}
 
+	// Admin UI SPA
+	if s.config.Admin.UI.Enabled {
+		mux.Handle("/ui/", s.uiHandler())
+	}
+
 	return mux
+}
+
+// uiHandler returns an HTTP handler that serves the admin UI SPA.
+// All paths under /ui/ serve the embedded dist files. Unknown paths
+// fall back to index.html for client-side routing.
+func (s *Server) uiHandler() http.Handler {
+	distFS, err := fs.Sub(ui.DistFS, "dist")
+	if err != nil {
+		// Should never happen since dist is embedded at compile time
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "UI assets not available", http.StatusInternalServerError)
+		})
+	}
+
+	fileServer := http.FileServer(http.FS(distFS))
+
+	return http.StripPrefix("/ui/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Try to serve the file directly
+		path := r.URL.Path
+		if path == "" {
+			path = "."
+		}
+		f, openErr := distFS.(fs.ReadFileFS).ReadFile(path)
+		if openErr != nil {
+			// File not found — serve index.html for SPA fallback
+			r.URL.Path = "/"
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+		_ = f
+		fileServer.ServeHTTP(w, r)
+	}))
 }
 
 // handleHealth handles health check requests with dependency checks

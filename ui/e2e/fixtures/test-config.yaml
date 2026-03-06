@@ -1,0 +1,45 @@
+listeners:
+  - id: http-test
+    address: ":8080"
+    protocol: http
+
+registry:
+  type: memory
+
+routes:
+  - id: cb-cache-route
+    path: /api/*
+    backends:
+      - url: http://localhost:9999
+    circuit_breaker:
+      enabled: true
+      max_failures: 5
+      timeout: 30s
+    cache:
+      enabled: true
+      ttl: 60s
+
+  - id: retry-rl-route
+    path: /service/*
+    backends:
+      - url: http://localhost:9999
+    retry:
+      max_retries: 3
+      backoff: exponential
+    rate_limit:
+      rate: 100
+      burst: 200
+
+  - id: plain-route
+    path: /plain
+    backends:
+      - url: http://localhost:9999
+
+admin:
+  enabled: true
+  port: 8081
+  ui:
+    enabled: true
+
+logging:
+  level: warn

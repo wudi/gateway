@@ -294,6 +294,22 @@ go tool trace trace.out
 
 Available profiles: `profile` (CPU), `heap`, `goroutine`, `allocs`, `block`, `mutex`, `threadcreate`, `trace`, `cmdline`, `symbol`.
 
+## Admin UI
+
+### GET `/ui/*`
+
+Serves the admin UI single-page application (only available when `admin.ui.enabled: true`). All paths under `/ui/` serve the embedded React SPA with client-side routing fallback — unknown paths return `index.html`.
+
+```yaml
+admin:
+  enabled: true
+  port: 8081
+  ui:
+    enabled: true
+```
+
+Once enabled, open `http://localhost:8081/ui/` in a browser.
+
 ## Configuration Reload
 
 ### POST `/reload`

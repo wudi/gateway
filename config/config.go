@@ -1636,6 +1636,12 @@ type AdminConfig struct {
 	Readiness  ReadinessConfig  `yaml:"readiness"`   // Readiness probe configuration
 	Catalog    CatalogConfig    `yaml:"catalog"`     // Developer portal / API catalog
 	GRPCHealth GRPCHealthConfig `yaml:"grpc_health"` // gRPC health check server
+	UI         AdminUIConfig    `yaml:"ui"`          // Admin UI SPA
+}
+
+// AdminUIConfig defines admin UI settings.
+type AdminUIConfig struct {
+	Enabled bool `yaml:"enabled"` // Serve the admin UI SPA at /ui/
 }
 
 // GRPCHealthConfig defines gRPC health check server settings.
